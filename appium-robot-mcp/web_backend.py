@@ -126,7 +126,9 @@ class WebBackend:
             self.pw = sync_playwright().start()
         if self.browser:
             self.browser.close()
-        self.browser = getattr(self.pw, browser).launch(headless=headless)
+        exe = os.environ.get("WEB_BROWSER_EXECUTABLE")  # navigateur fourni (poste sans téléchargement)
+        self.browser = getattr(self.pw, browser).launch(headless=headless,
+                                                        **({"executable_path": exe} if exe else {}))
         ctx = self.browser.new_context(viewport={"width": width, "height": height},
                                        ignore_https_errors=os.environ.get("WEB_IGNORE_HTTPS") == "1")
         self.page = ctx.new_page()

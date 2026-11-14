@@ -1,0 +1,1155 @@
+{
+ "add_screen_locator": {
+  "description": "Ajoute ou remplace une clé dans les locators capturés d'un écran (plateforme de la session\npar défaut). Sert à corriger un locator sans tout recapturer.",
+  "parametres": {
+   "properties": {
+    "key": {
+     "title": "Key",
+     "type": "string"
+    },
+    "locator": {
+     "title": "Locator",
+     "type": "string"
+    },
+    "platform": {
+     "default": "",
+     "title": "Platform",
+     "type": "string"
+    },
+    "screen_name": {
+     "title": "Screen Name",
+     "type": "string"
+    }
+   },
+   "required": [
+    "screen_name",
+    "key",
+    "locator"
+   ],
+   "title": "add_screen_locatorArguments",
+   "type": "object"
+  }
+ },
+ "capture_screen_locators": {
+  "description": "Enregistre les locators de l'écran courant pour la plateforme de la session\n(correspond aux sous-tâches 'Locators Android' / 'Locators iOS').\nselection : {cle_metier: locator} pour ne garder et nommer que les éléments utiles.\nSans selection, tous les éléments relevés sont gardés avec leur locator principal.",
+  "parametres": {
+   "properties": {
+    "screen_name": {
+     "title": "Screen Name",
+     "type": "string"
+    },
+    "selection": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Selection"
+    }
+   },
+   "required": [
+    "screen_name"
+   ],
+   "title": "capture_screen_locatorsArguments",
+   "type": "object"
+  }
+ },
+ "check_jdd": {
+  "description": "Vérifie les prérequis de données AVANT un run. Un jeu bloqué = test « bloqué données »,\nà ne pas lancer (évite les faux échecs, ex. compte sans solde pour un virement).",
+  "parametres": {
+   "properties": {
+    "env": {
+     "title": "Env",
+     "type": "string"
+    },
+    "jeux": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Jeux",
+     "type": "array"
+    }
+   },
+   "required": [
+    "env",
+    "jeux"
+   ],
+   "title": "check_jddArguments",
+   "type": "object"
+  }
+ },
+ "check_locator": {
+  "description": "Vérifie un locator : nombre d'éléments trouvés + texte/visibilité du premier.",
+  "parametres": {
+   "properties": {
+    "locator": {
+     "title": "Locator",
+     "type": "string"
+    }
+   },
+   "required": [
+    "locator"
+   ],
+   "title": "check_locatorArguments",
+   "type": "object"
+  }
+ },
+ "element_at": {
+  "description": "Élément situé à un point de l'écran (coordonnées en proportion 0-1 de la largeur et de la\nhauteur), avec ses locators. Sert à « montrer » un élément en touchant l'image de l'écran.",
+  "parametres": {
+   "properties": {
+    "x_ratio": {
+     "title": "X Ratio",
+     "type": "number"
+    },
+    "y_ratio": {
+     "title": "Y Ratio",
+     "type": "number"
+    }
+   },
+   "required": [
+    "x_ratio",
+    "y_ratio"
+   ],
+   "title": "element_atArguments",
+   "type": "object"
+  }
+ },
+ "explore": {
+  "description": "Explore automatiquement l'application depuis l'écran courant (hors liste rouge, sans saisie).\nLong : préférer le lancement depuis l'interface web, qui montre la progression.",
+  "parametres": {
+   "properties": {
+    "duree_max_s": {
+     "default": 900,
+     "title": "Duree Max S",
+     "type": "integer"
+    },
+    "max_ecrans": {
+     "default": 25,
+     "title": "Max Ecrans",
+     "type": "integer"
+    },
+    "profondeur": {
+     "default": 3,
+     "title": "Profondeur",
+     "type": "integer"
+    }
+   },
+   "title": "exploreArguments",
+   "type": "object"
+  }
+ },
+ "export_screen_resource": {
+  "description": "Génère le .resource d'un écran depuis la carte (locator principal + secours par plateforme).",
+  "parametres": {
+   "properties": {
+    "ecran": {
+     "title": "Ecran",
+     "type": "string"
+    },
+    "output_dir": {
+     "default": "resources/locators",
+     "title": "Output Dir",
+     "type": "string"
+    }
+   },
+   "required": [
+    "ecran"
+   ],
+   "title": "export_screen_resourceArguments",
+   "type": "object"
+  }
+ },
+ "find_test_data": {
+  "description": "Cherche des données éligibles via une requête de la liste blanche (requetes.yaml),\nen lecture seule. Ex. requete='compte_avec_solde', params={'client': 'U123456', 'montant_min': 150}.",
+  "parametres": {
+   "properties": {
+    "env": {
+     "title": "Env",
+     "type": "string"
+    },
+    "params": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Params"
+    },
+    "requete": {
+     "title": "Requete",
+     "type": "string"
+    }
+   },
+   "required": [
+    "env",
+    "requete"
+   ],
+   "title": "find_test_dataArguments",
+   "type": "object"
+  }
+ },
+ "generate_locators_resource": {
+  "description": "Fusionne les captures d'un écran en un fichier .resource Robot.\nMobile : &{LOC_<ECRAN>_ANDROID} et &{LOC_<ECRAN>_IOS}, mêmes clés métier sur les deux\nplateformes (clés manquantes signalées). Web : &{LOC_<ECRAN>_WEB} (sélecteurs Browser library).",
+  "parametres": {
+   "properties": {
+    "output_dir": {
+     "default": "resources/locators",
+     "title": "Output Dir",
+     "type": "string"
+    },
+    "overwrite": {
+     "default": false,
+     "title": "Overwrite",
+     "type": "boolean"
+    },
+    "screen_name": {
+     "title": "Screen Name",
+     "type": "string"
+    }
+   },
+   "required": [
+    "screen_name"
+   ],
+   "title": "generate_locators_resourceArguments",
+   "type": "object"
+  }
+ },
+ "get_jdd": {
+  "description": "Détail d'un jeu de données (secrets affichés sous forme {{env:VARIABLE}}, jamais en clair).",
+  "parametres": {
+   "properties": {
+    "env": {
+     "title": "Env",
+     "type": "string"
+    },
+    "jeu": {
+     "title": "Jeu",
+     "type": "string"
+    }
+   },
+   "required": [
+    "env",
+    "jeu"
+   ],
+   "title": "get_jddArguments",
+   "type": "object"
+  }
+ },
+ "get_page_source": {
+  "description": "Arbre brut de l'écran (XML mobile ou HTML web, tronqué), si get_screen_elements ne suffit pas.",
+  "parametres": {
+   "properties": {
+    "max_chars": {
+     "default": 60000,
+     "title": "Max Chars",
+     "type": "integer"
+    }
+   },
+   "title": "get_page_sourceArguments",
+   "type": "object"
+  }
+ },
+ "get_screen_elements": {
+  "description": "Liste les éléments significatifs de l'écran avec des locators AppiumLibrary\nclassés du plus robuste au plus fragile. 'locator_unique' = False signale un\nlocator principal ambigu à renforcer.",
+  "parametres": {
+   "properties": {
+    "max_elements": {
+     "default": 120,
+     "title": "Max Elements",
+     "type": "integer"
+    }
+   },
+   "title": "get_screen_elementsArguments",
+   "type": "object"
+  }
+ },
+ "goto_screen": {
+  "description": "Va sur un écran connu en rejouant le chemin le plus fiable de la carte (avec rattrapage).",
+  "parametres": {
+   "properties": {
+    "ecran": {
+     "title": "Ecran",
+     "type": "string"
+    }
+   },
+   "required": [
+    "ecran"
+   ],
+   "title": "goto_screenArguments",
+   "type": "object"
+  }
+ },
+ "import_results_to_xray": {
+  "description": "Envoie un output.xml Robot dans Xray Cloud (import/execution/robot), en secours\nquand le run s'est fait sans listener. N'utiliser pas sur un run déjà remonté en live.",
+  "parametres": {
+   "properties": {
+    "output_xml": {
+     "default": "results/mcp/output.xml",
+     "title": "Output Xml",
+     "type": "string"
+    },
+    "project_key": {
+     "default": "",
+     "title": "Project Key",
+     "type": "string"
+    },
+    "test_execution_key": {
+     "default": "",
+     "title": "Test Execution Key",
+     "type": "string"
+    },
+    "test_plan_key": {
+     "default": "",
+     "title": "Test Plan Key",
+     "type": "string"
+    }
+   },
+   "title": "import_results_to_xrayArguments",
+   "type": "object"
+  }
+ },
+ "jira_subtasks": {
+  "description": "Sous-tâches d'un ticket (ex. ST1 Locators Android… ST5 Branchement) avec leur statut.",
+  "parametres": {
+   "properties": {
+    "issue_key": {
+     "title": "Issue Key",
+     "type": "string"
+    }
+   },
+   "required": [
+    "issue_key"
+   ],
+   "title": "jira_subtasksArguments",
+   "type": "object"
+  }
+ },
+ "jira_transition": {
+  "description": "Fait passer un ticket Jira dans un statut (nom de transition ou de statut cible).",
+  "parametres": {
+   "properties": {
+    "issue_key": {
+     "title": "Issue Key",
+     "type": "string"
+    },
+    "transition": {
+     "title": "Transition",
+     "type": "string"
+    }
+   },
+   "required": [
+    "issue_key",
+    "transition"
+   ],
+   "title": "jira_transitionArguments",
+   "type": "object"
+  }
+ },
+ "list_devices": {
+  "description": "Liste les devices Android (adb) et iOS (simulateurs démarrés + devices physiques) connectés.",
+  "parametres": {
+   "properties": {},
+   "title": "list_devicesArguments",
+   "type": "object"
+  }
+ },
+ "list_jdd": {
+  "description": "Liste les jeux de données d'un environnement (sans env : liste des environnements).",
+  "parametres": {
+   "properties": {
+    "env": {
+     "default": "",
+     "title": "Env",
+     "type": "string"
+    }
+   },
+   "title": "list_jddArguments",
+   "type": "object"
+  }
+ },
+ "list_project_files": {
+  "description": "Liste les fichiers du projet de tests (ex. '**/*.resource', 'tests/**/*.robot').",
+  "parametres": {
+   "properties": {
+    "pattern": {
+     "default": "**/*.robot",
+     "title": "Pattern",
+     "type": "string"
+    }
+   },
+   "title": "list_project_filesArguments",
+   "type": "object"
+  }
+ },
+ "list_screens": {
+  "description": "Écrans de la carte (nom, titre, module, plateformes, couverture par les tests).",
+  "parametres": {
+   "properties": {
+    "module": {
+     "default": "",
+     "title": "Module",
+     "type": "string"
+    }
+   },
+   "title": "list_screensArguments",
+   "type": "object"
+  }
+ },
+ "map_apps": {
+  "description": "Applications cartographiées et application active.",
+  "parametres": {
+   "properties": {},
+   "title": "map_appsArguments",
+   "type": "object"
+  }
+ },
+ "map_create_app": {
+  "description": "Déclare une nouvelle application à cartographier (devient l'application active).",
+  "parametres": {
+   "properties": {
+    "app_activity": {
+     "default": "",
+     "title": "App Activity",
+     "type": "string"
+    },
+    "app_package": {
+     "default": "",
+     "title": "App Package",
+     "type": "string"
+    },
+    "build": {
+     "default": "",
+     "title": "Build",
+     "type": "string"
+    },
+    "bundle_id": {
+     "default": "",
+     "title": "Bundle Id",
+     "type": "string"
+    },
+    "langue": {
+     "default": "fr",
+     "title": "Langue",
+     "type": "string"
+    },
+    "nom": {
+     "title": "Nom",
+     "type": "string"
+    },
+    "plateformes": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Plateformes",
+     "type": "array"
+    },
+    "url": {
+     "default": "",
+     "title": "Url",
+     "type": "string"
+    }
+   },
+   "required": [
+    "nom",
+    "plateformes"
+   ],
+   "title": "map_create_appArguments",
+   "type": "object"
+  }
+ },
+ "map_import_existing": {
+  "description": "Amorce la carte avec les locators des fichiers .resource existants du projet.",
+  "parametres": {
+   "properties": {
+    "pattern": {
+     "default": "**/*.resource",
+     "title": "Pattern",
+     "type": "string"
+    }
+   },
+   "title": "map_import_existingArguments",
+   "type": "object"
+  }
+ },
+ "map_select_app": {
+  "description": "Change d'application active (slug, voir map_apps).",
+  "parametres": {
+   "properties": {
+    "app": {
+     "title": "App",
+     "type": "string"
+    }
+   },
+   "required": [
+    "app"
+   ],
+   "title": "map_select_appArguments",
+   "type": "object"
+  }
+ },
+ "map_set_build": {
+  "description": "Indique le build testé : les écrans revisités sont comparés à leur version précédente.",
+  "parametres": {
+   "properties": {
+    "build": {
+     "title": "Build",
+     "type": "string"
+    }
+   },
+   "required": [
+    "build"
+   ],
+   "title": "map_set_buildArguments",
+   "type": "object"
+  }
+ },
+ "map_tags_report": {
+  "description": "Éléments sans identifiant de test (Compose sans testTag, SwiftUI sans identifier, web sans\ndata-testid), classés par nombre de tests concernés, avec le tag proposé.",
+  "parametres": {
+   "properties": {
+    "limite": {
+     "default": 200,
+     "title": "Limite",
+     "type": "integer"
+    }
+   },
+   "title": "map_tags_reportArguments",
+   "type": "object"
+  }
+ },
+ "name_screen": {
+  "description": "Donne un nom métier à un écran (ex. virement_saisie). Un nom déjà utilisé fusionne les deux\nécrans (cas du même écran vu sur Android puis sur iOS).",
+  "parametres": {
+   "properties": {
+    "ecran": {
+     "title": "Ecran",
+     "type": "string"
+    },
+    "module": {
+     "default": "",
+     "title": "Module",
+     "type": "string"
+    },
+    "nom": {
+     "title": "Nom",
+     "type": "string"
+    }
+   },
+   "required": [
+    "ecran",
+    "nom"
+   ],
+   "title": "name_screenArguments",
+   "type": "object"
+  }
+ },
+ "open_url": {
+  "description": "Web uniquement : ouvre une URL dans la session navigateur.",
+  "parametres": {
+   "properties": {
+    "url": {
+     "title": "Url",
+     "type": "string"
+    }
+   },
+   "required": [
+    "url"
+   ],
+   "title": "open_urlArguments",
+   "type": "object"
+  }
+ },
+ "parse_robot_output": {
+  "description": "Résumé d'un output.xml : stats + tests en échec avec message et keyword fautif.",
+  "parametres": {
+   "properties": {
+    "output_xml": {
+     "default": "results/mcp/output.xml",
+     "title": "Output Xml",
+     "type": "string"
+    }
+   },
+   "title": "parse_robot_outputArguments",
+   "type": "object"
+  }
+ },
+ "press_back": {
+  "description": "Retour : bouton retour Android, page précédente en web. Sur iOS, toucher le bouton de navigation.",
+  "parametres": {
+   "properties": {},
+   "title": "press_backArguments",
+   "type": "object"
+  }
+ },
+ "propose_step": {
+  "description": "Propose un step Gherkin construit à partir de l'action faite sur le device.\nAvec l'interface web ouverte (WEB_EVENTS_URL), le step s'affiche dans « Scénario en\nconstruction » et l'outil attend que l'utilisateur clique Valider ou Corriger.\nRetour : decision ('validé', 'corrigé', 'refusé' ou 'sans validation') + correction éventuelle.\nEn cas de correction, l'appliquer avant de passer au step suivant.",
+  "parametres": {
+   "properties": {
+    "attendre_validation": {
+     "default": true,
+     "title": "Attendre Validation",
+     "type": "boolean"
+    },
+    "commentaire": {
+     "default": "",
+     "title": "Commentaire",
+     "type": "string"
+    },
+    "delai_max_s": {
+     "default": 600,
+     "title": "Delai Max S",
+     "type": "integer"
+    },
+    "gherkin": {
+     "title": "Gherkin",
+     "type": "string"
+    },
+    "keyword": {
+     "default": "",
+     "title": "Keyword",
+     "type": "string"
+    },
+    "locators": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Locators"
+    }
+   },
+   "required": [
+    "gherkin"
+   ],
+   "title": "propose_stepArguments",
+   "type": "object"
+  }
+ },
+ "qualify_failure": {
+  "description": "Qualifie un échec dans le test run Xray : bug, données, locator ou environnement.",
+  "parametres": {
+   "properties": {
+    "commentaire": {
+     "default": "",
+     "title": "Commentaire",
+     "type": "string"
+    },
+    "message_echec": {
+     "default": "",
+     "title": "Message Echec",
+     "type": "string"
+    },
+    "qualification": {
+     "title": "Qualification",
+     "type": "string"
+    },
+    "run_id": {
+     "title": "Run Id",
+     "type": "string"
+    }
+   },
+   "required": [
+    "run_id",
+    "qualification"
+   ],
+   "title": "qualify_failureArguments",
+   "type": "object"
+  }
+ },
+ "read_project_file": {
+  "description": "Lit un fichier du projet (keywords existants, steps, suites) pour réutiliser le socle.",
+  "parametres": {
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    }
+   },
+   "required": [
+    "path"
+   ],
+   "title": "read_project_fileArguments",
+   "type": "object"
+  }
+ },
+ "run_robot": {
+  "description": "Lance une suite ou un dossier Robot Framework du projet puis renvoie le bilan.\nvariables : ex. {'PLATFORM': 'android', 'DEVICE': 'emulator-5554'} (sélection du device).\n\nxray_ticket : une seule clé Jira, dont le type est détecté automatiquement :\n  - Test Plan       -> crée une nouvelle exécution et l'ajoute au plan ;\n  - Test Execution  -> met à jour cette exécution (tests manquants ajoutés) ;\n  - autre ticket (US, epic…) ou clé projet seule (ex. TAM) -> crée un plan + une exécution.\nxray_mode :\n  - 'live' (défaut) : listener du MCP, test run en EXECUTING au démarrage de chaque test,\n    PASSED / FAILED à la fin, heures de début et de fin, message d'échec et captures ;\n  - 'listener_projet' : listener du projet (ROBOT_XRAY_LISTENER) avec la clé d'exécution ;\n  - 'aucun'.\ntest_environments : environnements Xray de l'exécution (défaut : valeur de PLATFORM).\njira_transition_start / _end / _end_if_fail : transition Jira (nom de la transition ou du\n  statut cible) appliquée au ticket d'exécution au début du run, à la fin, ou à la fin\n  s'il y a au moins un échec.\njdd_env / jdd_jeux : environnement et jeux de données à injecter (ex. 'recette',\n  ['VIREMENT_STANDARD']). Les prérequis sont vérifiés AVANT le run : s'il manque des\n  données, le run n'est pas lancé et le bilan indique « bloqué données ». Chaque jeu\n  devient un dictionnaire &{JDD_<NOM>} utilisable dans « Initialiser Le Test ».\nevents_url : URL qui reçoit les événements du run en direct (interface web).\ncartographie : enrichit la carte de l'application pendant le run (écrans et transitions des\n  tests mobiles, test Xray qui passe par chaque écran). Ralentit un peu chaque action.\nrelancer_echecs : rejoue uniquement les tests en échec du run précédent (même output_dir).\n  Pour mettre à jour la même exécution Xray, passer sa clé dans xray_ticket.\nLa session Appium du MCP est fermée avant le run pour libérer le device.",
+  "parametres": {
+   "properties": {
+    "attach_screenshots": {
+     "default": true,
+     "title": "Attach Screenshots",
+     "type": "boolean"
+    },
+    "cartographie": {
+     "default": false,
+     "title": "Cartographie",
+     "type": "boolean"
+    },
+    "dry_run": {
+     "default": false,
+     "title": "Dry Run",
+     "type": "boolean"
+    },
+    "events_url": {
+     "default": "",
+     "title": "Events Url",
+     "type": "string"
+    },
+    "exclude_tags": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Exclude Tags"
+    },
+    "exec_summary": {
+     "default": "",
+     "title": "Exec Summary",
+     "type": "string"
+    },
+    "include_tags": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Include Tags"
+    },
+    "jdd_env": {
+     "default": "",
+     "title": "Jdd Env",
+     "type": "string"
+    },
+    "jdd_jeux": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Jdd Jeux"
+    },
+    "jira_transition_end": {
+     "default": "",
+     "title": "Jira Transition End",
+     "type": "string"
+    },
+    "jira_transition_end_if_fail": {
+     "default": "",
+     "title": "Jira Transition End If Fail",
+     "type": "string"
+    },
+    "jira_transition_start": {
+     "default": "",
+     "title": "Jira Transition Start",
+     "type": "string"
+    },
+    "output_dir": {
+     "default": "results/mcp",
+     "title": "Output Dir",
+     "type": "string"
+    },
+    "plan_summary": {
+     "default": "",
+     "title": "Plan Summary",
+     "type": "string"
+    },
+    "relancer_echecs": {
+     "default": false,
+     "title": "Relancer Echecs",
+     "type": "boolean"
+    },
+    "target": {
+     "title": "Target",
+     "type": "string"
+    },
+    "test_environments": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Test Environments"
+    },
+    "timeout_s": {
+     "default": 3600,
+     "title": "Timeout S",
+     "type": "integer"
+    },
+    "variables": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Variables"
+    },
+    "xray_mode": {
+     "default": "live",
+     "title": "Xray Mode",
+     "type": "string"
+    },
+    "xray_ticket": {
+     "default": "",
+     "title": "Xray Ticket",
+     "type": "string"
+    }
+   },
+   "required": [
+    "target"
+   ],
+   "title": "run_robotArguments",
+   "type": "object"
+  }
+ },
+ "screen_info": {
+  "description": "Détail d'un écran (par nom, alias ou id) : éléments, locators par plateforme, transitions.",
+  "parametres": {
+   "properties": {
+    "ecran": {
+     "title": "Ecran",
+     "type": "string"
+    }
+   },
+   "required": [
+    "ecran"
+   ],
+   "title": "screen_infoArguments",
+   "type": "object"
+  }
+ },
+ "screenshot": {
+  "description": "Capture d'écran du device ou de la page web (pour vérifier visuellement l'écran courant).",
+  "parametres": {
+   "properties": {},
+   "title": "screenshotArguments",
+   "type": "object"
+  }
+ },
+ "start_session": {
+  "description": "Ouvre une session : 'android' / 'ios' (Appium) ou 'web' (navigateur Playwright, mêmes\nsélecteurs que Robot Framework Browser library).\nWeb : url de départ, browser 'chromium' | 'firefox' | 'webkit', headless (False = fenêtre visible).\nMobile : udid : device ciblé (voir list_devices).\napp : chemin .apk/.ipa (optionnel si l'app est déjà installée).\nAndroid : app_package / app_activity. iOS : bundle_id.\nextra_caps : capabilities supplémentaires (ex. {'appium:automationName': 'UiAutomator2'}).",
+  "parametres": {
+   "properties": {
+    "app": {
+     "default": "",
+     "title": "App",
+     "type": "string"
+    },
+    "app_activity": {
+     "default": "",
+     "title": "App Activity",
+     "type": "string"
+    },
+    "app_package": {
+     "default": "",
+     "title": "App Package",
+     "type": "string"
+    },
+    "browser": {
+     "default": "chromium",
+     "title": "Browser",
+     "type": "string"
+    },
+    "bundle_id": {
+     "default": "",
+     "title": "Bundle Id",
+     "type": "string"
+    },
+    "extra_caps": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Extra Caps"
+    },
+    "headless": {
+     "default": true,
+     "title": "Headless",
+     "type": "boolean"
+    },
+    "no_reset": {
+     "default": true,
+     "title": "No Reset",
+     "type": "boolean"
+    },
+    "platform": {
+     "title": "Platform",
+     "type": "string"
+    },
+    "udid": {
+     "default": "",
+     "title": "Udid",
+     "type": "string"
+    },
+    "url": {
+     "default": "",
+     "title": "Url",
+     "type": "string"
+    }
+   },
+   "required": [
+    "platform"
+   ],
+   "title": "start_sessionArguments",
+   "type": "object"
+  }
+ },
+ "stop_exploration": {
+  "description": "Demande l'arrêt de l'exploration en cours.",
+  "parametres": {
+   "properties": {},
+   "title": "stop_explorationArguments",
+   "type": "object"
+  }
+ },
+ "stop_session": {
+  "description": "Ferme la session courante (mobile ou web).",
+  "parametres": {
+   "properties": {},
+   "title": "stop_sessionArguments",
+   "type": "object"
+  }
+ },
+ "swipe": {
+  "description": "Swipe plein écran (mobile) ou défilement (web). direction : up (vers le bas du contenu),\ndown, left, right.",
+  "parametres": {
+   "properties": {
+    "direction": {
+     "default": "up",
+     "title": "Direction",
+     "type": "string"
+    },
+    "duration_ms": {
+     "default": 600,
+     "title": "Duration Ms",
+     "type": "integer"
+    },
+    "ratio": {
+     "default": 0.6,
+     "title": "Ratio",
+     "type": "number"
+    }
+   },
+   "title": "swipeArguments",
+   "type": "object"
+  }
+ },
+ "tap": {
+  "description": "Touche / clique un élément. Mobile : locator AppiumLibrary (id=..., accessibility_id=...,\nxpath=...). Web : sélecteur Browser library (data-testid=..., id=..., css=..., text=\"...\").",
+  "parametres": {
+   "properties": {
+    "locator": {
+     "title": "Locator",
+     "type": "string"
+    },
+    "timeout": {
+     "default": 10,
+     "title": "Timeout",
+     "type": "number"
+    }
+   },
+   "required": [
+    "locator"
+   ],
+   "title": "tapArguments",
+   "type": "object"
+  }
+ },
+ "type_text": {
+  "description": "Saisit du texte dans un champ (mobile ou web).",
+  "parametres": {
+   "properties": {
+    "clear": {
+     "default": true,
+     "title": "Clear",
+     "type": "boolean"
+    },
+    "hide_keyboard": {
+     "default": true,
+     "title": "Hide Keyboard",
+     "type": "boolean"
+    },
+    "locator": {
+     "title": "Locator",
+     "type": "string"
+    },
+    "text": {
+     "title": "Text",
+     "type": "string"
+    }
+   },
+   "required": [
+    "locator",
+    "text"
+   ],
+   "title": "type_textArguments",
+   "type": "object"
+  }
+ },
+ "wait_for": {
+  "description": "Attend qu'un élément soit présent à l'écran.",
+  "parametres": {
+   "properties": {
+    "locator": {
+     "title": "Locator",
+     "type": "string"
+    },
+    "timeout": {
+     "default": 15,
+     "title": "Timeout",
+     "type": "number"
+    }
+   },
+   "required": [
+    "locator"
+   ],
+   "title": "wait_forArguments",
+   "type": "object"
+  }
+ },
+ "where_am_i": {
+  "description": "Écran courant d'après la carte (créé s'il est inconnu), avec ses éléments et locators connus.",
+  "parametres": {
+   "properties": {},
+   "title": "where_am_iArguments",
+   "type": "object"
+  }
+ },
+ "write_project_file": {
+  "description": "Écrit un fichier dans le projet (nouvelle suite, steps…). Refuse d'écraser sans overwrite=True.",
+  "parametres": {
+   "properties": {
+    "content": {
+     "title": "Content",
+     "type": "string"
+    },
+    "overwrite": {
+     "default": false,
+     "title": "Overwrite",
+     "type": "boolean"
+    },
+    "path": {
+     "title": "Path",
+     "type": "string"
+    }
+   },
+   "required": [
+    "path",
+    "content"
+   ],
+   "title": "write_project_fileArguments",
+   "type": "object"
+  }
+ },
+ "xray_get_test": {
+  "description": "Lit un test Xray : type, scénario Gherkin (Cucumber) ou étapes manuelles, libellés.\nPoint de départ pour automatiser un parcours : Claude déroule ces étapes sur le device.",
+  "parametres": {
+   "properties": {
+    "test_key": {
+     "title": "Test Key",
+     "type": "string"
+    }
+   },
+   "required": [
+    "test_key"
+   ],
+   "title": "xray_get_testArguments",
+   "type": "object"
+  }
+ },
+ "xray_inspect_ticket": {
+  "description": "Indique ce que deviendra un run sur ce ticket : Test Plan (nouvelle exécution ajoutée),\nTest Execution (mise à jour), autre ticket / projet (création plan + exécution).",
+  "parametres": {
+   "properties": {
+    "ticket": {
+     "title": "Ticket",
+     "type": "string"
+    }
+   },
+   "required": [
+    "ticket"
+   ],
+   "title": "xray_inspect_ticketArguments",
+   "type": "object"
+  }
+ },
+ "xray_search_tests": {
+  "description": "Cherche des tests Xray par JQL, ex. les candidats à l'automatisation d'un projet.",
+  "parametres": {
+   "properties": {
+    "jql": {
+     "title": "Jql",
+     "type": "string"
+    },
+    "limit": {
+     "default": 50,
+     "title": "Limit",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "jql"
+   ],
+   "title": "xray_search_testsArguments",
+   "type": "object"
+  }
+ }
+}

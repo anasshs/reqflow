@@ -4,3 +4,4 @@ results/
 .mcp_snapshots/
 *.pyc
 .env
+.pytest_cache/
