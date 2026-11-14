@@ -190,3 +190,18 @@ def test_coffre_du_systeme(env, monkeypatch):
     finally:
         keyring.set_keyring(precedent)
         os.environ.pop("JIRA_API_TOKEN", None)
+
+
+
+def test_application_rattachee_au_projet_xray(tmp_path, monkeypatch):
+    """Plusieurs applications dans un même projet Xray : rattachement et reconnaissance de leurs tests."""
+    from atelier.discovery import carte
+    from atelier.domain import projet
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+    a = carte.creer_app("Banque Mobile", ["android", "ios"], projet_xray="tam", tests_xray={"composant": "App Mobile", "autre": "x"})
+    b = carte.creer_app("Banque Web", ["web"], projet_xray="TAM", tests_xray={"libelle": "web"})
+    assert a["projet_xray"] == "TAM" and a["tests_xray"] == {"composant": "App Mobile"}
+    assert {x["slug"]: x["projet_xray"] for x in carte.apps()} == {a["slug"]: "TAM", b["slug"]: "TAM"}
+    carte.maj_app(a["slug"], tests_xray={"libelle": "mobile"})
+    assert carte.config_app(a["slug"])["tests_xray"] == {"libelle": "mobile"}

@@ -100,3 +100,11 @@ Une ligne datée par décision d'architecture ou de conception.
 - Décision de l'utilisateur : le backlog du sprint (construit par le PO) est le cœur de la stratégie de test.
   Portée par défaut d'un espace : le sprint actif ; périmètre figé au démarrage (photo immuable, création exclusive)
   et bilan de fin de sprint (couverture, US ajoutées / retirées en cours de sprint). Détails : docs/TESTABILITE_US.md.
+
+
+## 2026-11-14 — Applications d'un projet : déclaration dans la plateforme, rattachement Xray
+- L'assistant « Nouvelle application » de l'interface classique est repris dans Paramètres › Applications
+  (identité, prérequis, liste rouge, import des locators, cartographie par la TNR ; exploration en direct : interface classique).
+- Les applications vivent dans le repository du projet (`app_map/`) : un projet Xray peut en contenir plusieurs.
+  Chaque application porte `projet_xray` (défaut : projet actif) et `tests_xray` (composant ou libellé Jira qui
+  identifie ses tests dans ce projet ; vide = tout le projet).

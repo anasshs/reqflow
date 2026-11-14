@@ -265,13 +265,98 @@
 
   async function applications(z) {
     const d = await api("/api/apps").catch(() => ({applications: []}));
-    z.innerHTML = d.applications.length ? `<table><tr><th>Application</th><th>Plateformes</th><th>Build</th><th>Écrans</th><th>Langue</th><th></th></tr>
+    const px = Atelier.ctx.projet_xray || "";
+    z.innerHTML = `<div class="btns" style="margin-bottom:10px"><button class="btn primaire" id="ap-new">${ico("plus")}Nouvelle application</button>
+        <span class="lib">Projet actif : <b>${esc(Atelier.ctx.projet || "")}</b>${px ? ` · Xray <b>${esc(px)}</b>` : ""} — un projet Xray peut contenir plusieurs applications ; chacune a sa carte, ses comptes de test et sa liste rouge.</span></div>
+      ${d.applications.length ? `<table><tr><th>Application</th><th>Plateformes</th><th>Projet Xray</th><th>Ses tests dans Xray</th><th>Build</th><th>Écrans</th><th></th></tr>
       ${d.applications.map(a => `<tr><td><b>${esc(a.nom)}</b> <span class="lib">${esc(a.slug)}</span></td><td>${(a.plateformes || []).map(p => `<span class="pill">${esc(p)}</span>`).join(" ")}</td>
-        <td>${esc(a.build || "—")}</td><td>${a.nb_ecrans}</td><td>${esc(a.langue || "—")}</td>
-        <td>${a.slug === d.active ? '<span class="pill ok">active</span>' : `<button class="btn" data-app="${esc(a.slug)}">Activer</button>`}</td></tr>`).join("")}</table>`
-      : vide("Aucune application", "");
-    z.insertAdjacentHTML("beforeend", `<p class="lib" style="margin-top:12px">Nouvelle application (identité, prérequis, liste rouge, import, exploration) : <a href="/">assistant de l'interface classique</a>.</p>`);
+        <td>${a.projet_xray ? esc(a.projet_xray) : '<span class="pill warn">non rattachée</span>'}</td>
+        <td class="lib">${[a.tests_xray?.composant && `composant « ${esc(a.tests_xray.composant)} »`, a.tests_xray?.libelle && `libellé « ${esc(a.tests_xray.libelle)} »`].filter(Boolean).join(", ") || "tout le projet"}</td>
+        <td>${esc(a.build || "—")}</td><td>${a.nb_ecrans}</td>
+        <td class="btns"><button class="btn petit" data-mod="${esc(a.slug)}">Modifier</button>${a.slug === d.active ? '<span class="pill ok">active</span>' : `<button class="btn petit" data-app="${esc(a.slug)}">Activer</button>`}</td></tr>`).join("")}</table>`
+      : vide("Aucune application", "« Nouvelle application » : identité, prérequis, liste rouge, import des locators, cartographie.")}`;
     $$("[data-app]", z).forEach(b => b.onclick = async () => { await api("/api/apps/choisir", {method: "POST", body: {slug: b.dataset.app}}); await Atelier.chargerContexte(); applications(z); });
+    $("#ap-new").onclick = () => assistantApp(z, null);
+    $$("[data-mod]", z).forEach(b => b.onclick = async () => { await api("/api/apps/choisir", {method: "POST", body: {slug: b.dataset.mod}}); assistantApp(z, d.applications.find(a => a.slug === b.dataset.mod)); });
+  }
+
+  /* Assistant « Nouvelle application » (repris de l'interface classique) : 1 identité et rattachement Xray,
+     2 prérequis (langue, comptes, liste rouge), 3 amorcer (locators existants), 4 cartographier (TNR, exploration). */
+  function assistantApp(zone, app) {
+    let etape = 1, slug = app?.slug || null, cfg = app || {};
+    const ETAPES = ["Identité et projet Xray", "Prérequis", "Amorcer", "Cartographier"];
+    const m = modale(app ? `Application · ${app.nom}` : "Nouvelle application", `<div id="wa-tete" class="btns" style="margin-bottom:10px"></div><div id="wa-corps"></div><p class="ko-t" id="wa-err"></p>`,
+      `<button class="btn" id="wa-prec">Précédent</button><button class="btn primaire" id="wa-suiv">Suivant</button>`);
+    const plats = () => $$("[name=wa-p]:checked", m.el).map(i => i.value);
+    const rendre = () => {
+      $("#wa-tete", m.el).innerHTML = ETAPES.map((t, i) => `<span class="pill ${i + 1 === etape ? "info" : i + 1 < etape ? "ok" : ""}">${i + 1}. ${t}</span>`).join("");
+      $("#wa-prec", m.el).disabled = etape === 1;
+      $("#wa-suiv", m.el).textContent = etape === 1 && !slug ? "Créer et continuer" : etape === 4 ? "Terminer" : "Enregistrer et continuer";
+      $("#wa-err", m.el).textContent = "";
+      const c = $("#wa-corps", m.el);
+      if (etape === 1) c.innerHTML = `<div class="grille-2">
+          <div class="champ"><label for="wa-nom">Nom</label><input class="in" id="wa-nom" value="${esc(cfg.nom || "")}" ${slug ? "disabled" : ""} placeholder="Banque Mobile"></div>
+          <div class="champ"><label>Plateformes</label><div class="btns">${["android", "ios", "web"].map(p => `<label class="lib"><input type="checkbox" name="wa-p" value="${p}" ${(cfg.plateformes || ["android"]).includes(p) ? "checked" : ""}> ${{android: "Android", ios: "iOS", web: "Web"}[p]}</label>`).join("")}</div></div>
+          <div class="champ"><label for="wa-pkg">Package Android</label><input class="in" id="wa-pkg" value="${esc(cfg.android?.app_package || "")}"></div>
+          <div class="champ"><label for="wa-act">Activité Android</label><input class="in" id="wa-act" value="${esc(cfg.android?.app_activity || "")}"></div>
+          <div class="champ"><label for="wa-bundle">Bundle iOS</label><input class="in" id="wa-bundle" value="${esc(cfg.ios?.bundle_id || "")}"></div>
+          <div class="champ"><label for="wa-url">URL web</label><input class="in" id="wa-url" value="${esc(cfg.web?.url || "")}"></div>
+          <div class="champ"><label for="wa-build">Build</label><input class="in" id="wa-build" value="${esc(cfg.build || "")}" placeholder="4.12.0 (1342)"></div>
+          <div class="champ"><label for="wa-px">Projet Xray de rattachement</label><input class="in" id="wa-px" value="${esc(cfg.projet_xray ?? Atelier.ctx.projet_xray ?? "")}" placeholder="TAM"></div>
+          <div class="champ"><label for="wa-comp">Ses tests dans Xray : composant Jira (optionnel)</label><input class="in" id="wa-comp" value="${esc(cfg.tests_xray?.composant || "")}" placeholder="App Mobile"></div>
+          <div class="champ"><label for="wa-lib">… ou libellé Jira (optionnel)</label><input class="in" id="wa-lib" value="${esc(cfg.tests_xray?.libelle || "")}" placeholder="app-mobile"></div></div>
+        <p class="lib">Un projet Xray peut contenir plusieurs applications : le composant ou le libellé permet de retrouver les tests propres à celle-ci. Vide : tout le projet.</p>`;
+      if (etape === 2) c.innerHTML = `<label class="lib" style="display:block"><input type="checkbox"> Build de recette <b>sans protection Promon</b> installée (sinon instrumentation et captures peuvent être bloquées).</label>
+          <label class="lib" style="display:block"><input type="checkbox"> Langue du device et des comptes <b>fixée</b> (reconnaissance par les textes si l'app n'a pas de tags).</label>
+          <label class="lib" style="display:block"><input type="checkbox"> Comptes de test prêts, avec des profils variés.</label>
+          <div class="champ" style="margin-top:8px"><label for="wa-langue">Langue</label><select class="in" id="wa-langue" style="width:auto"><option value="fr" ${cfg.langue !== "ar" ? "selected" : ""}>Français</option><option value="ar" ${cfg.langue === "ar" ? "selected" : ""}>Arabe</option><option value="en" ${cfg.langue === "en" ? "selected" : ""}>Anglais</option></select></div>
+          <div class="champ"><label for="wa-comptes">Comptes de test (un profil par ligne, jamais de mot de passe)</label><textarea class="in" id="wa-comptes" rows="3" placeholder="U123456 — client avec solde">${esc((cfg.comptes || []).join("\n"))}</textarea></div>
+          <div class="champ"><label for="wa-rouge">Liste rouge : actions jamais touchées par l'exploration (une par ligne)</label><textarea class="in mono" id="wa-rouge" rows="6">${esc((cfg.liste_rouge?.textes || []).join("\n"))}</textarea></div>`;
+      if (etape === 3) c.innerHTML = `<p>Des locators existent déjà (fichiers <code>.resource</code>) ? Ils pré-remplissent la carte. Pour une application neuve, passer à l'étape suivante.</p>
+          <div class="btns"><input class="in" id="wa-pattern" value="**/*.resource" style="max-width:260px"><button class="btn" id="wa-import">Importer</button></div><p class="lib" id="wa-res"></p>`;
+      if (etape === 4) c.innerHTML = `<p><b>Rejouer la TNR avec cartographie</b> : les suites existantes parcourent les vrais chemins métier et construisent la carte (écrans, transitions, tests qui y passent).</p>
+          <div class="btns"><select class="in" id="wa-suite" style="max-width:320px"></select><select class="in" id="wa-rplat" style="width:auto">${(cfg.plateformes || ["android"]).map(p => `<option>${p}</option>`).join("")}</select>
+            <button class="btn primaire" id="wa-tnr">Lancer avec cartographie</button></div><p class="lib" id="wa-res"></p>
+          <p style="margin-top:12px"><b>Explorer</b> l'application en direct (connexion au device, OTP passé à la main, exploration sans saisie ni liste rouge) :
+            <a class="btn" href="/" target="_blank" rel="noopener">Ouvrir l'écran en direct</a></p>
+          <p class="lib">Ensuite : Application Intelligence › Application Map pour nommer les écrans et voir la carte.</p>`;
+      if (etape === 3) $("#wa-import", m.el).onclick = async () => { const r = await api("/api/carte/importer", {method: "POST", body: {pattern: $("#wa-pattern", m.el).value}}).catch(e => ({erreur: e.message}));
+        $("#wa-res", m.el).textContent = r.erreur || `${r.ecrans_crees} écran(s), ${r.locators_importes} locator(s) importés.`; };
+      if (etape === 4) {
+        api("/api/projet/fichiers?pattern=" + encodeURIComponent("**/*.robot")).catch(() => []).then(f => {
+          const dirs = [...new Set(f.map(x => x.split("/").slice(0, -1).join("/")).filter(Boolean))];
+          $("#wa-suite", m.el).innerHTML = [...dirs.map(d => `<option value="${esc(d)}">${esc(d)}/</option>`), ...f.map(x => `<option>${esc(x)}</option>`)].join("") || `<option value="">aucune suite trouvée</option>`;
+        });
+        $("#wa-tnr", m.el).onclick = async () => { if (!$("#wa-suite", m.el).value) return;
+          try { const r = await api("/api/run", {method: "POST", body: {target: $("#wa-suite", m.el).value, variables: {PLATFORM: $("#wa-rplat", m.el).value}, cartographie: true}});
+            $("#wa-res", m.el).innerHTML = `Run <a href="#execution/${esc(r.run_id)}">${esc(r.run_id)}</a> lancé : la carte se remplit pendant l'exécution.`; } catch (e) { $("#wa-res", m.el).textContent = e.message; } };
+      }
+    };
+    const identite = () => ({plateformes: plats(), build: $("#wa-build", m.el).value, projet_xray: $("#wa-px", m.el).value,
+      tests_xray: {composant: $("#wa-comp", m.el).value, libelle: $("#wa-lib", m.el).value},
+      android: {app_package: $("#wa-pkg", m.el).value, app_activity: $("#wa-act", m.el).value}, ios: {bundle_id: $("#wa-bundle", m.el).value}, web: {url: $("#wa-url", m.el).value}});
+    $("#wa-prec", m.el).onclick = () => { if (etape > 1) { etape--; rendre(); } };
+    $("#wa-suiv", m.el).onclick = async () => {
+      try {
+        if (etape === 1) {
+          const id = identite();
+          if (!id.plateformes.length) throw new Error("Choisir au moins une plateforme.");
+          if (!slug) {
+            const nom = $("#wa-nom", m.el).value.trim();
+            if (!nom) throw new Error("Nom de l'application obligatoire.");
+            cfg = await api("/api/apps", {method: "POST", body: {nom, langue: "fr", ...id}});
+            slug = cfg.slug;
+          } else cfg = await api("/api/apps/maj", {method: "POST", body: id});
+        }
+        if (etape === 2) cfg = await api("/api/apps/maj", {method: "POST", body: {langue: $("#wa-langue", m.el).value,
+          comptes: $("#wa-comptes", m.el).value.split("\n").map(x => x.trim()).filter(Boolean), liste_rouge: $("#wa-rouge", m.el).value.split("\n")}});
+        if (etape === 4) { m.fermer(); await Atelier.chargerContexte(); applications(zone); toast("Application enregistrée.", "ok"); return; }
+        etape++;
+        api("/api/apps/maj", {method: "POST", body: {etape_assistant: etape}}).catch(() => {});
+        rendre();
+      } catch (e) { $("#wa-err", m.el).textContent = e.message; }
+    };
+    rendre();
   }
 
   async function configuration(z) {

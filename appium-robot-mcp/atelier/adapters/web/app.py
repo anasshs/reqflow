@@ -679,7 +679,8 @@ def apps_liste():
 async def apps_creer(req: Request):
     b = await req.json()
     cfg = _call(amap.creer_app, b["nom"], b.get("plateformes") or [], b.get("android"), b.get("ios"), b.get("web"),
-                b.get("build", ""), b.get("langue", "fr"))
+                b.get("build", ""), b.get("langue", "fr"), None, None,
+                b.get("projet_xray") or projets.cle_xray(), b.get("tests_xray") or {})
     atelier = config()  # les réglages de connexion suivent l'application
     for p in ("android", "ios", "web"):
         if b.get(p):
@@ -705,7 +706,12 @@ async def apps_choisir(req: Request):
 @app.post("/api/apps/maj")
 async def apps_maj(req: Request):
     b = await req.json()
-    champs = {k: b[k] for k in ("build", "comptes", "ecran_depart", "etape_assistant", "langue") if k in b}
+    champs = {k: b[k] for k in ("build", "comptes", "ecran_depart", "etape_assistant", "langue", "plateformes",
+                                "android", "ios", "web") if k in b}
+    if "projet_xray" in b:
+        champs["projet_xray"] = str(b["projet_xray"] or "").strip().upper()
+    if "tests_xray" in b:
+        champs["tests_xray"] = {k: str(v).strip() for k, v in (b["tests_xray"] or {}).items() if k in ("composant", "libelle") and str(v).strip()}
     if "liste_rouge" in b:
         champs["liste_rouge"] = {"textes": [t for t in b["liste_rouge"] if t.strip()],
                                  "cles": amap.config_app().get("liste_rouge", {}).get("cles", [])}

@@ -129,14 +129,19 @@ def choisir_app(s: str) -> dict:
 
 def creer_app(nom: str, plateformes: list[str], android: dict | None = None, ios: dict | None = None,
               web: dict | None = None, build: str = "", langue: str = "fr",
-              liste_rouge: list[str] | None = None, comptes: list[str] | None = None) -> dict:
+              liste_rouge: list[str] | None = None, comptes: list[str] | None = None,
+              projet_xray: str = "", tests_xray: dict | None = None) -> dict:
+    """Application du projet de tests (un projet Xray peut en contenir plusieurs). projet_xray : clé du projet Xray
+    de rattachement ; tests_xray : comment reconnaître ses tests dans ce projet ({"composant": ..., "libelle": ...})."""
     s = slug(nom)
     if (_racine() / s / "app.yaml").exists():
         raise FileExistsError(f"L'application « {nom} » existe déjà.")
     cfg = {"nom": nom, "plateformes": plateformes, "android": android or {}, "ios": ios or {},
            "web": web or {}, "build": build, "langue": langue,
            "liste_rouge": {"textes": liste_rouge or LISTE_ROUGE_DEFAUT, "cles": []},
-           "comptes": comptes or [], "ecran_depart": "", "etape_assistant": 1, "cree": _now()}
+           "comptes": comptes or [], "ecran_depart": "", "etape_assistant": 1, "cree": _now(),
+           "projet_xray": (projet_xray or "").strip().upper(),
+           "tests_xray": {k: str(v).strip() for k, v in (tests_xray or {}).items() if k in ("composant", "libelle") and str(v).strip()}}
     _dump(_racine() / s / "app.yaml", cfg)
     choisir_app(s)
     return {**cfg, "slug": s}
