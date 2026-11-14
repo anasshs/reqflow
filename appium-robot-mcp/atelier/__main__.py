@@ -90,6 +90,12 @@ def main(argv: list[str] | None = None) -> int:
     im.add_argument("--projet", default="", help="Clé du projet (utilisée sans instantané existant)")
     im.add_argument("--jql", default="", help="JQL des tests à importer (remplace l'instantané)")
     args = p.parse_args(argv)
+    try:  # projet actif, connexions générales et secrets du coffre, comme l'interface web
+        from atelier.domain import projets
+
+        projets.au_demarrage()
+    except Exception as e:  # noqa: BLE001
+        print(f"[avertissement] projets / coffre non chargés : {e}", file=sys.stderr)
     if args.commande == "xray-sync":
         return xray_sync(args.dossier)
     if args.commande == "xray-verifier":

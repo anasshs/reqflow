@@ -75,3 +75,13 @@ Une ligne datée par décision d'architecture ou de conception.
   renvoyés par l'API. Seuls les noms attendus (secrets généraux ou variables déclarées par un projet) sont acceptés.
   Usage durable : variables d'environnement du poste. Un coffre du système (Windows Credential Manager) serait une
   évolution de la règle « secrets uniquement en variables d'environnement » : à décider explicitement.
+
+
+## 2026-11-14 — Coffre des secrets du système (keyring) — décision de l'utilisateur
+- Les secrets saisis dans Paramètres › Connexions sont mémorisés dans le coffre du système via `keyring`
+  (Gestionnaire d'identifiants Windows ; trousseau macOS ; Secret Service Linux), service « atelier-automatisation ».
+  Nouvelle dépendance justifiée : seule façon portable d'utiliser le coffre chiffré de l'OS sans écrire de fichier.
+- Rechargés au démarrage par l'interface web ET par les commandes `python -m atelier …` ; une variable
+  d'environnement du poste reste prioritaire ; « Effacer » retire le secret de la session et du coffre.
+- Coffre indisponible (aucun backend système) ou ATELIER_COFFRE=non : saisie en mémoire de session uniquement.
+- Règle du CLAUDE.md amendée en conséquence (secrets : environnement ou coffre du système, jamais un fichier de l'atelier).

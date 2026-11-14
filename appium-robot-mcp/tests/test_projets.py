@@ -123,3 +123,70 @@ def test_secrets_saisis_dans_l_app_memoire_seule(env, monkeypatch):
         assert valeur not in disque and valeur not in json.dumps(c)  # ni sur disque, ni dans une réponse
     projets.effacer_secret("JIRA_API_TOKEN")
     assert "JIRA_API_TOKEN" not in os.environ
+
+
+class FauxCoffre:
+    """Backend keyring en mémoire (le vrai coffre du poste n'est jamais touché par les tests)."""
+
+    def __init__(self):
+        import keyring.backend
+
+        class K(keyring.backend.KeyringBackend):
+            priority = 1
+            valeurs: dict = {}
+
+            def get_password(self, service, nom):
+                return self.valeurs.get((service, nom))
+
+            def set_password(self, service, nom, valeur):
+                self.valeurs[(service, nom)] = valeur
+
+            def delete_password(self, service, nom):
+                import keyring.errors
+
+                if (service, nom) not in self.valeurs:
+                    raise keyring.errors.PasswordDeleteError(nom)
+                del self.valeurs[(service, nom)]
+
+        self.k = K()
+
+
+def test_coffre_du_systeme(env, monkeypatch):
+    pytest.importorskip("keyring")
+    import keyring
+
+    from atelier.domain import coffre, projets
+
+    a, _, tmp = env
+    faux = FauxCoffre()
+    precedent = keyring.get_keyring()
+    keyring.set_keyring(faux.k)
+    monkeypatch.delenv("ATELIER_COFFRE", raising=False)
+    monkeypatch.setattr(projets, "_ORIGINE_ENV", {})
+    monkeypatch.setattr(projets, "_ENV_POSTE", set())
+    monkeypatch.setattr(projets, "_SAISIS", set())
+    monkeypatch.delenv("XRAY_CLIENT_SECRET_TAM", raising=False)
+    try:
+        projets.enregistrer({"nom": "A", "dossier": str(a), "xray_projet": "TAM", "secrets": {"XRAY_CLIENT_SECRET": "XRAY_CLIENT_SECRET_TAM"}})
+        assert coffre.disponible()
+        r = projets.saisir_secret("XRAY_CLIENT_SECRET_TAM", "secret-coffre-1")
+        assert r["mode"] == "coffre" and faux.k.valeurs[(coffre.SERVICE, "XRAY_CLIENT_SECRET_TAM")] == "secret-coffre-1"
+        assert next(s for s in r["secrets"] if s["nom"] == "XRAY_CLIENT_SECRET_TAM")["dans_le_coffre"]
+        assert "secret-coffre-1" not in json.dumps(r) and "secret-coffre-1" not in "".join(f.read_text("utf-8") for f in (tmp / "conf").iterdir())
+        # « redémarrage » : l'environnement est vide, le coffre recharge le secret
+        os.environ.pop("XRAY_CLIENT_SECRET_TAM")
+        os.environ.pop("XRAY_CLIENT_SECRET", None)
+        projets._SAISIS.clear()
+        assert projets.charger_coffre() == ["XRAY_CLIENT_SECRET_TAM"]
+        projets.au_demarrage()
+        assert os.environ["XRAY_CLIENT_SECRET"] == "secret-coffre-1"
+        # session seulement : rien dans le coffre
+        projets.saisir_secret("JIRA_API_TOKEN", "jeton-session", memoriser=False)
+        assert (coffre.SERVICE, "JIRA_API_TOKEN") not in faux.k.valeurs
+        projets.effacer_secret("XRAY_CLIENT_SECRET_TAM")
+        assert (coffre.SERVICE, "XRAY_CLIENT_SECRET_TAM") not in faux.k.valeurs and "XRAY_CLIENT_SECRET_TAM" not in os.environ
+        monkeypatch.setenv("ATELIER_COFFRE", "non")
+        assert not coffre.disponible() and projets.saisir_secret("JIRA_API_TOKEN", "x")["mode"] == "session"
+    finally:
+        keyring.set_keyring(precedent)
+        os.environ.pop("JIRA_API_TOKEN", None)

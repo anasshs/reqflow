@@ -45,7 +45,9 @@ métier ; l'état de session (driver Appium, page Playwright) vit dans `discover
   Identifiants Python : garder le style existant (mélange français/anglais toléré, cohérent par module).
 - **Aucune donnée client dans le dépôt** : pas de vraie clé Xray, compte, URL interne, locator
   d'une app réelle, capture d'écran d'app bancaire. Fixtures = apps fictives (`tests/fixtures/`).
-- **Secrets** uniquement en variables d'environnement. Jamais écrits sur disque ni dans les logs.
+- **Secrets** en variables d'environnement, ou dans le coffre du système (Gestionnaire d'identifiants Windows via
+  `keyring`, décision de l'utilisateur du 2026-11-14). Jamais dans un fichier de l'atelier ni dans les logs ;
+  jamais renvoyés par l'API.
 - **Réseau d'entreprise** : proxy TLS (certificat via `XRAY_CA_BUNDLE`), Promon sur les builds,
   Oracle par SID. Ne rien supposer d'accessible sur Internet hormis les API Xray/Jira configurées.
 - **Interface locale** : écoute 127.0.0.1 uniquement, jamais exposée.

@@ -166,7 +166,7 @@ async def connexions_secret(req: Request):
     """Secret saisi dans l'interface : mémoire du serveur local uniquement (ni disque, ni log, jamais renvoyé)."""
     b = await req.json()
     try:
-        r = projets.saisir_secret(str(b.get("nom", "")), str(b.get("valeur", "")))
+        r = projets.saisir_secret(str(b.get("nom", "")), str(b.get("valeur", "")), bool(b.get("memoriser", True)))
     except ValueError as e:
         raise HTTPException(400, str(e)) from None  # le message ne contient jamais la valeur
     state["sante_cache"].clear()

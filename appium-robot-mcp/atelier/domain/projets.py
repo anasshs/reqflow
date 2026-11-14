@@ -17,7 +17,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from atelier.domain import projet
+from atelier.domain import coffre, projet
 
 # variables de connexion pilotées par le projet actif ; leurs valeurs de démarrage servent de défaut
 VARIABLES = ("JIRA_BASE_URL", "JIRA_EMAIL", "XRAY_BASE_URL", "GITLAB_URL", "GITLAB_PROJET")
@@ -211,6 +211,7 @@ def au_demarrage():
     """Sans ROBOT_PROJECT_DIR explicite, reprend le dernier projet actif ; sinon applique les connexions du projet
     correspondant au dossier imposé (s'il est déclaré). Les connexions générales enregistrées complètent l'environnement."""
     d = _charger()
+    charger_coffre()
     for k, var in GENERAUX.items():
         if not _ORIGINE_ENV.get(var) and (d.get("general") or {}).get(k):
             _ORIGINE[var] = d["general"][k]
@@ -240,7 +241,9 @@ def connexions() -> dict:
             attendus.setdefault(src, []).append(f"{p['nom']} ({cible})")
     return {"general": {k: g.get(k, "") for k in GENERAUX},
             "general_effectif": {k: os.environ.get(v, "") for k, v in GENERAUX.items()},
-            "secrets": [{"nom": n, "usages": u, "present": bool(os.environ.get(n)), "saisi_dans_l_app": n in _SAISIS}
+            "coffre": {"disponible": coffre.disponible(), "systeme": coffre.nom_backend()},
+            "secrets": [{"nom": n, "usages": u, "present": bool(os.environ.get(n)), "saisi_dans_l_app": n in _SAISIS,
+                         "dans_le_coffre": coffre.present(n), "environnement_poste": bool(_ORIGINE_ENV.get(n) or n in _ENV_POSTE)}
                         for n, u in sorted(attendus.items())]}
 
 
@@ -264,26 +267,54 @@ def enregistrer_general(g: dict) -> dict:
     return connexions()
 
 
-def saisir_secret(nom: str, valeur: str) -> dict:
-    """Secret saisi dans l'application : gardé en mémoire (environnement du serveur local) jusqu'à son arrêt.
-    Jamais écrit sur disque, jamais journalisé, jamais renvoyé. Seuls les noms attendus sont acceptés."""
+_ENV_POSTE = {k for k in os.environ if k.startswith(("XRAY_", "JIRA_", "GITLAB_"))}  # posées hors de l'atelier au démarrage
+
+
+def charger_coffre() -> list[str]:
+    """Charge depuis le coffre du système les secrets attendus absents de l'environnement (l'environnement du poste
+    reste prioritaire). Renvoie les noms chargés, jamais les valeurs."""
+    charges = []
+    for s in connexions()["secrets"]:
+        n = s["nom"]
+        if os.environ.get(n) and (n in _ENV_POSTE or _ORIGINE_ENV.get(n)):
+            continue
+        v = coffre.lire(n)
+        if v:
+            os.environ[n] = v
+            if n in SECRETS:
+                _ORIGINE[n] = v
+            _SAISIS.add(n)
+            charges.append(n)
+    return charges
+
+
+def saisir_secret(nom: str, valeur: str, memoriser: bool = True) -> dict:
+    """Secret saisi dans l'application : mémorisé dans le coffre du système (Gestionnaire d'identifiants Windows) si
+    memoriser et coffre disponible, sinon gardé en mémoire jusqu'à l'arrêt du serveur. Jamais écrit dans un fichier de
+    l'atelier, jamais journalisé, jamais renvoyé. Seuls les noms attendus sont acceptés."""
     autorises = {s["nom"] for s in connexions()["secrets"]}
     if nom not in autorises:
         raise ValueError(f"{nom} : variable non attendue (secrets généraux ou variables déclarées par un projet).")
     valeur = str(valeur or "").strip().strip('"').strip("'").strip()
     if not valeur:
         raise ValueError("Valeur vide.")
+    mode = "session"
+    if memoriser and coffre.disponible():
+        coffre.ecrire(nom, valeur)
+        mode = "coffre"
     os.environ[nom] = valeur
     if nom in SECRETS:
         _ORIGINE[nom] = valeur  # secret général : reste le défaut après une bascule de projet
     _SAISIS.add(nom)
     _reappliquer()
-    _tracer("secret_saisi", vers=nom)  # le nom seulement
-    return connexions()
+    _tracer("secret_saisi", vers=nom, mode=mode)  # le nom seulement
+    return {**connexions(), "mode": mode}
 
 
 def effacer_secret(nom: str) -> dict:
-    if nom not in _SAISIS:
+    """Retire le secret de la session ET du coffre du système."""
+    du_coffre = coffre.effacer(nom)
+    if nom not in _SAISIS and not du_coffre:
         raise ValueError(f"{nom} n'a pas été saisi dans l'application (variable d'environnement du poste : à retirer hors de l'atelier).")
     os.environ.pop(nom, None)
     if nom in SECRETS:
