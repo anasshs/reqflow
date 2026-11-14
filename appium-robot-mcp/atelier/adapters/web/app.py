@@ -43,9 +43,9 @@ from atelier.discovery import carte as amap  # noqa: E402
 from atelier.discovery import carte_outils, espaces, exploration, session  # noqa: E402
 from atelier.domain import declarations, evenements, projet  # noqa: E402
 from atelier.execution import jdd  # noqa: E402
-from atelier.execution import historique  # noqa: E402
+from atelier.execution import centre, historique  # noqa: E402
 from atelier.execution import robot as robot_moteur  # noqa: E402
-from atelier.generation import bdd, conception, editeur  # noqa: E402
+from atelier.generation import bdd, conception, editeur, studio  # noqa: E402
 from atelier.intelligence import strategie  # noqa: E402
 from atelier.generation import locators as gen_locators  # noqa: E402
 from atelier.intelligence import assistant  # noqa: E402
@@ -200,7 +200,7 @@ def _attente_courante():
 @app.get("/api/etat")
 def etat():
     return {"session": session.plateforme(), "flux": state["flux"], "agent_occupe": agent.busy,
-            "run_en_cours": bool(state["run"] and state["run"].is_alive()), "steps": agent.steps,
+            "run_en_cours": centre.FILE.en_cours is not None, "steps": agent.steps,
             "attente": _attente_courante(), "dernier_bilan": state["dernier_bilan"],
             "produits": state["produits"], "projet": str(projet.PROJECT_DIR),
             "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"),
@@ -921,36 +921,54 @@ async def patrimoine_synchroniser(req: Request):
 
 
 # --------------------------------------------------------------------------- runs
-@app.post("/api/run")
-async def run(req: Request):
-    if state["run"] and state["run"].is_alive():
-        raise HTTPException(409, "Un run est déjà en cours.")
-    b = await req.json()
-    params = {k: v for k, v in b.items() if v not in ("", None, [])}
+CLES_JOB = ("contexte", "campagne", "priorite", "retry")  # métadonnées d'exécution, hors paramètres de run_robot
+
+
+def _executer_job(job: dict):
+    """Exécuté par la file de l'Execution Center (runner local, un run à la fois)."""
+    run_id, params = job["id"], dict(job["params"])
+    complet = {**params, "contexte": job["contexte"], "campagne": job["campagne"], "priorite": job["priorite"], "retry": job.get("retry", False)}
+    plat = (params.get("variables") or {}).get("PLATFORM", "").lower()
+    if plat in ("android", "ios"):
+        state["flux"] = {"platform": plat, "udid": (params.get("variables") or {}).get("DEVICE")}
+    state["dernier_run"] = params
+    debut = time.strftime("%Y-%m-%dT%H:%M:%S")
+    _call_silencieux(historique.enregistrer, run_id, complet, None, debut)
+    emit({"type": "run_lance", "suite": params.get("target"), "relance": bool(params.get("relancer_echecs")), "run_id": run_id})
+    try:
+        bilan = centre.executer_avec_retry(outils.run_robot, params, job.get("retry", False))
+    except Exception as e:
+        bilan = {"statut": "erreur", "erreur": str(e)}
+    state["dernier_bilan"] = bilan
+    _call_silencieux(historique.enregistrer, run_id, complet, bilan, debut, time.strftime("%Y-%m-%dT%H:%M:%S"))
+    emit({"type": "run_bilan", "bilan": bilan, "run_id": run_id})
+    emit({"type": "file_execution", "file": centre.FILE.attente()})
+
+
+centre.FILE.executer = _executer_job
+
+
+def _mettre_en_file(params: dict, priorite: str = "Normal", campagne: str = "", nom: str = "") -> dict:
+    retry = bool(params.get("retry"))
+    params = {k: v for k, v in params.items() if v not in ("", None, []) and k not in CLES_JOB}
     params["events_url"] = f"http://127.0.0.1:{PORT}/api/events"
     run_id = historique.nouvel_id()
+    while any(j["id"] == run_id for j in centre.FILE.attente()) or historique.dossier(run_id).exists():
+        time.sleep(1.05)  # identifiants à la seconde : jamais deux jobs avec le même dossier
+        run_id = historique.nouvel_id()
     params.setdefault("output_dir", f"{historique.RACINE}/{run_id}")  # un dossier par run : plus d'écrasement
-    plat = (b.get("variables") or {}).get("PLATFORM", "").lower()
-    if plat in ("android", "ios"):
-        state["flux"] = {"platform": plat, "udid": b["variables"].get("DEVICE")}
-    state["dernier_run"] = params
+    job = centre.FILE.ajouter(params, priorite, run_id, campagne, nom, retry)
+    state["run"] = centre.FILE._thread  # compatibilité : « un run est-il actif ? » = la file est-elle servie ?
+    emit({"type": "file_execution", "file": centre.FILE.attente()})
+    return {"ok": True, "run_id": run_id, "etat": "Running" if (centre.FILE.en_cours or {}).get("id") == run_id else "Queued",
+            "contexte": job["contexte"]}
 
-    def worker():
-        debut = time.strftime("%Y-%m-%dT%H:%M:%S")
-        _call_silencieux(historique.enregistrer, run_id, params, None, debut)
-        emit({"type": "run_lance", "suite": params.get("target"), "relance": bool(params.get("relancer_echecs")),
-              "run_id": run_id})
-        try:
-            bilan = outils.run_robot(**params)
-        except Exception as e:
-            bilan = {"statut": "erreur", "erreur": str(e)}
-        state["dernier_bilan"] = bilan
-        _call_silencieux(historique.enregistrer, run_id, params, bilan, debut, time.strftime("%Y-%m-%dT%H:%M:%S"))
-        emit({"type": "run_bilan", "bilan": bilan, "run_id": run_id})
 
-    state["run"] = threading.Thread(target=worker, daemon=True)
-    state["run"].start()
-    return {"ok": True, "run_id": run_id}
+@app.post("/api/run")
+async def run(req: Request):
+    """Met le run dans la file de l'Execution Center (contexte figé) ; il démarre dès que le runner est libre."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, _mettre_en_file, b, b.get("priorite") or "Normal", b.get("campagne", ""))
 
 
 def _call_silencieux(fn, *a):
@@ -1120,7 +1138,7 @@ def contexte():
             "session": session.plateforme(), "flux": state["flux"], "environnements": envs,
             "xray": {"configure": bool(os.environ.get("XRAY_CLIENT_ID")), "connecte": xray[0] if xray else None,
                      "detail": xray[1] if xray else "non vérifié"},
-            "run_en_cours": bool(state["run"] and state["run"].is_alive()),
+            "run_en_cours": centre.FILE.en_cours is not None,
             "agent_integre": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"),
             "utilisateur": _utilisateur()}
@@ -1329,6 +1347,168 @@ async def conception_tester_mapping():
 @app.get("/api/conception/journal")
 def conception_journal():
     return _call(conception.journal)
+
+
+# --------------------------------------------------------------------------- Execution Center
+@app.get("/api/centre/vue")
+async def centre_vue():
+    return await asyncio.to_thread(_call, centre.vue_ensemble)
+
+
+@app.get("/api/centre/file")
+def centre_file():
+    return {"en_cours": {k: v for k, v in (centre.FILE.en_cours or {}).items() if k != "params"} or None, "attente": centre.FILE.attente()}
+
+
+@app.post("/api/centre/file/annuler")
+async def centre_annuler(req: Request):
+    rid = (await req.json()).get("id", "")
+    if not centre.FILE.annuler(rid):
+        raise HTTPException(400, "Job absent de la file (déjà démarré ou terminé : utiliser Arrêter).")
+    emit({"type": "file_execution", "file": centre.FILE.attente()})
+    return {"ok": True}
+
+
+@app.get("/api/centre/campagnes")
+async def centre_campagnes():
+    return await asyncio.to_thread(_call, centre.campagnes)
+
+
+@app.post("/api/centre/campagnes")
+async def centre_enregistrer_campagne(req: Request):
+    return await asyncio.to_thread(_call, centre.enregistrer_campagne, await req.json())
+
+
+@app.post("/api/centre/campagnes/{cid}/executer")
+async def centre_executer_campagne(cid: str, req: Request):
+    """Un job par plateforme de la campagne, à sa priorité."""
+    b = await req.json()
+    c = _call(centre.campagne, cid)
+    if c["statut"] != "Active":
+        raise HTTPException(400, "Campagne archivée.")
+    jobs = [await asyncio.to_thread(_call, _mettre_en_file, centre.params_campagne(c, p, bool(b.get("dry_run"))), c["priorite"], cid, f"{c['nom']} · {p}")
+            for p in c["plateformes"]]
+    return {"ok": True, "jobs": jobs}
+
+
+@app.get("/api/centre/referentiel")
+async def centre_referentiel():
+    return await asyncio.to_thread(_call, centre.referentiel)
+
+
+@app.post("/api/centre/verifier")
+async def centre_verifier(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, centre.verifier, b.get("tests") or [], b.get("plateforme", ""), b.get("environnement", ""))
+
+
+@app.get("/api/centre/runners")
+async def centre_runners():
+    return [await asyncio.to_thread(_call, centre.runner_local)]
+
+
+@app.get("/api/centre/preuves/{run_id}")
+async def centre_preuves(run_id: str):
+    return await asyncio.to_thread(_call, centre.preuves, run_id)
+
+
+@app.get("/api/centre/xray")
+async def centre_xray():
+    def calcul():
+        return [{**centre.etat_xray(r["id"]), "debut": r["debut"], "statut_run": r["statut"], "xray_execution": r.get("xray")}
+                for r in historique.lister(50)]
+    return await asyncio.to_thread(_call, calcul)
+
+
+@app.get("/api/centre/comparer")
+async def centre_comparer(a: str, b: str):
+    return await asyncio.to_thread(_call, centre.comparer, a, b)
+
+
+@app.get("/api/centre/fichier")
+def centre_fichier(chemin: str):
+    """Preuve d'un run (lecture seule, sous results/runs uniquement)."""
+    if not chemin.startswith(historique.RACINE + "/"):
+        raise HTTPException(400, "Chemin hors des résultats d'exécution.")
+    f = _call(projet.safe_path, chemin)
+    if not f.is_file():
+        raise HTTPException(404, "Fichier absent.")
+    return FileResponse(f)
+
+
+# --------------------------------------------------------------------------- Automation Studio
+@app.get("/api/studio/vue")
+async def studio_vue():
+    return await asyncio.to_thread(_call, studio.vue_ensemble)
+
+
+@app.get("/api/studio/locators")
+async def studio_locators():
+    return await asyncio.to_thread(_call, studio.locators)
+
+
+@app.post("/api/studio/locators/tester")
+async def studio_tester_locator(req: Request):
+    """Teste un locator sur la session ouverte (device ou navigateur) et journalise le résultat."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, outils.check_locator, b.get("valeur", ""))
+    return {**r, "journal": studio.noter_verification(b.get("id", ""), r)}
+
+
+@app.get("/api/studio/keywords")
+async def studio_keywords():
+    return await asyncio.to_thread(_call, studio.keywords)
+
+
+@app.get("/api/studio/page-objects")
+async def studio_page_objects():
+    return await asyncio.to_thread(_call, studio.page_objects)
+
+
+@app.get("/api/studio/frameworks")
+async def studio_frameworks():
+    return await asyncio.to_thread(_call, studio.frameworks)
+
+
+@app.get("/api/studio/git")
+async def studio_git():
+    return await asyncio.to_thread(_call, studio.git)
+
+
+@app.get("/api/studio/revues")
+async def studio_revues():
+    return await asyncio.to_thread(_call, studio.revues_scripts)
+
+
+@app.get("/api/studio/revue")
+async def studio_revue(fichier: str):
+    return await asyncio.to_thread(_call, studio.revue_script, fichier)
+
+
+@app.post("/api/studio/revue")
+async def studio_revue_action(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio.transition_script, b.get("fichier", ""), b.get("action", ""), b.get("commentaire", ""))
+
+
+@app.get("/api/studio/mapping/{cle}")
+async def studio_mapping(cle: str):
+    return await asyncio.to_thread(_call, studio.mapping_bdd, cle)
+
+
+@app.get("/api/studio/espaces")
+def studio_espaces():
+    return _call(studio.espaces)
+
+
+@app.post("/api/studio/espaces")
+async def studio_enregistrer_espace(req: Request):
+    return await asyncio.to_thread(_call, studio.enregistrer_espace, await req.json())
+
+
+@app.get("/api/studio/journal")
+def studio_journal():
+    return _call(studio.journal)
 
 
 def main():

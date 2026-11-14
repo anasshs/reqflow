@@ -86,8 +86,11 @@ const vide = (titre, texte = "") => `<div class="vide"><b>${esc(titre)}</b>${tex
 /* ======================================================================== application */
 const Atelier = {
   ctx: {}, ecrans: {}, ecranCourant: null, ws: null, abonnes: new Map(), plateforme: "", env: "",
-  ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["strategie", "Test Strategy", "cible"], ["conception", "Test Design", "assertion"], ["graphe", "Knowledge Graph", "graphe"], ["bdd", "Construction BDD", "bdd"],
-    ["editeur", "Éditeur de test", "editeur"], ["execution", "Exécution", "execution"], ["rapports", "Rapports", "rapports"]],
+  ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["graphe", "Application Intelligence", "graphe"], ["strategie", "Test Strategy", "cible"],
+    ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["centre", "Execution Center", "execution"],
+    ["rapports", "Rapports", "rapports"]],
+  /* écrans de travail rattachés à un module (l'onglet du module reste actif) */
+  PARENT: {bdd: "conception", editeur: "studio", execution: "centre"},
 
   enregistrer(id, ecran) { this.ecrans[id] = ecran; },
 
@@ -117,11 +120,11 @@ const Atelier = {
     $("#b-alertes").onclick = () => { location.hash = "graphe/anomalies"; };
     $("header .droite a").innerHTML = ico("ext");
     $("#b-aide").innerHTML = ico("aide");
-    $("#b-aide").onclick = () => modale("Aide", `<p><b>Dashboard</b> : indicateurs calculés sur le dépôt, la carte et l'instantané Xray.</p>
-      <p><b>Knowledge Graph</b> : cliquer un élément pour ses propriétés, double-cliquer pour le placer au centre avec ses dépendances.</p>
-      <p><b>Construction BDD</b> : chaque étape se relie à un écran, un locator, une donnée ; le fichier .feature est réécrit à chaque modification.</p>
-      <p><b>Éditeur de test</b> : Ctrl+S enregistre (historisé) ; le lint vérifie la syntaxe Robot et les conventions du projet.</p>
-      <p><b>Exécution</b> : suivi en direct, étapes, logs et captures ; « Rejouer les échecs » relance les tests en échec.</p>
+    $("#b-aide").onclick = () => modale("Aide", `<p>Le projet actif est celui du header (ROBOT_PROJECT_DIR) : aucun module n'a de second sélecteur de projet.</p>
+      <p><b>Application Intelligence</b> : Knowledge Graph central (clic : propriétés ; double-clic : dépendances).</p>
+      <p><b>Test Strategy</b> : quoi tester et pourquoi. <b>Test Design</b> : exigences, cas Xray, scénarios BDD, revues, baselines.</p>
+      <p><b>Automation Studio</b> : comment automatiser (mapping BDD, locators, keywords, page objects, éditeur, revue technique des scripts).</p>
+      <p><b>Execution Center</b> : campagnes, sélection avec contrôle préalable, file d'attente, suivi en direct, preuves, synchronisation Xray.</p>
       <p class="lib">Interface locale (127.0.0.1). Les secrets restent dans les variables d'environnement.</p>`);
     window.addEventListener("hashchange", () => this.ouvrir());
     await this.chargerContexte();
@@ -135,14 +138,15 @@ const Atelier = {
   ouvrir() {
     const [id, ...reste] = (location.hash.slice(1) || "dashboard").split("/");
     const nom = this.ecrans[id] ? id : "dashboard";
-    $$("#onglets [data-ecran]").forEach(b => b.dataset.ecran === nom ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+    const onglet = this.PARENT[nom] || nom;
+    $$("#onglets [data-ecran]").forEach(b => b.dataset.ecran === onglet ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
     try { this.ecranCourant?.quitter?.(); } catch { /* écran précédent déjà fermé */ }
     const zone = $("#ecran");
     zone.className = "";
     zone.removeAttribute("style");
     zone.innerHTML = "";
     this.ecranCourant = this.ecrans[nom];
-    document.title = `${(this.ONGLETS.find(o => o[0] === nom) || [0, "Paramètres"])[1]} — AI Test Platform`;
+    document.title = `${(this.ONGLETS.find(o => o[0] === onglet) || [0, "Paramètres"])[1]} — AI Test Platform`;
     this.ecranCourant.afficher(zone, decodeURIComponent(reste.join("/")));
   },
 

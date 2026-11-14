@@ -66,3 +66,29 @@ def test_routes_test_design(client):
     assert client.get("/api/conception/baselines/comparer", params={"a": "B1"}).json()["tests_impactes"] == []
     assert client.post("/api/conception/mapping", json={"mode": "B (bidirectionnel)"}).status_code == 400
     assert client.get("/api/conception/mapping/tester").json()["tests_analyses"] == 9
+
+
+def test_execution_center_file_et_campagne(client):
+    import time
+
+    from web_app_loader import module_web
+
+    corps = {"target": "tests", "dry_run": True, "variables": {"PLATFORM": "web"}, "jdd_env": "recette"}
+    r1 = client.post("/api/run", json=corps).json()
+    r2 = client.post("/api/run", json={**corps, "priorite": "High"}).json()
+    assert r1["run_id"] != r2["run_id"] and r2["etat"] in ("Queued", "Running")
+    assert r1["contexte"]["projet"] and r1["contexte"]["plateforme"] == "web"
+    c = client.post("/api/centre/campagnes", json={"nom": "Smoke", "type": "Smoke", "plateformes": ["web"], "tags": ["smoke"],
+                                                   "environnement": "recette"}).json()[0]
+    j = client.post(f"/api/centre/campagnes/{c['id']}/executer", json={"dry_run": True}).json()["jobs"]
+    assert len(j) == 1
+    fin = time.time() + 90
+    while module_web().centre.FILE.en_cours is not None and time.time() < fin:
+        time.sleep(0.3)
+    runs = {r["id"]: r for r in client.get("/api/executions").json()}
+    assert {r1["run_id"], r2["run_id"], j[0]["run_id"]} <= set(runs)
+    assert runs[j[0]["run_id"]]["campagne"] == c["id"] and runs[r1["run_id"]]["contexte"]["environnement"] == "recette"
+    assert client.get("/api/centre/campagnes").json()[0]["runs"] == [j[0]["run_id"]]
+    assert client.get(f"/api/centre/preuves/{r1['run_id']}").json()["fichiers"]
+    assert client.get("/api/centre/fichier", params={"chemin": "tests/connexion.robot"}).status_code == 400
+    assert client.get("/api/centre/xray").json()[0]["statut"] in ("Non configuré", "Synced", "Pending", "Partial")

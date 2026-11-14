@@ -459,3 +459,4 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
   .g-dash > * { grid-column: 1 / -1; }
   .carte { min-height: 300px; } .gros-btns { grid-template-columns: 1fr 1fr; }
 }
+.code-bloc { white-space: pre; overflow: auto; max-height: 60vh; font: 12px/1.5 ui-monospace, monospace; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0 0 8px; }

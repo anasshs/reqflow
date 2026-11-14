@@ -120,6 +120,16 @@ Moteur `atelier/generation/conception.py`, écran « Test Design » (13 rubrique
 - [ ] Règles de test ; éditeur d'étapes manuelles ; génération IA de cas depuis une exigence ; import Excel / CSV.
 - [ ] Modes B / C, conflits, arborescence du Test Repository, Test Sets (bloqués par la vérification 1.4 de l'API Xray).
 
+### Automation Studio et Execution Center (cahiers des charges du 2026-11-14) — docs/AUTOMATION_EXECUTION_ECARTS.md
+- [x] Navigation globale par module, projet unique dans le header, contexte d'exécution figé et historisé.
+- [x] Automation Studio : référentiels locators (fiabilité, obsolètes, manquants), keywords (doublons, inutilisés,
+      wrappers 1:1), page objects (cohérence entre plateformes), mapping BDD → socle, frameworks, Git en lecture,
+      revue technique des scripts avec retour en revue après modification, espaces d'automatisation, historique.
+- [x] Execution Center : campagnes, sélection avec contrôle préalable, configuration, file à priorités, runner local,
+      devices, preuves, historique, comparaison, état de synchronisation Xray, retry historisé (instables détectés).
+- [ ] Runners distants et parallélisme, réservation de devices, planification (cron, webhook, CI), notifications.
+- [ ] Builder à palette d'actions, Git en écriture (branche, MR), Failure Analysis (qualification des échecs).
+
 ### Deuxième phase (§13)
 - [ ] Journey Graph. - [x] BDD Scenario Graph (synchronisé avec le .feature). - [ ] Failure Diagnosis Graph.
 - [ ] Automation Health Graph (nécessite l'historique des exécutions).
