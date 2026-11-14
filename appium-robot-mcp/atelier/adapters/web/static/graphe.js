@@ -5,11 +5,8 @@
 "use strict";
 
 const CATEGORIES_G = ["APPLICATION", "FONCTIONNEL", "TECHNIQUE", "JIRA", "XRAY", "BDD", "AUTOMATION"];
-const TITRES_GRAPPES = {APPLICATION: "APPLICATION", FONCTIONNEL: "PARCOURS & ÉCRANS", TECHNIQUE: "LOCATORS & COMPOSANTS",
-  JIRA: "EXIGENCES (JIRA)", XRAY: "TESTS & PLANS (XRAY)", BDD: "SCÉNARIOS BDD", AUTOMATION: "AUTOMATISATION & DONNÉES"};
 /* couleur d'une catégorie : variable CSS du thème courant (sombre ou clair) */
 const couleurVar = cat => `var(--c-${String(cat).toLowerCase()})`;
-const couleurCalc = cat => getComputedStyle(document.documentElement).getPropertyValue(`--c-${String(cat).toLowerCase()}`).trim() || "#888";
 const COULEURS = Object.fromEntries(CATEGORIES_G.map(c => [c, couleurVar(c)]));
 const SVGNS = "http://www.w3.org/2000/svg";
 const el = (tag, attrs = {}, parent) => {
@@ -25,12 +22,31 @@ const ICONE_TYPE = {ecran: "ecran", module: "dossier", fonctionnalite: "conditio
   endpoint: "api", entite: "donnee", composant: "graphe", feature: "bdd", scenario: "bdd", step: "check", resultat: "assertion"};
 const court = (t, n = 26) => (t && t.length > n ? t.slice(0, n - 1) + "…" : t || "");
 
+/* Familles de nœuds (maquette « Graphe de connaissances ») : titre de région, types, disposition et place
+   autour de l'élément central. La couleur vient de la variable CSS --f-<famille> (thèmes sombre et clair). */
+const FAMILLES = [
+  {id: "exigences", titre: "EXIGENCES & FONCTIONNALITÉS", nom: "Exigence / Fonctionnalité", types: ["epic", "user_story", "bug", "fonctionnalite", "regle", "role"], dispo: "colonne", place: "NO"},
+  {id: "parcours", titre: "PARCOURS & ÉCRANS", nom: "Parcours / Écran", types: ["parcours", "module", "ecran"], dispo: "flux", place: "N"},
+  {id: "application", titre: "APPLICATION", nom: "Application / Plateforme", types: ["application", "plateforme", "environnement", "version"], dispo: "colonne", place: "NE"},
+  {id: "actions", titre: "ACTIONS UTILISATEUR", nom: "Action / Keyword", types: ["action", "keyword", "step"], dispo: "colonne", place: "O"},
+  {id: "donnees", titre: "DONNÉES DE TEST", nom: "Donnée de test", types: ["jdd", "requete", "entite"], dispo: "colonne", place: "E"},
+  {id: "locators", titre: "LOCATORS & COMPOSANTS", nom: "Locator / Composant", types: ["locator", "composant", "bibliotheque", "resource", "endpoint"], dispo: "colonne", place: "E"},
+  {id: "tests", titre: "TESTS & PLANS (XRAY)", nom: "Test / Plan", types: ["test", "test_plan", "test_set", "test_robot", "suite", "feature", "scenario"], dispo: "grille", place: "SO"},
+  {id: "execution", titre: "EXÉCUTION", nom: "Exécution", types: ["test_execution"], dispo: "colonne", place: "S"},
+  {id: "resultats", titre: "RÉSULTATS & PREUVES", nom: "Résultat", types: ["resultat"], dispo: "grille", place: "E"},
+];
+const FAMILLE_TYPE = Object.fromEntries(FAMILLES.flatMap(f => f.types.map(t => [t, f])));
+const familleDe = type => FAMILLE_TYPE[type] || FAMILLES[5];
+const couleurNoeud = n => `var(--f-${familleDe(n.type).id})`;
+const MAX_VISIBLES = {colonne: 6, grille: 6, flux: 8};
+
 class GrapheVue {
   constructor(conteneur, opts = {}) {
     this.c = conteneur;
     this.opts = opts;
     this.vue = {x: 0, y: 0, k: 1};
     this.pos = new Map();
+    this.ouvertes = new Set();  // régions dépliées (« + N autres »)
     this.sel = null;
     this.svg = el("svg", {class: "gv-svg", role: "img", "aria-label": "Graphe interactif"}, conteneur);
     const defs = el("defs", {}, this.svg);
@@ -48,6 +64,7 @@ class GrapheVue {
     this.mini.className = "gv-mini";
     this.mini.width = 180; this.mini.height = 120;
     this.mini.title = "Mini-carte : cliquer pour centrer la vue";
+    this.mini.hidden = true;  // affichée à la demande (menu du graphe), comme la maquette
     conteneur.appendChild(this.mini);
     this.legende = document.createElement("div");
     this.legende.className = "gv-legende";
@@ -57,7 +74,9 @@ class GrapheVue {
 
   /* ------------------------------------------------------------------ données */
   afficher(data, mode = "forces", rangs = null, centre = null) {
+    if (centre !== this.centre) this.ouvertes.clear();
     this.centre = centre;
+    this._rangs = rangs;
     this.data = data;
     this.mode = mode;
     this.noeuds = data.noeuds;
@@ -68,8 +87,9 @@ class GrapheVue {
     const anciens = this.pos;
     this.pos = new Map();
     this._grappes = [];
+    this._plus = [];
     if (mode === "couches") this._couches(rangs || {});
-    else if (mode === "grappes" && centre && this.parId.has(centre)) this._grappesAutour(centre);
+    else if (mode === "grappes" && centre && this.parId.has(centre)) this._regions(centre);
     else this._forces();
     for (const [id, p] of anciens) if (this.pos.has(id) && this._garder) this.pos.set(id, p);
     this._garder = false;
@@ -108,29 +128,74 @@ class GrapheVue {
     });
   }
 
-  _grappesAutour(centre) {
-    /* élément central, puis une grappe titrée par catégorie disposée en couronne (maquette Knowledge Graph) */
+  _regions(centre) {
+    /* élément central entouré de régions titrées par famille, placées comme sur la maquette :
+       exigences en haut à gauche, parcours en haut, actions à gauche, données puis locators à droite,
+       tests en bas à gauche, exécution en bas, résultats en bas à droite. Au-delà de quelques cartes,
+       une région se replie derrière « + N autres » (les nœuds liés directement au centre passent d'abord). */
     this.pos.set(centre, {x: 0, y: 0});
-    const groupes = new Map();
+    const L = 190, H = 54, PAD = 12, TITRE = 28, CW = 172, CH = 44, GAP_E = 18;
+    const degre = id => this.voisins.get(id)?.size || 0;
+    const direct = this.voisins.get(centre) || new Set();
+    const parFam = new Map();
     for (const n of this.noeuds) {
       if (n.id === centre) continue;
-      if (!groupes.has(n.categorie)) groupes.set(n.categorie, []);
-      groupes.get(n.categorie).push(n);
+      const f = familleDe(n.type);
+      if (!parFam.has(f.id)) parFam.set(f.id, []);
+      parFam.get(f.id).push(n);
     }
-    const cats = [...groupes.keys()].sort((a, b) => CATEGORIES_G.indexOf(a) - CATEGORIES_G.indexOf(b));
-    const L = 186, H = 56, marge = 26;
-    const tailles = cats.map(c => { const n = groupes.get(c).length, col = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(n / 2))));
-      return {col, lig: Math.ceil(n / col)}; });
-    const plusGrand = Math.max(...tailles.map(t => Math.max(t.col * L, t.lig * H)), 200);
-    const R = Math.max(190, plusGrand * 0.55 + 110 + cats.length * 10);
-    cats.forEach((cat, i) => {
-      const a = -Math.PI / 2 + (i / cats.length) * 2 * Math.PI, {col, lig} = tailles[i];
-      const w = col * L, h = lig * H, cx = Math.cos(a) * R * 1.45, cy = Math.sin(a) * R;
-      groupes.get(cat).sort((x, y) => x.type.localeCompare(y.type) || x.libelle.localeCompare(y.libelle)).forEach((n, j) => {
-        this.pos.set(n.id, {x: cx - w / 2 + (j % col) * L + L / 2, y: cy - h / 2 + Math.floor(j / col) * H + H / 2 + 10});
-      });
-      this._grappes.push({cat, x: cx - w / 2 + 4, y: cy - h / 2 - 14, w: w, h: h + 24});
-    });
+    const parCase = new Map();
+    for (const f of FAMILLES) {
+      let liste = parFam.get(f.id);
+      if (!liste?.length) continue;
+      liste.sort((a, b) => (direct.has(b.id) - direct.has(a.id)) || degre(b.id) - degre(a.id) || a.libelle.localeCompare(b.libelle));
+      const cap = MAX_VISIBLES[f.dispo], ouverte = this.ouvertes.has(f.id);
+      let visibles = ouverte ? liste : liste.slice(0, cap);
+      if (f.dispo === "flux") visibles = this._ordreFlux(visibles);
+      const reste = liste.length - visibles.length, bouton = liste.length > cap;
+      const col = f.dispo === "colonne" ? Math.ceil(visibles.length / 8) : Math.min(f.dispo === "grille" ? 2 : 4, visibles.length);
+      const lig = Math.ceil(visibles.length / col);
+      const b = {f, visibles, col, lig, reste, ouverte, bouton, w: col * L - (L - CW) + 2 * PAD, h: TITRE + lig * H - (H - CH) + PAD + (bouton ? 38 : 0)};
+      if (!parCase.has(f.place)) parCase.set(f.place, []);
+      parCase.get(f.place).push(b);
+    }
+    const CASES = {NO: [0, 0], N: [1, 0], NE: [2, 0], O: [0, 1], E: [2, 1], SO: [0, 2], S: [1, 2]};
+    const taille = k => { const l = parCase.get(k) || []; return {w: Math.max(0, ...l.map(b => b.w)), h: l.reduce((a, b) => a + b.h, 0) + Math.max(0, l.length - 1) * GAP_E}; };
+    const W = [0, 0, 0], HT = [0, 0, 0];
+    // la colonne de droite (données, locators, résultats) part du haut de la rangée centrale et descend
+    // librement : elle n'agrandit pas la rangée du milieu (graphe moins haut, donc plus lisible)
+    for (const [k, [c, r]] of Object.entries(CASES)) { const t = taille(k); W[c] = Math.max(W[c], t.w); if (k !== "E") HT[r] = Math.max(HT[r], t.h); }
+    W[1] = Math.max(W[1], 300); HT[1] = Math.max(HT[1], 200);
+    const GX = 130, GY = 46;
+    for (const [k, [c, r]] of Object.entries(CASES)) {
+      const l = parCase.get(k);
+      if (!l) continue;
+      const t = taille(k);
+      let y = r === 0 ? -HT[1] / 2 - GY - t.h : r === 2 ? HT[1] / 2 + GY : k === "E" ? -HT[1] / 2 : -t.h / 2;
+      for (const b of l) {  // chaque région est alignée vers l'élément central
+        const x = c === 0 ? -W[1] / 2 - GX - b.w : c === 2 ? W[1] / 2 + GX : -b.w / 2;
+        this._grappes.push({fam: b.f, x, y, w: b.w, h: b.h});
+        b.visibles.forEach((n, j) => {
+          const [i, li] = b.f.dispo === "colonne" ? [Math.floor(j / b.lig), j % b.lig] : [j % b.col, Math.floor(j / b.col)];
+          this.pos.set(n.id, {x: x + PAD + CW / 2 + i * L, y: y + TITRE + CH / 2 + li * H});
+        });
+        if (b.bouton) this._plus.push({fam: b.f, x: x + b.w / 2, y: y + b.h - PAD - 12,
+          texte: b.ouverte ? "Réduire" : `+ ${b.reste} autre${b.reste > 1 ? "s" : ""}`});
+        y += b.h + GAP_E;
+      }
+    }
+  }
+
+  _ordreFlux(liste) {  // ordre de parcours : on suit les relations internes (contient, navigue vers…)
+    const ids = new Set(liste.map(n => n.id)), deg = new Map(liste.map(n => [n.id, 0])), succ = new Map(liste.map(n => [n.id, []]));
+    for (const r of this.liens) if (ids.has(r.de) && ids.has(r.vers) && r.de !== r.vers) { succ.get(r.de).push(r.vers); deg.set(r.vers, deg.get(r.vers) + 1); }
+    const res = [], vu = new Set();
+    while (res.length < liste.length) {
+      const n = liste.find(x => !vu.has(x.id) && deg.get(x.id) <= 0) || liste.find(x => !vu.has(x.id));
+      vu.add(n.id); res.push(n);
+      for (const s of succ.get(n.id)) deg.set(s, deg.get(s) - 1);
+    }
+    return res;
   }
 
   _forces() {
@@ -174,28 +239,38 @@ class GrapheVue {
     this.gLiens.replaceChildren();
     this.gNoeuds.replaceChildren();
     this.gGrappes.replaceChildren();
-    for (const gr of this._grappes || []) {  // titres de grappes colorés (maquette)
-      const g = el("g", {class: "gv-grappe", style: `--gc:${couleurVar(gr.cat)}`}, this.gGrappes);
-      el("text", {x: gr.x + 4, y: gr.y + 12}, g).textContent = TITRES_GRAPPES[gr.cat] || gr.cat;
+    for (const gr of this._grappes || []) {  // régions titrées et colorées (maquette)
+      const g = el("g", {class: "gv-grappe", style: `--gc:var(--f-${gr.fam.id})`}, this.gGrappes);
+      el("rect", {x: gr.x, y: gr.y, width: gr.w, height: gr.h, rx: 12, class: "gv-grappe-fond"}, g);
+      el("text", {x: gr.x + 14, y: gr.y + 18}, g).textContent = gr.fam.titre;
     }
     this.elLiens = new Map();
     this.elNoeuds = new Map();
+    const textesVus = new Set(), regions = this.mode === "grappes" && this._grappes.length;
     for (const r of this.liens) {
-      const cat = (r.de === this.centre ? this.parId.get(r.vers) : this.parId.get(r.de)).categorie;
+      if (!this.pos.has(r.de) || !this.pos.has(r.vers)) continue;  // extrémité repliée (« + N autres »)
+      const autre = r.de === this.centre ? this.parId.get(r.vers) : this.parId.get(r.de);
       const g = el("g", {class: "gv-lien" + (r.provenance === "déduit" ? " gv-deduit" : "") +
         (r.statut === "à valider" ? " gv-a-valider" : "")}, this.gLiens);
-      const ligne = el("path", {"marker-end": "url(#gv-fleche)", style: `stroke:${couleurVar(cat)}`}, g);
+      const ligne = el("path", {"marker-end": "url(#gv-fleche)", style: `stroke:${couleurNoeud(autre)}`}, g);
       const t = el("text", {class: "gv-lien-texte"}, g);
-      t.textContent = r.libelle;
+      t.textContent = r.libelle.toLowerCase();
+      if (regions) {  // un seul libellé par couple de régions et par relation : lisible comme la maquette
+        const cote = id => id === this.centre ? "centre" : familleDe(this.parId.get(id).type).id;
+        const cle = `${cote(r.de)}>${cote(r.vers)}:${r.type}`;
+        if (textesVus.has(cle)) t.classList.add("gv-texte-cache");
+        textesVus.add(cle);
+      }
       el("title", {}, g).textContent = `${r.de} — ${r.libelle} → ${r.vers} (${r.provenance}${r.statut !== "validé" ? ", " + r.statut : ""})`;
       g.addEventListener("click", e => { e.stopPropagation(); this.opts.onRelation?.(r); });
       this.elLiens.set(r.id, {g, ligne, t, r});
     }
     for (const n of this.noeuds) {
+      if (!this.pos.has(n.id)) continue;
       const centre = n.id === this.centre;
       const g = el("g", {class: "gv-noeud" + (centre ? " gv-centre" : ""), tabindex: 0, role: "button", "data-id": n.id,
         "aria-label": `${n.type} ${n.libelle}`}, this.gNoeuds);
-      const coul = COULEURS[n.categorie] || "#888";
+      const coul = couleurNoeud(n);
       if (centre) {  // nœud central : grand cercle lumineux
         el("circle", {r: 60, class: "gv-centre-cercle"}, g);
         const mots = String(n.libelle).split(/\s+/), lignes = [];
@@ -214,6 +289,11 @@ class GrapheVue {
         if (n.type === "test" && n.proprietes) {
           el("circle", {cx: 74, cy: -10, r: 5, class: n.proprietes.automatise ? "gv-pastille-auto" : "gv-pastille-manuel"}, g);
         }
+        const st = n.proprietes?.dernier_statut;
+        if (n.type === "test_robot" && st) {  // dernier résultat réel du test (results/)
+          const pa = el("circle", {cx: 74, cy: -10, r: 5, class: st === "PASS" ? "gv-pastille-auto" : st === "FAIL" ? "gv-pastille-ko" : "gv-pastille-manuel"}, g);
+          el("title", {}, pa).textContent = `Dernier résultat : ${st}`;
+        }
       }
       el("title", {}, g).textContent = `${n.libelle}\n${n.id}\n${n.provenance} · ${n.statut} · confiance ${n.confiance}`;
       g.addEventListener("pointerdown", e => this._debutGlisser(e, n.id));
@@ -221,6 +301,20 @@ class GrapheVue {
       g.addEventListener("dblclick", e => { e.stopPropagation(); this.opts.onDevelopper?.(n.id); });
       g.addEventListener("keydown", e => { if (e.key === "Enter") this.selectionner(n.id); });
       this.elNoeuds.set(n.id, g);
+    }
+    for (const p of this._plus || []) {  // bouton « + N autres » / « Réduire » d'une région
+      const g = el("g", {class: "gv-plus", tabindex: 0, role: "button", transform: `translate(${p.x},${p.y})`,
+        style: `--c:var(--f-${p.fam.id})`, "aria-label": `${p.texte} : ${p.fam.titre}`}, this.gNoeuds);
+      el("rect", {x: -64, y: -12, width: 128, height: 24, rx: 12}, g);
+      el("text", {y: 4}, g).textContent = p.texte;
+      const basculer = e => {
+        e.stopPropagation();
+        this.ouvertes.has(p.fam.id) ? this.ouvertes.delete(p.fam.id) : this.ouvertes.add(p.fam.id);
+        this.afficher(this.data, this.mode, this._rangs, this.centre);
+      };
+      g.addEventListener("pointerdown", e => e.stopPropagation());
+      g.addEventListener("click", basculer);
+      g.addEventListener("keydown", e => { if (e.key === "Enter") basculer(e); });
     }
     this._placer();
   }
@@ -236,7 +330,8 @@ class GrapheVue {
       const dx = x2 - x1, dy = y2 - y1, horiz = Math.abs(dx) >= Math.abs(dy);
       const c1 = horiz ? [x1 + dx * 0.45, y1] : [x1, y1 + dy * 0.45], c2 = horiz ? [x2 - dx * 0.45, y2] : [x2, y2 - dy * 0.45];
       ligne.setAttribute("d", `M${x1},${y1} C${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${x2},${y2}`);
-      t.setAttribute("x", (x1 + x2) / 2); t.setAttribute("y", (y1 + y2) / 2 - 4);
+      t.classList.toggle("gv-court", Math.hypot(dx, dy) < 90);  // libellé illisible entre deux cartes voisines
+      t.setAttribute("x", (x1 + 3 * c1[0] + 3 * c2[0] + x2) / 8); t.setAttribute("y", (y1 + 3 * c1[1] + 3 * c2[1] + y2) / 8 - 4);
     }
     this.racine.setAttribute("transform", `translate(${this.vue.x},${this.vue.y}) scale(${this.vue.k})`);
     this.svg.classList.toggle("gv-loin", this.vue.k < 0.55);
@@ -252,8 +347,8 @@ class GrapheVue {
   }
 
   _legende() {
-    const cats = [...new Set(this.noeuds.map(n => n.categorie))];
-    this.legende.innerHTML = cats.map(c => `<span><i style="background:${COULEURS[c]}"></i>${c}</span>`).join("") +
+    const fams = FAMILLES.filter(f => this.noeuds.some(n => familleDe(n.type) === f));
+    this.legende.innerHTML = fams.map(f => `<span><i style="background:var(--f-${f.id})"></i>${f.nom}</span>`).join("") +
       `<span><i class="gv-l-deduit"></i>déduit / à valider</span>` +
       (this.noeuds.some(n => n.type === "test") ? `<span><i class="gv-l-auto"></i>automatisé</span><span><i class="gv-l-manuel"></i>manuel</span>` : "");
   }
@@ -264,9 +359,11 @@ class GrapheVue {
     if (!this.noeuds?.length) return;
     const b = this._bornes(), s = Math.min(W / (b.w || 1), H / (b.h || 1)) * 0.9;
     this._miniT = {b, s, ox: (W - b.w * s) / 2, oy: (H - b.h * s) / 2};
+    const css = getComputedStyle(document.documentElement);
     for (const n of this.noeuds) {
       const p = this.pos.get(n.id);
-      ctx.fillStyle = couleurCalc(n.categorie);
+      if (!p) continue;
+      ctx.fillStyle = css.getPropertyValue(`--f-${familleDe(n.type).id}`).trim() || "#888";
       ctx.fillRect(this._miniT.ox + (p.x - b.x) * s - 2, this._miniT.oy + (p.y - b.y) * s - 1.5, 4, 3);
     }
     const r = this.svg.getBoundingClientRect();
@@ -382,3 +479,5 @@ class GrapheVue {
 }
 window.GrapheVue = GrapheVue;
 window.COULEURS_GRAPHE = COULEURS;
+window.FAMILLES_GRAPHE = FAMILLES;
+window.familleDe = familleDe;

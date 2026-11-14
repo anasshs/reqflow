@@ -7,30 +7,34 @@
     couverture: {module: 0, epic: 1, user_story: 2, bug: 2, test_plan: 3, test: 4, test_execution: 5, test_robot: 5},
     flux: {test: 0, suite: 1, test_robot: 2, jdd: 3, keyword: 3, requete: 4, resource: 4, locator: 5, ecran: 6, bibliotheque: 6, plateforme: 7},
   };
-  const NOMS_CAT = {APPLICATION: "Application", FONCTIONNEL: "Fonctionnel (modules, écrans)", TECHNIQUE: "Technique (locators, keywords)",
-    JIRA: "Exigences Jira", XRAY: "Tests & plans Xray", BDD: "Scénarios BDD", AUTOMATION: "Automatisation (suites, JDD)"};
   const RELATIONS = {contient: "Contient", navigue_vers: "Navigue vers", depend_de: "Dépend de", appelle: "Appelle", verifie: "Vérifie",
     couvre: "Couvre", implemente_par: "Est implémenté par", teste_par: "Est testé par", execute_par: "Est exécuté par", impacte: "Impacte", utilise: "Utilise"};
   let S, G, desabo = [];
 
   const E = {
     afficher(zone, sous) {
-      S = {vue: "connaissance", params: {}, data: null, selection: null, categoriesMasquees: new Set(), statut: ""};
+      S = {vue: "connaissance", params: {}, data: null, selection: null, famillesMasquees: new Set(), statut: ""};
       if (sous === "bdd") { location.hash = "bdd"; return; }
       if (VUES.some(v => v[0] === sous)) S.vue = sous;
       zone.className = "g-kg";
       zone.innerHTML = `
-        <section class="carte" aria-label="Graphe">
+        <section class="carte" aria-label="Graphe" style="position:relative">
           <div class="barre-graphe">
             <div class="sous-onglets" role="tablist">${VUES.map(([id, lib]) => `<button role="tab" data-vue="${id}" aria-selected="${id === S.vue}">${lib}</button>`).join("")}</div>
             <span id="kg-options"></span>
-            <input type="search" class="in" id="kg-recherche" placeholder="Rechercher…" aria-label="Rechercher un élément">
-            <select class="in" id="kg-statut" style="width:auto" aria-label="Filtrer par statut"><option value="">Tous statuts</option><option value="validé">Validé</option><option value="à valider">À valider</option></select>
-            <button class="icone" id="kg-zp" title="Zoom avant">${ico("zoomp")}</button>
-            <button class="icone" id="kg-zm" title="Zoom arrière">${ico("zoomm")}</button>
-            <button class="icone" id="kg-aj" title="Ajuster à l'écran">${ico("cible")}</button>
+            <input type="search" class="in" id="kg-recherche" placeholder="Rechercher…" aria-label="Rechercher un élément" hidden>
+            <button class="icone" id="kg-cherche" title="Rechercher" aria-pressed="false">${ico("recherche")}</button>
+            <button class="icone" id="kg-tout" title="Revenir au graphe complet">${ico("rejouer")}</button>
+            <button class="icone" id="kg-aj" title="Recentrer / ajuster à l'écran">${ico("cible")}</button>
             <button class="icone" id="kg-pe" title="Plein écran">${ico("plein")}</button>
-            <button class="icone" id="kg-ex" title="Exporter (JSON / SVG)">${ico("export")}</button>
+            <button class="icone" id="kg-menu" title="Plus d'options" aria-haspopup="true" aria-expanded="false" style="font-size:18px;line-height:1">⋮</button>
+          </div>
+          <div class="menu-graphe" id="kg-menu-liste" hidden>
+            <button id="kg-zp">${ico("zoomp")}Zoom avant</button>
+            <button id="kg-zm">${ico("zoomm")}Zoom arrière</button>
+            <button id="kg-mini">${ico("graphe")}Afficher / masquer la mini-carte</button>
+            <hr><label>Statut <select class="in" id="kg-statut" aria-label="Filtrer par statut"><option value="">Tous</option><option value="validé">Validé</option><option value="à valider">À valider</option></select></label>
+            <hr><button id="kg-ex">${ico("export")}Exporter (JSON / SVG)</button>
           </div>
           <div class="zone-graphe" id="kg-zone"></div>
         </section>
@@ -58,6 +62,13 @@
       G = null;
       $$(".sous-onglets [data-vue]", zone).forEach(b => b.onclick = () => { location.hash = "graphe/" + b.dataset.vue; });
       let t;
+      $("#kg-cherche").onclick = () => { const r = $("#kg-recherche"); r.hidden = !r.hidden; $("#kg-cherche").setAttribute("aria-pressed", !r.hidden); if (!r.hidden) r.focus(); };
+      const menu = $("#kg-menu-liste");
+      $("#kg-menu").onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; $("#kg-menu").setAttribute("aria-expanded", !menu.hidden); };
+      menu.onclick = e => { if (e.target.closest("button")) menu.hidden = true; };
+      zone.addEventListener("click", e => { if (!e.target.closest("#kg-menu-liste, #kg-menu")) menu.hidden = true; });
+      $("#kg-mini").onclick = () => { const m = $(".gv-mini"); if (m) m.hidden = !m.hidden; G?._mini(); };
+      $("#kg-tout").onclick = () => { if (!S.params.centre) return G?.ajuster(); delete S.params.centre; S.auto = false; charger(); };
       $("#kg-recherche").oninput = e => { clearTimeout(t); t = setTimeout(() => { S.params.recherche = e.target.value; charger(); }, 300); };
       $("#kg-statut").onchange = e => { S.statut = e.target.value; dessiner(); };
       $("#kg-zp").onclick = () => G?.zoom(1.25);
@@ -98,8 +109,7 @@
   function options() {
     const o = $("#kg-options");
     if (S.vue === "connaissance" || S.vue === "impact" || S.vue === "parcours") {
-      o.innerHTML = `<button class="btn" id="kg-tout" title="Revenir au graphe complet">Tout le graphe</button>`;
-      $("#kg-tout").onclick = () => { delete S.params.centre; charger(); };
+      o.innerHTML = "";
     } else if (S.vue === "couverture") {
       o.innerHTML = `<select class="in" id="kg-module" style="width:auto" aria-label="Module"><option value="">Tous les modules</option></select>
         <select class="in" id="kg-afficher" style="width:auto" aria-label="Tests affichés"><option value="tous">Manuels et automatisés</option><option value="manuels">Tests manuels</option><option value="automatises">Tests automatisés</option></select>`;
@@ -139,7 +149,7 @@
   function dessiner() {
     const d = S.data;
     if (!d) return;
-    const garde = n => !S.categoriesMasquees.has(n.categorie) && (!S.statut || n.statut === S.statut);
+    const garde = n => !S.famillesMasquees.has(familleDe(n.type).id) && (!S.statut || n.statut === S.statut);
     const ids = new Set(d.noeuds.filter(garde).map(n => n.id));
     const data = {...d, noeuds: d.noeuds.filter(n => ids.has(n.id)), relations: d.relations.filter(r => ids.has(r.de) && ids.has(r.vers))};
     if (!G) {
@@ -155,15 +165,15 @@
     }
   }
 
-  function legende() {
+  function legende() {  // types de nœuds de la maquette (familles), avec compte réel et filtre
     const comptes = {};
-    for (const n of S.data?.noeuds || []) comptes[n.categorie] = (comptes[n.categorie] || 0) + 1;
-    $("#kg-legende").innerHTML = `<ul class="liste legende-types">${Object.entries(NOMS_CAT).map(([c, lib]) => `<li data-cat="${c}" class="${S.categoriesMasquees.has(c) ? "inactif" : ""}"
-      title="Afficher / masquer"><span class="carre" style="background:var(--c-${c.toLowerCase()})"></span>${lib}<span class="compte">${comptes[c] || 0}</span></li>`).join("")}</ul>
+    for (const n of S.data?.noeuds || []) { const f = familleDe(n.type).id; comptes[f] = (comptes[f] || 0) + 1; }
+    $("#kg-legende").innerHTML = `<ul class="liste legende-types">${FAMILLES_GRAPHE.map(f => `<li data-cat="${f.id}" class="${S.famillesMasquees.has(f.id) ? "inactif" : ""}"
+      title="Afficher / masquer : ${esc(f.types.join(", "))}"><span class="carre" style="background:var(--f-${f.id})"></span>${f.nom}<span class="compte">${comptes[f.id] || 0}</span></li>`).join("")}</ul>
       ${S.data?.tronque ? `<p class="lib">Affichage limité à ${S.data.noeuds.length} éléments sur ${S.data.total} : filtrer.</p>` : ""}`;
     $$("#kg-legende [data-cat]").forEach(li => li.onclick = () => {
       const c = li.dataset.cat;
-      S.categoriesMasquees.has(c) ? S.categoriesMasquees.delete(c) : S.categoriesMasquees.add(c);
+      S.famillesMasquees.has(c) ? S.famillesMasquees.delete(c) : S.famillesMasquees.add(c);
       legende(); dessiner();
     });
   }
@@ -220,7 +230,7 @@
       .map(([k, v]) => `<dt>${esc(k.replace(/_/g, " "))}</dt><dd>${typeof v === "object" ? `<code>${esc(JSON.stringify(v))}</code>` : esc(v)}</dd>`).join("");
     const lien = (x, s) => `<li><span class="lib">${s ? "→" : "←"} ${esc(x.relation.libelle)}</span><button class="lien ellipse" data-sel="${esc(x.noeud.id)}">${esc(x.noeud.libelle)}</button>${x.relation.statut !== "validé" ? '<span class="pill warn">à valider</span>' : ""}</li>`;
     detail(n.type.replace("_", " "), `
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><span class="carre" style="background:var(--c-${n.categorie.toLowerCase()});width:12px;height:30px"></span>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><span class="carre" style="background:var(--f-${familleDe(n.type).id});width:12px;height:30px"></span>
         <div class="item"><b style="font-size:14px">${esc(n.libelle)}</b><div class="lib"><code>${esc(n.id)}</code></div></div></div>
       <div class="btns" style="margin-bottom:10px"><span class="pill ${n.statut === "validé" ? "ok" : "warn"}">${esc(n.statut)}</span><span class="pill">${esc(n.provenance)}</span>
         <span class="pill info">confiance ${Math.round(n.confiance * 100)} %</span>${n.plateformes.map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>

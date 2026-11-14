@@ -26,6 +26,10 @@
   --c-xray: #DB2777; --c-bdd: #16A34A; --c-automation: #EA580C;
   color-scheme: light;
 }
+/* familles de nœuds du graphe de connaissances (maquette) : dérivées des couleurs du thème courant */
+:root { --f-exigences: var(--c-jira); --f-parcours: var(--c-fonctionnel); --f-application: var(--c-application);
+  --f-actions: var(--c-automation); --f-donnees: var(--c-bdd); --f-locators: var(--c-technique); --f-tests: var(--c-xray);
+  --f-execution: var(--ko); --f-resultats: var(--ink-2); }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -188,13 +192,23 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
 .g-kg { grid-template-columns: minmax(0, 1fr) 290px; grid-template-rows: minmax(0, 1fr) auto 178px; }
 .barre-graphe { display: flex; gap: 6px; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--line); min-height: 46px; flex-wrap: wrap; flex: none; }
 .barre-graphe .sous-onglets { border: 0; padding: 0; margin-right: auto; }
-.barre-graphe input[type=search] { width: 120px; }
+.barre-graphe input[type=search] { width: 170px; }
+.barre-graphe .icone { color: var(--muted); }
+.barre-graphe .icone[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent-soft); }
+.menu-graphe { position: absolute; right: 10px; top: 46px; z-index: 5; min-width: 230px; background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: 10px; box-shadow: var(--shadow); padding: 6px; }
+.menu-graphe button, .menu-graphe label { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: 0; background: none;
+  color: var(--ink); font: inherit; font-size: 13px; text-align: left; border-radius: 7px; cursor: pointer; }
+.menu-graphe button:hover { background: var(--surface-2); }
+.menu-graphe select { margin-left: auto; width: auto; }
+.menu-graphe hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .barre-graphe .sous-onglets button { padding: 12px 9px; }
 .zone-graphe { position: relative; flex: 1; min-height: 0; border-radius: 0 0 10px 10px;
   background: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--line) 70%, transparent) 1px, transparent 0) 0 0 / 24px 24px, var(--bg-2); }
 .zone-graphe:fullscreen { background: var(--bg); }
 .actions-graphe { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .actions-graphe .btn { background: var(--surface); }
+.actions-graphe .btn.primaire { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); box-shadow: var(--glow); }
 .bas-kg { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 12px; min-height: 0; }
 .legende-types li { cursor: pointer; padding: 6px 4px; border: 0; }
 .legende-types li.inactif { opacity: .35; }
@@ -229,7 +243,15 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
 .gv-centre-cercle { fill: url(#gv-degrade); stroke: var(--accent); stroke-width: 2; filter: drop-shadow(0 0 18px rgba(59,130,246,.55)); }
 .gv-centre-texte { font-size: 15px; font-weight: 700; fill: #fff; text-anchor: middle; }
 :root[data-theme="light"] .gv-centre-texte { fill: #fff; }
-.gv-grappe text { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; fill: var(--gc); }
+.gv-grappe text { font-size: 12px; font-weight: 700; letter-spacing: .05em; fill: var(--gc); }
+.gv-grappe-fond { fill: color-mix(in srgb, var(--gc) 4%, transparent); stroke: color-mix(in srgb, var(--gc) 30%, transparent); stroke-width: 1; }
+.gv-texte-cache, .gv-lien-texte.gv-court { display: none; }
+.gv-pastille-ko { fill: var(--ko); }
+.gv-plus { cursor: pointer; }
+.gv-plus rect { fill: var(--surface); stroke: var(--c); stroke-dasharray: 4 3; }
+.gv-plus text { font-size: 11px; font-weight: 600; fill: var(--c); text-anchor: middle; }
+.gv-plus:hover rect, .gv-plus:focus rect { fill: color-mix(in srgb, var(--c) 14%, var(--surface)); }
+.gv-mini[hidden] { display: none; }
 .gv-mini { position: absolute; right: 10px; bottom: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
 .gv-legende { display: none; }
 
