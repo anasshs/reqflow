@@ -20,5 +20,8 @@ def charger_app_web():
 
 
 def module_web():
+    """Module réel de la façade web (le point d'entrée historique n'en est qu'un alias)."""
     charger_app_web()
-    return _cache["mod"]
+    from atelier.adapters.web import app as mod
+
+    return mod

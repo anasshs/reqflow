@@ -143,3 +143,33 @@ def test_fichier_variables_robot(jdd_projet, tmp_path):
     jdd, _ = jdd_projet
     f = jdd.ecrire_fichier_variables({"virement_standard": {"montant": "150.00"}}, tmp_path / "v.yaml")
     assert yaml.safe_load(f.read_text("utf-8")) == {"JDD_VIREMENT_STANDARD": {"montant": "150.00"}}
+
+
+def test_detection_des_jeux_dans_une_suite(jdd_projet, projet):
+    jdd, _ = jdd_projet
+    (projet / "tests").mkdir()
+    (projet / "tests" / "v.robot").write_text("Initialiser Le Test    &{JDD_VIREMENT_STANDARD}\n"
+                                              "Log    ${JDD_INCONNU}\n", "utf-8")
+    assert jdd.detecter("tests", "recette") == {"detectes": ["VIREMENT_STANDARD"], "inconnus": ["INCONNU"]}
+
+
+def test_connexion_oracle_delai_plafonne(monkeypatch):
+    import sys
+    import types
+
+    from atelier.integrations import oracle
+
+    class Con:
+        call_timeout = 0
+    faux = types.SimpleNamespace(makedsn=lambda h, p, sid=None, service_name=None: f"{h}:{p}/{sid}",
+                                 connect=lambda user, password, dsn: Con())
+    monkeypatch.setitem(sys.modules, "oracledb", faux)
+    monkeypatch.setenv("DB_RECETTE_HOST", "base.exemple.invalid")
+    monkeypatch.setenv("DB_RECETTE_USER", "lecteur")
+    monkeypatch.setenv("DB_RECETTE_SID", "RECET")
+    assert oracle.connect("recette").call_timeout == 30000
+    monkeypatch.setenv("DB_TIMEOUT_MS", "5000")
+    assert oracle.connect("recette").call_timeout == 5000
+    monkeypatch.delenv("DB_RECETTE_HOST")
+    with pytest.raises(RuntimeError):
+        oracle.connect("recette")

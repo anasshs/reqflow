@@ -6,10 +6,11 @@ automatiser, puis générer, exécuter et maintenir des tests Robot Framework (m
 web Browser library, API RequestsLibrary) avec une traçabilité complète dans Xray et Jira.
 
 ## Où on en est
-Prototype fonctionnel (voir README.md) : serveur MCP `server.py`, carte de l'application
-`app_map.py`, backend web Playwright `web_backend.py`, intégrations `xray_client.py`, JDD `jdd.py`,
-listeners Robot (`xray_live_listener.py`, `cartographie_listener.py`), interface web `web/`
-(FastAPI + page unique), socle Robot `socle/`.
+Phase 1.1 faite : le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).
+Les fichiers racine `server.py`, `app_map.py`, `jdd.py`, `xray_client.py`, `web_backend.py`,
+`xray_live_listener.py`, `cartographie_listener.py` et `web/app.py` ne sont plus que des points
+d'entrée de rétrocompatibilité. Outils MCP : `atelier/adapters/facade.py` (enregistrés par
+`atelier/adapters/mcp/server.py`). Tests : `tests/` (`pytest -q`).
 Le travail à faire est décrit phase par phase dans **docs/ROADMAP.md**. Toujours travailler sur
 UNE phase à la fois, cocher les tâches terminées dans la roadmap, et ne pas anticiper la suivante.
 
@@ -81,8 +82,8 @@ l'import REST `/api/v2/import/execution/robot`. Consigner le résultat dans `doc
 ## Commandes
 ```
 python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-playwright install chromium
-python server.py                 # serveur MCP (stdio) — sera adapters/mcp après la phase 1
-python web/app.py                # interface web http://127.0.0.1:8765 — sera adapters/web
+playwright install chromium      # ou WEB_BROWSER_EXECUTABLE=/chemin/chromium
+python server.py                 # serveur MCP (stdio) -> atelier/adapters/mcp/server.py
+python web/app.py                # interface web http://127.0.0.1:8765 -> atelier/adapters/web/app.py
 pytest -q
 ```

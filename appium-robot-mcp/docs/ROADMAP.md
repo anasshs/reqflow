@@ -9,16 +9,16 @@ les outils MCP existants. Cocher les cases au fil de l'eau ; noter les décision
 ## Phase 1 — Fondations (aucune nouvelle fonctionnalité visible)
 
 ### 1.1 Découpage en moteurs
-- [ ] Créer le paquet `atelier/` selon l'architecture de CLAUDE.md.
-- [ ] Déplacer la logique de `server.py` vers les moteurs : sessions et observation → `discovery`,
+- [x] Créer le paquet `atelier/` selon l'architecture de CLAUDE.md.
+- [x] Déplacer la logique de `server.py` vers les moteurs : sessions et observation → `discovery`,
       génération de .resource → `generation`, runs / listeners / qualification → `execution`,
       clients Xray / Jira / Oracle / Appium / Playwright → `integrations`.
-- [ ] `app_map.py` → `atelier/discovery/carte/` ; `web_backend.py` → `atelier/integrations/playwright/`.
-- [ ] `adapters/mcp/server.py` : enregistre les mêmes outils, chacun en quelques lignes.
-- [ ] `adapters/web/app.py` : mêmes routes, appelant les moteurs (plus d'import de `server.py`).
-- [ ] Gardes de compatibilité : `server.py` et `web/app.py` à la racine deviennent de simples
+- [x] `app_map.py` → `atelier/discovery/carte/` ; `web_backend.py` → `atelier/integrations/playwright/`.
+- [x] `adapters/mcp/server.py` : enregistre les mêmes outils, chacun en quelques lignes.
+- [x] `adapters/web/app.py` : mêmes routes, appelant les moteurs (plus d'import de `server.py`).
+- [x] Gardes de compatibilité : `server.py` et `web/app.py` à la racine deviennent de simples
       points d'entrée qui importent les adapters (les configs Cursor existantes continuent de marcher).
-- [ ] Événements : un bus interne (`atelier/domain/evenements.py`) remplace `EVENT_HOOK` et
+- [x] Événements : un bus interne (`atelier/domain/evenements.py`) remplace `EVENT_HOOK` et
       `WEB_EVENTS_URL` ; les adapters s'y abonnent.
 
 **Acceptation** : la liste des outils MCP (noms + paramètres) est identique avant / après
