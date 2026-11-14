@@ -27,6 +27,19 @@ ETAT = "xray_outbox.etat.json"
 VERROU = "xray_outbox.verrou"
 
 
+STATUTS_DEFAUT = {"PASS": "PASSED", "FAIL": "FAILED", "SKIP": "TODO", "NOT RUN": "TODO", "EXECUTING": "EXECUTING"}
+
+
+def statuts_xray() -> dict:
+    """Statut Robot (et EXECUTING) -> statut de test run Xray. Les statuts de test run sont
+    personnalisables par projet : XRAY_STATUTS='{"FAIL": "ECHEC", "EXECUTING": "EN COURS"}'
+    remplace tout ou partie de la table (vérifier les noms avec `python -m atelier xray-verifier`)."""
+    try:
+        return {**STATUTS_DEFAUT, **json.loads(os.environ.get("XRAY_STATUTS") or "{}")}
+    except json.JSONDecodeError:
+        return dict(STATUTS_DEFAUT)
+
+
 class ErreurDefinitive(Exception):
     """Erreur que la répétition ne corrigera pas (ex. ticket cible qui est un Test)."""
 
@@ -189,7 +202,7 @@ class Synchroniseur:
             raise ErreurDefinitive(f"{d.get('cle_xray')} : test introuvable dans l'exécution")
         if ev["type"] == "test_debut":
             self.xray.update_run(run_id, started=d["debut"])
-            self.xray.set_status(run_id, "EXECUTING")
+            self.xray.set_status(run_id, statuts_xray()["EXECUTING"])
         elif ev["type"] == "test_fin":
             self.xray.update_run(run_id, started=d.get("debut"), finished=d["fin"], comment=d.get("commentaire"))
             self.xray.set_status(run_id, d["statut"])

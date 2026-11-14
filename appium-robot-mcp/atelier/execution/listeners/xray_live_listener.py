@@ -34,12 +34,11 @@ import uuid
 # Racine de l'outil (le listener est chargé par chemin depuis un sous-processus Robot).
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
-from atelier.execution.journal_xray import Journal, Synchroniseur  # noqa: E402
+from atelier.execution.journal_xray import Journal, Synchroniseur, statuts_xray  # noqa: E402
 from atelier.integrations import interface_web  # noqa: E402
 from atelier.integrations.xray import KEY_RE, now_iso  # noqa: E402
 
-STATUS = {"PASS": "PASSED", "FAIL": "FAILED", "SKIP": "TODO", "NOT RUN": "TODO"}
-GRAVITE = {"TODO": 0, "PASSED": 1, "FAILED": 2}
+GRAVITE = {"SKIP": 0, "NOT RUN": 0, "PASS": 1, "FAIL": 2}  # agrégation sur les statuts Robot
 
 
 def _deepest_fail(item, path: list) -> list:
@@ -59,7 +58,8 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
         self.depth = 0
         self.run_id = uuid.uuid4().hex[:12]
         self.debut_xray: dict = {}    # clé Xray -> startedOn (premier test Robot rattaché)
-        self.statut_xray: dict = {}   # clé Xray -> statut agrégé
+        self.statut_robot: dict = {}  # clé Xray -> statut Robot agrégé (FAIL > PASS > SKIP)
+        self.statuts = statuts_xray()
         self.test_t0: dict = {}       # id test Robot -> timestamp epoch (pour les captures)
         self.journal: list = []
         self.tests: list = []
@@ -159,7 +159,7 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
         self.depth -= 1
         if self.depth == 0:
             if self.outbox:
-                failed = "FAILED" in self.statut_xray.values()
+                failed = "FAIL" in self.statut_robot.values()
                 end = (self.cfg.get("transition_end_if_fail") if failed else "") \
                     or self.cfg.get("transition_end", "")
                 if end:
@@ -185,7 +185,6 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
     def end_test(self, data, result):
         key = self._cle(data) if self.outbox else None
         finished = now_iso()
-        status = STATUS.get(result.status, "TODO")
         echec = result.status == "FAIL"
         captures: list[str] = []
         if echec:  # captures produites pendant ce test (AppiumLibrary ou Browser library)
@@ -196,9 +195,10 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
         kw_fautif = " > ".join(_deepest_fail(result, [])) if echec else ""
         agg = None
         if key:
-            previous = self.statut_xray.get(key, "TODO")
-            agg = status if GRAVITE.get(status, 0) >= GRAVITE.get(previous, 0) else previous
-            self.statut_xray[key] = agg
+            previous = self.statut_robot.get(key, "NOT RUN")
+            pire = result.status if GRAVITE.get(result.status, 0) >= GRAVITE.get(previous, 0) else previous
+            self.statut_robot[key] = pire
+            agg = self.statuts.get(pire, "TODO")
         etat = self._etat()
         run_id = (etat.get("runs") or {}).get(key)
         self.tests.append({"test": data.name, "cle_xray": key, "statut_robot": result.status,

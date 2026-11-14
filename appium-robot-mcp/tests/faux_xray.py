@@ -31,6 +31,7 @@ class FauxXray:
         self._ids = itertools.count(5000)
         self._verrou = threading.Lock()
         self.srv = None
+        self.schema = schema_conforme()
 
     # ------------------------------------------------------------------ serveur
     def demarrer(self) -> str:
@@ -70,6 +71,8 @@ class FauxXray:
                 return 200, "jeton-de-test"
             req = json.loads(corps)
             q, v = req["query"], req.get("variables") or {}
+            if "__schema" in q:
+                return 200, {"data": self.schema}
             op = next(o for o in OPERATIONS if o in q)
             self.appels.append(op)
             return 200, {"data": {op: self._repondre(op, v)}}
@@ -121,3 +124,14 @@ class FauxXray:
         tid = self.tests[cle]
         runs = [r for (e, t), r in self.runs.items() if t == tid]
         return self.statuts.get(runs[-1], [None])[-1] if runs else None
+
+
+def schema_conforme() -> dict:
+    """Schéma d'introspection minimal qui contient tous les appels du client."""
+    from atelier.integrations.xray.verification import MUTATIONS, REQUETES
+
+    def champs(table):
+        return [{"name": n, "args": [{"name": a, "defaultValue": None, "type": {"kind": "SCALAR", "name": "String"}}
+                                     for a in args]} for n, args in table.items()]
+    return {"__schema": {"queryType": {"fields": champs(REQUETES)}, "mutationType": {"fields": champs(MUTATIONS)}},
+            "attachment": {"inputFields": [{"name": "filename"}, {"name": "mimeType"}, {"name": "data"}]}}
