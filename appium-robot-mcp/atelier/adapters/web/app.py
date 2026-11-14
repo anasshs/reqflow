@@ -1392,6 +1392,37 @@ async def centre_executer_campagne(cid: str, req: Request):
     return {"ok": True, "jobs": jobs}
 
 
+def _declencher_campagne(c: dict, origine: str, dry_run: bool = False) -> list[dict]:
+    return [_mettre_en_file(centre.params_campagne(c, p, dry_run), c["priorite"], c["id"], f"{c['nom']} · {p} ({origine})") for p in c["plateformes"]]
+
+
+def _planificateur():
+    """Scheduler interne : toutes les 30 s, met en file les campagnes planifiées arrivées à échéance."""
+    while True:
+        time.sleep(30)
+        try:
+            for c in centre.campagnes_dues():
+                _declencher_campagne(c, "planifié")
+                emit({"type": "campagne_planifiee", "campagne": c["id"]})
+        except Exception:
+            pass  # un problème de planification ne doit jamais arrêter l'interface
+
+
+@app.on_event("startup")
+def _demarrer_planificateur():
+    threading.Thread(target=_planificateur, daemon=True, name="planificateur").start()
+
+
+@app.post("/api/externe/campagnes/{cid}/executer")
+async def externe_campagne(cid: str, req: Request):
+    """Webhook (CI/CD, après déploiement) : jeton de processus exigé (X-Atelier-Jeton)."""
+    b = await req.json() if (await req.body()) else {}
+    c = _call(centre.campagne, cid)
+    if c["statut"] != "Active":
+        raise HTTPException(400, "Campagne archivée.")
+    return {"ok": True, "jobs": await asyncio.to_thread(_call, _declencher_campagne, c, "webhook", bool(b.get("dry_run")))}
+
+
 @app.get("/api/centre/referentiel")
 async def centre_referentiel():
     return await asyncio.to_thread(_call, centre.referentiel)
@@ -1505,6 +1536,28 @@ def studio_espaces():
 @app.post("/api/studio/espaces")
 async def studio_enregistrer_espace(req: Request):
     return await asyncio.to_thread(_call, studio.enregistrer_espace, await req.json())
+
+
+@app.post("/api/studio/git/branche")
+async def studio_branche(req: Request):
+    return await asyncio.to_thread(_call, studio.creer_branche, (await req.json()).get("nom", ""))
+
+
+@app.post("/api/studio/git/commit")
+async def studio_commit(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio.commit, b.get("message", ""), b.get("fichiers") or [])
+
+
+@app.post("/api/studio/builder")
+async def studio_builder(req: Request):
+    """Prévisualise (ecrire=false) ou écrit (ecrire=true, sans écrasement) un test assemblé depuis le socle."""
+    b = await req.json()
+    c = await asyncio.to_thread(_call, studio.construire_test, b.get("nom", ""), b.get("cle_xray", ""), b.get("jdd", ""),
+                                b.get("etapes") or [], b.get("tags") or [], b.get("fichier", ""))
+    if b.get("ecrire"):
+        c["ecrit"] = await asyncio.to_thread(_call, studio.ecrire_test, c)
+    return c
 
 
 @app.get("/api/studio/journal")
@@ -1624,12 +1677,52 @@ async def gouvernance_parametres(req: Request):
     return await asyncio.to_thread(_call, gouvernance.enregistrer_parametres, await req.json())
 
 
+@app.get("/api/echecs/corrections")
+def echecs_corrections():
+    return _call(echecs.corrections)
+
+
+@app.post("/api/echecs/corrections")
+async def echecs_proposer(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.proposer_correction_locator, b.get("id", ""), b.get("valeur", ""), b.get("justification", ""))
+
+
+@app.post("/api/echecs/corrections/action")
+async def echecs_correction_action(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.faire_avancer_correction, b.get("id", ""), b.get("action", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/intelligence/analyser-jira")
+async def intelligence_analyser():
+    """Structure les critères d'acceptation et propose les règles métier candidates (file de validation)."""
+    return await asyncio.to_thread(_call, intelligence_app.analyser_jira, True)
+
+
+@app.get("/api/intelligence/versions/comparer")
+async def intelligence_comparer(a: str, b: str = "courant"):
+    return await asyncio.to_thread(_call, intelligence_app.comparer_versions, a, b)
+
+
+@app.post("/api/intelligence/versions")
+async def intelligence_creer_version(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, intelligence_app.creer_version, b.get("nom", ""), b.get("description", ""))
+
+
+@app.post("/api/intelligence/versions/restaurer")
+async def intelligence_restaurer(req: Request):
+    return await asyncio.to_thread(_call, intelligence_app.restaurer_version, (await req.json()).get("nom", ""))
+
+
 # --------------------------------------------------------------------------- Application Intelligence
 @app.get("/api/intelligence/{section}")
 async def intelligence_section(section: str):
     fn = {"vue": intelligence_app.vue_ensemble, "jira": intelligence_app.jira, "ecrans": intelligence_app.ecrans,
           "regles": lambda: intelligence_app.noeuds(["regle"]), "parcours": lambda: intelligence_app.noeuds(["parcours", "action"]),
-          "api": intelligence_app.api_endpoints, "changements": intelligence_app.changements, "validation": intelligence_app.validation}.get(section)
+          "api": intelligence_app.api_endpoints, "changements": intelligence_app.changements, "validation": intelligence_app.validation,
+          "criteres": lambda: intelligence_app.analyser_jira(False), "versions": intelligence_app.versions}.get(section)
     if not fn:
         raise HTTPException(404, "Section inconnue.")
     return await asyncio.to_thread(_call, fn)

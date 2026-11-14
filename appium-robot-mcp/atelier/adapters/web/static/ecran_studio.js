@@ -121,11 +121,43 @@
     };
   }
 
-  function builder(z) {
-    z.innerHTML = `${entete("Automation Builder")}<div class="corps-carte"><p>Le constructeur visuel actuel est <b>Construction BDD</b> : graphe d'étapes et de branches synchronisé avec le .feature,
-      propriétés par étape (écran, locator, donnée, assertion), génération Robot conforme (INITIALISATION + JDD, keywords réutilisés).</p>
-      <div class="btns"><a class="btn primaire" href="#bdd">${ico("bdd")}Ouvrir Construction BDD</a><a class="btn" href="#editeur">${ico("editeur")}Code Editor</a></div>
-      <p class="lib" style="margin-top:10px">À venir : palette d'actions techniques (navigation, interactions, vérifications, données, contrôle If / For / Try) en glisser-déposer et exécution d'une étape isolée.</p></div>`;
+  let ETAPES = [];
+  async function builder(z) {
+    const [kws, jdd] = await Promise.all([api("/api/studio/keywords"), Atelier.env ? api("/api/jdd/" + encodeURIComponent(Atelier.env)).catch(() => ({jeux: []})) : {jeux: []}]);
+    const cats = [...new Set(kws.map(k => k.categorie))];
+    const rendre = () => {
+      $("#bd-etapes").innerHTML = ETAPES.map((e, n) => `<li class="bd-etape"><select class="in" data-mot="${n}" style="width:90px">${["Given", "When", "Then", "And"].map(m => `<option ${m === e.mot ? "selected" : ""}>${m}</option>`).join("")}</select>
+        <span class="item">${esc(e.keyword)}</span><button class="icone" data-haut="${n}" title="Monter">${ico("haut")}</button><button class="icone" data-bas="${n}" title="Descendre">${ico("bas")}</button>
+        <button class="icone" data-suppr="${n}" title="Retirer">${ico("x")}</button></li>`).join("") || "<li class='lib'>Cliquer un keyword de la palette pour l'ajouter.</li>";
+      $$("[data-mot]").forEach(x => x.onchange = () => { ETAPES[+x.dataset.mot].mot = x.value; });
+      $$("[data-haut]").forEach(x => x.onclick = () => { const n = +x.dataset.haut; if (n) [ETAPES[n - 1], ETAPES[n]] = [ETAPES[n], ETAPES[n - 1]]; rendre(); });
+      $$("[data-bas]").forEach(x => x.onclick = () => { const n = +x.dataset.bas; if (n < ETAPES.length - 1) [ETAPES[n + 1], ETAPES[n]] = [ETAPES[n], ETAPES[n + 1]]; rendre(); });
+      $$("[data-suppr]").forEach(x => x.onclick = () => { ETAPES.splice(+x.dataset.suppr, 1); rendre(); });
+    };
+    z.innerHTML = `${entete("Automation Builder", `<a class="btn" href="#bdd">Construction BDD</a>`)}<div class="corps-carte">
+      <div style="display:grid;grid-template-columns:280px minmax(0,1fr);gap:12px">
+        <section class="bloc-strat"><h3>Palette · keywords du socle</h3><input class="in" id="bd-q" placeholder="Filtrer…" style="margin-bottom:8px">
+          <div id="bd-palette">${cats.map(c => `<div class="lib" style="margin:8px 0 4px">${esc(c)}</div>${kws.filter(k => k.categorie === c).map(k => `<button class="btn petit bd-kw" data-kw="${esc(k.nom)}" title="${esc(k.documentation || "")}" style="margin:2px;text-align:left">${esc(k.nom)}</button>`).join("")}`).join("")}</div></section>
+        <section class="bloc-strat"><h3>Scénario</h3><div class="grille-2"><div class="champ"><label for="bd-nom">Nom du test *</label><input class="in" id="bd-nom"></div>
+            <div class="champ"><label for="bd-cle">Clé Xray</label><input class="in" id="bd-cle" placeholder="DEMO-307"></div>
+            <div class="champ"><label for="bd-jdd">Jeu de données *</label><select class="in" id="bd-jdd">${(jdd.jeux || []).map(j => `<option>${esc(j.jeu)}</option>`).join("")}</select></div>
+            <div class="champ"><label for="bd-tags">Tags</label><input class="in" id="bd-tags" placeholder="smoke, e2e"></div></div>
+          <p class="lib">INITIALISATION (Initialiser Le Test + JDD) ajoutée automatiquement ; seules les étapes Gherkin se composent ici.</p>
+          <ol class="liste" id="bd-etapes"></ol>
+          <div class="btns"><button class="btn" id="bd-prev">${ico("editeur")}Prévisualiser</button><button class="btn primaire" id="bd-ecrire">${ico("disque")}Écrire le test</button></div><div id="bd-res"></div></section></div>
+      <p class="lib" style="margin-top:10px">Le Builder n'assemble que des keywords existants (réutilisation, pas de wrapper 1:1) ; un keyword manquant se crée d'abord dans le socle (Code Editor ou génération BDD). Blocs If / For / Try : à venir.</p></div>`;
+    $$(".bd-kw", z).forEach(b => b.onclick = () => { ETAPES.push({mot: ETAPES.length ? "When" : "Given", keyword: b.dataset.kw}); rendre(); });
+    $("#bd-q").oninput = e => $$(".bd-kw", z).forEach(b => { b.hidden = !b.dataset.kw.toLowerCase().includes(e.target.value.toLowerCase()); });
+    const corps = ecrire => ({nom: $("#bd-nom").value.trim(), cle_xray: $("#bd-cle").value.trim(), jdd: $("#bd-jdd").value, tags: $("#bd-tags").value.split(",").map(x => x.trim()).filter(Boolean), etapes: ETAPES, ecrire});
+    const envoyer = async ecrire => {
+      try { const r = await api("/api/studio/builder", {method: "POST", body: corps(ecrire)});
+        $("#bd-res").innerHTML = `<p class="lib">${esc(r.fichier)} ${r.lint.ok ? '<span class="pill ok">lint OK</span>' : `<span class="pill ko">${r.lint.problemes.length} problème(s)</span>`}${r.ecrit ? ' <span class="pill info">écrit · revue technique : Généré</span>' : r.existe ? ' <span class="pill warn">le fichier existe : écriture refusée</span>' : ""}</p><pre class="code-bloc">${esc(r.contenu)}</pre>`;
+        if (r.ecrit) toast("Test écrit ; à passer en revue technique.", "ok");
+      } catch (e) { toast(e.message, "ko"); }
+    };
+    $("#bd-prev").onclick = () => envoyer(false);
+    $("#bd-ecrire").onclick = () => envoyer(true);
+    rendre();
   }
 
   async function knowledge(z) {
@@ -204,7 +236,14 @@
       <div class="grille-2"><section class="bloc-strat"><h3>Commits récents</h3><ul class="liste">${g.commits.map(c => `<li><span class="mono">${esc(c.hash)}</span><span class="item">${esc(c.message)}</span><span class="lib">${esc(c.auteur)} · ${esc(c.date.slice(0, 10))}</span></li>`).join("")}</ul></section>
         <section class="bloc-strat"><h3>Modifications locales</h3><ul class="liste">${g.modifications.map(m => `<li class="mono">${esc(m)}</li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul>
           <h3 style="margin-top:12px">Branches</h3><p class="mono">${esc(g.branches.join(", "))}</p></section></div>`}
-      <p class="lib" style="margin-top:10px">Lecture seule. Branche, commit, push et merge request : phase 7, toujours après revue technique ; jamais de push automatique vers la branche principale.</p></div>`;
+      ${g.depot ? `<section class="bloc-strat" style="margin-top:12px"><h3>Branche et commit locaux</h3><div class="btns"><input class="in" id="gi-br" placeholder="automatisation/connexion" style="width:240px"><button class="btn" id="gi-br-ok">Créer la branche</button></div>
+        <div class="champ" style="margin-top:8px"><label>Fichiers à valider (suites approuvées / publiées uniquement)</label>${g.modifications.map(m => { const f = m.slice(3); return `<label class="lib" style="display:block"><input type="checkbox" data-fic="${esc(f)}"> ${esc(m)}</label>`; }).join("") || "<span class='lib'>Aucune modification.</span>"}</div>
+        <div class="btns"><input class="in" id="gi-msg" placeholder="Message de commit" style="flex:1"><button class="btn primaire" id="gi-ok">Commit local</button></div></section>` : ""}
+      <p class="lib" style="margin-top:10px">Commit refusé sur main / master / develop / production et pour toute suite non approuvée ; aucun push automatique. Merge request : phase 7 (API GitLab).</p></div>`;
+    if ($("#gi-br-ok")) {
+      $("#gi-br-ok").onclick = async () => { try { await api("/api/studio/git/branche", {method: "POST", body: {nom: $("#gi-br").value.trim()}}); toast("Branche créée.", "ok"); git(z); } catch (e) { toast(e.message, "ko"); } };
+      $("#gi-ok").onclick = async () => { try { await api("/api/studio/git/commit", {method: "POST", body: {message: $("#gi-msg").value, fichiers: $$("[data-fic]", z).filter(x => x.checked).map(x => x.dataset.fic)}}); toast("Commit local créé.", "ok"); git(z); } catch (e) { toast(e.message, "ko"); } };
+    }
   }
 
   /* ------------------------------------------------------------------ 14 revue technique */

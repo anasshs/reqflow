@@ -14,6 +14,8 @@ Non réalisé : runners distants, Device Farm avec réservation, planification, 
 from __future__ import annotations
 
 import heapq
+import json
+import re
 import itertools
 import platform
 import secrets
@@ -240,7 +242,8 @@ def enregistrer_campagne(c: dict) -> list[dict]:
               "type": c.get("type", "TNR"), "plateformes": plats, "environnement": c.get("environnement", ""),
               "cible": c.get("cible") or "tests", "tests": [str(t) for t in c.get("tests") or []],
               "tags": [str(t) for t in c.get("tags") or []], "retry": bool(c.get("retry")), "priorite": c.get("priorite", "Normal"),
-              "xray_ticket": c.get("xray_ticket", ""), "statut": c.get("statut", "Active")}
+              "xray_ticket": c.get("xray_ticket", ""), "statut": c.get("statut", "Active"),
+              "exclus": [str(t) for t in c.get("exclus") or []], "planning": _planning(c.get("planning"))}
     l = campagnes()
     i = next((k for k, x in enumerate(l) if x["id"] == propre["id"]), None)
     if i is None:
@@ -249,6 +252,57 @@ def enregistrer_campagne(c: dict) -> list[dict]:
         l[i] = propre
     _ecrire_campagnes(l)
     return campagnes()
+
+
+TYPES_PLANNING = ("aucun", "quotidien", "hebdomadaire", "intervalle")
+
+
+def _planning(pl: dict | None) -> dict:
+    """Planification d'une campagne : quotidien (heure), hebdomadaire (jours 0=lundi … 6 + heure), intervalle (minutes ≥ 15)."""
+    pl = dict(pl or {})
+    t = pl.get("type") or "aucun"
+    if t not in TYPES_PLANNING:
+        raise ValueError(f"Planification : {', '.join(TYPES_PLANNING)}.")
+    if t in ("quotidien", "hebdomadaire") and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", pl.get("heure") or ""):
+        raise ValueError("Heure de planification au format HH:MM.")
+    if t == "hebdomadaire" and not [j for j in pl.get("jours") or [] if 0 <= int(j) <= 6]:
+        raise ValueError("Au moins un jour (0 = lundi … 6 = dimanche).")
+    if t == "intervalle" and int(pl.get("minutes") or 0) < 15:
+        raise ValueError("Intervalle minimal : 15 minutes.")
+    return {"type": t, "heure": pl.get("heure", ""), "jours": sorted({int(j) for j in pl.get("jours") or []}), "minutes": int(pl.get("minutes") or 0),
+            "actif": bool(pl.get("actif", t != "aucun"))}
+
+
+def _etat_planning() -> dict:
+    f = projet.PROJECT_DIR / "executions" / "planning_etat.json"
+    return json.loads(f.read_text("utf-8")) if f.exists() else {}
+
+
+def campagnes_dues(maintenant: datetime | None = None) -> list[dict]:
+    """Campagnes dont l'échéance est atteinte et pas encore déclenchée (au plus un déclenchement par échéance)."""
+    from atelier.intelligence.strategie import _ecrire_atomique
+
+    maintenant = maintenant or datetime.now()
+    etat = _etat_planning()
+    dues = []
+    for c in campagnes():
+        pl = c.get("planning") or {}
+        if c["statut"] != "Active" or not pl.get("actif") or pl.get("type") in (None, "aucun"):
+            continue
+        dernier = datetime.fromisoformat(etat[c["id"]]) if c["id"] in etat else None
+        if pl["type"] == "intervalle":
+            du = dernier is None or (maintenant - dernier).total_seconds() >= pl["minutes"] * 60
+        else:
+            h, m = map(int, pl["heure"].split(":"))
+            echeance = maintenant.replace(hour=h, minute=m, second=0, microsecond=0)
+            jour_ok = pl["type"] == "quotidien" or maintenant.weekday() in pl["jours"]
+            du = jour_ok and maintenant >= echeance and (dernier is None or dernier < echeance)
+        if du:
+            etat[c["id"]] = maintenant.isoformat(timespec="seconds")
+            dues.append(c)
+    if dues:
+        _ecrire_atomique(projet.PROJECT_DIR / "executions" / "planning_etat.json", json.dumps(etat, indent=1))
+    return dues
 
 
 def campagne(cid: str) -> dict:
@@ -261,7 +315,8 @@ def campagne(cid: str) -> dict:
 def params_campagne(c: dict, plateforme: str, dry_run: bool = False) -> dict:
     """Paramètres de run_robot pour une plateforme de la campagne (tests choisis = tags clés Xray)."""
     p = {"target": c["cible"], "variables": {"PLATFORM": plateforme}, "dry_run": dry_run,
-         "include_tags": sorted(set(c["tests"]) | set(c["tags"])) or None, "retry": c["retry"]}
+         "include_tags": sorted(set(c["tests"]) | set(c["tags"])) or None, "retry": c["retry"],
+         "exclude_tags": c.get("exclus") or None}  # exclusion temporaire : le test reste au référentiel
     if c.get("environnement"):
         p["jdd_env"] = c["environnement"]
     if c.get("xray_ticket"):

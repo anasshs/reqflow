@@ -100,7 +100,8 @@
             <button class="btn" data-d="faux_positif">Faux positif</button><button class="btn" data-d="correction_en_cours">Correction en cours</button><button class="btn" data-d="corrige">Corrigé</button>
             <button class="btn primaire" id="iv-retest">${ico("play")}Relancer le test</button><button class="btn" data-d="clore">Clore</button><button class="btn" data-d="rouvrir">Rouvrir</button></div>
           <h3 style="margin-top:12px">Correction recommandée</h3><p>${esc(CORRECTION[i.categorie_confirmee || i.hypotheses[0].categorie])}</p>
-          ${i.proposition_locator ? `<p class="lib">${esc(i.proposition_locator.justification)} ${esc(i.proposition_locator.propositions.join(" · ") || "aucune")}</p>` : ""}</section></div>
+          ${i.proposition_locator ? `<p class="lib">${esc(i.proposition_locator.justification)} ${esc(i.proposition_locator.propositions.join(" · ") || "aucune")}</p>` : ""}
+          ${f.locator ? `<button class="btn" id="iv-cor">${ico("editeur")}Proposer une correction du locator</button>` : ""}</section></div>
       <div class="grille-2" style="margin-top:12px"><section class="bloc-strat"><h3>Tests impactés (${i.impactes.length})</h3><ul class="liste">${i.impactes.map(t => `<li><span class="cle-xray">${esc(t.cle_xray || "—")}</span><span class="item">${esc(t.test)}</span><span class="lib">${esc(t.raison)}</span></li>`).join("") || "<li class='lib'>Aucun autre test.</li>"}</ul></section>
         <section class="bloc-strat"><h3>Échecs similaires (groupe ${esc(i.groupe)})</h3><ul class="liste">${i.similaires.map(s => `<li><button class="lien item" data-sim="${esc(s.id)}">${esc(s.run)} · ${esc(s.nom)}</button>${statut(s.statut)}</li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul>
           <div class="btns"><button class="btn petit" id="iv-sep">Séparer du groupe</button></div></section></div></div>`;
@@ -109,6 +110,17 @@
     $$("[data-sim]", z).forEach(b => b.onclick = () => { SEL = b.dataset.sim; investigation(z); });
     $("#iv-sep").onclick = async () => { await api("/api/echecs/regrouper", {method: "POST", body: {id: SEL, groupe: "G-" + Date.now().toString(36).toUpperCase()}}).catch(e => toast(e.message, "ko")); investigation(z); };
     $("#iv-retest").onclick = async () => { try { const r = await api("/api/echecs/retest", {method: "POST", body: {id: SEL}}); toast(`Retest ${r.run_id} en file (Execution Center).`, "ok"); } catch (e) { toast(e.message, "ko"); } };
+    if ($("#iv-cor")) $("#iv-cor").onclick = () => {
+      const m = modale("Proposer une correction du locator", `<p>Locator actuel : <code>${esc(f.locator)}</code></p>
+        <div class="champ"><label for="pc-v">Nouvelle valeur</label><input class="in" id="pc-v" value="${esc((i.proposition_locator?.propositions || [])[0] || "")}" placeholder="id=…"></div>
+        <div class="champ"><label for="pc-j">Justification</label><textarea class="in" id="pc-j" rows="2"></textarea></div>
+        <p class="lib">Rien n'est modifié : la proposition (diff) passe en revue, puis s'applique via l'éditeur (historisé) après approbation.</p>`,
+        `<button class="btn primaire" id="pc-ok">Proposer</button>`);
+      $("#pc-ok", m.el).onclick = async () => {
+        try { const c = await api("/api/echecs/corrections", {method: "POST", body: {id: SEL, valeur: $("#pc-v", m.el).value, justification: $("#pc-j", m.el).value}});
+          m.fermer(); toast(`Correction ${c.id} proposée.`, "ok"); location.hash = "echecs/corrections"; } catch (e) { toast(e.message, "ko"); }
+      };
+    };
     $("#iv-ia").onclick = async () => {
       $("#iv-ia-res").innerHTML = "<p class='lib'>Analyse en cours…</p>";
       const r = await api("/api/echecs/ia", {method: "POST", body: {id: SEL}}).catch(e => ({disponible: false, raison: e.message}));
@@ -139,12 +151,24 @@
   }
 
   async function corrections(z) {
-    const l = await api("/api/echecs");
-    z.innerHTML = `${entete("Fix Recommendations")}<div class="corps-carte"><table class="table-strat"><tr><th>Échec</th><th>Cause</th><th>Correction recommandée</th><th>Où</th><th>Statut</th></tr>
+    const [l, props] = await Promise.all([api("/api/echecs"), api("/api/echecs/corrections")]);
+    const A = {Proposed: [["soumettre", "Soumettre à la revue"]], "Under Review": [["approuver", "Approuver"], ["rejeter", "Rejeter"]], Approved: [["appliquer", "Appliquer (éditeur)"], ["rejeter", "Rejeter"]],
+      Applied: [["valider", "Valider (retest réussi)"]], Validated: [], Rejected: []};
+    z.innerHTML = `${entete("Fix Recommendations")}<div class="corps-carte">
+      <h3 class="lib">PROPOSITIONS DE CORRECTION (Proposed → Under Review → Approved → Applied → Validated)</h3>
+      ${props.map(c => `<section class="bloc-strat" style="margin-bottom:10px"><h3>${esc(c.id)} · ${esc(c.cle)} <span class="pill ${c.statut === "Validated" ? "ok" : c.statut === "Rejected" ? "ko" : "info"}">${esc(c.statut)}</span></h3>
+        <p><code>${esc(c.avant_valeur)}</code> → <code>${esc(c.apres_valeur)}</code> · ${esc(c.fichier)} · ${c.impactes.length} test(s) impacté(s)${c.justification ? " · " + esc(c.justification) : ""}</p>
+        <pre class="code-bloc">${esc(c.diff)}</pre><div class="btns"><input class="in" data-com="${esc(c.id)}" placeholder="Commentaire" style="flex:1">
+        ${A[c.statut].map(([a, lib]) => `<button class="btn ${a === "rejeter" ? "danger" : "primaire"}" data-cor="${esc(c.id)}|${a}">${lib}</button>`).join("")}</div></section>`).join("") || "<p class='lib'>Aucune proposition (bouton « Proposer une correction du locator » dans l'investigation).</p>"}
+      <h3 class="lib" style="margin-top:12px">RECOMMANDATIONS PAR ÉCHEC</h3><table class="table-strat"><tr><th>Échec</th><th>Cause</th><th>Correction recommandée</th><th>Où</th><th>Statut</th></tr>
       ${l.map(e => { const c = e.categorie_confirmee || e.categorie_probable; return `<tr class="cliquable" data-id="${esc(e.id)}"><td>${esc(e.nom)}<div class="lib">${esc(e.run)}</div></td><td>${cat(e)}</td><td>${esc(CORRECTION[c])}</td>
         <td>${c === "Application Defect" ? "Jira" : ["Locator Issue", "Automation Defect", "Timing Issue", "Framework Issue"].includes(c) ? "Automation Studio" : ["Assertion Issue", "Test Design Issue"].includes(c) ? "Test Design" : "Environnement / données"}</td><td>${statut(e.statut)}</td></tr>`; }).join("")}</table>
       <p class="lib" style="margin-top:10px">Aucune correction n'est appliquée automatiquement : diff avant / après et validation dans le Code Editor, puis revue technique et retest. Propositions de code par IA : à venir.</p></div>`;
     $$("[data-id]", z).forEach(tr => tr.onclick = () => ouvrir(tr.dataset.id));
+    $$("[data-cor]", z).forEach(b => b.onclick = async () => { const [id, action] = b.dataset.cor.split("|");
+      if (action === "appliquer" && !confirm("Appliquer la correction dans le fichier (historisé, revue technique du script à refaire) ?")) return;
+      try { await api("/api/echecs/corrections/action", {method: "POST", body: {id, action, commentaire: $(`[data-com="${id}"]`).value}}); toast("Correction : " + action, "ok"); corrections(z); }
+      catch (e) { toast(e.message, "ko"); } });
   }
 
   async function retest(z) {

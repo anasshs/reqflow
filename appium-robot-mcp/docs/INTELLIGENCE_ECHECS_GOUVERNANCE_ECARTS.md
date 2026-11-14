@@ -47,3 +47,14 @@ modifié silencieusement (résultats d'exécution, scripts, référentiels).
 | Settings | 🆕 | Seuils, pondérations risque / release, ROI. |
 
 Restant commun : rôles et permissions (pas d'authentification locale), multi-projets dans une même instance.
+
+## Écarts développés (seconde passe, 2026-11-14)
+- 🆕 Failure Analysis : proposition de correction de locator (valeur observée dans la carte), diff avant / après,
+  workflow Proposed → Under Review → Approved → Applied (écriture via l'éditeur, contrôle de concurrence, historisée,
+  revue technique du script à refaire) → Validated (retest réussi exigé) ; rejet justifié.
+- 🆕 Application Intelligence : critères d'acceptation structurés (condition / action / résultat) depuis le champ
+  `criteres` ou les puces de la description, règles métier candidates proposées « à valider » avec ticket et extrait ;
+  import OpenAPI / Swagger (`api/*.yaml|json` : endpoints, module par tag, stories par `x-jira`) ; versions nommées du
+  graphe (immuables), comparaison, restauration avec sauvegarde automatique de l'état courant.
+- Restent bloqués par Jira / Xray : import Jira complet (descriptions réelles), création d'anomalies et doublons,
+  écriture des tests et résultats dans Xray (voir docs/XRAY_API.md).

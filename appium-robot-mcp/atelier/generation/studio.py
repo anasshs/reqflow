@@ -366,3 +366,95 @@ def vue_ensemble() -> dict:
             "keywords_reutilisation": {"réutilisés (2+)": sum(k["utilisations"] >= 2 for k in kws), "utilisés une fois": sum(k["utilisations"] == 1 for k in kws),
                                        "inutilisés": sum(k["inutilise"] for k in kws)},
             "activite": journal(10)}
+
+
+# =========================================================================== Git en écriture (local, encadré)
+BRANCHES_PROTEGEES = ("main", "master", "develop", "production")
+
+
+def creer_branche(nom: str) -> dict:
+    from atelier.execution.centre import _git
+
+    if not re.fullmatch(r"[A-Za-z0-9._/-]{3,80}", nom or "") or nom in BRANCHES_PROTEGEES or ".." in nom:
+        raise ValueError("Nom de branche invalide ou protégé.")
+    if not _git("rev-parse", "--is-inside-work-tree"):
+        raise RuntimeError("Le projet de tests n'est pas un dépôt Git.")
+    import subprocess
+
+    r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), "switch", "-c", nom], capture_output=True, text=True, timeout=15)
+    if r.returncode:
+        raise RuntimeError(r.stderr.strip()[:300])
+    _journaliser("git_branche", nom=nom)
+    return git()
+
+
+def commit(message: str, fichiers: list[str]) -> dict:
+    """Commit local des seuls fichiers donnés, jamais sur une branche protégée ; chaque suite .robot doit être
+    approuvée ou publiée en revue technique. Aucun push : la publication passe par une merge request (phase 7)."""
+    import subprocess
+
+    from atelier.execution.centre import _git
+
+    branche = _git("rev-parse", "--abbrev-ref", "HEAD")
+    if not branche:
+        raise RuntimeError("Le projet de tests n'est pas un dépôt Git.")
+    if branche in BRANCHES_PROTEGEES:
+        raise PermissionError(f"Commit refusé sur la branche protégée « {branche} » : créer une branche de travail.")
+    if not message.strip() or not fichiers:
+        raise ValueError("Message et fichiers obligatoires.")
+    rev = revues_scripts()
+    non_valides = [f for f in fichiers if f.endswith(".robot") and (rev.get(f) or {}).get("statut") not in ("Approved", "Published")]
+    if non_valides:
+        raise PermissionError("Revue technique non approuvée : " + ", ".join(non_valides))
+    for f in fichiers:
+        projet.safe_path(f)
+    base = ["git", "-C", str(projet.PROJECT_DIR)]
+    r = subprocess.run(base + ["add", "--", *fichiers], capture_output=True, text=True, timeout=30)
+    if r.returncode == 0:
+        r = subprocess.run(base + ["commit", "-m", message.strip(), "--", *fichiers], capture_output=True, text=True, timeout=30)
+    if r.returncode:
+        raise RuntimeError((r.stderr or r.stdout).strip()[:300])
+    _journaliser("git_commit", branche=branche, fichiers=", ".join(fichiers))
+    return git()
+
+
+# =========================================================================== Builder : test assemblé depuis le socle
+def construire_test(nom: str, cle_xray: str, jdd: str, etapes: list[dict], tags: list[str] | None = None, fichier: str = "") -> dict:
+    """Assemble un test Robot conforme (INITIALISATION + JDD, Gherkin, tags) à partir de keywords EXISTANTS du socle.
+    etapes : [{"mot": "Given|When|Then|And", "keyword": "<nom exact du keyword>"}]. Prévisualisation : aucun fichier écrit."""
+    from atelier.execution.depot_robot import KEY_RE, lire_depot, normaliser
+
+    inv = lire_depot()
+    par_nom = {normaliser(k["nom"]): k for k in inv["keywords"].values()}
+    if not nom.strip() or not etapes:
+        raise ValueError("Nom du test et au moins une étape obligatoires.")
+    if cle_xray and not KEY_RE.match(cle_xray):
+        raise ValueError("Clé Xray invalide.")
+    if not re.fullmatch(r"[A-Z0-9_]+", jdd or ""):
+        raise ValueError("Jeu de données obligatoire (convention INITIALISATION + &{JDD_<NOM>}).")
+    inconnus = [e["keyword"] for e in etapes if normaliser(e.get("keyword", "")) not in par_nom]
+    if inconnus:
+        raise ValueError("Keywords absents du socle (à créer d'abord) : " + ", ".join(inconnus))
+    mots = {"given": "Given", "when": "When", "then": "Then", "and": "And", "but": "But"}
+    ressources = sorted({par_nom[normaliser(e["keyword"])]["fichier"] for e in etapes} | {par_nom[normaliser("Initialiser Le Test")]["fichier"]}
+                        if normaliser("Initialiser Le Test") in par_nom else {par_nom[normaliser(e["keyword"])]["fichier"] for e in etapes})
+    fichier = fichier or f"tests/{re.sub(r'[^a-z0-9]+', '_', nom.lower()).strip('_')}.robot"
+    profondeur = fichier.count("/")
+    lignes = ["*** Settings ***", f"Documentation    {nom} (assemblé dans Automation Studio depuis le socle).",
+              *[f"Resource    {'../' * profondeur}{r}" for r in ressources], "", "*** Test Cases ***", nom,
+              f"    [Tags]    {'    '.join([t for t in [cle_xray, *(tags or [])] if t])}", "    # INITIALISATION",
+              f"    Initialiser Le Test    &{{JDD_{jdd}}}", "    # SCÉNARIO"]
+    for e in etapes:
+        mot = mots.get(str(e.get("mot", "")).lower(), "And")
+        lignes.append(f"    {mot} {par_nom[normaliser(e['keyword'])]['nom']}")
+    contenu = "\n".join(lignes) + "\n"
+    from atelier.generation import editeur
+
+    return {"fichier": fichier, "contenu": contenu, "lint": editeur.lint(contenu, fichier), "existe": projet.safe_path(fichier).exists()}
+
+
+def ecrire_test(construit: dict) -> dict:
+    """Écrit le test assemblé (jamais d'écrasement) ; il entre en revue technique à l'état « Generated »."""
+    projet.ecrire_fichier(construit["fichier"], construit["contenu"], False)
+    _journaliser("generation_builder", fichier=construit["fichier"])
+    return {"fichier": construit["fichier"], "revue": "Generated"}

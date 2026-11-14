@@ -49,3 +49,12 @@ Légende : ✅ existant réutilisé · 🆕 ajouté · ⏳ restant · ⛔ bloqu�
 Retry : seconde tentative des seuls échecs, preuves de chaque tentative conservées (`tentative-1/`, `tentative-2/`),
 résultats fusionnés par `rebot --merge`, tests passés au second essai déclarés instables ; un premier échec n'est
 jamais transformé silencieusement en réussite.
+
+## Écarts développés (seconde passe, 2026-11-14)
+- 🆕 Execution Center : planification interne (quotidienne, hebdomadaire, intervalle ≥ 15 min ; un seul déclenchement par
+  échéance), webhook CI/CD `POST /api/externe/campagnes/<id>/executer` (jeton de processus), exclusion temporaire de tests
+  par tag (le test reste au référentiel).
+- 🆕 Automation Studio : Builder (palette des keywords du socle, étapes Gherkin ordonnées, INITIALISATION + JDD
+  automatiques, lint, écriture sans écrasement, entrée en revue « Generated ») ; Git local encadré (branche de travail,
+  commit des seules suites approuvées / publiées, refus sur main / master / develop / production, aucun push).
+- Restent : runners distants, réservation de devices, notifications, merge request (API GitLab), blocs If / For / Try.

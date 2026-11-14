@@ -51,10 +51,17 @@
     const ligne = (e, n) => `<tr><td style="padding-left:${8 + n * 18}px"><span class="cle-xray">${esc(e.cle)}</span> ${esc(e.resume || "")}</td><td>${esc(e.type)}</td><td>${esc(e.statut || "")}</td><td>${esc(e.module || "—")}</td>
       <td>${e.tests.map(t => `<span class="pill ${t.automatise ? "ok" : ""}" title="${esc(t.resume)}">${esc(t.cle)}${t.automatise ? " auto" : ""}</span>`).join(" ") || (e.type === "epic" ? '<span class="lib">via stories</span>' : '<span class="pill ko">aucun test</span>')}</td></tr>`
       + e.enfants.map(c => par[c] ? ligne(par[c], n + 1) : "").join("");
-    z.innerHTML = `${entete("Jira Intelligence", `<a class="btn" href="#rapports/patrimoine">Synchroniser (JQL)</a>`)}<div class="corps-carte">
+    const cr = await api("/api/intelligence/criteres").catch(() => []);
+    z.innerHTML = `${entete("Jira Intelligence", `<a class="btn" href="#rapports/patrimoine">Synchroniser (JQL)</a><button class="btn primaire" id="ji-an">Proposer les règles métier</button>`)}<div class="corps-carte">
       <p class="lib">Tickets de l'instantané Jira / Xray, hiérarchie Epic → Story et tests Xray associés (traçabilité dans les deux sens). Extraction IA des fonctionnalités, critères d'acceptation et règles :
         à venir avec l'import Jira complet (descriptions) ; chaque proposition passera par la file de validation.</p>
-      ${l.length ? `<table class="table-strat"><tr><th>Ticket</th><th>Type</th><th>Statut</th><th>Module</th><th>Tests Xray</th></tr>${racines.map(e => ligne(e, 0)).join("")}</table>` : vide("Aucun ticket", "Importer l'instantané Xray / synchroniser Jira.")}</div>`;
+      ${l.length ? `<table class="table-strat"><tr><th>Ticket</th><th>Type</th><th>Statut</th><th>Module</th><th>Tests Xray</th></tr>${racines.map(e => ligne(e, 0)).join("")}</table>` : vide("Aucun ticket", "Importer l'instantané Xray / synchroniser Jira.")}
+      <h3 class="lib" style="margin-top:14px">CRITÈRES D'ACCEPTATION STRUCTURÉS (motifs explicites, sans IA)</h3>
+      ${cr.length ? `<table class="table-strat"><tr><th>Ticket</th><th>Critère</th><th>Condition</th><th>Action</th><th>Résultat attendu</th><th>Règle candidate</th></tr>${cr.map(c => `<tr><td class="cle-xray">${esc(c.ticket)}</td><td>${esc(c.texte)}</td>
+        <td>${esc(c.condition || "—")}</td><td>${esc(c.action || "—")}</td><td>${esc(c.resultat || "—")}</td><td>${c.regle_candidate ? '<span class="pill warn">oui</span>' : ""}</td></tr>`).join("")}</table>`
+        : "<p class='lib'>Aucun critère dans l'instantané (champ « criteres » ou puces de la description).</p>"}
+      <p class="lib">« Proposer les règles métier » crée les règles candidates « à valider » (ticket source et extrait conservés) dans Knowledge Validation.</p></div>`;
+    $("#ji-an").onclick = async () => { try { const r = await api("/api/intelligence/analyser-jira", {method: "POST", body: {}}); toast(`${r.filter(x => x.proposition).length} règle(s) candidate(s) dans la file de validation.`, "ok"); location.hash = "intelligence/validation"; } catch (e) { toast(e.message, "ko"); } };
   }
 
   async function parcours(z) {
@@ -117,10 +124,20 @@
   }
 
   async function historique(z) {
-    const h = await api("/api/graphes/historique").catch(() => []);
-    z.innerHTML = `${entete("Knowledge History")}<div class="corps-carte"><p class="lib">Toutes les modifications déclarées du graphe (ajout, modification, masquage, fusion, validation), avec auteur et date. Les éléments observés se recalculent depuis leurs sources.</p>
+    const [h, vs] = await Promise.all([api("/api/graphes/historique").catch(() => []), api("/api/intelligence/versions").catch(() => [])]);
+    z.innerHTML = `${entete("Knowledge History", `<input class="in" id="kv-nom" placeholder="Nom (ex. v1.1)" style="width:140px"><button class="btn primaire" id="kv-ok">Créer une version</button>`)}<div class="corps-carte">
+      <h3 class="lib">VERSIONS DU GRAPHE (immuables)</h3>${vs.length ? `<table class="table-strat"><tr><th>Version</th><th>Date</th><th>Auteur</th><th>Nœuds</th><th>Relations</th><th>Description</th><th></th></tr>
+        ${vs.map(v => `<tr><td><b>${esc(v.nom)}</b></td><td class="mono">${date(v.date)}</td><td>${esc(v.auteur)}</td><td>${v.noeuds}</td><td>${v.relations}</td><td class="lib">${esc(v.description)}</td>
+          <td class="btns"><button class="btn petit" data-cmp="${esc(v.nom)}">Comparer au courant</button><button class="btn petit" data-rest="${esc(v.nom)}">Restaurer</button></td></tr>`).join("")}</table><div id="kv-res"></div>`
+        : "<p class='lib'>Aucune version : créer la première pour suivre l'évolution du graphe.</p>"}
+      <h3 class="lib" style="margin-top:14px">JOURNAL DES DÉCLARATIONS</h3><p class="lib">Toutes les modifications déclarées du graphe (ajout, modification, masquage, fusion, validation), avec auteur et date. Les éléments observés se recalculent depuis leurs sources.</p>
       <table class="table-strat"><tr><th>Date</th><th>Opération</th><th>Cible</th><th>Auteur</th></tr>${h.map(x => `<tr><td class="mono">${date(x.date)}</td><td>${esc(x.op.replace(/_/g, " "))}</td><td class="mono">${esc(x.cible || "")}</td><td>${esc(x.auteur)}</td></tr>`).join("") || "<tr><td colspan='4' class='lib'>Aucune modification.</td></tr>"}</table>
-      <p class="lib">Versions nommées du graphe, comparaison et restauration : à venir.</p></div>`;
+      <p class="lib">Restaurer sauvegarde d'abord l'état courant comme version : rien n'est perdu.</p></div>`;
+    $("#kv-ok").onclick = async () => { try { await api("/api/intelligence/versions", {method: "POST", body: {nom: $("#kv-nom").value.trim()}}); toast("Version créée.", "ok"); historique(z); } catch (e) { toast(e.message, "ko"); } };
+    $$("[data-cmp]", z).forEach(b => b.onclick = async () => { const c = await api("/api/intelligence/versions/comparer?a=" + encodeURIComponent(b.dataset.cmp));
+      $("#kv-res").innerHTML = `<div class="bloc-strat" style="margin-top:10px">${["noeuds_ajoutes", "noeuds_supprimes", "noeuds_modifies", "relations_ajoutees", "relations_supprimees"].map(k => `<div><b>${k.replace("_", " ")}</b> (${c[k].length}) <span class="lib mono">${esc(c[k].slice(0, 12).join(", "))}${c[k].length > 12 ? "…" : ""}</span></div>`).join("")}</div>`; });
+    $$("[data-rest]", z).forEach(b => b.onclick = async () => { if (!confirm(`Restaurer les déclarations de ${b.dataset.rest} ? L'état courant sera sauvegardé comme version.`)) return;
+      try { const r = await api("/api/intelligence/versions/restaurer", {method: "POST", body: {nom: b.dataset.rest}}); toast(`Restauré ; sauvegarde ${r.sauvegarde}.`, "ok"); historique(z); } catch (e) { toast(e.message, "ko"); } });
   }
 
   function parametres(z) {

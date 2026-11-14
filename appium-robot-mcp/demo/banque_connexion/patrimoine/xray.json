@@ -17,7 +17,13 @@
    "resume": "Se connecter avec identifiant et mot de passe",
    "parent": "DEMO-300",
    "module": "Connexion",
-   "statut": "Terminé"
+   "statut": "Terminé",
+   "criteres": [
+    "Lorsque l'identifiant et le mot de passe sont corrects, le client est redirigé vers l'accueil",
+    "Si un champ est vide, le système affiche « Veuillez saisir votre identifiant et votre mot de passe. »",
+    "Le message d'erreur ne doit pas indiquer si l'identifiant existe"
+   ],
+   "description": "Critères d'acceptation :\n- Lorsque l'identifiant et le mot de passe sont corrects, le client est redirigé vers l'accueil\n- Si un champ est vide, le système affiche « Veuillez saisir votre identifiant et votre mot de passe. »\n- Le message d'erreur ne doit pas indiquer si l'identifiant existe"
   },
   {
    "cle": "DEMO-311",
@@ -25,7 +31,12 @@
    "resume": "Bloquer le compte après trois échecs",
    "parent": "DEMO-300",
    "module": "Connexion",
-   "statut": "Terminé"
+   "statut": "Terminé",
+   "criteres": [
+    "Après trois échecs consécutifs, le compte doit être bloqué",
+    "Si le compte est bloqué, la connexion est refusée avec « Votre compte est bloqué. Contactez votre conseiller. »"
+   ],
+   "description": "Critères d'acceptation :\n- Après trois échecs consécutifs, le compte doit être bloqué\n- Si le compte est bloqué, la connexion est refusée avec « Votre compte est bloqué. Contactez votre conseiller. »"
   },
   {
    "cle": "DEMO-312",
@@ -33,7 +44,12 @@
    "resume": "Réinitialiser un mot de passe oublié",
    "parent": "DEMO-300",
    "module": "Connexion",
-   "statut": "À faire"
+   "statut": "À faire",
+   "criteres": [
+    "Le client saisit son identifiant",
+    "Un lien de réinitialisation valable au plus 30 minutes est envoyé par e-mail"
+   ],
+   "description": "Critères d'acceptation :\n- Le client saisit son identifiant\n- Un lien de réinitialisation valable au plus 30 minutes est envoyé par e-mail"
   },
   {
    "cle": "DEMO-313",
@@ -41,7 +57,11 @@
    "resume": "Se déconnecter",
    "parent": "DEMO-300",
    "module": "Connexion",
-   "statut": "Terminé"
+   "statut": "Terminé",
+   "criteres": [
+    "Quand le client se déconnecte, il est redirigé vers la page de connexion avec « Vous êtes déconnecté. »"
+   ],
+   "description": "Critères d'acceptation :\n- Quand le client se déconnecte, il est redirigé vers la page de connexion avec « Vous êtes déconnecté. »"
   }
  ],
  "tests": [

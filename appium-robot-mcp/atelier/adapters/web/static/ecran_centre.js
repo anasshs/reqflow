@@ -69,7 +69,8 @@
     z.innerHTML = `${entete("Test Campaigns", `<button class="btn primaire" id="ca-n">${ico("plus")}Créer une campagne</button>`)}<div class="corps-carte">
       ${l.length ? `<table class="table-strat"><tr><th>Campagne</th><th>Type</th><th>Plateformes</th><th>Environnement</th><th>Tests</th><th>Priorité</th><th>Dernière exécution</th><th>Réussite</th><th>Statut</th><th></th></tr>
         ${l.map(c => `<tr><td class="cliquable" data-ed="${esc(c.id)}"><b>${esc(c.nom)}</b><div class="lib">${esc(c.id)} · ${esc(c.cible)}</div></td><td>${esc(c.type)}</td><td>${esc(c.plateformes.join(", "))}</td>
-          <td>${esc(c.environnement || "—")}</td><td class="lib">${esc([...c.tests, ...c.tags].join(", ") || "toute la cible")}</td><td>${esc(c.priorite)}</td>
+          <td>${esc(c.environnement || "—")}</td><td class="lib">${esc([...c.tests, ...c.tags].join(", ") || "toute la cible")}${(c.exclus || []).length ? `<div class="warn-t">exclus : ${esc(c.exclus.join(", "))}</div>` : ""}
+            ${c.planning?.type && c.planning.type !== "aucun" ? `<div>${ico("historique")} ${esc(c.planning.type)} ${esc(c.planning.type === "intervalle" ? c.planning.minutes + " min" : c.planning.heure)}</div>` : ""}</td><td>${esc(c.priorite)}</td>
           <td>${c.derniere_execution ? `${esc(c.derniere_execution.slice(0, 16).replace("T", " "))} ${statut(c.dernier_statut)}` : "—"}</td><td>${c.taux_reussite === null ? "—" : c.taux_reussite + " %"}</td><td>${esc(c.statut)}</td>
           <td class="btns">${c.statut === "Active" ? `<button class="btn petit primaire" data-ex="${esc(c.id)}">${ico("play")}Exécuter</button><button class="btn petit" data-dry="${esc(c.id)}">Dry run</button>` : ""}
             <button class="btn petit" data-dup="${esc(c.id)}">Dupliquer</button>${c.runs.length >= 2 ? `<button class="btn petit" data-cmp="${esc(c.runs[1])}|${esc(c.runs[0])}">Comparer</button>` : ""}</td></tr>`).join("")}</table>`
@@ -88,16 +89,22 @@
           <div class="champ"><label for="ca-cible">Suite ou dossier</label><input class="in" id="ca-cible" value="${esc(c.cible)}"></div></div>
         <div class="champ"><label for="ca-tests">Tests (clés Xray)</label><select class="in" id="ca-tests" multiple size="5">${cles.map(k => `<option ${c.tests.includes(k) ? "selected" : ""}>${esc(k)}</option>`).join("")}</select><small class="lib">Aucune sélection : toute la suite (filtrée par les tags).</small></div>
         <div class="champ"><label for="ca-tags">Tags (virgules)</label><input class="in" id="ca-tags" value="${esc(c.tags.join(", "))}" placeholder="smoke"></div>
+        <div class="champ"><label for="ca-excl">Exclusion temporaire (tags, ex. clé d'un test instable)</label><input class="in" id="ca-excl" value="${esc((c.exclus || []).join(", "))}" placeholder="DEMO-304"><small class="lib">Le test reste au référentiel avec son historique.</small></div>
+        <div class="grille-2"><div class="champ"><label for="ca-pl">Planification</label><select class="in" id="ca-pl">${["aucun", "quotidien", "hebdomadaire", "intervalle"].map(t => `<option ${t === (c.planning?.type || "aucun") ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+          <div class="champ"><label for="ca-h">Heure (HH:MM) / minutes</label><div class="btns"><input class="in" id="ca-h" value="${esc(c.planning?.heure || "02:00")}" style="width:90px"><input class="in" id="ca-min" type="number" value="${esc(c.planning?.minutes || 60)}" style="width:90px"></div></div></div>
+        <div class="champ"><label>Jours (hebdomadaire)</label><div class="btns">${["lun", "mar", "mer", "jeu", "ven", "sam", "dim"].map((j, n) => `<label><input type="checkbox" data-jour="${n}" ${(c.planning?.jours || []).includes(n) ? "checked" : ""}> ${j}</label>`).join("")}</div></div>
         <div class="champ"><label for="ca-xray">Ticket Xray (plan / exécution)</label><input class="in" id="ca-xray" value="${esc(c.xray_ticket || "")}"></div>
         <label class="ligne-champ"><span>Retry des échecs (une relance, historisée)</span><input type="checkbox" class="bascule" id="ca-retry" ${c.retry ? "checked" : ""}></label>
         <div class="champ"><label for="ca-st">Statut</label><select class="in" id="ca-st">${["Active", "Archivée"].map(t => `<option ${t === c.statut ? "selected" : ""}>${t}</option>`).join("")}</select></div>
-        <p class="lib">Parallélisation : 1 run à la fois sur le runner local. Planification : à venir.</p>
+        <p class="lib">Parallélisation : 1 run à la fois sur le runner local. Webhook CI/CD : POST /api/externe/campagnes/&lt;id&gt;/executer avec l'en-tête X-Atelier-Jeton.</p>
         <button class="btn primaire" id="ca-ok">Enregistrer</button>`);
       $("#ca-ok", p).onclick = async () => {
         const b = {id: c.id, nom: $("#ca-nom", p).value, description: $("#ca-desc", p).value, type: $("#ca-type", p).value, priorite: $("#ca-prio", p).value,
           plateformes: $$("[data-pl]", p).filter(x => x.checked).map(x => x.dataset.pl), environnement: $("#ca-env", p).value, cible: $("#ca-cible", p).value,
           tests: [...$("#ca-tests", p).selectedOptions].map(o => o.value), tags: $("#ca-tags", p).value.split(",").map(x => x.trim()).filter(Boolean),
-          xray_ticket: $("#ca-xray", p).value.trim(), retry: $("#ca-retry", p).checked, statut: $("#ca-st", p).value};
+          xray_ticket: $("#ca-xray", p).value.trim(), retry: $("#ca-retry", p).checked, statut: $("#ca-st", p).value,
+          exclus: $("#ca-excl", p).value.split(",").map(x => x.trim()).filter(Boolean),
+          planning: {type: $("#ca-pl", p).value, heure: $("#ca-h", p).value.trim(), minutes: +$("#ca-min", p).value, jours: $$("[data-jour]", p).filter(x => x.checked).map(x => +x.dataset.jour)}};
         try { await api("/api/centre/campagnes", {method: "POST", body: b}); toast("Campagne enregistrée.", "ok"); campagnes(z); } catch (e) { toast(e.message, "ko"); }
       };
     };
@@ -291,6 +298,6 @@
       <dt>Retry</dt><dd>seconde tentative des seuls échecs ; tentative-1/ et tentative-2/ conservées, résultats fusionnés (rebot --merge), tests passés au second essai déclarés instables</dd><dt>Timeout global</dt><dd>3600 s par run</dd>
       <dt>Preuves</dt><dd>results/runs/&lt;id&gt;/ (captures, output.xml, log.html, report.html, journal Xray)</dd><dt>Environnements</dt><dd>data/jdd/&lt;env&gt;.yaml ; PROD selon la stratégie</dd>
       <dt>Xray</dt><dd>XRAY_STATUTS, XRAY_SYNC_DELAI_FIN ; connexions dans les <a href="#parametres">Paramètres globaux</a></dd></dl>
-      <p class="lib" style="margin-top:10px">Planification (cron, webhook, après déploiement), notifications, politique de conservation des preuves : à venir.</p></div>`;
+      <p class="lib" style="margin-top:10px">Planification : quotidienne, hebdomadaire ou par intervalle (scheduler interne) ; webhook /api/externe/campagnes/&lt;id&gt;/executer (jeton). Notifications et conservation des preuves : à venir.</p></div>`;
   }
 })();

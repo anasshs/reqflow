@@ -35,6 +35,7 @@ def construire(avec_declarations: bool = True, inventaire: dict | None = None) -
     _depuis_depot(g, inv)
     _depuis_jdd(g)
     _depuis_patrimoine(g, patrimoine_xray.charger())
+    _depuis_openapi(g)
     _resultats(g, derniers_resultats())
     if avec_declarations:
         declarations.appliquer(g)
@@ -255,6 +256,46 @@ def _depuis_patrimoine(g: Graphe, pat: dict | None):
         for x in t["executions"]:
             g.noeud(f"test_execution:{x}", "test_execution", x, source=src)
             g.relier(n.id, f"test_execution:{x}", "execute_par", source=src)
+
+
+def _depuis_openapi(g: Graphe):
+    """Spécifications OpenAPI / Swagger du projet (api/*.yaml|yml|json) : un nœud par opération, relié au module
+    (tag de même nom) et aux tickets Jira cités dans l'extension « x-jira »."""
+    import json as _json
+
+    import yaml as _yaml
+
+    from atelier.domain import projet
+
+    base = projet.PROJECT_DIR / "api"
+    for f in sorted(base.glob("*")) if base.exists() else []:
+        if f.suffix not in (".yaml", ".yml", ".json"):
+            continue
+        try:
+            d = _json.loads(f.read_text("utf-8")) if f.suffix == ".json" else _yaml.safe_load(f.read_text("utf-8"))
+        except Exception:
+            continue
+        if not isinstance(d, dict) or not ("openapi" in d or "swagger" in d):
+            continue
+        rel = str(f.relative_to(projet.PROJECT_DIR))
+        for chemin, ops in (d.get("paths") or {}).items():
+            for meth, op in (ops or {}).items():
+                if meth.lower() not in ("get", "post", "put", "patch", "delete") or not isinstance(op, dict):
+                    continue
+                nid = f"endpoint:{meth.upper()} {chemin}"
+                g.noeud(nid, "endpoint", f"{meth.upper()} {chemin}", source="openapi", plateformes=["api"],
+                        proprietes={"resume": op.get("summary", ""), "operation": op.get("operationId", ""), "fichier": rel,
+                                    "version_api": (d.get("info") or {}).get("version", ""),
+                                    "parametres": [p.get("name") for p in op.get("parameters") or [] if isinstance(p, dict)],
+                                    "reponses": sorted(str(c) for c in (op.get("responses") or {})),
+                                    "authentification": bool(op.get("security", d.get("security")))})
+                for tag in op.get("tags") or []:
+                    if f"module:{tag}" in g.noeuds:
+                        g.relier(f"module:{tag}", nid, "contient", source="openapi")
+                for cle in op.get("x-jira") or []:
+                    for t in ("user_story", "epic"):
+                        if f"{t}:{cle}" in g.noeuds:
+                            g.relier(f"{t}:{cle}", nid, "utilise", source="openapi")
 
 
 def _resultats(g: Graphe, res: dict):

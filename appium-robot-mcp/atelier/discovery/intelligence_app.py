@@ -150,3 +150,129 @@ def validation() -> list[dict]:
 
 def api_endpoints() -> list[dict]:
     return noeuds(["endpoint", "entite"])
+
+
+# =========================================================================== critères d'acceptation et règles métier (Jira)
+import re  # noqa: E402
+
+RE_CONDITION = re.compile(r"(?i)(?:^|,\s*)(si|lorsque|lorsqu'|quand|en cas d[e']|après)\s*(.+?)(?:,|\balors\b|$)")
+RE_RESULTAT = re.compile(r"(?i)\b(doit|doivent|ne doit pas|ne peut pas|est refusée?|refuse|affiche|empêche|bloque|est bloquée?|reçoit|est redirigée?)\b(.*)")
+RE_REGLE = re.compile(r"(?i)\b(doit|ne doit pas|ne peut pas|empêch|obligatoire|maximum|minimum|au plus|au moins|plafond|bloqu|refus|interdit)")
+
+
+def criteres(e: dict) -> list[str]:
+    """Critères d'acceptation d'un ticket : champ « criteres » (liste) ou puces de la description."""
+    if isinstance(e.get("criteres"), list):
+        return [str(c).strip() for c in e["criteres"] if str(c).strip()]
+    lignes = (e.get("description") or "").splitlines()
+    return [re.sub(r"^\s*[-*•]\s*", "", l).strip() for l in lignes if re.match(r"^\s*[-*•]\s+\S", l)]
+
+
+def structurer(texte: str) -> dict:
+    """Critère → condition / action / résultat attendu, par motifs explicites (pas d'IA)."""
+    c = RE_CONDITION.search(texte)
+    reste = texte.replace(c.group(0), " ", 1) if c else texte  # le résultat se cherche hors de la condition
+    r = RE_RESULTAT.search(reste)
+    action = reste.replace(r.group(0), " ") if r else reste
+    return {"texte": texte, "condition": c.group(2).strip() if c else "", "resultat": (r.group(1) + r.group(2)).strip() if r else "",
+            "action": re.sub(r"\s+", " ", action).strip(" ,."), "regle_candidate": bool(RE_REGLE.search(texte))}
+
+
+def analyser_jira(proposer: bool = True) -> list[dict]:
+    """Structure les critères de chaque ticket et propose les règles métier candidates dans la file de validation
+    (provenance « déduit », statut « à valider », extrait et ticket source conservés). Idempotent."""
+    from atelier.domain import declarations
+    from atelier.intelligence import patrimoine_xray
+
+    pat = patrimoine_xray.charger() or {"exigences": []}
+    existants = set(declarations.charger()["noeuds"])
+    out = []
+    for e in pat["exigences"]:
+        for n, texte in enumerate(criteres(e), 1):
+            s = structurer(texte)
+            item = {"ticket": e["cle"], "n": n, **s, "proposition": ""}
+            if s["regle_candidate"] and proposer:
+                rid = f"regle:{e['cle']}-{n}"
+                item["proposition"] = rid
+                if rid not in existants:
+                    declarations.ajouter_noeud(rid, "regle", texte[:70] + ("…" if len(texte) > 70 else ""), description=texte,
+                                               proprietes={"ticket_source": e["cle"], "extrait": texte, "condition": s["condition"],
+                                                           "resultat_attendu": s["resultat"], "methode": "extraction par motifs (sans IA)"}, auteur="ia")
+                    type_ex = "user_story" if e.get("type") == "user_story" else e.get("type", "epic")
+                    try:
+                        declarations.ajouter_relation(f"{type_ex}:{e['cle']}", rid, "contient", auteur="ia", source=f"jira:{e['cle']}")
+                    except Exception:
+                        pass
+                    existants.add(rid)
+            out.append(item)
+    return out
+
+
+# =========================================================================== versions du graphe
+def _versions_dir():
+    return projet.PROJECT_DIR / "connaissance" / "versions"
+
+
+def _photo() -> dict:
+    from atelier.domain import declarations
+
+    g = _g()
+    return {"noeuds": {i: [n.type, n.libelle, n.statut, n.provenance] for i, n in g.noeuds.items()},
+            "relations": sorted(g.relations), "declarations": declarations.charger()}
+
+
+def creer_version(nom: str, description: str = "") -> dict:
+    import json
+
+    from atelier.intelligence.strategie import _auteur, _maintenant
+
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", nom or ""):
+        raise ValueError("Nom de version : lettres, chiffres, « _ », « - », « . ».")
+    f = _versions_dir() / f"{nom}.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    v = {"nom": nom, "description": description.strip(), "date": _maintenant(), "auteur": _auteur(), **_photo()}
+    with f.open("x", encoding="utf-8") as fh:  # une version n'est jamais réécrite
+        fh.write(json.dumps(v, ensure_ascii=False))
+    return {k: v[k] for k in ("nom", "description", "date", "auteur")} | {"noeuds": len(v["noeuds"]), "relations": len(v["relations"])}
+
+
+def versions() -> list[dict]:
+    import json
+
+    d = _versions_dir()
+    out = []
+    for f in sorted(d.glob("*.json")) if d.exists() else []:
+        v = json.loads(f.read_text("utf-8"))
+        out.append({k: v[k] for k in ("nom", "description", "date", "auteur")} | {"noeuds": len(v["noeuds"]), "relations": len(v["relations"])})
+    return sorted(out, key=lambda v: v["date"])
+
+
+def _version(nom: str) -> dict:
+    import json
+
+    if nom == "courant":
+        return _photo()
+    f = _versions_dir() / f"{nom}.json"
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", nom) or not f.exists():
+        raise KeyError(f"Version inconnue : {nom}")
+    return json.loads(f.read_text("utf-8"))
+
+
+def comparer_versions(a: str, b: str = "courant") -> dict:
+    x, y = _version(a), _version(b)
+    return {"a": a, "b": b, "noeuds_ajoutes": sorted(set(y["noeuds"]) - set(x["noeuds"])), "noeuds_supprimes": sorted(set(x["noeuds"]) - set(y["noeuds"])),
+            "noeuds_modifies": sorted(i for i in set(x["noeuds"]) & set(y["noeuds"]) if x["noeuds"][i] != y["noeuds"][i]),
+            "relations_ajoutees": sorted(set(y["relations"]) - set(x["relations"])), "relations_supprimees": sorted(set(x["relations"]) - set(y["relations"]))}
+
+
+def restaurer_version(nom: str) -> dict:
+    """Restaure les déclarations d'une version ; l'état courant est d'abord sauvegardé comme version (rien n'est perdu)."""
+    from datetime import datetime
+
+    from atelier.domain import declarations
+
+    v = _version(nom)
+    sauvegarde = creer_version(f"avant-restauration-{datetime.now():%Y%m%d-%H%M%S}", f"automatique avant restauration de {nom}")
+    declarations._sauver(v["declarations"])
+    declarations._historiser("restauration_version", "automaticien", f"version:{nom}")
+    return {"restauree": nom, "sauvegarde": sauvegarde["nom"]}

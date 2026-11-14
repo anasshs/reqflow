@@ -349,3 +349,85 @@ def vue_ensemble() -> dict:
             "par_jour": dict(sorted(Counter(e["date"][:10] for e in ev).items())), "top_recurrents": recur.most_common(8),
             "derniers": ev[:10], "xray_hors_echecs": xray,
             "note": "Les erreurs de synchronisation Xray sont listées à part : elles ne sont jamais comptées comme échecs de test."}
+
+
+# =========================================================================== corrections proposées (avant / après)
+def _corrections() -> dict:
+    f = _dossier() / "corrections.json"
+    return json.loads(f.read_text("utf-8")) if f.exists() else {}
+
+
+def _sauver_corrections(c: dict):
+    _ecrire_atomique(_dossier() / "corrections.json", json.dumps(c, ensure_ascii=False, indent=1))
+
+
+def proposer_correction_locator(eid: str, nouvelle_valeur: str, justification: str = "") -> dict:
+    """Proposition (jamais appliquée ici) : remplace la valeur du locator fautif dans sa ressource, diff à l'appui."""
+    import difflib
+
+    from atelier.execution.depot_robot import lire_depot
+
+    i = investigation(eid)
+    actuel = (i.get("etape_fautive") or {}).get("locator", "")
+    if not actuel:
+        raise ValueError("Aucun locator identifié sur l'étape en échec.")
+    nouvelle_valeur = nouvelle_valeur.strip()
+    if not nouvelle_valeur or nouvelle_valeur == actuel or "\n" in nouvelle_valeur:
+        raise ValueError("Nouvelle valeur de locator invalide.")
+    loc = next((l for l in lire_depot()["locators"].values() if l["valeur"] == actuel), None)
+    if not loc:
+        raise KeyError(f"Locator {actuel} introuvable dans les ressources du dépôt.")
+    avant = projet.safe_path(loc["fichier"]).read_text("utf-8")
+    motif = re.compile(rf"(\b{re.escape(loc['cle'])}=){re.escape(actuel)}(?=\s{{2,}}|\t|$)", re.M)
+    if len(motif.findall(avant)) != 1:
+        raise ValueError("Définition du locator ambiguë ou introuvable : correction manuelle dans le Code Editor.")
+    apres = motif.sub(lambda m: m.group(1) + nouvelle_valeur, avant)
+    cid = f"COR-{hashlib.sha1((eid + nouvelle_valeur).encode()).hexdigest()[:8].upper()}"
+    c = {"id": cid, "echec": eid, "type": "locator", "fichier": loc["fichier"], "cle": f"{loc['ecran']}.{loc['cle']}@{loc['plateforme']}",
+         "avant_valeur": actuel, "apres_valeur": nouvelle_valeur, "justification": justification.strip(), "statut": "Proposed",
+         "diff": "\n".join(difflib.unified_diff(avant.splitlines(), apres.splitlines(), loc["fichier"], loc["fichier"] + " (proposé)", lineterm="")),
+         "contenu_base": avant, "contenu_propose": apres, "impactes": i["impactes"], "historique": [{"date": _maintenant(), "par": _auteur(), "statut": "Proposed"}]}
+    cs = _corrections()
+    cs[cid] = c
+    _sauver_corrections(cs)
+    _journaliser("correction_proposee", echec=eid, correction=cid)
+    return c
+
+
+def corrections() -> list[dict]:
+    return sorted(_corrections().values(), key=lambda c: c["historique"][0]["date"], reverse=True)
+
+
+def faire_avancer_correction(cid: str, action: str, commentaire: str = "") -> dict:
+    """soumettre → Under Review, approuver → Approved, appliquer → Applied (écrit via l'éditeur, historisé),
+    valider → Validated (retest réussi exigé), rejeter → Rejected (justifié)."""
+    from atelier.generation import editeur
+
+    cs = _corrections()
+    c = cs.get(cid)
+    if not c:
+        raise KeyError(f"Correction inconnue : {cid}")
+    regles = {"soumettre": ("Proposed", "Under Review"), "approuver": ("Under Review", "Approved"), "appliquer": ("Approved", "Applied"),
+              "valider": ("Applied", "Validated")}
+    if action == "rejeter":
+        if not commentaire.strip():
+            raise ValueError("Un rejet doit être justifié.")
+        if c["statut"] in ("Applied", "Validated"):
+            raise ValueError("Correction déjà appliquée : revenir en arrière par le Code Editor (historique).")
+        vers = "Rejected"
+    elif action in regles:
+        depuis, vers = regles[action]
+        if c["statut"] != depuis:
+            raise ValueError(f"« {action} » impossible depuis {c['statut']}.")
+    else:
+        raise ValueError("Action : soumettre, approuver, appliquer, valider ou rejeter.")
+    if action == "appliquer":  # contrôle de concurrence : le fichier ne doit pas avoir changé depuis la proposition
+        editeur.enregistrer(c["fichier"], c["contenu_propose"], version_lue=c["contenu_base"])
+        _maj(c["echec"], "correction_appliquee", statut="Fix In Progress")
+    if action == "valider" and not any(r.get("resultat") == "PASS" for r in resultats_retests(c["echec"])):
+        raise ValueError("Validation impossible sans retest réussi après application.")
+    c["statut"] = vers
+    c["historique"].append({"date": _maintenant(), "par": _auteur(), "statut": vers, "commentaire": commentaire.strip()})
+    _sauver_corrections(cs)
+    _journaliser(f"correction_{action}", correction=cid)
+    return c
