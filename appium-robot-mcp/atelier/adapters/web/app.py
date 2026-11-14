@@ -43,7 +43,11 @@ from atelier.discovery import carte as amap  # noqa: E402
 from atelier.discovery import carte_outils, espaces, exploration, session  # noqa: E402
 from atelier.domain import declarations, evenements, projet  # noqa: E402
 from atelier.execution import jdd  # noqa: E402
+from atelier.execution import historique  # noqa: E402
+from atelier.execution import robot as robot_moteur  # noqa: E402
+from atelier.generation import bdd, editeur  # noqa: E402
 from atelier.generation import locators as gen_locators  # noqa: E402
+from atelier.intelligence import assistant  # noqa: E402
 from atelier.intelligence import patrimoine_xray  # noqa: E402
 
 outils.WEB_EVENTS_URL = ""  # dans ce processus, l'agent intégré émet lui-même ses événements
@@ -923,23 +927,200 @@ async def run(req: Request):
     b = await req.json()
     params = {k: v for k, v in b.items() if v not in ("", None, [])}
     params["events_url"] = f"http://127.0.0.1:{PORT}/api/events"
+    run_id = historique.nouvel_id()
+    params.setdefault("output_dir", f"{historique.RACINE}/{run_id}")  # un dossier par run : plus d'écrasement
     plat = (b.get("variables") or {}).get("PLATFORM", "").lower()
     if plat in ("android", "ios"):
         state["flux"] = {"platform": plat, "udid": b["variables"].get("DEVICE")}
     state["dernier_run"] = params
 
     def worker():
-        emit({"type": "run_lance", "suite": params.get("target"), "relance": bool(params.get("relancer_echecs"))})
+        debut = time.strftime("%Y-%m-%dT%H:%M:%S")
+        _call_silencieux(historique.enregistrer, run_id, params, None, debut)
+        emit({"type": "run_lance", "suite": params.get("target"), "relance": bool(params.get("relancer_echecs")),
+              "run_id": run_id})
         try:
             bilan = outils.run_robot(**params)
         except Exception as e:
             bilan = {"statut": "erreur", "erreur": str(e)}
         state["dernier_bilan"] = bilan
-        emit({"type": "run_bilan", "bilan": bilan})
+        _call_silencieux(historique.enregistrer, run_id, params, bilan, debut, time.strftime("%Y-%m-%dT%H:%M:%S"))
+        emit({"type": "run_bilan", "bilan": bilan, "run_id": run_id})
 
     state["run"] = threading.Thread(target=worker, daemon=True)
     state["run"].start()
-    return {"ok": True}
+    return {"ok": True, "run_id": run_id}
+
+
+def _call_silencieux(fn, *a):
+    try:
+        fn(*a)
+    except Exception:
+        pass  # l'historique ne doit jamais empêcher un run
+
+
+@app.post("/api/run/arreter")
+def run_arreter():
+    return {"message": robot_moteur.arreter_run()}
+
+
+@app.get("/api/executions")
+def executions_liste():
+    return _call(historique.lister)
+
+
+@app.get("/api/executions/{run_id}")
+async def execution_detail(run_id: str):
+    return await asyncio.to_thread(_call, historique.detail, run_id)
+
+
+@app.get("/api/executions/{run_id}/test")
+async def execution_test(run_id: str, id: str):
+    return await asyncio.to_thread(_call, historique.detail_test, run_id, id)
+
+
+# --------------------------------------------------------------------------- construction BDD
+@app.get("/api/bdd")
+def bdd_liste():
+    return _call(bdd.lister)
+
+
+def _vue_bdd(m: dict) -> dict:
+    return {"scenario": m, "gherkin": bdd.serialiser(m), "controles": bdd.controles(m), "statistiques": bdd.statistiques(m)}
+
+
+@app.get("/api/bdd/{cle}")
+def bdd_lire(cle: str):
+    m = _call(bdd.charger, cle)
+    if not m:
+        raise HTTPException(404, f"Scénario {cle} introuvable.")
+    return _vue_bdd(m)
+
+
+@app.post("/api/bdd")
+async def bdd_creer(req: Request):
+    b = await req.json()
+    depuis = None
+    if b.get("depuis_xray"):
+        try:
+            depuis = await asyncio.to_thread(outils.xray_get_test, b["cle"])
+        except Exception as e:
+            raise HTTPException(400, f"Lecture du test Xray impossible : {e}")
+    return _vue_bdd(_call(bdd.creer, b["cle"], b.get("titre", ""), depuis, b.get("jdd", "")))
+
+
+@app.post("/api/bdd/{cle}/operation")
+async def bdd_operation(cle: str, req: Request):
+    """Opérations du graphe de scénario : ajouter / modifier / supprimer / déplacer une étape, branche, texte."""
+    b = await req.json()
+    op = b.pop("op", "")
+    ops = {"ajouter_etape": lambda: bdd.ajouter_etape(cle, b["scenario"], b.get("mot", "Et"), b["texte"], b.get("apres", "")),
+           "modifier_etape": lambda: bdd.modifier_etape(cle, b.pop("etape"), **b),
+           "supprimer_etape": lambda: bdd.supprimer_etape(cle, b["etape"]),
+           "deplacer_etape": lambda: bdd.deplacer_etape(cle, b["etape"], int(b.get("sens", 1))),
+           "ajouter_branche": lambda: bdd.ajouter_branche(cle, b["depuis"], b["nom"], b.get("type", "negatif"), b.get("etapes")),
+           "supprimer_scenario": lambda: bdd.supprimer_scenario(cle, b["scenario"]),
+           "texte": lambda: bdd.depuis_texte(cle, b["gherkin"]),
+           "jdd": lambda: bdd.associer_jdd(cle, b.get("jdd", "")),
+           "valider": lambda: bdd.valider(cle)}
+    if op not in ops:
+        raise HTTPException(400, f"Opération inconnue : {op}")
+    return _vue_bdd(_call(ops[op]))
+
+
+@app.post("/api/bdd/{cle}/generer")
+async def bdd_generer(cle: str, req: Request):
+    """Prévisualise (ecrire=false) ou écrit (ecrire=true, jamais d'écrasement implicite) la suite Robot."""
+    b = await req.json()
+    m = _call(bdd._exiger, cle)
+    g = await asyncio.to_thread(_call, bdd.generer_robot, m)
+    if b.get("ecrire"):
+        chemin = b.get("chemin") or g["chemin"]
+        _call(outils.write_project_file, chemin, g["contenu"], bool(b.get("ecraser")))
+        g["ecrit"] = chemin
+    return g
+
+
+@app.post("/api/bdd/{cle}/ia")
+async def bdd_ia(cle: str, req: Request):
+    b = await req.json()
+    m = _call(bdd._exiger, cle)
+    return await asyncio.to_thread(_call, assistant.demander_scenario, m, bdd.controles(m), b.get("question", ""))
+
+
+# --------------------------------------------------------------------------- éditeur de test
+@app.get("/api/editeur/arbre")
+async def editeur_arbre():
+    return await asyncio.to_thread(_call, editeur.arbre)
+
+
+@app.post("/api/editeur/enregistrer")
+async def editeur_enregistrer(req: Request):
+    b = await req.json()
+    r = _call(editeur.enregistrer, b["chemin"], b["contenu"], b.get("version_lue"))
+    emit({"type": "outil", "nom": "write_project_file", "args": {"path": b["chemin"]}, "manuel": True})
+    return r
+
+
+@app.post("/api/editeur/lint")
+async def editeur_lint(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, editeur.lint, b["contenu"], b.get("chemin", "suite.robot"))
+
+
+@app.post("/api/editeur/robocop")
+async def editeur_robocop(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, editeur.robocop, b["chemin"])
+
+
+@app.get("/api/editeur/proprietes")
+async def editeur_proprietes(chemin: str):
+    return await asyncio.to_thread(_call, editeur.proprietes, chemin)
+
+
+@app.get("/api/editeur/reutilisation")
+async def editeur_reutilisation():
+    return await asyncio.to_thread(_call, editeur.reutilisation)
+
+
+@app.get("/api/editeur/historique")
+def editeur_historique(chemin: str):
+    return _call(editeur.historique, chemin)
+
+
+@app.get("/api/resultats/captures")
+def resultats_captures(dossier: str = "results", limite: int = 12):
+    """Captures d'écran les plus récentes des résultats (preuves)."""
+    base = projet.safe_path(dossier)
+    fichiers = sorted(base.rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)[:limite] if base.exists() else []
+    return [{"chemin": str(f.relative_to(base)), "dossier": dossier, "date": time.strftime("%H:%M:%S", time.localtime(f.stat().st_mtime))}
+            for f in fichiers]
+
+
+# --------------------------------------------------------------------------- contexte (en-tête)
+@app.get("/api/contexte")
+def contexte():
+    from atelier.execution import jdd as jdd_mod
+
+    try:
+        cfg = amap.config_app() if amap.app_courante() else {}
+    except Exception:
+        cfg = {}
+    try:
+        envs = jdd_mod.environnements()
+    except Exception:
+        envs = []
+    cache = state["sante_cache"]
+    xray = cache.get("xray")
+    return {"projet": projet.PROJECT_DIR.name, "projet_chemin": str(projet.PROJECT_DIR),
+            "applications": [{"slug": a["slug"], "nom": a.get("nom", a["slug"])} for a in amap.apps()],
+            "application": cfg.get("slug"), "version": cfg.get("build", ""), "plateformes": cfg.get("plateformes", []),
+            "session": session.plateforme(), "flux": state["flux"], "environnements": envs,
+            "xray": {"configure": bool(os.environ.get("XRAY_CLIENT_ID")), "connecte": xray[0] if xray else None,
+                     "detail": xray[1] if xray else "non vérifié"},
+            "run_en_cours": bool(state["run"] and state["run"].is_alive()),
+            "agent_integre": bool(os.environ.get("ANTHROPIC_API_KEY"))}
 
 
 @app.get("/api/run/dernier")

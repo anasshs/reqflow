@@ -15,6 +15,19 @@ from atelier.domain import evenements, projet
 from atelier.execution import jdd
 
 LISTENERS = Path(__file__).resolve().parent / "listeners"
+EN_COURS: dict = {"proc": None, "arret": False}
+
+
+def arreter_run() -> str:
+    """Demande l'arrêt du run en cours (SIGINT : Robot termine proprement et écrit output.xml)."""
+    import signal
+
+    proc = EN_COURS.get("proc")
+    if not proc or proc.poll() is not None:
+        return "Aucun run en cours."
+    EN_COURS["arret"] = True
+    proc.send_signal(signal.SIGINT)
+    return "Arrêt demandé : le test en cours se termine, puis le rapport est écrit."
 
 
 def deepest_fail(item, path: list[str]) -> list[str]:
@@ -155,12 +168,22 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     cmd.append(str(projet.safe_path(target).relative_to(projet.PROJECT_DIR)))
 
     try:
-        proc = subprocess.run(cmd, cwd=projet.PROJECT_DIR, capture_output=True, text=True, timeout=timeout_s)
+        proc = subprocess.Popen(cmd, cwd=projet.PROJECT_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        EN_COURS["proc"], EN_COURS["arret"] = proc, False
+        try:
+            sortie, erreurs = proc.communicate(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            sortie, erreurs = proc.communicate()
+            erreurs += f"\nDélai dépassé ({timeout_s} s) : run interrompu."
     finally:
+        EN_COURS["proc"] = None
         if jdd_file and jdd_file.exists():
             jdd_file.unlink()  # contient des secrets résolus : jamais conservé
     bilan: dict = {"commande": " ".join(cmd), "code_retour": proc.returncode,
-                   "console_fin": proc.stdout[-3000:], "erreurs": proc.stderr[-2000:]}
+                   "console_fin": sortie[-3000:], "erreurs": erreurs[-2000:], "output_dir": output_dir}
+    if EN_COURS.get("arret"):
+        bilan["arrete"] = True
     output = out_abs / "output.xml"
     if output.exists():
         bilan["resultat"] = parse_robot_output(str(output.relative_to(projet.PROJECT_DIR)))

@@ -121,3 +121,30 @@ def _client():
 
         return anthropic.Anthropic(http_client=httpx.Client(verify=ca, timeout=120))
     return anthropic.Anthropic()
+
+
+SYSTEME_SCENARIO = SYSTEME + """
+Tu relis un scénario BDD (Gherkin) avant sa génération en Robot Framework. Conventions : Gherkin français,
+aucune donnée littérale dans les steps (elles viennent du jeu de données &{JDD_<NOM>}), une assertion métier
+par résultat attendu, branches négatives pour les cas d'erreur, étapes reliées aux écrans de la carte.
+Cite les étapes par leur identifiant entre crochets, ex. [s1a2b3c4]."""
+
+
+def demander_scenario(m: dict, controles_calcules: list[dict], question: str = "", client=None) -> dict:
+    """Relecture du scénario par l'IA, sur le seul contenu du scénario et des contrôles calculés."""
+    if client is None:
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            return {"disponible": False, "raison": "ANTHROPIC_API_KEY non configurée : seuls les contrôles "
+                                                   "calculés (sans IA) sont affichés.", "controles": controles_calcules}
+        client = _client()
+    ctx = {"scenario": {k: m.get(k) for k in ("cle", "titre", "jdd", "statut", "scenarios", "contexte")},
+           "controles_calcules": controles_calcules}
+    consigne = question or "Relis ce scénario : assertions manquantes, branches à ajouter, données littérales, ambiguïtés."
+    message = client.messages.create(model=MODELE, max_tokens=1500, system=SYSTEME_SCENARIO,
+                                     messages=[{"role": "user", "content": consigne + "\n\nContexte :\n"
+                                                + json.dumps(ctx, ensure_ascii=False, default=str)}])
+    texte = "".join(b.text for b in message.content if getattr(b, "type", "") == "text")
+    ids = {e["id"] for s in m.get("scenarios", []) for e in s["etapes"]}
+    return {"disponible": True, "reponse": texte, "etapes_citees": sorted(i for i in ids if f"[{i}]" in texte),
+            "controles": controles_calcules,
+            "avertissement": "Réponse de l'IA : à vérifier. Rien n'est modifié sans votre validation."}
