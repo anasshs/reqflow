@@ -216,6 +216,9 @@ async def events(req: Request):
     return {"ok": True}
 
 
+SANS_CACHE = {"Cache-Control": "no-cache"}  # le navigateur revalide : après un git pull, les nouveaux écrans apparaissent
+
+
 def _call(fn, *a, **k):
     try:
         return fn(*a, **k)
@@ -255,7 +258,7 @@ def externe_reponse(pid: str):
 # --------------------------------------------------------------------------- page, état, santé
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers=SANS_CACHE)
 
 
 def _attente_courante():
@@ -893,14 +896,14 @@ async def carte_exporter(req: Request):
 # --------------------------------------------------------------------------- espaces de travail (graphes)
 @app.get("/plateforme")
 def page_plateforme():
-    return FileResponse(STATIC / "plateforme.html")
+    return FileResponse(STATIC / "plateforme.html", headers=SANS_CACHE)
 
 
 @app.get("/static/{nom}")
 def fichier_statique(nom: str):
     if not re.fullmatch(r"[a-z_]+\.(js|css)", nom) or not (STATIC / nom).is_file():
         raise HTTPException(404, "Fichier inconnu.")
-    return FileResponse(STATIC / nom)
+    return FileResponse(STATIC / nom, headers=SANS_CACHE)
 
 
 def _liste(v: str) -> list[str] | None:
