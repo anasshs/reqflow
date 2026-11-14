@@ -1,0 +1,24 @@
+# Jeux de données de l'environnement de recette.
+# Copier dans <projet de tests>/data/jdd/recette.yaml et adapter.
+# {{env:VAR}}            secret lu dans l'environnement (jamais en clair dans le dépôt)
+# {{requete:NOM.col}}    valeur de la 1re ligne d'une requête déclarée en prérequis
+
+VIREMENT_STANDARD:
+  description: Virement entre deux comptes du même client, montant courant
+  donnees:
+    identifiant: "U123456"
+    mot_de_passe: "{{env:JDD_RECETTE_MDP_U123456}}"
+    montant: "150.00"
+    motif: "Test auto virement"
+    compte_emetteur: "{{requete:compte_avec_solde.numero_compte}}"
+  prerequis:
+    - requete: compte_avec_solde
+      params: {client: "U123456", montant_min: 150}
+      min_lignes: 1
+      message: "Aucun compte du client U123456 avec un solde ≥ 150 DH : approvisionner le compte avant le run"
+
+LOGIN_STANDARD:
+  description: Connexion d'un client actif
+  donnees:
+    identifiant: "U123456"
+    mot_de_passe: "{{env:JDD_RECETTE_MDP_U123456}}"
