@@ -168,7 +168,12 @@
         `<li style="cursor:pointer;padding:9px 10px;border-radius:7px;${id === s ? "background:var(--accent-soft);color:var(--accent-ink);font-weight:600" : ""}" data-p="${id}">${lib}</li>`).join("")}</ul></section>
         <section class="carte"><h2 class="titre-carte">${esc(SECTIONS.find(x => x[0] === s)[1])}</h2><div class="corps-carte" id="p-corps">${vide("Chargement…")}</div></section>`;
       $$("[data-p]", zone).forEach(li => li.onclick = () => { location.hash = "parametres/" + li.dataset.p; });
-      ({projets, connexions, applications, configuration, apparence})[s]($("#p-corps"));
+      const corps = $("#p-corps");
+      Promise.resolve().then(() => ({projets, connexions, applications, configuration, apparence})[s](corps)).catch(e => {
+        corps.innerHTML = `<p><span class="pill ko">Erreur</span> ${esc(e.message)}</p><p class="lib">${/Not Found|404/.test(e.message)
+          ? "Le serveur ne connaît pas cette fonction : il tourne sans doute avec une version précédente. Arrêter le serveur (Ctrl+C), relancer « python web/app.py », puis recharger la page (Ctrl+F5)."
+          : "Message complet dans le terminal du serveur."}</p>`;
+      });
     },
   });
 
