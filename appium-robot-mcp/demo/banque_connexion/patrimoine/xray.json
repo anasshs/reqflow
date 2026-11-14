@@ -1,0 +1,190 @@
+{
+ "projet": "DEMO",
+ "date": "2026-11-14T09:00:00+01:00",
+ "source": "projet de démonstration (application fictive Banque Démo)",
+ "exigences": [
+  {
+   "cle": "DEMO-300",
+   "type": "epic",
+   "resume": "Accès à l'espace client",
+   "parent": null,
+   "module": "Connexion",
+   "statut": "En cours"
+  },
+  {
+   "cle": "DEMO-310",
+   "type": "user_story",
+   "resume": "Se connecter avec identifiant et mot de passe",
+   "parent": "DEMO-300",
+   "module": "Connexion",
+   "statut": "Terminé"
+  },
+  {
+   "cle": "DEMO-311",
+   "type": "user_story",
+   "resume": "Bloquer le compte après trois échecs",
+   "parent": "DEMO-300",
+   "module": "Connexion",
+   "statut": "Terminé"
+  },
+  {
+   "cle": "DEMO-312",
+   "type": "user_story",
+   "resume": "Réinitialiser un mot de passe oublié",
+   "parent": "DEMO-300",
+   "module": "Connexion",
+   "statut": "À faire"
+  },
+  {
+   "cle": "DEMO-313",
+   "type": "user_story",
+   "resume": "Se déconnecter",
+   "parent": "DEMO-300",
+   "module": "Connexion",
+   "statut": "Terminé"
+  }
+ ],
+ "tests": [
+  {
+   "cle": "DEMO-301",
+   "resume": "Connexion avec un compte valide",
+   "type": "Cucumber",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": [
+    "smoke"
+   ],
+   "gherkin": "Étant donné que je suis sur la page de connexion\nQuand je me connecte avec le jeu de données\nAlors la page d'accueil m'accueille par mon nom"
+  },
+  {
+   "cle": "DEMO-302",
+   "resume": "Connexion refusée avec un mot de passe invalide",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-303",
+   "resume": "Connexion refusée avec un identifiant inconnu",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Moyenne",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-304",
+   "resume": "Blocage du compte après trois échecs",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-311"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-305",
+   "resume": "Connexion refusée avec des champs vides",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Basse",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-306",
+   "resume": "Connexion refusée pour un compte bloqué",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-311"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-307",
+   "resume": "Déconnexion",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Moyenne",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-313"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-308",
+   "resume": "Réinitialisation du mot de passe par e-mail",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-312"
+   ],
+   "plans": [],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-309",
+   "resume": "Connexion après expiration de session",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Moyenne",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [],
+   "libelles": []
+  }
+ ],
+ "plans": [
+  {
+   "cle": "DEMO-350",
+   "resume": "TNR Connexion"
+  }
+ ],
+ "executions": []
+}

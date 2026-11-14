@@ -82,6 +82,7 @@ def run_robot(target: str, include_tags: list[str] | None = None,
       statut cible) appliquée au ticket d'exécution au début du run, à la fin, ou à la fin
       s'il y a au moins un échec.
     jdd_env / jdd_jeux : environnement et jeux de données à injecter (ex. 'recette',
+      jdd_jeux vide = jeux référencés par la suite ;
       ['VIREMENT_STANDARD']). Les prérequis sont vérifiés AVANT le run : s'il manque des
       données, le run n'est pas lancé et le bilan indique « bloqué données ». Chaque jeu
       devient un dictionnaire &{JDD_<NOM>} utilisable dans « Initialiser Le Test ».
@@ -96,6 +97,8 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     evenements.publier({"type": "run_lance", "suite": target})
     jdd_file = None
     jdd_info: dict | None = None
+    if jdd_env and not jdd_jeux:  # environnement seul : jeux référencés (&{JDD_<NOM>}) par la suite
+        jdd_jeux = jdd.detecter(target, jdd_env)["detectes"]
     if jdd_jeux:
         if not jdd_env:
             raise ValueError("jdd_env est obligatoire avec jdd_jeux.")

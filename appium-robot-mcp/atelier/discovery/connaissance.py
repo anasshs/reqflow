@@ -104,7 +104,7 @@ def _depuis_carte(g: Graphe):
 
 def _depuis_depot(g: Graphe, inv: dict):
     from atelier.discovery import carte
-    from atelier.execution.depot_robot import BIBLIOTHEQUES_UI
+    from atelier.execution.depot_robot import BIBLIOTHEQUES_UI, nom_bibliotheque
 
     for lid, loc in inv["locators"].items():
         nid = f"locator:{lid}"
@@ -134,9 +134,10 @@ def _depuis_depot(g: Graphe, inv: dict):
                 g.noeud(f"resource:{r}", "resource", r.rsplit("/", 1)[-1], source="dépôt", proprietes={"fichier": r})
                 g.relier(fid, f"resource:{r}", "depend_de", source="dépôt")
         for lib in info["bibliotheques"]:
-            g.noeud(f"bibliotheque:{lib}", "bibliotheque", lib, source="dépôt",
-                    plateformes=BIBLIOTHEQUES_UI.get(lib, []))
-            g.relier(fid, f"bibliotheque:{lib}", "utilise", source="dépôt")
+            nom = nom_bibliotheque(lib)
+            g.noeud(f"bibliotheque:{nom}", "bibliotheque", nom, source="dépôt",
+                    plateformes=BIBLIOTHEQUES_UI.get(nom, []))
+            g.relier(fid, f"bibliotheque:{nom}", "utilise", source="dépôt")
 
     def lier_refs(src: str, bloc: dict, plats: list[str]):
         for k in bloc["keywords"]:

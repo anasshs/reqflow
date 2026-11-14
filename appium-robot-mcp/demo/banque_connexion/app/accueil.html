@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- Application FICTIVE de démonstration : page d'accueil après connexion. -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Banque Démo — Accueil</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #0f1a2e; color: #e8eef8; margin: 0; padding: 40px; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #2a3b5e; background: #142039; color: #e8eef8; cursor: pointer; }
+</style>
+</head>
+<body>
+  <h1 id="titre_accueil"></h1>
+  <p>Solde du compte courant : <b id="solde">12 450,00 MAD</b> (valeur fictive)</p>
+  <button id="bouton_deconnexion">Se déconnecter</button>
+<script>
+  document.getElementById("titre_accueil").textContent = "Bienvenue, " + (new URLSearchParams(location.search).get("nom") || "");
+  document.getElementById("bouton_deconnexion").onclick = () => { location.href = "connexion.html?deconnexion=1"; };
+</script>
+</body>
+</html>

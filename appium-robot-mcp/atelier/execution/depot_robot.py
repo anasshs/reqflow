@@ -25,7 +25,13 @@ DEF_LOC = re.compile(r"^&\{LOC_([A-Z0-9_]+?)_(ANDROID|IOS|WEB)(_SECOURS)?\}$")
 REF_JDD = re.compile(r"JDD_([A-Z0-9_]+)")
 PREFIXES_BDD = re.compile(r"^(given|when|then|and|but|étant donné|etant donne|soit|quand|lorsque|alors|et|mais)\s+",
                           re.IGNORECASE)
-BIBLIOTHEQUES_UI = {"AppiumLibrary": ["android", "ios"], "Browser": ["web"], "SeleniumLibrary": ["web"]}
+BIBLIOTHEQUES_UI = {"AppiumLibrary": ["android", "ios"], "Browser": ["web"], "SeleniumLibrary": ["web"],
+                    "NavigateurDemo": ["web"]}  # bibliothèque Playwright du projet de démonstration (demo/)
+
+
+def nom_bibliotheque(lib: str) -> str:
+    """« ../bibliotheques/NavigateurDemo.py » -> « NavigateurDemo » ; un nom de module est gardé tel quel."""
+    return Path(lib.replace("\\", "/")).stem if lib.endswith(".py") else lib
 
 
 def normaliser(nom: str) -> str:
@@ -163,7 +169,7 @@ def _resoudre(inv: dict):
     for t in inv["tests"].values():
         libs = _bibliotheques_visibles(inv, t["fichier"])
         t["bibliotheques"] = libs
-        t["plateformes"] = sorted({p for lib in libs for p in BIBLIOTHEQUES_UI.get(lib, [])})
+        t["plateformes"] = sorted({p for lib in libs for p in BIBLIOTHEQUES_UI.get(nom_bibliotheque(lib), [])})
 
 
 def _bibliotheques_visibles(inv: dict, fichier: str, vus: set | None = None) -> list[str]:

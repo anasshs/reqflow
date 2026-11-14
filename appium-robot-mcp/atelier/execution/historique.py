@@ -106,7 +106,10 @@ def detail_test(run_id: str, test_id: str) -> dict:
                 "debut": str(kw.start_time or ""), "duree_s": round(kw.elapsed_time.total_seconds(), 2),
                 "message": getattr(kw, "message", "")[:500],
                 "sous_etapes": [etape(x, niveau + 1) for x in enfants] if niveau < 2 else []}
-    etapes = [etape(k) for k in test.body if getattr(k, "type", "") in ("KEYWORD", "SETUP", "TEARDOWN")]
+    # setup et teardown du test (RF 7 : hors de test.body) : la capture d'échec est souvent prise au teardown
+    corps = ([test.setup] if test.setup else []) + [k for k in test.body if getattr(k, "type", "") in ("KEYWORD", "SETUP", "TEARDOWN")] \
+        + ([test.teardown] if test.teardown else [])
+    etapes = [etape(k) for k in corps]
     fautive = next((i for i, e in enumerate(etapes) if e["statut"] == "FAIL"), None)
     captures = [c for c in dict.fromkeys(captures) if (d / c).exists()]
     try:
@@ -115,12 +118,15 @@ def detail_test(run_id: str, test_id: str) -> dict:
         fichier = str(test.source or "")
     plateforme = ((data.get("params") or {}).get("variables") or {}).get("PLATFORM", "")
     references = _references_carte(plateforme)
-    definitions = _definitions_keywords()
+    definitions, valeurs = _definitions_keywords(), _valeurs_locators(plateforme)
     for e in etapes:
-        _enrichir(e, references, definitions)
+        _enrichir(e, references, definitions, valeurs, plateforme)
+    toutes = ((data.get("bilan") or {}).get("jdd") or {}).get("valeurs") or {}
+    jeux = {j.upper() for e in etapes for j in _jdd_cites(e)}  # seulement le(s) jeu(x) passé(s) par ce test
+    donnees = {k: v for k, v in toutes.items() if k.upper() in jeux} if jeux else toutes
     return {"id": test.id, "nom": test.name, "statut": test.status, "message": test.message, "tags": list(test.tags),
             "fichier": fichier, "ligne": test.lineno, "plateforme": plateforme,
-            "donnees": ((data.get("bilan") or {}).get("jdd") or {}).get("valeurs") or {},
+            "donnees": donnees,
             "etapes": etapes, "etape_en_echec": fautive, "logs": logs[-300:], "captures": captures,
             "dossier": str(d.relative_to(projet.PROJECT_DIR))}
 
@@ -164,18 +170,49 @@ def _definitions_keywords() -> dict:
         return {}
 
 
-def _enrichir(e: dict, references: dict, definitions: dict):
-    """Locator utilisé (dans l'étape ou ses sous-étapes), stratégie, écran de référence, définition du keyword."""
+def _jdd_cites(e: dict):
+    for a in e["args"]:
+        yield from re.findall(r"JDD_([A-Za-z0-9_]+)", a)
+    for x in e["sous_etapes"]:
+        yield from _jdd_cites(x)
+
+
+def _valeurs_locators(plateforme: str) -> dict:
+    """« ecran.cle@plateforme » -> valeur, depuis les &{LOC_<ECRAN>_<PLATEFORME>} du dépôt."""
+    try:
+        from atelier.execution import depot_robot
+
+        return {k: v["valeur"] for k, v in depot_robot.lire_depot()["locators"].items() if v.get("valeur")}
+    except Exception:
+        return {}
+
+
+def _resoudre(arg: str, valeurs: dict, plateforme: str) -> str:
+    """${LOC_ECRAN_WEB.cle} ou ${LOC_ECRAN_${PLATFORM}.cle} -> valeur du locator déclarée dans le dépôt."""
+    from atelier.execution.depot_robot import PLATEFORMES, REF_CLE
+
+    m = REF_CLE.search(arg)
+    if not m:
+        return arg
+    plat = PLATEFORMES.get(m.group(2), plateforme)
+    return valeurs.get(f"{m.group(1).lower()}.{m.group(3)}@{plat}", arg)
+
+
+def _enrichir(e: dict, references: dict, definitions: dict, valeurs: dict | None = None, plateforme: str = ""):
+    """Locator utilisé (dans l'étape ou ses sous-étapes, la sous-étape en échec d'abord), stratégie,
+    écran de référence, définition du keyword."""
     from atelier.execution.depot_robot import normaliser
 
+    valeurs = valeurs or {}
+
     def locators(x):
-        yield from (a for a in x["args"] if LOCATOR.match(a))
-        for s in x["sous_etapes"]:
+        yield from (a for a in (_resoudre(a, valeurs, plateforme) for a in x["args"]) if LOCATOR.match(a))
+        for s in sorted(x["sous_etapes"], key=lambda s: s["statut"] != "FAIL"):
             yield from locators(s)
     loc = next(locators(e), "")
     e["locator"] = loc
     prefixe = "//" if loc.startswith("//") else loc.split("=", 1)[0] if loc else ""
     e["type_locator"] = prefixe.replace("//", "xpath") if loc else ""
-    e["strategie"] = STRATEGIES.get(prefixe, "") if loc else ""
+    e["strategie"] = ("id (attribut HTML)" if prefixe == "id" and plateforme == "web" else STRATEGIES.get(prefixe, "")) if loc else ""
     e["ecran_reference"] = references.get(loc)
     e["definition"] = definitions.get(normaliser(e["nom"]))

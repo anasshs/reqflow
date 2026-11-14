@@ -346,13 +346,13 @@
         <div class="champ"><label for="l-xray">Ticket Xray (plan, exécution, US ou projet)</label><input class="in" id="l-xray" placeholder="optionnel"></div>
         <div class="champ"><label for="l-jdd">Jeux de données (${esc(Atelier.env || "aucun environnement")})</label><select class="in" id="l-jdd" multiple size="3">${jeux.map(j => `<option>${esc(j.jeu)}</option>`).join("")}</select></div></div>
       <label class="ligne-champ"><span>Dry run</span><input type="checkbox" class="bascule" id="l-dry"></label>
-      <p class="lib">Les prérequis des jeux sont vérifiés avant le run (« bloqué données » sinon). Résultats dans results/runs/&lt;id&gt;/.</p>`,
+      <p class="lib">Sans sélection, les jeux référencés par la suite (&amp;{JDD_…}) sont injectés. Les prérequis des jeux sont vérifiés avant le run (« bloqué données » sinon). Résultats dans results/runs/&lt;id&gt;/.</p>`,
       `<button class="btn primaire" id="l-ok">${ico("play")}Lancer</button>`);
     $("#l-ok", m.el).onclick = async () => {
       const jdd = [...$("#l-jdd", m.el).selectedOptions].map(o => o.value);
       const corps = {target: $("#l-cible", m.el).value, include_tags: $("#l-tags", m.el).value.split(",").map(x => x.trim()).filter(Boolean),
         variables: {PLATFORM: $("#l-plat", m.el).value}, xray_ticket: $("#l-xray", m.el).value.trim(), dry_run: $("#l-dry", m.el).checked,
-        ...(jdd.length ? {jdd_env: Atelier.env, jdd_jeux: jdd} : {})};
+        ...(Atelier.env ? {jdd_env: Atelier.env, jdd_jeux: jdd} : {})};  // aucune sélection : jeux référencés par la suite
       try { const r = await api("/api/run", {method: "POST", body: corps}); m.fermer(); toast(`Run ${r.run_id} lancé.`, "ok"); location.hash = "execution/" + r.run_id; }
       catch (e) { toast(e.message, "ko"); }
     };
