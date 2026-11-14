@@ -205,3 +205,32 @@ def test_application_rattachee_au_projet_xray(tmp_path, monkeypatch):
     assert {x["slug"]: x["projet_xray"] for x in carte.apps()} == {a["slug"]: "TAM", b["slug"]: "TAM"}
     carte.maj_app(a["slug"], tests_xray={"libelle": "mobile"})
     assert carte.config_app(a["slug"])["tests_xray"] == {"libelle": "mobile"}
+
+
+
+def test_applications_types_archivage_restauration(tmp_path, monkeypatch):
+    from atelier.discovery import carte
+    from atelier.domain import projet
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+    w = carte.creer_app("Banque Web", ["android", "web"], web={"url": "https://recette.exemple.fr"}, type_="web")
+    assert w["type"] == "web" and w["plateformes"] == ["web"] and w["android"] == {}
+    with pytest.raises(ValueError, match="URL de base"):
+        carte.creer_app("Cartes API", [], type_="api")
+    a = carte.creer_app("Cartes API", [], type_="api", api={"url": "https://api.exemple.fr/v1", "openapi": "api/cartes.yaml", "x": 1})
+    assert a["plateformes"] == ["api"] and a["api"] == {"url": "https://api.exemple.fr/v1", "openapi": "api/cartes.yaml"}
+    with pytest.raises(ValueError, match="Android"):
+        carte.creer_app("Mobile vide", ["web"], type_="mobile")
+    m = carte.creer_app("Banque Mobile", ["android", "ios"])
+    assert m["type"] == "mobile"
+    carte.maj_app(m["slug"], nom="Banque Mobile v2", build="4.13.0", android={"app_package": "com.exemple.v2"})
+    assert carte.config_app(m["slug"])["nom"] == "Banque Mobile v2" and carte.config_app(m["slug"])["android"]["app_package"] == "com.exemple.v2"
+    # archivage local, restaurable ; rien d'autre n'est touché
+    r = carte.archiver_app(m["slug"])
+    assert m["slug"] not in [x["slug"] for x in carte.apps()] and r["active"] != m["slug"]
+    arch = carte.archives_apps()
+    assert arch[0]["nom"] == "Banque Mobile v2"
+    carte.restaurer_app(arch[0]["archive"])
+    assert m["slug"] in [x["slug"] for x in carte.apps()] and carte.archives_apps() == []
+    with pytest.raises(KeyError):
+        carte.archiver_app("../etc")

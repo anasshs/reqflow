@@ -100,6 +100,17 @@ def robustesse(locator: str) -> str:
 
 
 # =========================================================================== applications
+TYPES_APP = ("mobile", "web", "api")
+
+
+def type_app(cfg: dict) -> str:
+    """Type déclaré, sinon déduit des plateformes (applications créées avant l'existence du type)."""
+    if cfg.get("type") in TYPES_APP:
+        return cfg["type"]
+    p = set(cfg.get("plateformes") or [])
+    return "mobile" if p & {"android", "ios"} else "api" if p == {"api"} else "web"
+
+
 def apps() -> list[dict]:
     if not _racine().exists():
         return []
@@ -107,8 +118,47 @@ def apps() -> list[dict]:
     for d in sorted(_racine().iterdir()):
         if (d / "app.yaml").exists():
             cfg = _load(d / "app.yaml", {})
-            out.append({**cfg, "slug": d.name, "nb_ecrans": len(list((d / "ecrans").glob("*.yaml")))})
+            out.append({**cfg, "type": type_app(cfg), "slug": d.name, "nb_ecrans": len(list((d / "ecrans").glob("*.yaml")))})
     return out
+
+
+def archiver_app(s: str) -> dict:
+    """« Suppression » d'une application : son dossier local (carte, écrans, comptes, liste rouge) est déplacé dans
+    app_map/.archives/<slug>-<date>, restaurable. Rien n'est supprimé dans Xray ni Jira, ni dans le dépôt de tests."""
+    import shutil
+    from datetime import datetime as _dt
+
+    d = _racine() / s
+    if not s or "/" in s or s.startswith(".") or not (d / "app.yaml").exists():
+        raise KeyError(f"Application « {s} » inconnue.")
+    cible = _racine() / ".archives" / f"{s}-{_dt.now():%Y%m%d-%H%M%S}"
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(d), str(cible))
+    courante = _racine() / ".app_courante"
+    if courante.exists() and courante.read_text().strip() == s:
+        courante.unlink()
+    return {"archive": cible.name, "active": app_courante()}
+
+
+def archives_apps() -> list[dict]:
+    a = _racine() / ".archives"
+    return [{"archive": d.name, "nom": _load(d / "app.yaml", {}).get("nom", d.name)}
+            for d in sorted(a.iterdir(), reverse=True) if (d / "app.yaml").exists()] if a.exists() else []
+
+
+def restaurer_app(archive: str) -> dict:
+    """Restaure une application archivée sous son slug d'origine (refus si une application de même slug existe)."""
+    import re as _re
+    import shutil
+
+    src = _racine() / ".archives" / archive
+    if "/" in archive or not (src / "app.yaml").exists():
+        raise KeyError(f"Archive inconnue : {archive}")
+    s = _re.sub(r"-\d{8}-\d{6}$", "", archive)
+    if (_racine() / s).exists():
+        raise FileExistsError(f"Une application « {s} » existe déjà : la renommer ou l'archiver d'abord.")
+    shutil.move(str(src), str(_racine() / s))
+    return config_app(s)
 
 
 def app_courante() -> str | None:
@@ -130,14 +180,28 @@ def choisir_app(s: str) -> dict:
 def creer_app(nom: str, plateformes: list[str], android: dict | None = None, ios: dict | None = None,
               web: dict | None = None, build: str = "", langue: str = "fr",
               liste_rouge: list[str] | None = None, comptes: list[str] | None = None,
-              projet_xray: str = "", tests_xray: dict | None = None) -> dict:
+              projet_xray: str = "", tests_xray: dict | None = None, type_: str = "", api: dict | None = None) -> dict:
     """Application du projet de tests (un projet Xray peut en contenir plusieurs). projet_xray : clé du projet Xray
     de rattachement ; tests_xray : comment reconnaître ses tests dans ce projet ({"composant": ..., "libelle": ...})."""
     s = slug(nom)
     if (_racine() / s / "app.yaml").exists():
         raise FileExistsError(f"L'application « {nom} » existe déjà.")
-    cfg = {"nom": nom, "plateformes": plateformes, "android": android or {}, "ios": ios or {},
-           "web": web or {}, "build": build, "langue": langue,
+    type_ = type_ or type_app({"plateformes": plateformes})
+    if type_ not in TYPES_APP:
+        raise ValueError("Type d'application : mobile, web ou api.")
+    if type_ == "mobile":
+        plateformes = [p for p in plateformes if p in ("android", "ios")]
+        if not plateformes:
+            raise ValueError("Application mobile : choisir Android et / ou iOS.")
+        web = {}
+    elif type_ == "web":
+        plateformes, android, ios = ["web"], {}, {}
+    else:
+        plateformes, android, ios, web = ["api"], {}, {}, {}
+        if not (api or {}).get("url"):
+            raise ValueError("Application API : URL de base obligatoire.")
+    cfg = {"nom": nom, "type": type_, "plateformes": plateformes, "android": android or {}, "ios": ios or {},
+           "web": web or {}, "api": {k: v for k, v in (api or {}).items() if k in ("url", "openapi") and v}, "build": build, "langue": langue,
            "liste_rouge": {"textes": liste_rouge or LISTE_ROUGE_DEFAUT, "cles": []},
            "comptes": comptes or [], "ecran_depart": "", "etape_assistant": 1, "cree": _now(),
            "projet_xray": (projet_xray or "").strip().upper(),

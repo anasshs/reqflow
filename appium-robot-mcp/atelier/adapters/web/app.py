@@ -680,7 +680,7 @@ async def apps_creer(req: Request):
     b = await req.json()
     cfg = _call(amap.creer_app, b["nom"], b.get("plateformes") or [], b.get("android"), b.get("ios"), b.get("web"),
                 b.get("build", ""), b.get("langue", "fr"), None, None,
-                b.get("projet_xray") or projets.cle_xray(), b.get("tests_xray") or {})
+                b.get("projet_xray") or projets.cle_xray(), b.get("tests_xray") or {}, b.get("type", ""), b.get("api"))
     atelier = config()  # les réglages de connexion suivent l'application
     for p in ("android", "ios", "web"):
         if b.get(p):
@@ -688,6 +688,24 @@ async def apps_creer(req: Request):
     save_config(atelier)
     emit({"type": "app_change", "slug": cfg["slug"]})
     return cfg
+
+
+@app.post("/api/apps/archiver")
+async def apps_archiver(req: Request):
+    """Archive locale (restaurable) : aucun effet sur Xray, Jira ni les tests du dépôt."""
+    r = _call(amap.archiver_app, (await req.json()).get("slug", ""))
+    emit({"type": "app_change", "slug": r.get("active")})
+    return r
+
+
+@app.get("/api/apps/archives")
+def apps_archives():
+    return _call(amap.archives_apps)
+
+
+@app.post("/api/apps/restaurer")
+async def apps_restaurer(req: Request):
+    return _call(amap.restaurer_app, (await req.json()).get("archive", ""))
 
 
 @app.post("/api/apps/choisir")
@@ -707,7 +725,9 @@ async def apps_choisir(req: Request):
 async def apps_maj(req: Request):
     b = await req.json()
     champs = {k: b[k] for k in ("build", "comptes", "ecran_depart", "etape_assistant", "langue", "plateformes",
-                                "android", "ios", "web") if k in b}
+                                "android", "ios", "web", "api") if k in b}
+    if str(b.get("nom") or "").strip():
+        champs["nom"] = str(b["nom"]).strip()  # le slug (dossier) ne change pas
     if "projet_xray" in b:
         champs["projet_xray"] = str(b["projet_xray"] or "").strip().upper()
     if "tests_xray" in b:
