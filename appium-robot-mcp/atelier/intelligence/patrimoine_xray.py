@@ -119,6 +119,10 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
     type_test = os.environ.get("XRAY_TEST_ISSUE_TYPE", "Test")
     jql = jql_tests or f'project = "{projet_cle}" AND issuetype = "{type_test}"'
     champs = ["summary", "issuetype", "labels", "status", "components", "priority", "issuelinks", "parent"]
+    regle = regle_application()
+    champ_app = regle.get("champ_jira") if regle.get("champ") == "personnalise" else ""
+    if champ_app:
+        champs.append(champ_app)
     limite = limite or limite_import()
     issues = jira.rechercher(jql, champs, limite)
     tronque = bool(getattr(jira, "tronque", False))
@@ -140,6 +144,7 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
         ids_exigences |= set(exig)
         tests.append({"cle": i["key"], "resume": f.get("summary"), "type": (f.get("issuetype") or {}).get("name"),
                       "module": _module(f), "libelles": f.get("labels") or [], "composants": _composants(f),
+                      **({"champ_application": valeurs_champ(f.get(champ_app))} if champ_app else {}),
                       "statut": (f.get("status") or {}).get("name"),
                       "criticite": (f.get("priority") or {}).get("name"), "exigences": exig})
     exigences, epics = [], set()
@@ -151,6 +156,7 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
             parent = (f.get("parent") or {}).get("key")
             exigences.append({"cle": i["key"], "type": _type_exigence(f), "type_jira": (f.get("issuetype") or {}).get("name"),
                               "resume": f.get("summary"), "composants": _composants(f), "libelles": f.get("labels") or [],
+                              **({"champ_application": valeurs_champ(f.get(champ_app))} if champ_app else {}),
                               "parent": parent, "module": _module(f), "statut": (f.get("status") or {}).get("name"),
                               **_description_et_criteres(f, champ_criteres)})
             if parent:
@@ -307,28 +313,63 @@ def _composants(f: dict) -> list[str]:
 
 
 # =========================================================================== vue par application
+def regle_application() -> dict:
+    """Champ Jira qui désigne l'application d'un test (Test Design › Xray Mapping) : composant, libellé ou
+    champ personnalisé (customfield_<n>)."""
+    try:
+        from atelier.generation import conception
+
+        return conception.mapping().get("application") or {"champ": "composant", "champ_jira": ""}
+    except Exception:  # noqa: BLE001
+        return {"champ": "composant", "champ_jira": ""}
+
+
 def filtre_application() -> dict:
-    """Règle de l'application active : {app, composant, libelle} (vide = tout le projet)."""
+    """Règle de l'application active : champ du mapping + valeurs de l'application (vide = tout le projet).
+    Compatibilité : une application décrite par « composant » / « libelle » garde sa propre règle."""
     from atelier.discovery import carte
 
     try:
         a = carte.config_app() if carte.app_courante() else {}
     except Exception:  # noqa: BLE001 - carte illisible : aucune restriction
         a = {}
-    return {"app": a.get("nom", ""), **{k: v for k, v in (a.get("tests_xray") or {}).items() if v}}
+    tx = a.get("tests_xray") or {}
+    regle = regle_application()
+    if tx.get("valeurs"):
+        return {"app": a.get("nom", ""), "champ": regle["champ"], "champ_jira": regle.get("champ_jira", ""), "valeurs": list(tx["valeurs"])}
+    for champ in ("composant", "libelle"):
+        if tx.get(champ):
+            return {"app": a.get("nom", ""), "champ": champ, "champ_jira": "", "valeurs": [tx[champ]], champ: tx[champ]}
+    return {"app": a.get("nom", "")}
+
+
+def valeurs_champ(v) -> list[str]:
+    """Valeur(s) d'un champ Jira (texte, option {value}, objet {name}, liste) en liste de textes."""
+    if v in (None, "", []):
+        return []
+    if isinstance(v, list):
+        return [x for e in v for x in valeurs_champ(e)]
+    if isinstance(v, dict):
+        return [str(v.get("value") or v.get("name") or "")] if (v.get("value") or v.get("name")) else []
+    return [str(v)]
 
 
 def appliquer_filtre(pat: dict | None, f: dict) -> dict | None:
     """Tests de l'application (composant ou libellé Jira), leurs exigences et epics parents, plans / sets restreints.
     Sans règle : instantané inchangé. Le module (premier composant) sert de repli si les composants sont absents."""
-    comp, lib = (f.get("composant") or "").strip().lower(), (f.get("libelle") or "").strip().lower()
-    if not pat or not (comp or lib):
+    valeurs = {str(v).strip().lower() for v in f.get("valeurs") or [] if str(v).strip()}
+    if not pat or not valeurs:
         return pat
+    champ = f.get("champ", "composant")
 
     def concerne(x: dict) -> bool:
-        comps = [c.lower() for c in (x.get("composants") or ([x["module"]] if x.get("module") else []))]
-        libs = [l.lower() for l in x.get("libelles") or []]
-        return bool((comp and comp in comps) or (lib and lib in libs))
+        if champ == "libelle":
+            vus = x.get("libelles") or []
+        elif champ == "personnalise":
+            vus = x.get("champ_application") or []
+        else:
+            vus = x.get("composants") or ([x["module"]] if x.get("module") else [])
+        return any(str(v).lower() in valeurs for v in vus)
 
     tests = [t for t in pat["tests"] if concerne(t)]
     cles = {t["cle"] for t in tests}

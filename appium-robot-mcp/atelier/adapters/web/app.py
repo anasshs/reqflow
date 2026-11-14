@@ -711,11 +711,13 @@ async def apps_maj(req: Request):
     if "projet_xray" in b:
         champs["projet_xray"] = str(b["projet_xray"] or "").strip().upper()
     if "tests_xray" in b:
-        champs["tests_xray"] = {k: str(v).strip() for k, v in (b["tests_xray"] or {}).items() if k in ("composant", "libelle") and str(v).strip()}
+        tx = b["tests_xray"] or {}
+        champs["tests_xray"] = {"valeurs": [str(v).strip() for v in tx.get("valeurs") or [] if str(v).strip()]} if "valeurs" in tx else \
+            {k: str(v).strip() for k, v in tx.items() if k in ("composant", "libelle") and str(v).strip()}
     if "liste_rouge" in b:
         champs["liste_rouge"] = {"textes": [t for t in b["liste_rouge"] if t.strip()],
                                  "cles": amap.config_app().get("liste_rouge", {}).get("cles", [])}
-    return _call(amap.maj_app, None, **champs)
+    return _call(amap.maj_app, b.get("slug") or None, **champs)
 
 
 @app.get("/api/carte/graphe")
@@ -1338,7 +1340,7 @@ def resultats_captures(dossier: str = "results", limite: int = 12):
 def _filtre_app_ctx() -> dict:
     try:
         f = patrimoine_xray.filtre_application()
-        if not (f.get("composant") or f.get("libelle")):
+        if not f.get("valeurs"):
             return {}
         v = patrimoine_xray.charger_vue() or {}
         return {**f, **(v.get("filtre_application") or {})}

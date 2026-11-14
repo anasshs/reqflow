@@ -289,6 +289,9 @@ def comparer_baselines(a: str, b: str = "courant") -> dict:
 
 
 # =========================================================================== mapping Xray (écran 12)
+CHAMPS_APPLICATION = {"composant": "Composant Jira", "libelle": "Libellé Jira", "personnalise": "Champ personnalisé Jira"}
+
+
 def _defaut_mapping() -> dict:
     return {"objets": [{"interne": i, "externe": e, "confirme": False} for i, e in OBJETS_DEFAUT],
             "champs": [{"interne": i, "externe": e, "sens": s, "actif": True, "obligatoire": i in ("test_key", "summary", "test_type"),
@@ -296,20 +299,30 @@ def _defaut_mapping() -> dict:
             "statuts": [{"interne": s, "externe": ""} for s in STATUTS_REVUE],  # jamais supposé : à configurer
             "types": [{"xray": "Manual", "editeur": "etapes"}, {"xray": "Cucumber", "editeur": "bdd"},
                       {"xray": "Generic", "editeur": "technique"}, {"xray": "Exploratory", "editeur": "exploratoire"}],
-            "projet_jira": "", "dossier_repository": "", "mode": "A (import)"}
+            "projet_jira": "", "dossier_repository": "", "mode": "A (import)",
+            "application": {"champ": "composant", "champ_jira": ""}}
 
 
 def mapping() -> dict:
     f = _dossier() / "mapping_xray.yaml"
     m = yaml.safe_load(f.read_text("utf-8")) if f.exists() else _defaut_mapping()
-    return {**m, "modes": {"A (import)": "disponible : instantané JSON ou synchronisation Jira (description et critères inclus)",
+    m.setdefault("application", {"champ": "composant", "champ_jira": ""})
+    return {**m, "champs_application": CHAMPS_APPLICATION, "modes": {"A (import)": "disponible : instantané JSON ou synchronisation Jira (description et critères inclus)",
                            "B (bidirectionnel)": "disponible pour les tests Cucumber : mise à jour du Gherkin, conflits détectés (jamais d'écrasement silencieux)",
                            "C (publication)": "disponible : scénario BDD publié comme test Cucumber, clé Xray conservée"},
             "sens_possibles": SENS, "statuts_internes": STATUTS_REVUE, "libelles_revue": LIBELLES_REVUE}
 
 
 def enregistrer_mapping(m: dict) -> dict:
-    propre = {k: m[k] for k in ("objets", "champs", "statuts", "types", "projet_jira", "dossier_repository", "mode") if k in m}
+    propre = {k: m[k] for k in ("objets", "champs", "statuts", "types", "projet_jira", "dossier_repository", "mode", "application") if k in m}
+    if "application" in propre:
+        a = propre["application"] or {}
+        if a.get("champ") not in CHAMPS_APPLICATION:
+            raise ValueError("Champ de l'application : composant, libelle ou personnalise.")
+        cj = str(a.get("champ_jira") or "").strip()
+        if a["champ"] == "personnalise" and not re.fullmatch(r"customfield_\d+", cj):
+            raise ValueError("Champ personnalisé : identifiant customfield_<numéro> attendu (ex. customfield_10050).")
+        propre["application"] = {"champ": a["champ"], "champ_jira": cj if a["champ"] == "personnalise" else ""}
     for c in propre.get("champs", []):
         if not c.get("interne") or not c.get("externe"):
             raise ValueError("Chaque correspondance de champ a un champ interne et un champ externe.")
@@ -321,7 +334,7 @@ def enregistrer_mapping(m: dict) -> dict:
         raise ValueError("Mode : A (import), B (bidirectionnel) ou C (publication).")
     base = mapping()
     base.update(propre)
-    for k in ("modes", "sens_possibles", "statuts_internes", "libelles_revue"):
+    for k in ("modes", "sens_possibles", "statuts_internes", "libelles_revue", "champs_application"):
         base.pop(k, None)
     _ecrire_atomique(_dossier() / "mapping_xray.yaml", yaml.safe_dump(base, allow_unicode=True, sort_keys=False))
     _journaliser("mapping")

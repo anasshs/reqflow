@@ -271,7 +271,7 @@
       ${d.applications.length ? `<table><tr><th>Application</th><th>Plateformes</th><th>Projet Xray</th><th>Ses tests dans Xray</th><th>Build</th><th>Écrans</th><th></th></tr>
       ${d.applications.map(a => `<tr><td><b>${esc(a.nom)}</b> <span class="lib">${esc(a.slug)}</span></td><td>${(a.plateformes || []).map(p => `<span class="pill">${esc(p)}</span>`).join(" ")}</td>
         <td>${a.projet_xray ? esc(a.projet_xray) : '<span class="pill warn">non rattachée</span>'}</td>
-        <td class="lib">${[a.tests_xray?.composant && `composant « ${esc(a.tests_xray.composant)} »`, a.tests_xray?.libelle && `libellé « ${esc(a.tests_xray.libelle)} »`].filter(Boolean).join(", ") || "tout le projet"}</td>
+        <td class="lib">${esc((a.tests_xray?.valeurs || [a.tests_xray?.composant, a.tests_xray?.libelle].filter(Boolean)).join(", ")) || "tout le projet"}</td>
         <td>${esc(a.build || "—")}</td><td>${a.nb_ecrans}</td>
         <td class="btns"><button class="btn petit" data-mod="${esc(a.slug)}">Modifier</button>${a.slug === d.active ? '<span class="pill ok">active</span>' : `<button class="btn petit" data-app="${esc(a.slug)}">Activer</button>`}</td></tr>`).join("")}</table>`
       : vide("Aucune application", "« Nouvelle application » : identité, prérequis, liste rouge, import des locators, cartographie.")}`;
@@ -303,9 +303,10 @@
           <div class="champ"><label for="wa-url">URL web</label><input class="in" id="wa-url" value="${esc(cfg.web?.url || "")}"></div>
           <div class="champ"><label for="wa-build">Build</label><input class="in" id="wa-build" value="${esc(cfg.build || "")}" placeholder="4.12.0 (1342)"></div>
           <div class="champ"><label for="wa-px">Projet Xray de rattachement</label><input class="in" id="wa-px" value="${esc(cfg.projet_xray ?? Atelier.ctx.projet_xray ?? "")}" placeholder="TAM"></div>
-          <div class="champ"><label for="wa-comp">Ses tests dans Xray : composant Jira (optionnel)</label><input class="in" id="wa-comp" value="${esc(cfg.tests_xray?.composant || "")}" placeholder="App Mobile"></div>
-          <div class="champ"><label for="wa-lib">… ou libellé Jira (optionnel)</label><input class="in" id="wa-lib" value="${esc(cfg.tests_xray?.libelle || "")}" placeholder="app-mobile"></div></div>
-        <p class="lib">Un projet Xray peut contenir plusieurs applications : le composant ou le libellé permet de retrouver les tests propres à celle-ci. Vide : tout le projet.</p>`;
+          <div class="champ" style="grid-column:1/-1"><label for="wa-val">Ses tests dans Xray : valeur(s) du champ « <span id="wa-champ">…</span> » (virgules ; vide = tout le projet)</label>
+            <input class="in" id="wa-val" value="${esc((cfg.tests_xray?.valeurs || [cfg.tests_xray?.composant, cfg.tests_xray?.libelle].filter(Boolean)).join(", "))}" placeholder="App Mobile"></div></div>
+        <p class="lib">Le champ Jira qui désigne l'application se choisit dans Test Design › Xray Mapping (composant, libellé ou champ personnalisé).</p>`;
+      if (etape === 1) api("/api/conception/mapping").then(mp => { const a = mp.application || {}; $("#wa-champ", m.el).textContent = (mp.champs_application || {})[a.champ] + (a.champ_jira ? ` ${a.champ_jira}` : ""); }).catch(() => {});
       if (etape === 2) c.innerHTML = `<label class="lib" style="display:block"><input type="checkbox"> Build de recette <b>sans protection Promon</b> installée (sinon instrumentation et captures peuvent être bloquées).</label>
           <label class="lib" style="display:block"><input type="checkbox"> Langue du device et des comptes <b>fixée</b> (reconnaissance par les textes si l'app n'a pas de tags).</label>
           <label class="lib" style="display:block"><input type="checkbox"> Comptes de test prêts, avec des profils variés.</label>
@@ -333,7 +334,7 @@
       }
     };
     const identite = () => ({plateformes: plats(), build: $("#wa-build", m.el).value, projet_xray: $("#wa-px", m.el).value,
-      tests_xray: {composant: $("#wa-comp", m.el).value, libelle: $("#wa-lib", m.el).value},
+      tests_xray: {valeurs: $("#wa-val", m.el).value.split(",").map(x => x.trim()).filter(Boolean)},
       android: {app_package: $("#wa-pkg", m.el).value, app_activity: $("#wa-act", m.el).value}, ios: {bundle_id: $("#wa-bundle", m.el).value}, web: {url: $("#wa-url", m.el).value}});
     $("#wa-prec", m.el).onclick = () => { if (etape > 1) { etape--; rendre(); } };
     $("#wa-suiv", m.el).onclick = async () => {

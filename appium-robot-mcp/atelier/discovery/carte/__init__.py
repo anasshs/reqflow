@@ -141,7 +141,9 @@ def creer_app(nom: str, plateformes: list[str], android: dict | None = None, ios
            "liste_rouge": {"textes": liste_rouge or LISTE_ROUGE_DEFAUT, "cles": []},
            "comptes": comptes or [], "ecran_depart": "", "etape_assistant": 1, "cree": _now(),
            "projet_xray": (projet_xray or "").strip().upper(),
-           "tests_xray": {k: str(v).strip() for k, v in (tests_xray or {}).items() if k in ("composant", "libelle") and str(v).strip()}}
+           "tests_xray": ({"valeurs": [str(v).strip() for v in (tests_xray or {}).get("valeurs") or [] if str(v).strip()]}
+                          if "valeurs" in (tests_xray or {}) else
+                          {k: str(v).strip() for k, v in (tests_xray or {}).items() if k in ("composant", "libelle") and str(v).strip()})}
     _dump(_racine() / s / "app.yaml", cfg)
     choisir_app(s)
     return {**cfg, "slug": s}

@@ -187,7 +187,7 @@ const Atelier = {
         : `<span class="val" title="${esc(c.projet_chemin)}">${esc(c.projet || "—")}${c.projet_xray ? ` · ${esc(c.projet_xray)}` : ""}</span>`}</div>
       <div><label for="c-app">Application</label><select id="c-app">${(c.applications || []).map(a => `<option value="${esc(a.slug)}" ${a.slug === c.application ? "selected" : ""}>${esc(a.nom)}</option>`).join("") || "<option value=''>Aucune (à cartographier)</option>"}</select></div>
       ${c.filtre_application?.app ? `<div title="Les écrans ne montrent que les tests de l'application (règle définie dans Paramètres › Applications)"><label>Tests de l'app</label>
-        <span class="val">${esc(c.filtre_application.composant ? "composant " + c.filtre_application.composant : "libellé " + c.filtre_application.libelle)} · ${c.filtre_application.tests ?? "?"}/${c.filtre_application.tests_projet ?? "?"}</span></div>` : ""}
+        <span class="val">${esc((c.filtre_application.valeurs || []).join(", "))} · ${c.filtre_application.tests ?? "?"}/${c.filtre_application.tests_projet ?? "?"}</span></div>` : ""}
       <div><label>Version</label><span class="val">${esc(c.version || "—")}</span></div>
       <div><label for="c-plat">Plateforme</label><span class="ligne">${ico({android: "android", ios: "pomme", web: "globe"}[this.plateforme] || "mobile")}<select id="c-plat">${plats.map(p => `<option value="${p}" ${p === this.plateforme ? "selected" : ""}>${{android: "Android", ios: "iOS", web: "Web"}[p] || esc(p)}</option>`).join("")}</select></span></div>
       <div><label for="c-env">Environnement</label><select id="c-env">${(c.environnements || []).map(e => `<option ${e === this.env ? "selected" : ""}>${esc(e)}</option>`).join("") || "<option value=''>Aucun JDD</option>"}</select></div>

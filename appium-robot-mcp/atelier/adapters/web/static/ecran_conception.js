@@ -478,8 +478,10 @@
 
   /* ------------------------------------------------------------------ 12 mapping Xray */
   async function mapping(z) {
-    const [m, t, sante, hist] = await Promise.all([api("/api/conception/mapping"), api("/api/conception/mapping/tester"), api("/api/sante").catch(() => []),
-      api("/api/conception/sync-historique").catch(() => [])]);
+    const [m, t, sante, hist, apps] = await Promise.all([api("/api/conception/mapping"), api("/api/conception/mapping/tester"), api("/api/sante").catch(() => []),
+      api("/api/conception/sync-historique").catch(() => []), api("/api/apps").catch(() => ({applications: []}))]);
+    const ap = m.application || {champ: "composant", champ_jira: ""};
+    const valeursApp = a => (a.tests_xray?.valeurs || [a.tests_xray?.composant, a.tests_xray?.libelle].filter(Boolean)).join(", ");
     const xray = sante.find(i => /xray/i.test(i.nom)), jira = sante.find(i => /jira/i.test(i.nom));
     const dans = Object.fromEntries(t.champs.map(c => [c.interne, c.dans_instantane]));
     z.innerHTML = `${entete("Xray Mapping & synchronisation", `<button class="btn primaire" id="mp-ok">${ico("check")}Enregistrer le mapping</button>`)}<div class="corps-carte">
@@ -505,6 +507,16 @@
       <p class="lib">Aucun équivalent n'est supposé : chaque statut interne doit être relié explicitement à un statut du workflow Jira. <span id="mp-wf">Lecture des statuts du workflow Test dans Jira…</span></p>
       <table class="table-strat"><tr><th>Statut interne</th><th>Statut externe (Jira / Xray)</th></tr>${m.statuts.map((s, i) => `<tr><td>${esc(m.libelles_revue[s.interne] || s.interne)}</td>
         <td><input class="in" data-st="${i}" value="${esc(s.externe || "")}" placeholder="À configurer"></td></tr>`).join("")}</table>
+      <h3 class="lib" style="margin-top:14px">APPLICATIONS ↔ TESTS XRAY</h3>
+      <p class="lib">Un projet Xray peut contenir plusieurs applications : choisir le champ Jira qui indique l'application d'un test, puis la ou les valeurs de chaque application. Les écrans n'affichent ensuite que les tests de l'application active (header).</p>
+      <div class="btns" style="margin-bottom:8px"><label class="lib" for="mp-apc">Champ Jira de l'application</label>
+        <select class="in" id="mp-apc" style="width:auto">${Object.entries(m.champs_application).map(([k, l]) => `<option value="${k}" ${ap.champ === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <input class="in mono" id="mp-apj" placeholder="customfield_10050" value="${esc(ap.champ_jira || "")}" style="width:180px" ${ap.champ === "personnalise" ? "" : "hidden"}></div>
+      ${apps.applications.length ? `<table class="table-strat"><tr><th>Application</th><th>Plateformes</th><th>Valeur(s) du champ (séparées par des virgules)</th></tr>
+        ${apps.applications.map(a => `<tr><td><b>${esc(a.nom)}</b>${a.slug === apps.active ? ' <span class="pill ok">active</span>' : ""}</td><td class="lib">${esc((a.plateformes || []).join(", "))}</td>
+          <td><input class="in" data-apv="${esc(a.slug)}" value="${esc(valeursApp(a))}" placeholder="vide = tout le projet"></td></tr>`).join("")}</table>`
+        : "<p class='lib'>Aucune application : Paramètres › Applications › « Nouvelle application ».</p>"}
+      <p class="lib">Après un changement de champ personnalisé, relancer la synchronisation Jira pour lire ce champ sur chaque test.</p>
       <h3 class="lib" style="margin-top:14px">TYPES DE TEST → ÉDITEUR</h3><ul class="liste">${m.types.map(x => `<li><b>${esc(x.xray)}</b><span class="item lib">${esc(EDITEUR[x.editeur] || x.editeur)}</span></li>`).join("")}</ul>
       <h3 class="lib" style="margin-top:14px">HISTORIQUE DES SYNCHRONISATIONS</h3>${hist.length ? `<table class="table-strat"><tr><th>Date</th><th>Objet</th><th>Direction</th><th>Statut</th><th>Résultat</th><th>Auteur</th></tr>${hist.map(h => `<tr><td class="mono">${esc(h.date.replace("T", " "))}</td>
         <td class="cle-xray">${esc(h.objet)}</td><td>${esc(h.direction)}</td><td><span class="pill ${h.statut === "Conflit" ? "warn" : ["Refusé", "Erreur"].includes(h.statut) ? "ko" : "ok"}">${esc(h.statut)}</span></td><td class="lib">${esc(h.resultat)}</td><td>${esc(h.auteur)}</td></tr>`).join("")}</table>`
@@ -527,10 +539,17 @@
       m.objets.forEach((o, i) => { o.externe = $(`[data-obj="${i}"]`).value; o.confirme = $(`[data-objc="${i}"]`).checked; });
       m.champs.forEach((c, i) => $$(`[data-ch="${i}"]`).forEach(e => { c[e.dataset.k] = e.type === "checkbox" ? e.checked : e.value; }));
       m.statuts.forEach((s, i) => { s.externe = $(`[data-st="${i}"]`).value.trim(); });
-      return {objets: m.objets, champs: m.champs, statuts: m.statuts, types: m.types, projet_jira: $("#mp-proj").value.trim(), dossier_repository: $("#mp-dos").value.trim(), mode: "A (import)"};
+      return {objets: m.objets, champs: m.champs, statuts: m.statuts, types: m.types, projet_jira: $("#mp-proj").value.trim(), dossier_repository: $("#mp-dos").value.trim(), mode: "A (import)",
+        application: {champ: $("#mp-apc").value, champ_jira: $("#mp-apj").value.trim()}};
     };
     const sauver = async corps => { try { await api("/api/conception/mapping", {method: "POST", body: corps}); toast("Mapping enregistré (journalisé).", "ok"); mapping(z); } catch (e) { toast(e.message, "ko"); } };
-    $("#mp-ok").onclick = () => sauver(collecter());
+    $("#mp-apc").onchange = e => { $("#mp-apj").hidden = e.target.value !== "personnalise"; };
+    $("#mp-ok").onclick = async () => {
+      try {  // valeurs par application d'abord, puis le mapping (qui recharge l'écran)
+        for (const i of $$("[data-apv]", z)) await api("/api/apps/maj", {method: "POST", body: {slug: i.dataset.apv, tests_xray: {valeurs: i.value.split(",").map(x => x.trim()).filter(Boolean)}}});
+        await sauver(collecter()); Atelier.chargerContexte();
+      } catch (e) { toast(e.message, "ko"); }
+    };
     $("#mp-add").onclick = () => { const c = collecter(); c.champs.push({interne: $("#mp-ni").value.trim(), externe: $("#mp-ne").value.trim(), sens: "lecture", actif: true, obligatoire: false, transformation: "", cle_instantane: ""}); sauver(c); };
   }
 

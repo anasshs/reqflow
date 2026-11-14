@@ -326,3 +326,34 @@ def test_vue_filtree_par_application(tmp_path, monkeypatch):
     assert len(px.charger()["tests"]) == 3  # instantané complet intact
     carte.maj_app(a["slug"], tests_xray={"libelle": "WEB"})
     assert [t["cle"] for t in px.charger_vue()["tests"]] == ["TAM-3"]
+
+
+
+def test_application_par_champ_personnalise_du_mapping(tmp_path, monkeypatch):
+    from atelier.discovery import carte
+    from atelier.domain import projet
+    from atelier.generation import conception
+    from atelier.intelligence import patrimoine_xray as px
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+    with pytest.raises(ValueError, match="customfield"):
+        conception.enregistrer_mapping({"application": {"champ": "personnalise", "champ_jira": "Application"}})
+    conception.enregistrer_mapping({"application": {"champ": "personnalise", "champ_jira": "customfield_10050"}})
+
+    class J:
+        enabled = True
+
+        def rechercher(self, jql, champs, limite):
+            assert "customfield_10050" in champs  # champ de l'application lu à la synchro
+            if jql.startswith("key in"):
+                return []
+            return [{"key": "TAM-1", "fields": {"summary": "a", "customfield_10050": {"value": "Mobile"}}},
+                    {"key": "TAM-2", "fields": {"summary": "b", "customfield_10050": [{"value": "Web"}, {"value": "Mobile"}]}},
+                    {"key": "TAM-3", "fields": {"summary": "c", "customfield_10050": {"value": "Back-office"}}}]
+
+    px.synchroniser_jira("TAM", jira=J())
+    assert px.charger()["tests"][1]["champ_application"] == ["Web", "Mobile"]
+    carte.creer_app("Banque Mobile", ["android"], projet_xray="TAM", tests_xray={"valeurs": ["mobile"]})
+    assert [t["cle"] for t in px.charger_vue()["tests"]] == ["TAM-1", "TAM-2"]
+    f = px.filtre_application()
+    assert f["champ"] == "personnalise" and f["champ_jira"] == "customfield_10050" and f["valeurs"] == ["mobile"]
