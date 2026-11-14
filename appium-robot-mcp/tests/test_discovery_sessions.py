@@ -53,5 +53,8 @@ def test_cycle_session_et_resultats(ds):
         ds.demarrer(s["id"])  # terminée : nouvelle session
     v = ds.vue_ensemble()
     assert v["kpi"]["ecrans"] == 2 and v["kpi"]["transitions"] == 1 and v["kpi"]["a_nommer"] == 2
+    rapide = ds.vue_ensemble(avec_graphe=False)
+    assert "fonctionnel" not in rapide and rapide["kpi"] == v["kpi"]
+    assert set(v["durees"]) == {"depot_robot", "graphe"} and v["volume"]["noeuds"] >= 2
     n = ds.navigation()
     assert {x["id"] for x in n["impasses"]} == {e1["id"]} and ds.chemin(e1["id"], e0["id"])["trouve"]

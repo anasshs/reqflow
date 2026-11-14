@@ -22,8 +22,10 @@
         <section class="carte corps-strat"><div class="corps-carte">${vide("Chargement…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "discovery/" + b.dataset.r; });
       const z = $(".corps-strat");
+      const garde = setTimeout(() => { const c = $(".corps-strat .corps-carte"); if (c && c.textContent.includes("Chargement…")) c.innerHTML = vide("Toujours en calcul…", "Le serveur n'a pas encore répondu : voir la console du serveur (python web/app.py)."); }, 30000);
       try { await ({vue, sessions, studio, ecrans, composants, navigation, comportements, apiObs, resultats, validation, correlation, historique, parametres}[R === "api" ? "apiObs" : R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
+      finally { clearTimeout(garde); }
     },
   });
 
@@ -33,17 +35,31 @@
   const pas = (t, d = "") => `<div class="corps-carte">${vide(t, d)}</div>`;
 
   /* ------------------------------------------------------------------ 1 overview */
+  /* appel long avec délai : jamais de « Chargement… » sans fin */
+  function apiDelai(url, ms = 120000) {
+    return Promise.race([api(url), new Promise((_, ko) => setTimeout(() => ko(new Error(`pas de réponse du serveur après ${ms / 1000} s (voir la console du serveur)`)), ms))]);
+  }
+
   async function vue(z) {
-    const v = await api("/api/discovery/vue"), k = v.kpi;
+    const v = await apiDelai("/api/discovery/vue?graphe=0", 60000), k = v.kpi;
     if (!v.app) { z.innerHTML = entete("Discovery Overview") + pas("Aucune application", `<a href="#parametres/applications">Déclarer l'application</a> (Paramètres › Applications), puis lancer une session.`); return; }
     z.innerHTML = `${entete("Discovery Overview", `${v.active ? `<a class="btn" href="#discovery/studio">Reprendre ${esc(v.active.id)}</a>` : ""}<button class="btn primaire" id="dv-new">${ico("plus")}Nouvelle session</button>`)}<div class="corps-carte">
-      <h3 class="lib">DÉCOUVERTE FONCTIONNELLE</h3>${kpis([[k.ecrans, "écrans"], [k.transitions, "transitions"], [k.actions, "actions observées"], [v.fonctionnel.fonctionnalites, "fonctionnalités"], [v.fonctionnel.parcours, "parcours"], [v.fonctionnel.regles, "règles"]])}
-      <h3 class="lib">DÉCOUVERTE TECHNIQUE</h3>${kpis([[k.composants, "composants"], [k.locators, "locators"], [k.sans_locator_stable, "interactifs sans locator stable", k.sans_locator_stable ? "warn-t" : ""], [v.fonctionnel.endpoints, "endpoints"], [k.ecrans_avec_variantes, "écrans avec variantes"], [k.ecrans_modifies, "écrans modifiés", k.ecrans_modifies ? "warn-t" : ""]])}
-      <h3 class="lib">QUALITÉ DE LA CONNAISSANCE</h3>${kpis([[v.qualite.a_valider, "à valider", v.qualite.a_valider ? "warn-t" : ""], [v.qualite.valides, "éléments validés"], [k.a_nommer, "écrans à nommer"], [v.sessions, "sessions"]])}
+      <h3 class="lib">CARTE DE L'APPLICATION</h3>${kpis([[k.ecrans, "écrans"], [k.transitions, "transitions"], [k.actions, "actions observées"], [k.composants, "composants"], [k.locators, "locators"], [v.sessions, "sessions"]])}
+      ${kpis([[k.sans_locator_stable, "interactifs sans locator stable", k.sans_locator_stable ? "warn-t" : ""], [k.ecrans_avec_variantes, "écrans avec variantes"], [k.ecrans_modifies, "écrans modifiés", k.ecrans_modifies ? "warn-t" : ""], [k.a_nommer, "écrans à nommer", k.a_nommer ? "warn-t" : ""]])}
+      <h3 class="lib">KNOWLEDGE GRAPH</h3><div id="dv-kg"><p class="lib">Calcul du graphe (dépôt Robot, copie Jira / Xray, JDD, OpenAPI)… <span id="dv-t">0</span> s</p></div>
       <div class="btns"><a class="btn" href="#discovery/ecrans">Écrans découverts</a><a class="btn" href="#discovery/navigation">Transitions</a><a class="btn" href="#discovery/validation">Valider les propositions</a>
         <a class="btn" href="#discovery/historique">Comparer deux sessions</a><a class="btn" href="#graphe/connaissance">Knowledge Graph</a></div>
       <p class="lib" style="margin-top:10px">Indicateurs calculés sur la carte de l'application <b>${esc(v.app)}</b> et le Knowledge Graph ; aucune valeur estimée.</p></div>`;
     $("#dv-new").onclick = () => nouvelleSession(z);
+    const t0 = Date.now(), chrono = setInterval(() => { const e = $("#dv-t"); if (e) e.textContent = Math.round((Date.now() - t0) / 1000); else clearInterval(chrono); }, 1000);
+    try {
+      const g = await apiDelai("/api/discovery/vue-graphe");
+      if (!$("#dv-kg")) return;
+      $("#dv-kg").innerHTML = `${kpis([[g.fonctionnel.fonctionnalites, "fonctionnalités"], [g.fonctionnel.parcours, "parcours"], [g.fonctionnel.regles, "règles"], [g.fonctionnel.endpoints, "endpoints"],
+        [g.qualite.a_valider, "à valider", g.qualite.a_valider ? "warn-t" : ""], [g.qualite.valides, "éléments validés"]])}
+        <p class="lib">${g.volume.noeuds} nœuds, ${g.volume.relations} relations, ${g.volume.fichiers_robot} fichier(s) Robot · lecture du dépôt ${g.durees.depot_robot} s, construction ${g.durees.graphe} s.</p>`;
+    } catch (e) { if ($("#dv-kg")) $("#dv-kg").innerHTML = `<p class="warn-t">Knowledge Graph indisponible : ${esc(e.message)}</p>`; }
+    finally { clearInterval(chrono); }
   }
 
   /* ------------------------------------------------------------------ 2 sessions */
@@ -278,7 +294,7 @@
     SESSION = SESSION && l.some(s => s.id === SESSION) ? SESSION : l[0]?.id;
     const [s, v] = await Promise.all([SESSION ? api("/api/discovery/sessions/" + SESSION) : null, api("/api/intelligence/validation").catch(() => [])]);
     const obs = (s?.timeline || []).filter(e => e.type === "comportement");
-    const regles = v.filter(x => x.objet === "regle" || String(x.id || "").startsWith("regle:obs_"));
+    const regles = v.filter(x => x.type === "regle");
     z.innerHTML = `${entete("Behavioral Intelligence", l.length ? `<select class="in" id="bi-s" style="width:auto">${l.map(x => `<option ${x.id === SESSION ? "selected" : ""}>${esc(x.id)}</option>`).join("")}</select>` : "")}<div class="corps-carte">
       <p class="lib">Après chaque action déclenchée depuis le Studio, l'écran avant / après est comparé : messages apparus (erreur, champ obligatoire, confirmation…), éléments apparus ou disparus. Chaque message devient une règle <b>proposée</b> au Knowledge Graph, à valider.</p>
       <h3 class="lib">COMPORTEMENTS OBSERVÉS ${SESSION ? "· " + esc(SESSION) : ""} (${obs.length})</h3>

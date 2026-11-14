@@ -1149,8 +1149,13 @@ async def graphes_sources():
 
 
 @app.get("/api/discovery/vue")
-async def discovery_vue():
-    return await asyncio.to_thread(_call, sessions_discovery.vue_ensemble)
+async def discovery_vue(graphe: int = 1):
+    return await asyncio.to_thread(_call, sessions_discovery.vue_ensemble, bool(graphe))
+
+
+@app.get("/api/discovery/vue-graphe")
+async def discovery_vue_graphe():
+    return await asyncio.to_thread(_call, sessions_discovery.graphe_ensemble)
 
 
 @app.get("/api/discovery/sessions")

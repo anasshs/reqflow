@@ -262,9 +262,10 @@ def comparer(a: str, b: str) -> dict:
             "transitions_ajoutees": len(set(pb["transitions"]) - set(pa["transitions"]))}
 
 
-def vue_ensemble() -> dict:
-    """Indicateurs de découverte calculés sur la carte et le Knowledge Graph (aucune valeur estimée)."""
-    from atelier.discovery import carte, connaissance, intelligence_app
+def vue_ensemble(avec_graphe: bool = True) -> dict:
+    """Indicateurs de découverte calculés sur la carte et le Knowledge Graph (aucune valeur estimée).
+    avec_graphe=False : carte et sessions seulement (immédiat) ; le graphe se calcule à part (graphe_ensemble)."""
+    from atelier.discovery import carte
 
     k = {"ecrans": 0, "transitions": 0, "actions": 0, "composants": 0, "locators": 0, "sans_locator_stable": 0,
          "ecrans_avec_variantes": 0, "ecrans_modifies": 0, "a_nommer": 0}
@@ -283,16 +284,30 @@ def vue_ensemble() -> dict:
             k["ecrans_avec_variantes"] += bool(e.get("etats"))
             k["ecrans_modifies"] += bool(e.get("a_revoir"))
             k["a_nommer"] += not e.get("nom")
-    g = connaissance.construire()
+    out = {"kpi": k, "sessions": len(lister()), "active": active(), "app": carte.app_courante()}
+    return {**out, **graphe_ensemble()} if avec_graphe else out
+
+
+def graphe_ensemble() -> dict:
+    """Indicateurs du Knowledge Graph (une seule construction), avec la durée de chaque étape pour le diagnostic."""
+    from atelier.discovery import connaissance
+    from atelier.execution import depot_robot
+
+    durees = {}
+    t = time.time()
+    inv = depot_robot.lire_depot()
+    durees["depot_robot"] = round(time.time() - t, 2)
+    t = time.time()
+    g = connaissance.construire(inventaire=inv)
+    durees["graphe"] = round(time.time() - t, 2)
     par_type = {}
     for n in g.noeuds.values():
         par_type[n.type] = par_type.get(n.type, 0) + 1
-    a_valider = len(intelligence_app.validation())
-    return {"kpi": k, "fonctionnel": {"fonctionnalites": par_type.get("fonctionnalite", 0), "parcours": par_type.get("parcours", 0),
-                                      "regles": par_type.get("regle", 0), "endpoints": par_type.get("endpoint", 0)},
-            "qualite": {"a_valider": a_valider, "valides": sum(n.statut == "validé" for n in g.noeuds.values()),
-                        "a_revoir": k["ecrans_modifies"]},
-            "sessions": len(lister()), "active": active(), "app": carte.app_courante()}
+    a_valider = sum(n.statut == "à valider" for n in g.noeuds.values()) + sum(r.statut == "à valider" for r in g.relations.values())
+    return {"fonctionnel": {"fonctionnalites": par_type.get("fonctionnalite", 0), "parcours": par_type.get("parcours", 0),
+                            "regles": par_type.get("regle", 0), "endpoints": par_type.get("endpoint", 0)},
+            "qualite": {"a_valider": a_valider, "valides": sum(n.statut == "validé" for n in g.noeuds.values())},
+            "durees": durees, "volume": {"noeuds": len(g.noeuds), "relations": len(g.relations), "fichiers_robot": len(inv.get("fichiers") or {})}}
 
 
 def navigation() -> dict:
