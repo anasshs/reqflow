@@ -84,3 +84,21 @@ def test_mapping_sans_supposition(td):
         {"interne": "dataset", "externe": "customfield_10042", "sens": "lecture", "actif": True}]})
     assert m["statuts"] == [{"interne": "Approved", "externe": "Ready"}]
     assert any(c["externe"] == "customfield_10042" for c in m["champs"])
+
+
+
+def test_statuts_workflow_test_depuis_jira(td, monkeypatch):
+    class J:
+        enabled = True
+
+        def get(self, chemin):
+            assert chemin == "/rest/api/3/project/TAM/statuses"
+            return [{"name": "Story", "statuses": [{"name": "To Do"}]},
+                    {"name": "Test", "statuses": [{"name": "Draft"}, {"name": "Ready for review"}, {"name": "Approved"}]}]
+
+    monkeypatch.delenv("XRAY_TEST_ISSUE_TYPE", raising=False)
+    w = td.statuts_workflow_test("tam", jira=J())
+    assert w["type_trouve"] and w["statuts"] == ["Draft", "Ready for review", "Approved"]
+    monkeypatch.setenv("XRAY_TEST_ISSUE_TYPE", "Cas de test")
+    w = td.statuts_workflow_test("TAM", jira=J())
+    assert not w["type_trouve"] and "To Do" in w["statuts"] and w["types_disponibles"] == ["Story", "Test"]

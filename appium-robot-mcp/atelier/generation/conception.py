@@ -453,3 +453,27 @@ def _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision) -> dic
     _historiser_sync(cible, "Local → Xray" if decision != "xray" else "Xray → Local", statut, resultat)
     _journaliser("publication_xray", cle=cle, xray=cible, statut=statut)
     return {"conflit": False, "mode": mode, "cle_xray": cible, "statut": statut, "resultat": resultat, "non_publies": autres}
+
+
+def statuts_workflow_test(projet: str = "", jira=None) -> dict:
+    """Statuts du workflow du type Test (Xray) dans le projet Jira, pour choisir les statuts externes du mapping sans
+    les saisir. Lecture seule (GET /rest/api/3/project/{clé}/statuses). Type absent : statuts de tous les types, signalé."""
+    import os
+
+    from atelier.domain import projets
+    from atelier.integrations.jira import JiraClient
+
+    projet = (projet or mapping().get("projet_jira") or projets.cle_jira()).strip().upper()
+    if not projet:
+        raise ValueError("Projet Jira requis (champ « Projet Jira » du mapping ou projet actif).")
+    jira = jira or JiraClient()
+    if not getattr(jira, "enabled", True):
+        raise RuntimeError("Jira non configuré (Paramètres › Connexions).")
+    types = [t.strip() for t in (os.environ.get("XRAY_TEST_ISSUE_TYPE") or "Test").split(",") if t.strip()]
+    data = jira.get(f"/rest/api/3/project/{projet}/statuses") or []
+    for it in data:
+        if (it.get("name") or "").lower() in {t.lower() for t in types}:
+            return {"projet": projet, "type": it["name"], "statuts": [s["name"] for s in it.get("statuses") or []], "type_trouve": True}
+    tous = sorted({s["name"] for it in data for s in it.get("statuses") or []})
+    return {"projet": projet, "type": types[0], "statuts": tous, "type_trouve": False,
+            "types_disponibles": [it.get("name") for it in data]}

@@ -502,13 +502,27 @@
         <button class="btn" id="mp-add">${ico("plus")}Ajouter un champ personnalisé</button></div>
       ${t.non_mappes.length ? `<p class="lib">Données de l'instantané non mappées : ${t.non_mappes.map(esc).join(", ")}</p>` : ""}
       <h3 class="lib" style="margin-top:14px">STATUTS <span class="pill ${t.statuts_sans_equivalent.length ? "warn" : "ok"}">${t.statuts_sans_equivalent.length} sans équivalent</span></h3>
-      <p class="lib">Aucun équivalent n'est supposé : chaque statut interne doit être relié explicitement à un statut du workflow Jira.</p>
+      <p class="lib">Aucun équivalent n'est supposé : chaque statut interne doit être relié explicitement à un statut du workflow Jira. <span id="mp-wf">Lecture des statuts du workflow Test dans Jira…</span></p>
       <table class="table-strat"><tr><th>Statut interne</th><th>Statut externe (Jira / Xray)</th></tr>${m.statuts.map((s, i) => `<tr><td>${esc(m.libelles_revue[s.interne] || s.interne)}</td>
         <td><input class="in" data-st="${i}" value="${esc(s.externe || "")}" placeholder="À configurer"></td></tr>`).join("")}</table>
       <h3 class="lib" style="margin-top:14px">TYPES DE TEST → ÉDITEUR</h3><ul class="liste">${m.types.map(x => `<li><b>${esc(x.xray)}</b><span class="item lib">${esc(EDITEUR[x.editeur] || x.editeur)}</span></li>`).join("")}</ul>
       <h3 class="lib" style="margin-top:14px">HISTORIQUE DES SYNCHRONISATIONS</h3>${hist.length ? `<table class="table-strat"><tr><th>Date</th><th>Objet</th><th>Direction</th><th>Statut</th><th>Résultat</th><th>Auteur</th></tr>${hist.map(h => `<tr><td class="mono">${esc(h.date.replace("T", " "))}</td>
         <td class="cle-xray">${esc(h.objet)}</td><td>${esc(h.direction)}</td><td><span class="pill ${h.statut === "Conflit" ? "warn" : ["Refusé", "Erreur"].includes(h.statut) ? "ko" : "ok"}">${esc(h.statut)}</span></td><td class="lib">${esc(h.resultat)}</td><td>${esc(h.auteur)}</td></tr>`).join("")}</table>`
         : "<p class='lib'>Aucune publication. Cas de test (Cucumber) › « Publier dans Xray ».</p>"}</div>`;
+    // statuts externes : listes déroulantes alimentées par le workflow du type Test dans Jira (rien à saisir)
+    api("/api/conception/mapping/statuts-jira?projet=" + encodeURIComponent(m.projet_jira || "")).then(w => {
+      $("#mp-wf").innerHTML = w.type_trouve ? `Statuts du workflow <b>${esc(w.type)}</b> du projet <span class="cle-xray">${esc(w.projet)}</span> lus dans Jira.`
+        : `<span class="warn-t">Type « ${esc(w.type)} » introuvable dans ${esc(w.projet)} (types : ${esc((w.types_disponibles || []).join(", "))}) : statuts de tous les types proposés (XRAY_TEST_ISSUE_TYPE).</span>`;
+      $$("[data-st]").forEach(inp => {
+        const v = inp.value;
+        const sel = document.createElement("select");
+        sel.className = "in";
+        sel.dataset.st = inp.dataset.st;
+        sel.innerHTML = `<option value="">À configurer</option>${w.statuts.map(x => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("")}`
+          + (v && !w.statuts.includes(v) ? `<option selected value="${esc(v)}">${esc(v)} (absent du workflow)</option>` : "");
+        inp.replaceWith(sel);
+      });
+    }).catch(e => { $("#mp-wf").innerHTML = `<span class="warn-t">Statuts Jira non lus (${esc(e.message)}) : saisie manuelle.</span>`; });
     const collecter = () => {
       m.objets.forEach((o, i) => { o.externe = $(`[data-obj="${i}"]`).value; o.confirme = $(`[data-objc="${i}"]`).checked; });
       m.champs.forEach((c, i) => $$(`[data-ch="${i}"]`).forEach(e => { c[e.dataset.k] = e.type === "checkbox" ? e.checked : e.value; }));

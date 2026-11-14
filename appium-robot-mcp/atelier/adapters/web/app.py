@@ -1101,6 +1101,11 @@ async def testabilite_action(cle: str, action: str, req: Request):
     return await asyncio.to_thread(_call, actions[action])
 
 
+@app.get("/api/conception/mapping/statuts-jira")
+async def conception_statuts_jira(projet: str = ""):
+    return await asyncio.to_thread(_call, conception.statuts_workflow_test, projet)
+
+
 @app.get("/api/conception/organisation-xray")
 def conception_organisation_xray():
     return _call(patrimoine_xray.organisation)
