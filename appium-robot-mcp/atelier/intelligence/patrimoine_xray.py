@@ -255,6 +255,33 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
     return {**etat_, **data["definitions_xray"]}
 
 
+def dossiers_repository() -> dict:
+    """Dossiers du Test Repository Xray du projet (copie locale, tout le projet : définitions importées), parents
+    compris, avec le nombre de tests (sous-dossiers inclus) et l'application qui les a déclarés."""
+    from atelier.discovery import carte
+
+    pat = charger() or {"tests": []}
+    compte: dict = {}
+    for t in pat["tests"]:
+        if t.get("dossier") is None:
+            continue
+        parties = [x for x in (t["dossier"] or "/").split("/") if x]
+        for i in range(len(parties) + 1):
+            chemin = "/" + "/".join(parties[:i])
+            compte[chemin] = compte.get(chemin, 0) + 1
+    apps = {}
+    try:
+        for a in carte.apps():
+            for d in (a.get("tests_xray") or {}).get("dossiers") or []:
+                apps.setdefault(d, []).append(a.get("nom", a["slug"]))
+    except Exception:  # noqa: BLE001
+        pass
+    return {"dossiers": [{"chemin": c, "tests": n, "profondeur": c.strip("/").count("/") + (1 if c != "/" else 0),
+                          "applications": apps.get(c, [])} for c, n in sorted(compte.items())],
+            "definitions_importees": bool((pat.get("definitions_xray") or {}).get("date")),
+            "tests_sans_dossier": sum(1 for t in pat["tests"] if t.get("dossier") is None), "tests": len(pat["tests"])}
+
+
 def organisation() -> dict:
     """Suites de test côté Xray : dossiers du Test Repository (depuis les définitions), Test Plans et Test Sets."""
     pat = charger_vue() or {"tests": [], "plans": [], "executions": []}
@@ -335,6 +362,8 @@ def filtre_application() -> dict:
         a = {}
     tx = a.get("tests_xray") or {}
     regle = regle_application()
+    if tx.get("dossiers"):  # dossiers du Test Repository : prioritaires sur le champ Jira
+        return {"app": a.get("nom", ""), "champ": "dossier", "valeurs": list(tx["dossiers"]), "dossiers": list(tx["dossiers"])}
     if tx.get("valeurs"):
         return {"app": a.get("nom", ""), "champ": regle["champ"], "champ_jira": regle.get("champ_jira", ""), "valeurs": list(tx["valeurs"])}
     for champ in ("composant", "libelle"):
@@ -362,7 +391,14 @@ def appliquer_filtre(pat: dict | None, f: dict) -> dict | None:
         return pat
     champ = f.get("champ", "composant")
 
+    def sous(d: str | None, racine: str) -> bool:
+        d = (d or "").rstrip("/").lower()
+        racine = racine.rstrip("/").lower()
+        return d == racine or d.startswith(racine + "/")
+
     def concerne(x: dict) -> bool:
+        if champ == "dossier":  # tests du dossier et de ses sous-dossiers ; les exigences suivent leurs tests
+            return x.get("dossier") is not None and any(sous(x["dossier"], r) for r in valeurs)
         if champ == "libelle":
             vus = x.get("libelles") or []
         elif champ == "personnalise":

@@ -177,6 +177,27 @@ def choisir_app(s: str) -> dict:
     return config_app(s)
 
 
+def normaliser_dossier(d: str) -> str:
+    """Chemin d'un dossier du Test Repository Xray : « /A/B » (racine « / »)."""
+    d = "/" + "/".join(x.strip() for x in str(d or "").replace("\\", "/").split("/") if x.strip())
+    return d
+
+
+def normaliser_tests_xray(tx: dict | None) -> dict:
+    """Comment reconnaître les tests de l'application dans le projet Xray : dossiers du Test Repository
+    (« dossiers », sous-dossiers compris), valeurs du champ Jira du mapping (« valeurs »), ou ancien format
+    composant / libellé. Vide = tout le projet (repository dédié à une seule application)."""
+    tx = tx or {}
+    out = {}
+    if "dossiers" in tx:
+        out["dossiers"] = sorted({normaliser_dossier(d) for d in tx["dossiers"] or [] if str(d).strip()})
+    if "valeurs" in tx:
+        out["valeurs"] = [str(v).strip() for v in tx["valeurs"] or [] if str(v).strip()]
+    if not out:
+        out = {k: str(v).strip() for k, v in tx.items() if k in ("composant", "libelle") and str(v).strip()}
+    return {k: v for k, v in out.items() if v}
+
+
 def creer_app(nom: str, plateformes: list[str], android: dict | None = None, ios: dict | None = None,
               web: dict | None = None, build: str = "", langue: str = "fr",
               liste_rouge: list[str] | None = None, comptes: list[str] | None = None,
@@ -205,9 +226,7 @@ def creer_app(nom: str, plateformes: list[str], android: dict | None = None, ios
            "liste_rouge": {"textes": liste_rouge or LISTE_ROUGE_DEFAUT, "cles": []},
            "comptes": comptes or [], "ecran_depart": "", "etape_assistant": 1, "cree": _now(),
            "projet_xray": (projet_xray or "").strip().upper(),
-           "tests_xray": ({"valeurs": [str(v).strip() for v in (tests_xray or {}).get("valeurs") or [] if str(v).strip()]}
-                          if "valeurs" in (tests_xray or {}) else
-                          {k: str(v).strip() for k, v in (tests_xray or {}).items() if k in ("composant", "libelle") and str(v).strip()})}
+           "tests_xray": normaliser_tests_xray(tests_xray)}
     _dump(_racine() / s / "app.yaml", cfg)
     choisir_app(s)
     return {**cfg, "slug": s}

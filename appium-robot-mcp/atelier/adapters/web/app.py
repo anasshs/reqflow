@@ -764,6 +764,17 @@ async def apps_creer(req: Request):
     return cfg
 
 
+@app.get("/api/conception/repository")
+def conception_repository():
+    """Dossiers du Test Repository Xray et applications du projet qui s'y rattachent."""
+    from atelier.intelligence import patrimoine_xray
+
+    return {**_call(patrimoine_xray.dossiers_repository), "applications": [
+        {"slug": a["slug"], "nom": a.get("nom", a["slug"]), "type": a.get("type", ""), "plateformes": a.get("plateformes", []),
+         "dossiers": (a.get("tests_xray") or {}).get("dossiers", []), "valeurs": (a.get("tests_xray") or {}).get("valeurs", [])}
+        for a in amap.apps()], "active": amap.app_courante()}
+
+
 @app.post("/api/apps/archiver")
 async def apps_archiver(req: Request):
     """Archive locale (restaurable) : aucun effet sur Xray, Jira ni les tests du dépôt."""
@@ -804,10 +815,10 @@ async def apps_maj(req: Request):
         champs["nom"] = str(b["nom"]).strip()  # le slug (dossier) ne change pas
     if "projet_xray" in b:
         champs["projet_xray"] = str(b["projet_xray"] or "").strip().upper()
-    if "tests_xray" in b:
-        tx = b["tests_xray"] or {}
-        champs["tests_xray"] = {"valeurs": [str(v).strip() for v in tx.get("valeurs") or [] if str(v).strip()]} if "valeurs" in tx else \
-            {k: str(v).strip() for k, v in tx.items() if k in ("composant", "libelle") and str(v).strip()}
+    if "tests_xray" in b:  # dossiers et valeurs se complètent : une clé absente garde sa valeur actuelle
+        actuel = (amap.config_app(b.get("slug") or None).get("tests_xray") or {})
+        nouveau = b["tests_xray"] or {}
+        champs["tests_xray"] = amap.normaliser_tests_xray({**{k: actuel[k] for k in ("dossiers", "valeurs") if k in actuel and k not in nouveau}, **nouveau})
     if "liste_rouge" in b:
         champs["liste_rouge"] = {"textes": [t for t in b["liste_rouge"] if t.strip()],
                                  "cles": amap.config_app().get("liste_rouge", {}).get("cles", [])}

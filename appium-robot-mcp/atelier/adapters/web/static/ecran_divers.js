@@ -328,7 +328,7 @@
         <td>${a.type === "mobile" ? (a.plateformes || []).map(p => `<span class="pill">${esc(p)}</span>`).join(" ") + ` <span class="lib mono">${esc(a.android?.app_package || a.ios?.bundle_id || "")}</span>`
           : `<span class="lib mono">${esc(a.type === "api" ? a.api?.url || "" : a.web?.url || "")}</span>`}</td>
         <td>${a.projet_xray ? esc(a.projet_xray) : '<span class="pill warn">non rattachée</span>'}</td>
-        <td class="lib">${esc((a.tests_xray?.valeurs || [a.tests_xray?.composant, a.tests_xray?.libelle].filter(Boolean)).join(", ")) || "tout le projet"}</td>
+        <td class="lib">${a.tests_xray?.dossiers?.length ? `dossier(s) ${esc(a.tests_xray.dossiers.join(", "))}` : esc((a.tests_xray?.valeurs || [a.tests_xray?.composant, a.tests_xray?.libelle].filter(Boolean)).join(", ")) || "tout le projet"}</td>
         <td>${esc(a.build || "—")}</td><td>${a.nb_ecrans}</td>
         <td class="btns"><button class="btn petit" data-mod="${esc(a.slug)}">Modifier</button><button class="btn petit danger" data-arch="${esc(a.slug)}">Supprimer</button>${a.slug === d.active ? '<span class="pill ok">active</span>' : `<button class="btn petit" data-app="${esc(a.slug)}">Activer</button>`}</td></tr>`).join("")}</table>`
       : vide("Aucune application", "« Nouvelle application » : identité, prérequis, liste rouge, import des locators, cartographie.")}`;
@@ -374,9 +374,17 @@
           ${type === "api" ? `<div class="champ"><label for="wa-aurl">URL de base de l'API</label><input class="in" id="wa-aurl" value="${esc(cfg.api?.url || "")}" placeholder="https://api.recette.exemple.fr/v1"></div>
           <div class="champ"><label for="wa-oapi">Contrat OpenAPI (fichier du projet, optionnel)</label><input class="in mono" id="wa-oapi" value="${esc(cfg.api?.openapi || "")}" placeholder="api/cartes.openapi.yaml"></div>` : ""}
           <div class="champ"><label for="wa-px">Projet Xray de rattachement</label><input class="in" id="wa-px" value="${esc(cfg.projet_xray ?? Atelier.ctx.projet_xray ?? "")}" placeholder="TAM"></div>
-          <div class="champ" style="grid-column:1/-1"><label for="wa-val">Ses tests dans Xray : valeur(s) du champ « <span id="wa-champ">…</span> » (virgules ; vide = tout le projet)</label>
+          <div class="champ" style="grid-column:1/-1"><label for="wa-dos">Ses tests dans Xray : dossier(s) du Test Repository (aucun = tout le repository, s'il est dédié à cette application ; Ctrl + clic pour plusieurs)</label>
+            <select class="in" id="wa-dos" multiple size="4"><option disabled>Lecture des dossiers…</option></select></div>
+          <div class="champ" style="grid-column:1/-1"><label for="wa-val">ou valeur(s) du champ « <span id="wa-champ">…</span> » (virgules ; les dossiers sont prioritaires)</label>
             <input class="in" id="wa-val" value="${esc((cfg.tests_xray?.valeurs || [cfg.tests_xray?.composant, cfg.tests_xray?.libelle].filter(Boolean)).join(", "))}" placeholder="App Mobile"></div></div>
         <p class="lib">Le champ Jira qui désigne l'application se choisit dans Test Design › Xray Mapping (composant, libellé ou champ personnalisé).</p>`;
+      if (etape === 1) api("/api/conception/repository").then(r => {
+        const choisis = cfg.tests_xray?.dossiers || [], sel = $("#wa-dos", m.el);
+        if (!sel) return;
+        sel.innerHTML = r.dossiers.map(d => `<option value="${esc(d.chemin)}" ${choisis.includes(d.chemin) ? "selected" : ""}>${"\u00a0\u00a0".repeat(d.profondeur)}${esc(d.chemin)} (${d.tests} test(s)${d.applications.length ? " · " + esc(d.applications.join(", ")) : ""})</option>`).join("")
+          || `<option disabled>${r.definitions_importees ? "Aucun dossier" : "Dossiers inconnus : importer les définitions Xray (Test Design › Xray Mapping)"}</option>`;
+      }).catch(() => {});
       if (etape === 1) api("/api/conception/mapping").then(mp => { const a = mp.application || {}; $("#wa-champ", m.el).textContent = (mp.champs_application || {})[a.champ] + (a.champ_jira ? ` ${a.champ_jira}` : ""); }).catch(() => {});
       if (etape === 2) c.innerHTML = `${type === "mobile" ? `<label class="lib" style="display:block"><input type="checkbox"> Build de recette <b>sans protection Promon</b> installée (sinon instrumentation et captures peuvent être bloquées).</label>` : ""}
           <label class="lib" style="display:block"><input type="checkbox"> Langue du device et des comptes <b>fixée</b> (reconnaissance par les textes si l'app n'a pas de tags).</label>
@@ -413,7 +421,8 @@
     };
     const identite = () => ({nom: val("#wa-nom").trim(), type, plateformes: plats(), build: val("#wa-build"), projet_xray: val("#wa-px"),
       api: type === "api" ? {url: val("#wa-aurl").trim(), openapi: val("#wa-oapi").trim()} : {},
-      tests_xray: {valeurs: $("#wa-val", m.el).value.split(",").map(x => x.trim()).filter(Boolean)},
+      tests_xray: {valeurs: $("#wa-val", m.el).value.split(",").map(x => x.trim()).filter(Boolean),
+        ...($("#wa-dos", m.el) && !$("#wa-dos option[disabled]", m.el) ? {dossiers: [...$("#wa-dos", m.el).selectedOptions].map(o => o.value)} : {})},
       android: {app_package: val("#wa-pkg"), app_activity: val("#wa-act")}, ios: {bundle_id: val("#wa-bundle")}, web: {url: val("#wa-url")}});
     $("#wa-prec", m.el).onclick = () => { if (etape > 1) { etape--; rendre(); } };
     $("#wa-suiv", m.el).onclick = async () => {

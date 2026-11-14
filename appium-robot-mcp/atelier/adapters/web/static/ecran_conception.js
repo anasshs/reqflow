@@ -546,8 +546,10 @@
 
   /* ------------------------------------------------------------------ 12 mapping Xray */
   async function mapping(z) {
-    const [m, t, sante, hist, apps] = await Promise.all([api("/api/conception/mapping"), api("/api/conception/mapping/tester"), api("/api/sante").catch(() => []),
-      api("/api/conception/sync-historique").catch(() => []), api("/api/apps").catch(() => ({applications: []}))]);
+    const [m, t, sante, hist, apps, repo] = await Promise.all([api("/api/conception/mapping"), api("/api/conception/mapping/tester"), api("/api/sante").catch(() => []),
+      api("/api/conception/sync-historique").catch(() => []), api("/api/apps").catch(() => ({applications: []})),
+      api("/api/conception/repository").catch(() => ({dossiers: [], applications: [], definitions_importees: false, tests_sans_dossier: 0, tests: 0}))]);
+    const optDossiers = choisis => repo.dossiers.map(d => `<option value="${esc(d.chemin)}" ${choisis.includes(d.chemin) ? "selected" : ""}>${"\u00a0\u00a0".repeat(d.profondeur)}${esc(d.chemin === "/" ? "/ (tout le repository)" : d.chemin.split("/").pop())} (${d.tests})</option>`).join("");
     const ap = m.application || {champ: "composant", champ_jira: ""};
     const valeursApp = a => (a.tests_xray?.valeurs || [a.tests_xray?.composant, a.tests_xray?.libelle].filter(Boolean)).join(", ");
     const xray = sante.find(i => /xray/i.test(i.nom)), jira = sante.find(i => /jira/i.test(i.nom));
@@ -558,7 +560,23 @@
           <p>Jira : ${jira ? `<span class="pill ${jira.ok ? "ok" : "ko"}">${jira.ok ? "OK" : "à régler"}</span> <span class="lib">${esc(jira.detail)}</span>` : "—"}</p><p class="lib">Identifiants : variables d'environnement uniquement (Paramètres).</p></section>
         <section class="bloc-strat"><h3>Modes de synchronisation</h3>${Object.entries(m.modes).map(([k, v]) => `<div><b>${esc(k)}</b> <span class="lib">${esc(v)}</span></div>`).join("")}</section>
         <section class="bloc-strat"><h3>Projet et repository</h3><div class="champ"><label for="mp-proj">Projet Jira</label><input class="in" id="mp-proj" value="${esc(m.projet_jira || "")}" placeholder="ex. DEMO"></div>
-          <div class="champ"><label for="mp-dos">Dossier du Test Repository</label><input class="in" id="mp-dos" value="${esc(m.dossier_repository || "")}" placeholder="ex. /Connexion"></div></section></div>
+          <div class="champ"><label for="mp-dos">Dossier du Test Repository (publication par défaut)</label><input class="in" id="mp-dos" list="mp-dos-liste" value="${esc(m.dossier_repository || "")}" placeholder="choisir ou saisir, ex. /Connexion">
+            <datalist id="mp-dos-liste">${repo.dossiers.map(d => `<option value="${esc(d.chemin)}">${d.tests} test(s)</option>`).join("")}</datalist></div></section></div>
+      <h3 class="lib">APPLICATIONS DU PROJET ET DOSSIERS DU TEST REPOSITORY</h3>
+      <p class="lib">Repository dédié à une seule application : ne choisir aucun dossier (tout le repository). Plusieurs applications dans le projet : choisir le ou les dossiers qui contiennent les tests de chacune (sous-dossiers compris).
+        Une application ajoutée ici est la même que dans Paramètres › Applications (elle apparaît dans le header).</p>
+      ${!repo.definitions_importees || repo.tests_sans_dossier ? `<p class="warn-t">${repo.definitions_importees ? `${repo.tests_sans_dossier} test(s) sans dossier connu.` : "Dossiers inconnus : les définitions Xray n'ont pas encore été importées."}
+        <button class="btn petit" id="mp-imp">Importer les définitions Xray</button></p>` : ""}
+      <table class="table-strat"><tr><th>Application</th><th>Type</th><th>Dossier(s) du Test Repository</th></tr>
+        ${repo.applications.map(a => `<tr><td><b>${esc(a.nom)}</b>${a.slug === repo.active ? ' <span class="pill ok">active</span>' : ""}</td><td class="lib">${esc(a.type)}${a.type === "mobile" ? " · " + esc((a.plateformes || []).join(", ")) : ""}</td>
+          <td><select class="in" multiple size="${Math.min(5, Math.max(2, repo.dossiers.length))}" data-apd="${esc(a.slug)}" aria-label="Dossiers de ${esc(a.nom)}">${optDossiers(a.dossiers)}</select>
+            <span class="lib">${a.dossiers.length ? esc(a.dossiers.join(", ")) : "tout le repository"}</span></td></tr>`).join("") || "<tr><td colspan='3' class='lib'>Aucune application.</td></tr>"}
+        <tr><td><input class="in" id="mpa-nom" placeholder="Nouvelle application"></td>
+          <td><select class="in" id="mpa-type"><option value="android">Mobile Android</option><option value="ios">Mobile iOS</option><option value="android,ios">Mobile Android + iOS</option><option value="web">Web</option><option value="api">API</option></select>
+            <input class="in" id="mpa-url" placeholder="URL (web / API)" hidden></td>
+          <td><select class="in" multiple size="${Math.min(5, Math.max(2, repo.dossiers.length))}" id="mpa-dos" aria-label="Dossiers de la nouvelle application">${optDossiers([])}</select>
+            <button class="btn petit primaire" id="mpa-ok">${ico("plus")}Ajouter l'application</button></td></tr></table>
+      <p class="lib">Ctrl + clic pour choisir plusieurs dossiers. « Enregistrer le mapping » enregistre les dossiers des applications existantes.</p>
       <h3 class="lib">OBJETS</h3><table class="table-strat"><tr><th>Objet plateforme</th><th>Objet Jira / Xray</th><th>Confirmé</th></tr>${m.objets.map((o, i) => `<tr><td>${esc(o.interne)}</td>
         <td><input class="in" data-obj="${i}" value="${esc(o.externe)}"></td><td><input type="checkbox" data-objc="${i}" ${o.confirme ? "checked" : ""}></td></tr>`).join("")}</table>
       <h3 class="lib" style="margin-top:14px">CHAMPS <span class="lib">(${t.tests_analyses} test(s) de l'instantané analysés)</span></h3>
@@ -615,7 +633,21 @@
     $("#mp-ok").onclick = async () => {
       try {  // valeurs par application d'abord, puis le mapping (qui recharge l'écran)
         for (const i of $$("[data-apv]", z)) await api("/api/apps/maj", {method: "POST", body: {slug: i.dataset.apv, tests_xray: {valeurs: i.value.split(",").map(x => x.trim()).filter(Boolean)}}});
+        for (const sel of $$("[data-apd]", z)) await api("/api/apps/maj", {method: "POST", body: {slug: sel.dataset.apd, tests_xray: {dossiers: [...sel.selectedOptions].map(o => o.value)}}});
         await sauver(collecter()); Atelier.chargerContexte();
+      } catch (e) { toast(e.message, "ko"); }
+    };
+    $("#mpa-type").onchange = e => { $("#mpa-url").hidden = !["web", "api"].includes(e.target.value); };
+    if ($("#mp-imp")) $("#mp-imp").onclick = async () => { try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {}}); toast(`${r.importes} définition(s) importée(s).`, "ok"); mapping(z); } catch (e) { toast(e.message, "ko"); } };
+    $("#mpa-ok").onclick = async () => {
+      const nom = $("#mpa-nom").value.trim(), ty = $("#mpa-type").value, url = $("#mpa-url").value.trim();
+      if (!nom) { toast("Nom de l'application obligatoire.", "ko"); return; }
+      const corps = ty === "web" ? {type: "web", plateformes: ["web"], web: {url}} : ty === "api" ? {type: "api", plateformes: ["api"], api: {url}}
+        : {type: "mobile", plateformes: ty.split(",")};
+      try {
+        await api("/api/apps", {method: "POST", body: {nom, ...corps, tests_xray: {dossiers: [...$("#mpa-dos").selectedOptions].map(o => o.value)}}});
+        toast(`Application « ${nom} » ajoutée au projet (header, Paramètres › Applications). Compléter package / URL dans Paramètres › Applications.`, "ok");
+        await Atelier.chargerContexte(); mapping(z);
       } catch (e) { toast(e.message, "ko"); }
     };
     $("#mp-add").onclick = () => { const c = collecter(); c.champs.push({interne: $("#mp-ni").value.trim(), externe: $("#mp-ne").value.trim(), sens: "lecture", actif: true, obligatoire: false, transformation: "", cle_instantane: ""}); sauver(c); };
