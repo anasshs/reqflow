@@ -130,6 +130,7 @@ def run_robot(target: str, include_tags: list[str] | None = None,
             "transition_end_if_fail": jira_transition_end_if_fail,
             "attach_screenshots": attach_screenshots,
             "output_dir": str(out_abs),
+            "outbox_dir": str(out_abs / "xray" / f"{datetime.now():%Y%m%d-%H%M%S-%f}"),
             "report": str(report_path),
         }
         cfg_path = out_abs / "xray_run_config.json"

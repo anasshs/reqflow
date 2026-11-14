@@ -26,6 +26,11 @@ XRAY_BASE = os.environ.get("XRAY_BASE_URL", "https://xray.cloud.getxray.app/api/
 KEY_RE = re.compile(os.environ.get("XRAY_TEST_KEY_REGEX", r"^[A-Z][A-Z0-9_]+-\d+$"))
 
 
+class ErreurGraphQL(RuntimeError):
+    """Erreur renvoyée par l'API GraphQL elle-même (clé inconnue, JQL refusé…), par opposition à une
+    erreur de transport (Xray injoignable), qui doit être retentée et jamais prise pour « introuvable »."""
+
+
 def base_url() -> str:
     """Base de l'API lue au moment de l'appel (permet un faux serveur Xray en test)."""
     return os.environ.get("XRAY_BASE_URL", XRAY_BASE)
@@ -58,7 +63,7 @@ class XrayClient:
                             {"Content-Type": "application/json",
                              "Authorization": f"Bearer {self.token()}"}))
         if r.get("errors"):
-            raise RuntimeError("Xray GraphQL : " + "; ".join(e.get("message", "") for e in r["errors"]))
+            raise ErreurGraphQL("Xray GraphQL : " + "; ".join(e.get("message", "") for e in r["errors"]))
         return r["data"]
 
     # ------------------------------------------------------------ lecture
@@ -67,7 +72,7 @@ class XrayClient:
              f'{{ results {{ issueId jira(fields: ["key", "summary"]) }} }} }}')
         try:
             res = self.gql(q, {"jql": f'key = "{key}"'})[entity]["results"]
-        except RuntimeError:
+        except ErreurGraphQL:
             return None  # clé inexistante ou d'un autre type
         return res[0] if res else None
 
@@ -103,7 +108,7 @@ class XrayClient:
             chunk = keys[i:i + 100]
             try:
                 res = self.gql(q, {"jql": f"key in ({', '.join(chunk)})"})["getTests"]["results"]
-            except RuntimeError:  # une clé inconnue fait échouer le JQL : on passe clé par clé
+            except ErreurGraphQL:  # une clé inconnue fait échouer le JQL : on passe clé par clé
                 res = [r for k in chunk if (r := self._first("getTests", k))]
             for r in res:
                 out[r["jira"]["key"]] = r["issueId"]
@@ -179,7 +184,9 @@ class XrayClient:
     def prepare(self, ticket: str, test_keys: list[str], exec_summary: str,
                 plan_summary: str = "", envs: list[str] | None = None,
                 jira: "JiraClient | None" = None) -> dict:
-        """Prépare la cible Xray à partir d'un seul ticket :
+        """[Historique] Préparation en un bloc, conservée pour les scripts existants. Le listener passe
+        désormais par atelier/execution/journal_xray.py (étapes mémorisées, reprise sans doublon).
+        Prépare la cible Xray à partir d'un seul ticket :
         - Test Plan      -> nouvelle exécution ajoutée au plan (+ tests ajoutés au plan) ;
         - Test Execution -> mise à jour de cette exécution (tests manquants ajoutés) ;
         - autre / projet -> création d'un plan + d'une exécution rattachée."""

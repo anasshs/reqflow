@@ -105,6 +105,18 @@ TAM-50, passe l'exécution en cours au début puis Terminé à la fin. »
 
 Le rattachement se fait par les tags de clé Xray des tests (ex. ATTIJARI-100). Rapport du run
 dans `results/mcp/xray_live_report.json`. Une erreur Xray ou Jira n'interrompt jamais le run.
+
+**Journal et reprise** : chaque événement est d'abord écrit dans un journal local
+(`results/mcp/xray/<horodatage>/xray_outbox.jsonl`) puis envoyé à Xray avec reprise (backoff
+exponentiel). Si Xray est injoignable, le run va au bout normalement et le journal reste complet ;
+le rejouer plus tard, sans doublon :
+
+```bash
+python -m atelier xray-sync results/mcp        # tous les runs en attente sous ce dossier
+```
+
+Réglages : `XRAY_SYNC_ESSAIS` (6), `XRAY_SYNC_BACKOFF` (1 s), `XRAY_SYNC_PLAFOND` (30 s),
+`XRAY_SYNC_DELAI_FIN` (attente maximale en fin de run, 30 s).
 Le listener s'utilise aussi seul en CI :
 `robot --listener xray_live_listener.py:xray_run_config.json tests/`.
 

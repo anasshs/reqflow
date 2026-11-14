@@ -1,22 +1,23 @@
 """
-Listener Robot Framework (API v3) — remontée Xray Cloud en temps réel.
+Listener Robot Framework (API v3) — remontée Xray Cloud en temps réel, découplée du run.
 
 Usage (le MCP le branche tout seul ; utilisable aussi en CI) :
     robot --listener /chemin/xray_live_listener.py:/chemin/xray_run_config.json tests/
 
-Déroulé :
-  début du run   -> résout le ticket (plan / exécution / autre / projet), crée ou complète
-                    l'exécution, transition Jira de début sur l'exécution ;
+Déroulé : chaque événement est d'abord écrit dans le journal du run
+(`<output_dir>/xray_outbox.jsonl`, voir atelier/execution/journal_xray.py), puis envoyé à Xray par
+un thread de synchronisation avec reprise :
+  début du run   -> préparation de la cible (plan / exécution / autre / projet), transition Jira ;
   début de test  -> test run en EXECUTING + heure de début (startedOn) ;
   fin de test    -> PASSED / FAILED (+ message d'échec en commentaire, captures en preuve)
                     + heure de fin (finishedOn) ;
   fin du run     -> transition Jira de fin (ou de fin en échec), rapport JSON.
+En fin de run, le listener attend au plus XRAY_SYNC_DELAI_FIN secondes (30 par défaut) ; ce qui
+n'a pas pu partir reste dans le journal : `python -m atelier xray-sync <output_dir>`.
 
 Sans ticket Xray, le listener sert uniquement au suivi en direct (events_url).
-Avec events_url, chaque événement (test, keyword, statut Xray) est envoyé à l'interface web.
-
 Le rattachement se fait par les tags de clé Xray portés par les tests (ex. ATTIJARI-100).
-Aucune erreur Xray/Jira n'interrompt le run : elles sont journalisées dans le rapport.
+Aucune erreur Xray/Jira n'interrompt le run.
 """
 from __future__ import annotations
 
@@ -28,13 +29,14 @@ import sys
 import threading
 import time
 import urllib.request
+import uuid
 
 # Racine de l'outil (le listener est chargé par chemin depuis un sous-processus Robot).
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
+from atelier.execution.journal_xray import Journal, Synchroniseur  # noqa: E402
 from atelier.integrations import interface_web  # noqa: E402
-from atelier.integrations.jira import JiraClient  # noqa: E402
-from atelier.integrations.xray import KEY_RE, XrayClient, now_iso  # noqa: E402
+from atelier.integrations.xray import KEY_RE, now_iso  # noqa: E402
 
 STATUS = {"PASS": "PASSED", "FAIL": "FAILED", "SKIP": "TODO", "NOT RUN": "TODO"}
 GRAVITE = {"TODO": 0, "PASSED": 1, "FAILED": 2}
@@ -55,9 +57,9 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
         with open(config_path, encoding="utf-8") as f:
             self.cfg = json.load(f)
         self.depth = 0
-        self.ctx: dict | None = None
-        self.run_start: dict = {}     # run_id -> startedOn (premier test Robot rattaché)
-        self.run_status: dict = {}    # run_id -> statut agrégé
+        self.run_id = uuid.uuid4().hex[:12]
+        self.debut_xray: dict = {}    # clé Xray -> startedOn (premier test Robot rattaché)
+        self.statut_xray: dict = {}   # clé Xray -> statut agrégé
         self.test_t0: dict = {}       # id test Robot -> timestamp epoch (pour les captures)
         self.journal: list = []
         self.tests: list = []
@@ -66,13 +68,17 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
         self._events: queue.Queue = queue.Queue()
         if self.cfg.get("events_url"):
             threading.Thread(target=self._sender, daemon=True).start()
-        self.xray = None
-        if self.cfg.get("ticket"):
-            try:
-                self.xray = XrayClient()
-            except Exception as e:
-                self._log("erreur", f"Xray désactivé : {e}")
-        self.jira = JiraClient()
+        dossier_journal = self.cfg.get("outbox_dir") or self.cfg["output_dir"]
+        self.outbox = Journal(dossier_journal) if self.cfg.get("ticket") else None
+        self.synchro: Synchroniseur | None = None
+        self._reveil = threading.Event()
+        self._fin = threading.Event()
+        self._fil: threading.Thread | None = None
+        self.bilan_synchro: dict = {}
+        if self.outbox:
+            self.synchro = Synchroniseur(dossier_journal, journaliser=self._journal_synchro)
+            self._fil = threading.Thread(target=self._boucle_synchro, daemon=True)
+            self._fil.start()
 
     # ------------------------------------------------------------------ événements web
     def _emit(self, kind: str, **data):
@@ -93,34 +99,43 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
             finally:
                 self._events.task_done()
 
-    # ------------------------------------------------------------------ utilitaires
+    # ------------------------------------------------------------------ journal et synchronisation
     def _log(self, niveau: str, msg: str):
         self.journal.append({"heure": now_iso(), "niveau": niveau, "message": msg})
         self._emit("journal", niveau=niveau, message=msg)
         sys.__stdout__.write(f"[Xray] {msg}\n")
         sys.__stdout__.flush()
 
-    def _safe(self, what: str, fn, *args, **kwargs):
+    def _journal_synchro(self, niveau: str, msg: str, etat: dict | None = None):
+        self._log(niveau, msg)
+        if etat:
+            self._emit("xray", mode=etat.get("mode"), execution=etat.get("exec_key"), plan=etat.get("plan_key"))
+
+    def _ecrire(self, type_ev: str, test: str = "", **donnees):
         try:
-            return fn(*args, **kwargs)
+            self.outbox.ajouter(self.run_id, type_ev, test, **donnees)
+        except Exception as e:  # disque plein… : jamais d'interruption du run
+            self._log("erreur", f"Journal Xray non écrit ({type_ev}) : {e}")
+        self._reveil.set()
+
+    def _boucle_synchro(self):
+        while not self._fin.is_set():
+            self._reveil.wait(1.0)
+            self._reveil.clear()
+            try:
+                self.bilan_synchro = self.synchro.envoyer_tout()
+            except Exception as e:
+                self._log("erreur", f"Synchronisation Xray : {e}")
+        try:  # dernier passage après la fin du run
+            self.bilan_synchro = self.synchro.envoyer_tout()
         except Exception as e:
-            self._log("erreur", f"{what} : {e}")
-            return None
+            self._log("erreur", f"Synchronisation Xray : {e}")
 
-    def _run_id(self, data):
-        if not self.ctx:
-            return None, None
-        for tag in data.tags:
-            if KEY_RE.match(tag) and tag in self.ctx["runs"]:
-                return tag, self.ctx["runs"][tag]
-        return None, None
-
-    def _transition(self, name: str, moment: str):
-        if name and self.ctx and self.jira.enabled:
-            cible = self._safe(f"transition Jira ({moment})", self.jira.transition,
-                               self.ctx["exec_key"], name)
-            if cible:
-                self._log("info", f"{self.ctx['exec_key']} -> {cible} ({moment})")
+    def _etat(self) -> dict:
+        try:
+            return self.outbox.etat() if self.outbox else {}
+        except Exception:
+            return {}
 
     # ------------------------------------------------------------------ suite
     def start_suite(self, data, result):
@@ -129,54 +144,46 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
             return
         self._emit("run_debut", suite=data.name,
                    tests=[{"id": t.id, "nom": t.name, "tags": list(t.tags)} for t in data.all_tests])
-        if not self.xray:
+        if not self.outbox:
             return
         keys = sorted({t for test in data.all_tests for t in test.tags if KEY_RE.match(t)})
         if not keys:
             self._log("avertissement", "Aucun tag de clé Xray sur les tests sélectionnés.")
-        self.ctx = self._safe("préparation Xray", self.xray.prepare,
-                              self.cfg["ticket"], keys, self.cfg["exec_summary"],
-                              self.cfg.get("plan_summary", ""), self.cfg.get("test_environments"),
-                              self.jira)
-        if not self.ctx:
-            return
-        self._emit("xray", mode=self.ctx["mode"], execution=self.ctx["exec_key"],
-                   plan=self.ctx["plan_key"])
-        self._log("info", f"{self.ctx['mode']} — exécution {self.ctx['exec_key']}"
-                          + (f", plan {self.ctx['plan_key']}" if self.ctx["plan_key"] else ""))
-        for k in self.ctx["tests_inconnus_xray"]:
-            self._log("avertissement", f"Tag {k} : test introuvable dans Xray, non remonté.")
-        for w in self.ctx["avertissements"]:
-            self._log("avertissement", w)
-        self._transition(self.cfg.get("transition_start", ""), "début")
+        self._ecrire("preparation", ticket=self.cfg["ticket"], cles_tests=keys,
+                     exec_summary=self.cfg["exec_summary"], plan_summary=self.cfg.get("plan_summary", ""),
+                     envs=self.cfg.get("test_environments") or [])
+        if self.cfg.get("transition_start"):
+            self._ecrire("transition", moment="début", nom=self.cfg["transition_start"])
 
     def end_suite(self, data, result):
         self.depth -= 1
         if self.depth == 0:
-            if self.ctx:
-                failed = "FAILED" in self.run_status.values()
+            if self.outbox:
+                failed = "FAILED" in self.statut_xray.values()
                 end = (self.cfg.get("transition_end_if_fail") if failed else "") \
                     or self.cfg.get("transition_end", "")
-                self._transition(end, "fin")
+                if end:
+                    self._ecrire("transition", moment="fin", nom=end)
             self._emit("run_fin", statut=result.status,
                        stats={"passes": result.statistics.passed, "echecs": result.statistics.failed})
-            self._write_report()
 
     # ------------------------------------------------------------------ test
+    @staticmethod
+    def _cle(data) -> str | None:
+        return next((t for t in data.tags if KEY_RE.match(t)), None)
+
     def start_test(self, data, result):
         self.test_t0[data.id] = time.time()
-        key, run_id = self._run_id(data)
+        key = self._cle(data) if self.outbox else None
         self._emit("test_debut", id=data.id, nom=data.name, cle_xray=key,
-                   statut_xray="EXECUTING" if run_id else None)
-        if not run_id or run_id in self.run_start:
+                   statut_xray="EXECUTING" if key else None)
+        if not key or key in self.debut_xray:
             return  # déjà EXECUTING (plusieurs tests Robot pour une même clé Xray)
-        started = now_iso()
-        self.run_start[run_id] = started
-        self._safe(f"{key} début", self.xray.update_run, run_id, started=started)
-        self._safe(f"{key} EXECUTING", self.xray.set_status, run_id, "EXECUTING")
+        self.debut_xray[key] = now_iso()
+        self._ecrire("test_debut", data.id, cle_xray=key, debut=self.debut_xray[key])
 
     def end_test(self, data, result):
-        key, run_id = self._run_id(data)
+        key = self._cle(data) if self.outbox else None
         finished = now_iso()
         status = STATUS.get(result.status, "TODO")
         echec = result.status == "FAIL"
@@ -187,34 +194,33 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
                                                     recursive=True) if os.path.getmtime(p) >= t0),
                               key=os.path.getmtime)[-5:]
         kw_fautif = " > ".join(_deepest_fail(result, [])) if echec else ""
+        agg = None
+        if key:
+            previous = self.statut_xray.get(key, "TODO")
+            agg = status if GRAVITE.get(status, 0) >= GRAVITE.get(previous, 0) else previous
+            self.statut_xray[key] = agg
+        etat = self._etat()
+        run_id = (etat.get("runs") or {}).get(key)
         self.tests.append({"test": data.name, "cle_xray": key, "statut_robot": result.status,
-                           "statut_xray": status if run_id else None,
-                           "debut": self.run_start.get(run_id) if run_id else None,
+                           "statut_xray": agg, "debut": self.debut_xray.get(key) if key else None,
                            "fin": finished, "run_id": run_id})
         self._emit("test_fin", id=data.id, nom=data.name, cle_xray=key, statut=result.status,
-                   statut_xray=status if run_id else None, message=result.message[:1500],
+                   statut_xray=agg, message=result.message[:1500],
                    keyword_en_echec=kw_fautif, run_id=run_id,
                    captures=[os.path.relpath(p, self.cfg["output_dir"]) for p in captures],
-                   execution=self.ctx and self.ctx["exec_key"],
-                   debut=self.run_start.get(run_id) if run_id else None, fin=finished)
-        if not run_id:
+                   execution=etat.get("exec_key"),
+                   debut=self.debut_xray.get(key) if key else None, fin=finished)
+        if not key:
             return
-        previous = self.run_status.get(run_id, "TODO")
-        agg = status if GRAVITE.get(status, 0) >= GRAVITE.get(previous, 0) else previous
-        self.run_status[run_id] = agg
-
         comment = None
         if echec:
             platform = ", ".join(self.cfg.get("test_environments") or [])
             comment = (f"Test Robot : {data.name}" + (f"\nPlateforme : {platform}" if platform else "")
                        + (f"\nKeyword en échec : {kw_fautif}" if kw_fautif else "")
                        + f"\nÉchec : {result.message[:2000]}")
-        self._safe(f"{key} fin", self.xray.update_run, run_id,
-                   started=self.run_start.get(run_id), finished=finished, comment=comment)
-        self._safe(f"{key} {agg}", self.xray.set_status, run_id, agg)
-        if captures and self.cfg.get("attach_screenshots", True):
-            self._safe(f"{key} preuves", self.xray.add_evidence, run_id, captures)
-        self._log("info", f"{key} -> {agg} ({data.name})")
+        self._ecrire("test_fin", data.id, cle_xray=key, statut=agg, debut=self.debut_xray.get(key),
+                     fin=finished, commentaire=comment,
+                     captures=captures if self.cfg.get("attach_screenshots", True) else [])
 
     # ------------------------------------------------------------------ keywords (RF 7+)
     def start_keyword(self, data, result):
@@ -228,8 +234,19 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
             self._emit("kw_fin", nom=result.name, statut=result.status, niveau=self.kw_depth)
         self.kw_depth -= 1
 
-    # ------------------------------------------------------------------ rapport
+    # ------------------------------------------------------------------ fin
     def close(self):
+        if self._fil:
+            self._fin.set()
+            self._reveil.set()
+            self._fil.join(float(os.environ.get("XRAY_SYNC_DELAI_FIN", 30)))
+            if self._fil.is_alive():  # Xray toujours injoignable : on rend la main, le journal reste
+                self.synchro.arret.set()
+                self._fil.join(5)
+            restants = len(self.outbox.restants())
+            if restants:
+                self._log("avertissement", f"{restants} événement(s) Xray non envoyé(s) : "
+                                           f"python -m atelier xray-sync {self.outbox.dossier}")
         self._write_report()
         if self.cfg.get("events_url"):
             self._events.put(None)
@@ -239,11 +256,17 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
         if self._written or not self.cfg.get("report"):
             return
         self._written = True
+        etat = self._etat()
+        runs = etat.get("runs") or {}
+        for t in self.tests:  # run_id connus seulement une fois la cible préparée
+            t["run_id"] = t["run_id"] or runs.get(t["cle_xray"])
         rapport = {"ticket": self.cfg.get("ticket"),
-                   "mode": self.ctx and self.ctx["mode"],
-                   "plan": self.ctx and self.ctx["plan_key"],
-                   "execution": self.ctx and self.ctx["exec_key"],
-                   "tests_inconnus_xray": self.ctx["tests_inconnus_xray"] if self.ctx else [],
-                   "tests": self.tests, "journal": self.journal}
+                   "mode": etat.get("mode"),
+                   "plan": etat.get("plan_key"),
+                   "execution": etat.get("exec_key"),
+                   "tests_inconnus_xray": etat.get("tests_inconnus_xray", []),
+                   "tests": self.tests, "journal": self.journal,
+                   "synchro": {"journal": self.outbox and str(self.outbox.fichier),
+                               "restants": len(self.outbox.restants()) if self.outbox else 0}}
         with open(self.cfg["report"], "w", encoding="utf-8") as f:
             json.dump(rapport, f, ensure_ascii=False, indent=2)

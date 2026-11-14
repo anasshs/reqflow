@@ -35,12 +35,12 @@ les outils MCP existants. Cocher les cases au fil de l'eau ; noter les décision
 étrangère, et l'acceptation dans le cas nominal.
 
 ### 1.3 Synchronisation Xray découplée de l'exécution
-- [ ] Le listener écrit chaque événement dans un journal local (`results/<run>/xray_outbox.jsonl`)
+- [x] Le listener écrit chaque événement dans un journal local (`results/<run>/xray_outbox.jsonl`)
       avec une clé d'idempotence (run_id + test + type d'événement + horodatage).
-- [ ] Un synchroniseur (thread du listener + commande `python -m atelier xray-sync <dossier>`)
+- [x] Un synchroniseur (thread du listener + commande `python -m atelier xray-sync <dossier>`)
       envoie le journal à Xray avec reprise (backoff exponentiel), marque les événements envoyés,
       et peut rejouer un run complet plus tard.
-- [ ] Le run Robot se termine normalement même si Xray est injoignable du début à la fin.
+- [x] Le run Robot se termine normalement même si Xray est injoignable du début à la fin.
 **Acceptation** : test avec un faux Xray qui échoue 3 fois puis répond → aucun événement perdu,
 aucun doublon ; test avec Xray totalement indisponible → run terminé, journal complet, rejeu OK.
 
