@@ -43,14 +43,14 @@
   async function vue(z) {
     const v = await apiDelai("/api/discovery/vue?graphe=0", 60000), k = v.kpi;
     if (!v.app) { z.innerHTML = entete("Discovery Overview") + pas("Aucune application", `<a href="#parametres/applications">Déclarer l'application</a> (Paramètres › Applications), puis lancer une session.`); return; }
-    z.innerHTML = `${entete("Discovery Overview", `${v.active ? `<a class="btn" href="#discovery/studio">Reprendre ${esc(v.active.id)}</a>` : ""}<button class="btn primaire" id="dv-new">${ico("plus")}Nouvelle session</button>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Discovery Overview", `${v.active ? `<a class="btn" href="#discovery/studio">Reprendre ${esc(v.active.id)}</a>` : ""}<button class="btn primaire" id="dv-new">${ico("plus")}Démarrer une Discovery</button>`)}<div class="corps-carte">
       <h3 class="lib">CARTE DE L'APPLICATION</h3>${kpis([[k.ecrans, "écrans"], [k.transitions, "transitions"], [k.actions, "actions observées"], [k.composants, "composants"], [k.locators, "locators"], [v.sessions, "sessions"]])}
       ${kpis([[k.sans_locator_stable, "interactifs sans locator stable", k.sans_locator_stable ? "warn-t" : ""], [k.ecrans_avec_variantes, "écrans avec variantes"], [k.ecrans_modifies, "écrans modifiés", k.ecrans_modifies ? "warn-t" : ""], [k.a_nommer, "écrans à nommer", k.a_nommer ? "warn-t" : ""]])}
       <h3 class="lib">KNOWLEDGE GRAPH</h3><div id="dv-kg"><p class="lib">Calcul du graphe (dépôt Robot, copie Jira / Xray, JDD, OpenAPI)… <span id="dv-t">0</span> s</p></div>
       <div class="btns"><a class="btn" href="#discovery/ecrans">Écrans découverts</a><a class="btn" href="#discovery/navigation">Transitions</a><a class="btn" href="#discovery/validation">Valider les propositions</a>
         <a class="btn" href="#discovery/historique">Comparer deux sessions</a><a class="btn" href="#graphe/connaissance">Knowledge Graph</a></div>
       <p class="lib" style="margin-top:10px">Indicateurs calculés sur la carte de l'application <b>${esc(v.app)}</b> et le Knowledge Graph ; aucune valeur estimée.</p></div>`;
-    $("#dv-new").onclick = () => nouvelleSession(z);
+    $("#dv-new").onclick = () => DiscoveryFlottant.ouvrir();
     const t0 = Date.now(), chrono = setInterval(() => { const e = $("#dv-t"); if (e) e.textContent = Math.round((Date.now() - t0) / 1000); else clearInterval(chrono); }, 1000);
     try {
       const g = await apiDelai("/api/discovery/vue-graphe");
@@ -63,84 +63,33 @@
   }
 
   /* ------------------------------------------------------------------ 2 sessions */
-  async function nouvelleSession(z) {
-    const [apps, ctx] = [await api("/api/apps"), Atelier.ctx];
-    const app = apps.applications.find(a => a.slug === apps.active) || apps.applications[0];
-    if (!app) { toast("Déclarer d'abord une application (Paramètres › Applications).", "ko"); return; }
-    const m = modale("Nouvelle session Discovery", `<p class="lib">Le projet est celui du header ; la session fixe l'application, sa version et l'environnement.</p><div class="grille-2">
-      <div class="champ"><label for="ns-app">Application</label><select class="in" id="ns-app">${apps.applications.map(a => `<option value="${esc(a.slug)}" ${a.slug === app.slug ? "selected" : ""}>${esc(a.nom)}</option>`).join("")}</select></div>
-      <div class="champ"><label for="ns-mode">Mode</label><select class="in" id="ns-mode">${Object.entries(MODES).map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></div>
-      <div class="champ"><label for="ns-plat">Plateforme</label><select class="in" id="ns-plat">${(app.plateformes || []).map(p => `<option>${p}</option>`).join("")}</select></div>
-      <div class="champ"><label for="ns-build">Version / build</label><input class="in" id="ns-build" value="${esc(app.build || "")}"></div>
-      <div class="champ"><label for="ns-env">Environnement</label><input class="in" id="ns-env" value="${esc(Atelier.env || "")}" placeholder="recette"></div>
-      <div class="champ"><label for="ns-dev">Device / navigateur</label><input class="in" id="ns-dev" placeholder="emulator-5554 / chromium"></div>
-      <div class="champ"><label for="ns-prof">Profondeur maximale</label><input class="in" type="number" id="ns-prof" value="3"></div>
-      <div class="champ"><label for="ns-max">Écrans maximum</label><input class="in" type="number" id="ns-max" value="30"></div>
-      <div class="champ" style="grid-column:1/-1"><label for="ns-per">Périmètre fonctionnel (optionnel)</label><input class="in" id="ns-per" placeholder="Virements"></div>
-      <div class="champ" style="grid-column:1/-1"><label for="ns-int">Actions interdites en plus de la liste rouge (une par ligne)</label><textarea class="in" id="ns-int" rows="2" placeholder="Confirmer le virement"></textarea></div></div>`,
-      `<button class="btn" id="ns-ok">Créer</button><button class="btn primaire" id="ns-go">Créer et démarrer</button>`);
-    $("#ns-app", m.el).onchange = e => { const a = apps.applications.find(x => x.slug === e.target.value); $("#ns-plat", m.el).innerHTML = (a.plateformes || []).map(p => `<option>${p}</option>`).join(""); $("#ns-build", m.el).value = a.build || ""; };
-    const creer = async demarrer => {
-      try {
-        const s = await api("/api/discovery/sessions", {method: "POST", body: {app: $("#ns-app", m.el).value, mode: $("#ns-mode", m.el).value, plateforme: $("#ns-plat", m.el).value,
-          build: $("#ns-build", m.el).value, environnement: $("#ns-env", m.el).value, device: $("#ns-dev", m.el).value, profondeur: +$("#ns-prof", m.el).value,
-          max_ecrans: +$("#ns-max", m.el).value, perimetre: $("#ns-per", m.el).value, actions_interdites: $("#ns-int", m.el).value.split("\n")}});
-        if (demarrer) await api(`/api/discovery/sessions/${s.id}/demarrer`, {method: "POST", body: {}});
-        m.fermer(); SESSION = s.id; toast(`Session ${s.id} ${demarrer ? "démarrée" : "créée"}.`, "ok"); location.hash = "discovery/studio";
-      } catch (e) { toast(e.message, "ko"); }
-    };
-    $("#ns-ok", m.el).onclick = () => creer(false);
-    $("#ns-go", m.el).onclick = () => creer(true);
-  }
-
   async function sessions(z) {
     const l = await api("/api/discovery/sessions");
-    z.innerHTML = `${entete("Discovery Sessions", `<button class="btn primaire" id="ds-new">${ico("plus")}Nouvelle session</button>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Discovery Sessions", `<button class="btn primaire" id="ds-new">${ico("plus")}Démarrer une Discovery</button>`)}<div class="corps-carte">
       ${l.length ? `<table class="table-strat"><tr><th>Session</th><th>Application</th><th>Mode</th><th>Plateforme</th><th>Environnement</th><th>Statut</th><th>Début</th><th>Nouveaux écrans</th><th>Transitions</th><th>Par</th></tr>
         ${l.map(s => `<tr class="cliquable" data-s="${esc(s.id)}"><td class="mono">${esc(s.id)}</td><td>${esc(s.config.app_nom)}${s.config.build ? ` <span class="lib">${esc(s.config.build)}</span>` : ""}</td>
           <td>${esc(MODES[s.config.mode])}</td><td>${esc(s.config.plateforme)}</td><td>${esc(s.config.environnement || "—")}</td><td><span class="pill ${ST[s.statut]}">${esc(s.statut)}</span></td>
           <td class="mono">${date(s.debut)}</td><td>${s.resultats?.nouveaux_ecrans ?? "—"}</td><td>${s.resultats?.nouvelles_transitions ?? "—"}</td><td>${esc(s.auteur)}</td></tr>`).join("")}</table>`
         : vide("Aucune session", "Chaque session enrichit la connaissance existante : pas besoin de tout explorer en une fois.")}</div>`;
-    $("#ds-new").onclick = () => nouvelleSession(z);
+    $("#ds-new").onclick = () => DiscoveryFlottant.ouvrir();
     $$("[data-s]", z).forEach(tr => tr.onclick = () => { SESSION = tr.dataset.s; location.hash = tr.closest("tr") && l.find(s => s.id === SESSION).statut === "Terminée" ? "discovery/resultats" : "discovery/studio"; });
   }
 
-  /* ------------------------------------------------------------------ 3 studio */
+  /* ------------------------------------------------------------------ 3 studio : la session se pilote dans la fenêtre flottante */
   async function studio(z) {
     const l = await api("/api/discovery/sessions");
-    const s0 = l.find(s => s.id === SESSION) || l.find(s => ["En cours", "En pause"].includes(s.statut)) || l.find(s => s.statut === "Préparée");
-    if (!s0) { z.innerHTML = entete("Discovery Studio", `<button class="btn primaire" id="st-new">${ico("plus")}Nouvelle session</button>`) + pas("Aucune session ouverte", "Créer une session : application, version, plateforme, environnement, mode."); $("#st-new").onclick = () => nouvelleSession(z); return; }
+    const s0 = l.find(s => s.id === SESSION) || l.find(s => ["En cours", "En pause"].includes(s.statut)) || l[0];
+    const ouvrir = `<button class="btn primaire" id="st-ouvrir">${ico("recherche")}${s0 && ["En cours", "En pause"].includes(s0.statut) ? "Reprendre dans la fenêtre Discovery" : "Démarrer une Discovery"}</button>`;
+    if (!s0) { z.innerHTML = entete("Discovery Studio", ouvrir) + pas("Aucune session", "La fenêtre Discovery propose l'émulateur, l'appareil branché ou le navigateur, puis démarre en un clic."); $("#st-ouvrir").onclick = () => DiscoveryFlottant.ouvrir(); return; }
     SESSION = s0.id;
-    const s = await api("/api/discovery/sessions/" + SESSION), c = s.config, enCours = s.statut === "En cours";
-    const act = async (a, body = {}) => { try { await api(`/api/discovery/sessions/${SESSION}/${a}`, {method: "POST", body}); studio(z); } catch (e) { toast(e.message, "ko"); } };
-    const guide = {
-      guidee: `Naviguer dans l'application : sur le device ou le navigateur lui-même, ou en touchant l'image ci-dessous (action classée puis autorisée selon l'environnement). Écrans, transitions et comportements entrent dans la carte et la timeline.`,
-      assistee: `Les suggestions proposent les actions jamais essayées depuis l'écran affiché (actions sûres uniquement) ; avec un fournisseur d'IA configuré, le modèle les ordonne et les justifie. Rien n'est exécuté sans votre clic.`,
-      autonome: `Exploration automatique depuis l'écran affiché : actions « Safe » uniquement (aucune saisie, aucune case, jamais une action sensible ou interdite). Profondeur ${c.profondeur}, ${c.max_ecrans} écrans au plus.`,
-      tests: `Rejouer des suites Robot existantes avec la cartographie : les vrais chemins métier entrent dans la carte, avec les tests qui passent par chaque écran.`}[c.mode];
-    z.innerHTML = `${entete(`Discovery Studio · ${s.id}`, `<span class="pill ${ST[s.statut]}">${esc(s.statut)}</span>`)}<div class="corps-carte">
-      <p><b>${esc(c.app_nom)}</b> ${esc(c.build || "")} · ${esc(c.plateforme)} · ${esc(c.environnement || "environnement non précisé")} · ${esc(MODES[c.mode])}${c.device ? " · " + esc(c.device) : ""}${c.perimetre ? " · périmètre : " + esc(c.perimetre) : ""}</p>
-      <div class="btns" style="margin:8px 0">${s.statut === "Préparée" ? `<button class="btn primaire" data-a="demarrer">${ico("play")}Start</button>` : ""}
-        ${enCours ? `<button class="btn" data-a="pause">Pause</button>` : ""}${s.statut === "En pause" ? `<button class="btn primaire" data-a="demarrer">Resume</button>` : ""}
-        ${["En cours", "En pause"].includes(s.statut) ? `<button class="btn danger" data-a="arreter">Stop</button><button class="btn" id="st-ann">Annoter</button><button class="btn" id="st-sens">Marquer l'étape sensible</button>` : ""}
-        ${s.statut === "Terminée" ? `<a class="btn primaire" href="#discovery/resultats">Voir les résultats</a>` : ""}</div>
-      <p class="lib">${guide}</p>
-      ${c.mode === "autonome" && enCours ? `<div class="btns"><button class="btn primaire" id="st-explo">Lancer l'exploration autonome</button><button class="btn" id="st-explo-x">Arrêter l'exploration</button></div>` : ""}
-      ${c.mode === "tests" && enCours ? `<div class="btns"><select class="in" id="st-suite" style="max-width:320px"></select><button class="btn primaire" id="st-tnr">Lancer avec cartographie</button></div>` : ""}
-      ${s.statut !== "Terminée" ? `<div class="grille-2" style="margin-top:12px;align-items:start">
-        <section class="bloc-strat"><h3>Écran en direct <span class="lib" id="st-ecran"></span></h3>
-          <div class="btns" style="margin-bottom:6px"><button class="btn petit" id="st-cnx">Connecter ${esc(c.plateforme)}</button><button class="btn petit" id="st-back">Retour</button>
-            <button class="btn petit" id="st-ou">Où suis-je ?</button><label class="lib"><input type="checkbox" id="st-auto" checked> rafraîchir</label></div>
-          <div id="st-frame" style="border:1px solid var(--ligne);border-radius:8px;min-height:240px;max-height:560px;overflow:auto;cursor:crosshair;position:relative"><span class="lib" style="padding:16px;display:block">Aucun écran : « Connecter ».</span></div>
-          <div id="st-el" style="margin-top:8px"></div></section>
-        <section class="bloc-strat"><h3>Suggestions ${c.mode === "assistee" ? "(mode assisté)" : ""}</h3><div id="st-sug" class="lib">${enCours ? "Chargement…" : "Démarrer la session pour obtenir des suggestions."}</div></section></div>` : ""}
+    const s = await api("/api/discovery/sessions/" + SESSION), c = s.config;
+    z.innerHTML = `${entete(`Discovery Studio · ${s.id}`, ouvrir)}<div class="corps-carte">
+      <p><b>${esc(c.app_nom)}</b> ${esc(c.build || "")} · ${esc(c.plateforme)} · ${esc(c.environnement || "environnement non précisé")} · ${esc(MODES[c.mode])}${c.device ? " · " + esc(c.device) : ""} · <span class="pill ${ST[s.statut]}">${esc(s.statut)}</span></p>
+      <p class="lib">La fenêtre Discovery reste ouverte quand on change d'écran : on y voit le device ou le navigateur en direct, on touche l'image pour naviguer (actions classées et autorisées selon l'environnement), avec les suggestions et les derniers événements.</p>
+      ${c.mode === "tests" && s.statut === "En cours" ? `<div class="btns"><select class="in" id="st-suite" style="max-width:320px"></select><button class="btn primaire" id="st-tnr">Lancer des tests avec cartographie</button></div>` : ""}
       ${s.resultats ? kpis([[s.resultats.ecrans_visites, "écrans visités"], [s.resultats.nouveaux_ecrans, "nouveaux écrans"], [s.resultats.nouvelles_transitions, "nouvelles transitions"], [s.resultats.comportements ?? 0, "comportements"], [s.resultats.refus ?? 0, "actions refusées"]]) : ""}
-      <h3 class="lib" style="margin-top:12px">TIMELINE ${enCours ? "(mise à jour en direct)" : ""}</h3><div id="st-tl">${timelineHtml(s.timeline)}</div></div>`;
-    $$("[data-a]", z).forEach(b => b.onclick = () => act(b.dataset.a));
-    if ($("#st-ann")) $("#st-ann").onclick = () => { const t = prompt("Annotation de l'étape courante :"); if (t) act("annoter", {texte: t}); };
-    if ($("#st-sens")) $("#st-sens").onclick = () => { const t = prompt("Pourquoi cette étape est-elle sensible ? (jamais rejouée ni explorée automatiquement)"); if (t) act("annoter", {texte: t, sensible: true}); };
-    if ($("#st-explo")) $("#st-explo").onclick = async () => { try { await api("/api/carte/explorer", {method: "POST", body: {max_ecrans: c.max_ecrans, profondeur: c.profondeur}}); toast("Exploration lancée.", "ok"); } catch (e) { toast(e.message, "ko"); } };
-    if ($("#st-explo-x")) $("#st-explo-x").onclick = () => api("/api/carte/explorer/stop", {method: "POST", body: {}}).then(() => toast("Arrêt demandé.", "ok"));
+      <h3 class="lib" style="margin-top:12px">TIMELINE</h3>${timelineHtml(s.timeline)}</div>`;
+    $("#st-ouvrir").onclick = () => DiscoveryFlottant.ouvrir();
     if ($("#st-suite")) {
       api("/api/projet/fichiers?pattern=" + encodeURIComponent("**/*.robot")).catch(() => []).then(f => {
         const dirs = [...new Set(f.map(x => x.split("/").slice(0, -1).join("/")).filter(Boolean))];
@@ -148,95 +97,12 @@
       });
       $("#st-tnr").onclick = async () => { try { const r = await api("/api/run", {method: "POST", body: {target: $("#st-suite").value, variables: {PLATFORM: c.plateforme}, cartographie: true}}); toast(`Run ${r.run_id} lancé avec cartographie.`, "ok"); } catch (e) { toast(e.message, "ko"); } };
     }
-    if (s.statut === "Terminée") return;
-    device(c, enCours);
-    if (enCours) { suggestions(c); minuteur = setInterval(async () => {
-      if (!location.hash.startsWith("#discovery/studio") || !$("#st-tl")) { clearInterval(minuteur); return; }
-      const d = await api("/api/discovery/sessions/" + SESSION).catch(() => null);
-      if (d && $("#st-tl")) $("#st-tl").innerHTML = timelineHtml(d.timeline);
-      if ($("#st-auto")?.checked) image();
-    }, 3000); }
   }
 
-  const timelineHtml = tl => `<table class="table-strat"><tr><th>Heure</th><th>Événement</th><th>Détail</th></tr>${(tl || []).slice().reverse().slice(0, 120).map(e => `<tr><td class="mono">${esc(String(e.date).slice(11, 19))}</td>
+  const timelineHtml = tl => `<table class="table-strat"><tr><th>Heure</th><th>Événement</th><th>Détail</th></tr>${(tl || []).slice().reverse().slice(0, 150).map(e => `<tr><td class="mono">${esc(String(e.date).slice(11, 19))}</td>
     <td><span class="pill ${e.type === "sensible" || e.type === "refus" ? "ko" : e.type === "ecran" && e.nouveau ? "ok" : e.type === "transition" ? "info" : e.type === "comportement" ? "warn" : ""}">${esc(e.type)}</span></td><td>${esc(e.detail || "")}</td></tr>`).join("") || "<tr><td colspan='3' class='lib'>Aucun événement.</td></tr>"}</table>`;
   const CL = {safe: ["ok", "Safe"], controlled: ["info", "Controlled"], sensitive: ["warn", "Sensitive"], forbidden: ["ko", "Forbidden"]};
   const pillClasse = k => `<span class="pill ${(CL[k] || ["", k])[0]}">${(CL[k] || ["", k])[1]}</span>`;
-
-  /* écran du device / navigateur dans le Studio : image en direct, élément touché, action classée */
-  function image() {
-    const f = $("#st-frame");
-    if (!f) return;
-    const img = new Image();
-    img.alt = "Écran du device ou du navigateur";
-    img.style.cssText = "width:100%;display:block";
-    img.onload = () => { f.replaceChildren(img); img.onclick = ev => toucher(ev, img); };
-    img.onerror = () => { if (!f.querySelector("img")) f.innerHTML = `<span class="lib" style="padding:16px;display:block">Aucun écran en direct : « Connecter ».</span>`; };
-    img.src = "/api/frame.png?t=" + Date.now();
-  }
-
-  async function device(c, enCours) {
-    SESSION_CFG = c;
-    image();
-    $("#st-cnx").onclick = async () => {
-      const a = (await api("/api/apps")).applications.find(x => x.slug === c.app) || {};
-      const valeurs = c.plateforme === "web" ? {url: a.web?.url || ""} : {...(a[c.plateforme] || {})};
-      try { await api("/api/connecter", {method: "POST", body: {platform: c.plateforme, udid: c.device && c.plateforme !== "web" ? c.device : "", valeurs}}); toast("Connecté.", "ok"); image(); suggestions(c); }
-      catch (e) { toast(e.message, "ko"); }
-    };
-    $("#st-back").onclick = () => agir(c, {action: "press_back"});
-    $("#st-ou").onclick = async () => { try { const r = await api("/api/carte/ou-suis-je", {method: "POST", body: {}}); $("#st-ecran").textContent = "· " + (r.nom || r.titre || r.id) + (r.nouveau ? " (nouvel écran)" : ""); } catch (e) { toast(e.message, "ko"); } };
-    if (!enCours) $("#st-el").innerHTML = `<p class="lib">Démarrer ou reprendre la session pour agir depuis l'image.</p>`;
-  }
-
-  async function toucher(ev, img) {
-    const r = img.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
-    const zone = $("#st-el");
-    try {
-      const el = await api("/api/ecran/point", {method: "POST", body: {x, y}});
-      if (!el || !el.locators) { zone.innerHTML = "<p class='lib'>Aucun élément à cet endroit.</p>"; return; }
-      const v = await api("/api/discovery/classer", {method: "POST", body: {element: el}});
-      const a = v.autorisation;
-      zone.innerHTML = `<dl class="props"><dt>Élément</dt><dd><b>${esc(el.libelle || el.key)}</b> <span class="lib mono">${esc(el.key)}</span></dd>
-        <dt>Locator</dt><dd class="mono">${esc(el.locators[0])}</dd><dt>Classe</dt><dd>${pillClasse(v.classe)} <span class="lib">${esc(v.raison)}</span></dd>
-        <dt>Autorisation</dt><dd>${a.autorise ? '<span class="pill ok">autorisée</span>' : a.confirmation ? '<span class="pill warn">confirmation requise</span>' : `<span class="pill ko">refusée</span> <span class="lib">${esc(a.motif)}</span>`}</dd></dl>
-        <div class="btns"><button class="btn petit primaire" id="st-tap" ${a.autorise || a.confirmation ? "" : "disabled"}>Toucher</button>
-          <button class="btn petit" id="st-el-sens">Classer sensible</button><select class="in" id="st-el-cl" style="width:auto"><option value="">Classer…</option>${Object.keys(CL).filter(k => k !== "forbidden").map(k => `<option value="${k}">${CL[k][1]}</option>`).join("")}<option value="auto">Automatique</option></select></div>`;
-      $("#st-tap").onclick = () => agir(SESSION_CFG, {action: "tap", locator: el.locators[0], element: el}, a.confirmation);
-      $("#st-el-sens").onclick = async () => { const t = prompt("Pourquoi cet élément est-il sensible ?"); if (!t) return;
-        try { await api(`/api/discovery/sessions/${SESSION}/annoter`, {method: "POST", body: {texte: `${el.libelle || el.key} : ${t}`, sensible: true, cle: el.key}}); toast("Élément classé sensible.", "ok"); toucher(ev, img); } catch (e) { toast(e.message, "ko"); } };
-      $("#st-el-cl").onchange = async e => { if (!e.target.value) return; await api("/api/discovery/classement", {method: "POST", body: {cle: el.key, classe: e.target.value}}); toast("Classement enregistré.", "ok"); toucher(ev, img); };
-    } catch (e) { zone.innerHTML = `<p class="lib">${esc(e.message)}</p>`; }
-  }
-  let SESSION_CFG = null;
-
-  async function agir(c, body, confirmer = false) {
-    if (confirmer && !confirm("Action SENSIBLE sur l'environnement de la session. Confirmer son exécution ?")) return;
-    try {
-      const r = await api("/api/discovery/agir", {method: "POST", body: {...body, confirme: confirmer}});
-      if (!r.execute) { toast(r.motif || "Action refusée.", "ko"); return; }
-      toast(`${r.ecran ? "Écran : " + (r.ecran.nom || r.ecran.titre || r.ecran.id) : "Fait"}${r.comportements?.length ? ` · ${r.comportements.length} comportement(s) observé(s)` : ""}`, "ok");
-      $("#st-el").innerHTML = r.comportements?.length ? `<ul class="liste">${r.comportements.map(x => `<li><span class="pill warn">${esc(x.type.replace("_", " "))}</span><span class="item">${esc(x.detail)}</span></li>`).join("")}</ul>
-        ${r.regles_proposees?.length ? `<p class="lib">${r.regles_proposees.length} règle(s) proposée(s) au Knowledge Graph (à valider).</p>` : ""}` : "";
-      image(); suggestions(SESSION_CFG);
-    } catch (e) { toast(e.message, "ko"); }
-  }
-
-  async function suggestions(c) {
-    SESSION_CFG = c;
-    const z = $("#st-sug");
-    if (!z) return;
-    try {
-      const r = await api("/api/discovery/suggestions?ia=" + (c.mode === "assistee" ? 1 : 0));
-      const ec = r.ecartees || {};
-      z.innerHTML = `${r.device ? `<p class="lib">Écran : <b>${esc(r.ecran?.nom || r.ecran?.titre || r.ecran?.id || "?")}</b> · IA : ${esc(r.ia.fournisseur)}${r.ia.modele ? " (" + esc(r.ia.modele) + ")" : ""}${r.ia.erreur ? ` <span class="warn-t">erreur : ${esc(r.ia.erreur)}</span>` : ""}</p>` : `<p class="lib">Aucun device connecté : pistes de la carte uniquement.</p>`}
-        ${r.suggestions.length ? `<ul class="liste">${r.suggestions.map(x => `<li><span class="item"><b>${esc(x.libelle || x.cle)}</b> <span class="lib">${esc(x.raison)}${x.par_ia ? " · IA" : ""}</span></span>
-          <button class="btn petit" data-try="${esc(x.locator)}">Essayer</button></li>`).join("")}</ul>` : r.device ? "<p class='lib'>Toutes les actions sûres de cet écran ont été essayées.</p>" : ""}
-        ${r.device ? `<p class="lib">Écartées : ${ec.controlled || 0} contrôlée(s) (saisie, à faire à la main), ${ec.sensitive || 0} sensible(s), ${ec.forbidden || 0} interdite(s).</p>` : ""}
-        ${r.pistes.length ? `<h3 class="lib" style="margin-top:8px">PISTES DE LA CARTE</h3><ul class="liste">${r.pistes.map(p => `<li><span class="pill">${esc(p.type)}</span><span class="item">${esc(p.texte)}</span></li>`).join("")}</ul>` : ""}`;
-      $$("[data-try]", z).forEach(b => b.onclick = () => agir(c, {action: "tap", locator: b.dataset.try}));
-    } catch (e) { z.innerHTML = `<span class="lib">${esc(e.message)}</span>`; }
-  }
 
   /* ------------------------------------------------------------------ 4 écrans, 5 composants */
   async function ecrans(z) {

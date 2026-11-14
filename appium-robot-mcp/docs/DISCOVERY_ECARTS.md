@@ -15,7 +15,7 @@ Test : `tests/test_discovery_sessions.py`.
 |---|---|---|
 | 1. Overview | livré | KPI fonctionnels, techniques, qualité de la connaissance (carte + KG), actions rapides |
 | 2. Sessions | livré | création (application, build, plateforme, environnement, device, mode, profondeur, écrans max, périmètre, actions interdites), liste, statuts Préparée / En cours / En pause / Terminée |
-| 3. Studio | livré | Start / Pause / Resume / Stop, annotation, étape sensible, timeline en direct ; **écran du device / navigateur intégré** (connexion, image en direct, clic → élément identifié, classé et autorisé ou refusé, Toucher, Retour, classer un élément) ; suggestions |
+| 3. Studio | livré | **fenêtre flottante Discovery** (bouton en bas à droite de toute la plateforme, déplaçable, redimensionnable, réductible ; reste ouverte en changeant d'écran) : choix de la cible (émulateur, appareil branché, simulateur iOS, navigateur), démarrage en un clic (connexion + session), écran en direct ; toucher l'image exécute directement une navigation sûre, sinon affiche la classe et demande confirmation ou refuse ; suggestions et derniers événements ; l'espace Studio garde le résumé et la timeline complète |
 | 4. Screen Inventory | livré | écrans de la carte : module, plateformes, composants, sans locator stable, états, modifiés, couverts |
 | 5. Component Inspector | livré (lecture) | locators par plateforme, secours, fiabilité Stable / Reliable / Fragile / Missing ; édition : écran en direct et Automation Studio › Locators |
 | 6. Navigation Explorer | livré | transitions avec fiabilité, impasses, écrans isolés, transitions instables, chemin le plus fiable (Dijkstra) |

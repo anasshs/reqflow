@@ -120,7 +120,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     const m = modale("Sources du Knowledge Graph", `<p class="lib">Le graphe est reconstruit à chaque affichage à partir de ces sources locales : Jira et Xray ne sont jamais interrogés en direct, il faut synchroniser / importer leur copie locale.</p>
       <table class="table-strat"><tr><th>Source</th><th>État</th><th>Contenu</th><th>Mettre à jour</th></tr>
       ${ligne("Carte de l'application (Discovery)", ok(c.ecrans), c.app ? `${esc(c.app)} : ${c.ecrans} écran(s), ${c.transitions} transition(s) · ${c.sessions || 0} session(s)${c.derniere_session ? ", dernière le " + esc(c.derniere_session.slice(0, 16).replace("T", " ")) : ""}` : "aucune application",
-        `<a class="btn petit primaire" href="#discovery/studio">Lancer une Discovery</a>`)}
+        `<button class="btn petit primaire" id="src-disc">Lancer une Discovery</button>`)}
       ${ligne("Jira (exigences, epics, stories)", ok(j.exigences), j.present ? `${j.exigences} exigence(s) · copie du ${esc(String(j.date || "").slice(0, 16).replace("T", " "))} · ${esc(j.source || "")}` : "aucune copie locale",
         `<a class="btn petit" href="#rapports/patrimoine">Synchroniser Jira</a>`)}
       ${ligne("Xray (tests, définitions, plans)", ok(j.tests), j.present ? `${j.tests} test(s)${j.definitions ? ` · définitions importées le ${esc(j.definitions.slice(0, 16).replace("T", " "))}` : " · définitions non importées"}` : "—",
@@ -129,6 +129,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       ${ligne("Jeux de données", ok((s.jdd?.environnements || []).length), esc((s.jdd?.environnements || []).join(", ") || "aucun"), "")}
       ${ligne("Contrats OpenAPI", ok((s.openapi?.fichiers || []).length), esc((s.openapi?.fichiers || []).join(", ") || "aucun fichier api/*.yaml|json"), `<a class="btn petit" href="#intelligence/api">API</a>`)}
       ${ligne("Déclarations et propositions", ok(x.noeuds), `${x.noeuds} élément(s), ${x.relations} relation(s), ${x.a_valider} à valider`, `<a class="btn petit" href="#intelligence/validation">Valider</a>`)}</table>`);
+    $("#src-disc", m.el).onclick = () => { m.fermer(); DiscoveryFlottant.ouvrir(); };
     $("#src-xray", m.el).onclick = async () => { try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {}}); toast(`${r.importes} définition(s) importée(s).`, "ok"); m.fermer(); charger(); } catch (e) { toast(e.message, "ko"); } };
   }
 
@@ -136,8 +137,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   function options() {
     const o = $("#kg-options");
     if (["connaissance", "impact", "parcours", "fonctionnel", "technique"].includes(S.vue)) {
-      o.innerHTML = S.vue === "connaissance" ? `<button class="btn" id="kg-src">${ico("donnee")}Sources du graphe</button><a class="btn primaire" href="#discovery/studio">${ico("recherche")}Lancer une Discovery</a>` : "";
+      o.innerHTML = S.vue === "connaissance" ? `<button class="btn" id="kg-src">${ico("donnee")}Sources du graphe</button><button class="btn primaire" id="kg-disc">${ico("recherche")}Lancer une Discovery</button>` : "";
       if ($("#kg-src")) $("#kg-src").onclick = sourcesGraphe;
+      if ($("#kg-disc")) $("#kg-disc").onclick = () => DiscoveryFlottant.ouvrir();
     } else if (S.vue === "couverture") {
       o.innerHTML = `<select class="in" id="kg-module" style="width:auto" aria-label="Module"><option value="">Tous les modules</option></select>
         <select class="in" id="kg-afficher" style="width:auto" aria-label="Tests affichés"><option value="tous">Manuels et automatisés</option><option value="manuels">Tests manuels</option><option value="automatises">Tests automatisés</option></select>`;

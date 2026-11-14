@@ -22,7 +22,7 @@ from atelier.domain import evenements, projet
 MODES = {"guidee": "Guided Discovery", "assistee": "AI Assisted Discovery", "autonome": "Autonomous Discovery",
          "tests": "Test-Based Discovery"}
 STATUTS = ("Préparée", "En cours", "En pause", "Terminée")
-TYPES_SUIVIS = {"carte_change", "navigation", "exploration", "session", "outil", "ecran_change", "run_lance", "run_bilan"}
+TYPES_SUIVIS = {"carte_change", "navigation", "exploration", "session", "outil", "run_lance", "run_bilan"}
 _verrou = threading.Lock()
 
 
