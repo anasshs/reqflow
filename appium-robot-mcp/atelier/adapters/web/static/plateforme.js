@@ -218,3 +218,18 @@ const Atelier = {
   },
 };
 window.Atelier = Atelier;
+
+/* Clés de tickets (TAM-735, SQ1-10…) cliquables partout : ouverture du ticket dans Jira, nouvel onglet.
+   Un clic sur la clé n'active pas la ligne qui la contient (pas d'ouverture de panneau en même temps). */
+const CLE_TICKET = /^[A-Z][A-Z0-9_]{0,19}-\d+$/;
+document.addEventListener("click", e => {
+  const el = e.target.closest(".cle-xray, [data-jira]");
+  if (!el) return;
+  const cle = (el.dataset.jira || el.textContent || "").trim().split(/\s/)[0];
+  if (!CLE_TICKET.test(cle)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const base = Atelier.ctx?.jira_url;
+  if (!base) { toast("URL Jira non configurée (Paramètres › Connexions).", "ko"); return; }
+  window.open(`${base}/browse/${encodeURIComponent(cle)}`, "_blank", "noopener");
+}, true);

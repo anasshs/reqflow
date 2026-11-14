@@ -163,7 +163,7 @@
           ${l.map(x => `<tr class="cliquable" data-us="${esc(x.cle)}"><td class="cle-xray">${esc(x.cle)}${x.alertes ? ' <span class="pill warn" title="modifiée dans Jira">!</span>' : ""}</td><td>${esc(x.espace)}</td>
             <td class="lib">${esc((x.sprints || []).join(", ") || "—")}</td>
             <td>${esc(x.resume)}</td><td class="lib">${esc(x.statut_jira)}</td><td><span class="pill ${ST_US[x.statut] || ""}">${esc(x.statut)}</span></td><td>${x.constats}</td><td>${x.cas}</td>
-            <td class="mono">${esc((x.tests_lies || []).join(", ") || "—")}</td></tr>`).join("")}</table>`
+            <td>${(x.tests_lies || []).map(k => `<span class="cle-xray">${esc(k)}</span>`).join(", ") || "—"}</td></tr>`).join("")}</table>`
         : vide("Aucune US détectée", "« Détecter les US » interroge Jira (lecture seule).")}</div>`;
     $("#us-cfg").onclick = () => politiqueUS(cfg);
     $("#us-po").onchange = e => { PORTEE = e.target.value; };
@@ -271,8 +271,8 @@
     p.innerHTML = `${entete(cle, `<button class="icone" id="pu-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
       <p><b>${esc(u.resume)}</b></p><p><span class="pill ${ST_US[u.statut] || ""}">${esc(u.statut)}</span> <span class="lib">${esc(u.espace)} · Jira : ${esc(u.statut_jira)}${u.assigne ? " · " + esc(u.assigne) : ""}</span></p>
       ${(u.alertes || []).map(a => `<p class="warn-t">${esc(a.message)}</p>`).join("")}
-      <p class="lib">Tests Xray liés : <span class="mono">${esc((u.tests_lies || []).join(", ") || "aucun")}</span></p>
-      ${(u.liens_ignores || []).length ? `<p class="warn-t">Liens non comptés comme couverture : ${u.liens_ignores.map(x => `${esc(x.cle)} (${esc(x.type)}, lien « ${esc(x.lien)} »)`).join(", ")}</p>` : ""}
+      <p class="lib">Tests Xray liés : ${(u.tests_lies || []).map(k => `<span class="cle-xray">${esc(k)}</span>`).join(", ") || "aucun"} · <span class="cle-xray" data-jira="${esc(cle)}">Ouvrir ${esc(cle)} dans Jira</span></p>
+      ${(u.liens_ignores || []).length ? `<p class="warn-t">Liens non comptés comme couverture : ${u.liens_ignores.map(x => `<span class="cle-xray">${esc(x.cle)}</span> (${esc(x.type)}, lien « ${esc(x.lien)} »)`).join(", ")}</p>` : ""}
       <details><summary>Description et critères</summary><pre class="code-bloc" style="white-space:pre-wrap">${esc(u.description || "(vide)")}${u.criteres_jira ? "\n\nCritères :\n" + esc(u.criteres_jira) : ""}</pre></details>
       <div class="btns" style="margin-top:8px"><button class="btn" id="pu-an">Analyser (règles)</button><button class="btn" id="pu-ia">Analyse IA</button><button class="btn" id="pu-cas">Proposer des cas</button>
         <button class="btn danger" id="pu-nt">Non testable</button></div>
