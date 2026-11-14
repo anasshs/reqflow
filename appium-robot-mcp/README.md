@@ -250,13 +250,14 @@ Mode recommandé : Cursor est l'agent (via le MCP), l'interface web sert d'écra
 Pas besoin de clé API Claude dans ce mode.
 
 1. Lancer l'interface : `python web/app.py` (http://127.0.0.1:8765).
-2. Dans la config MCP de Cursor : `WEB_EVENTS_URL=http://127.0.0.1:8765/api/events`
-   (déjà dans `cursor_mcp.example.json`).
-3. Copier `cursor_rules_automatisation.mdc` dans `.cursor/rules/` du projet de tests : Cursor
-   y trouve les conventions et la méthode.
-   Pour découvrir une application avec Cursor, copier aussi `cursor_rules_discovery.mdc` : Cursor démarre une
-   session Discovery (`discovery_demarrer`), explore avec `discovery_ecran_courant`, dépose ce qu'il comprend
-   avec `discovery_proposer` (à valider dans l'atelier) et termine avec `discovery_terminer`.
+2. **Paramètres › Cursor / Claude** : « Installer dans Cursor » (ajoute le serveur MCP `appium-robot` à
+   `~/.cursor/mcp.json`, autres serveurs conservés, sauvegarde `.bak`), puis « Ajouter les règles » (copie
+   `atelier-automatisation.mdc` et `atelier-discovery.mdc` dans `.cursor/rules/` du projet de tests, à versionner).
+   La configuration ne contient ni secret ni chemin de projet : le MCP suit le projet actif de l'atelier
+   (y compris après une bascule) et lit les secrets dans l'environnement ou le coffre. Installation manuelle :
+   la configuration affichée dans cette section, ou `cursor_mcp.example.json`.
+3. Dans Cursor : Settings › MCP, activer / rafraîchir « appium-robot ». La section indique « Cursor connecté »
+   dès la première action.
 4. Dans Cursor : « Automatise ATTIJARI-200 sur Android avec le jeu VIREMENT_STANDARD (recette). »
 
 Ce que tu vois dans la page pendant que Cursor travaille :

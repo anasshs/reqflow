@@ -350,7 +350,7 @@ def _sante_items() -> list[dict]:
     age = time.time() - state["dernier_mcp"] if state["dernier_mcp"] else None
     item("cursor", "Cursor / Claude Desktop", age is not None and age < 900,
          f"dernière action il y a {int(age // 60)} min" if age is not None else "pas encore vu",
-         "Ajoute WEB_EVENTS_URL=http://127.0.0.1:%d/api/events dans la config MCP." % PORT,
+         "Paramètres › Cursor / Claude : installer le MCP et les règles en un clic.",
          optionnel=True)
     return items
 
@@ -394,6 +394,24 @@ def devices():
 @app.get("/api/devices/diagnostic")
 def devices_diagnostic():
     return _call(session.diagnostic_devices)
+
+
+@app.get("/api/agents-ia")
+def agents_ia_etat():
+    from atelier.integrations import agents_ia
+
+    age = time.time() - state["dernier_mcp"] if state["dernier_mcp"] else None
+    return {**_call(agents_ia.etat, PORT), "derniere_activite_s": int(age) if age is not None else None}
+
+
+@app.post("/api/agents-ia/installer")
+async def agents_ia_installer(req: Request):
+    from atelier.integrations import agents_ia
+
+    b = await req.json()
+    if b.get("regles"):
+        return _call(agents_ia.installer_regles, bool(b.get("ecraser")))
+    return _call(agents_ia.installer, b.get("agent", "cursor"), PORT)
 
 
 @app.post("/api/connecter")

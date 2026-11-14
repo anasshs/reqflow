@@ -159,7 +159,7 @@
   }
 
   /* ================================================================== Paramètres (section à part) */
-  const SECTIONS = [["projets", "Projets"], ["connexions", "Connexions"], ["applications", "Applications"], ["configuration", "Configuration"], ["apparence", "Apparence"]];
+  const SECTIONS = [["projets", "Projets"], ["connexions", "Connexions"], ["agents", "Cursor / Claude"], ["applications", "Applications"], ["configuration", "Configuration"], ["apparence", "Apparence"]];
   Atelier.enregistrer("parametres", {
     afficher(zone, sous) {
       const s = SECTIONS.some(x => x[0] === sous) ? sous : "projets";
@@ -169,13 +169,53 @@
         <section class="carte"><h2 class="titre-carte">${esc(SECTIONS.find(x => x[0] === s)[1])}</h2><div class="corps-carte" id="p-corps">${vide("Chargement…")}</div></section>`;
       $$("[data-p]", zone).forEach(li => li.onclick = () => { location.hash = "parametres/" + li.dataset.p; });
       const corps = $("#p-corps");
-      Promise.resolve().then(() => ({projets, connexions, applications, configuration, apparence})[s](corps)).catch(e => {
+      Promise.resolve().then(() => ({projets, connexions, agents, applications, configuration, apparence})[s](corps)).catch(e => {
         corps.innerHTML = `<p><span class="pill ko">Erreur</span> ${esc(e.message)}</p><p class="lib">${/Not Found|404/.test(e.message)
           ? "Le serveur ne connaît pas cette fonction : il tourne sans doute avec une version précédente. Arrêter le serveur (Ctrl+C), relancer « python web/app.py », puis recharger la page (Ctrl+F5)."
           : "Message complet dans le terminal du serveur."}</p>`;
       });
     },
   });
+
+  /* liaison avec Cursor / Claude Desktop : trois étapes, sans chemin de projet ni secret à recopier */
+  async function agents(z) {
+    const d = await api("/api/agents-ia");
+    const c = d.agents.cursor, cl = d.agents.claude, regles = Object.values(d.regles);
+    const actif = d.derniere_activite_s !== null && d.derniere_activite_s < 900;
+    const etape = (n, ok, titre, corps) => `<section class="bloc-strat" style="margin-bottom:10px"><h3><span class="pill ${ok ? "ok" : ""}">${ok ? "✓" : n}</span> ${titre}</h3>${corps}</section>`;
+    const statut = a => a.erreur ? `<span class="pill ko">fichier illisible</span> <span class="lib">${esc(a.erreur)}</span>` : a.a_jour ? '<span class="pill ok">installé</span>'
+      : a.installe ? '<span class="pill warn">à mettre à jour</span> <span class="lib">(chemin ou port différent)</span>' : '<span class="pill">non installé</span>';
+    z.innerHTML = `<p class="lib" style="max-width:900px">Cursor (ou Claude Desktop) pilote l'atelier par le MCP : il navigue sur le device, construit les tests, mène les Discovery et dépose ses propositions,
+        que vous validez ici. La configuration ne contient <b>ni secret ni chemin de projet</b> : le MCP utilise le projet actif de l'atelier et ses connexions.</p>
+      ${etape(1, c.a_jour, "Installer le MCP dans Cursor", `<p>${statut(c)} <span class="lib mono">${esc(c.fichier)}</span></p>
+        <div class="btns"><button class="btn primaire" data-inst="cursor">${c.a_jour ? "Réinstaller" : "Installer dans Cursor"}</button><button class="btn" id="ag-copie">Copier la configuration</button></div>
+        <p class="lib">Les autres serveurs MCP de Cursor sont conservés ; l'ancien fichier est sauvegardé (.bak). Ensuite dans Cursor : Settings › MCP, vérifier « appium-robot » (activer / rafraîchir).</p>`)}
+      ${etape(2, regles.every(r => r.a_jour), "Ajouter les règles au projet de tests", `<p>${Object.entries(d.regles).map(([n, r]) => `<span class="pill ${r.a_jour ? "ok" : r.present ? "warn" : ""}">${esc(n)}</span>`).join(" ")}
+        <span class="lib mono">${esc(d.projet)}/.cursor/rules/</span></p>
+        <div class="btns"><button class="btn primaire" id="ag-regles">${regles.every(r => r.a_jour) ? "Recopier" : "Ajouter les règles"}</button></div>
+        <p class="lib">Méthode et conventions (construction de tests, Discovery) ; sans chemin local : à versionner avec le projet pour toute l'équipe.</p>`)}
+      ${etape(3, actif, "Vérifier la connexion", `<p>${actif ? `<span class="pill ok">Cursor connecté</span> dernière action il y a ${Math.round(d.derniere_activite_s / 60)} min` : '<span class="pill">pas encore vu</span>'}</p>
+        <p class="lib">Dans Cursor, demander par exemple : « Où suis-je dans l'application ? » (outil where_am_i) ou « Démarre une Discovery de l'application en recette ». L'atelier doit être lancé (python web/app.py).</p>
+        <button class="btn" id="ag-rafr">Actualiser</button>`)}
+      <details><summary class="lib">Claude Desktop</summary><p style="margin-top:6px">${statut(cl)} <span class="lib mono">${esc(cl.fichier)}</span></p>
+        <div class="btns"><button class="btn" data-inst="claude">${cl.a_jour ? "Réinstaller" : "Installer dans Claude Desktop"}</button></div>
+        <p class="lib">Redémarrer Claude Desktop ensuite. Les règles .mdc peuvent servir d'instructions de projet Claude.</p></details>
+      <details><summary class="lib">Configuration (installation manuelle)</summary><pre class="mono" style="white-space:pre-wrap;font-size:12px">${esc(JSON.stringify(d.config, null, 2))}</pre></details>`;
+    $$("[data-inst]", z).forEach(b => b.onclick = async () => {
+      try { const r = await api("/api/agents-ia/installer", {method: "POST", body: {agent: b.dataset.inst}}); toast(`Installé dans ${r.fichier}${r.sauvegarde ? " (sauvegarde .bak)" : ""}. Recharger le MCP dans ${b.dataset.inst === "cursor" ? "Cursor" : "Claude Desktop"}.`, "ok"); agents(z); }
+      catch (e) { toast(e.message, "ko"); }
+    });
+    $("#ag-regles").onclick = async () => {
+      try {
+        let r = await api("/api/agents-ia/installer", {method: "POST", body: {regles: true}});
+        if (r.differentes.length && confirm(`Modifié(s) dans le projet : ${r.differentes.join(", ")}. Remplacer par la version de l'atelier ?`))
+          r = await api("/api/agents-ia/installer", {method: "POST", body: {regles: true, ecraser: true}});
+        toast(`Règles ajoutées : ${r.copiees.join(", ") || "aucune"}.`, "ok"); agents(z);
+      } catch (e) { toast(e.message, "ko"); }
+    };
+    $("#ag-copie").onclick = () => navigator.clipboard.writeText(JSON.stringify(d.config, null, 2)).then(() => toast("Configuration copiée.", "ok"), () => toast("Copie impossible : la sélectionner dans « Configuration ».", "ko"));
+    $("#ag-rafr").onclick = () => agents(z);
+  }
 
   async function projets(z, edition = null) {
     const d = await api("/api/projets");

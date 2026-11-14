@@ -7,6 +7,7 @@ web (écran de contrôle). Aucune logique métier ici.
 """
 from __future__ import annotations
 
+import functools
 import threading
 
 from mcp.server.fastmcp import FastMCP
@@ -17,8 +18,24 @@ from atelier.domain import evenements
 from atelier.integrations import interface_web
 
 mcp = FastMCP("appium-robot")
+
+
+def _suivre_projet(fn):
+    """Avant chaque outil : projet actif de l'atelier (même signature et description que l'outil)."""
+    @functools.wraps(fn)
+    def outil(*a, **k):
+        try:
+            from atelier.domain import projets
+
+            projets.suivre_actif()
+        except Exception:  # noqa: BLE001 - le suivi du projet ne fait jamais échouer un outil
+            pass
+        return fn(*a, **k)
+    return outil
+
+
 for _fn in facade.OUTILS:
-    mcp.tool()(_fn)
+    mcp.tool()(_suivre_projet(_fn))
 
 
 def _relayer(ev: dict):
@@ -70,6 +87,12 @@ def __getattr__(nom: str):
 
 
 def main():
+    try:
+        from atelier.domain import projets
+
+        projets.au_demarrage()  # dernier projet actif de l'atelier, connexions et coffre (sauf ROBOT_PROJECT_DIR imposé)
+    except Exception:  # noqa: BLE001
+        pass
     mcp.run()
 
 

@@ -207,6 +207,17 @@ def activer(pid: str, occupe: str = "") -> dict:
     return lister()
 
 
+def suivre_actif():
+    """Processus à longue durée de vie (serveur MCP) : si le projet actif a changé dans l'atelier, il est appliqué
+    ici aussi. Sans effet quand ROBOT_PROJECT_DIR est imposé par l'environnement."""
+    if _ORIGINE_ENV.get("ROBOT_PROJECT_DIR"):
+        return
+    d = _charger()
+    p = next((x for x in d["projets"] if x["id"] == d.get("actif")), None)  # choix enregistré par l'atelier
+    if p and Path(p["dossier"]).is_dir() and Path(p["dossier"]).resolve() != projet.PROJECT_DIR:
+        _appliquer(p)
+
+
 def au_demarrage():
     """Sans ROBOT_PROJECT_DIR explicite, reprend le dernier projet actif ; sinon applique les connexions du projet
     correspondant au dossier imposé (s'il est déclaré). Les connexions générales enregistrées complètent l'environnement."""
