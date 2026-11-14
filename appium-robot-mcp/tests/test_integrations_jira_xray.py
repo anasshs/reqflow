@@ -145,3 +145,46 @@ def test_outline_examples_conserves_et_publies():
     g = conception.gherkin_xray(m)
     assert g.startswith("Given l'application est ouverte") and "Examples:" in g and "| inconnu" in g
     assert conception.non_publies(m) == ["Autre cas"]
+
+
+class FauxSchemaXray:
+    """Réponses GraphQL simulées : introspection (Test sans « unstructured ») puis getTests."""
+
+    def __init__(self):
+        from atelier.integrations.xray import XrayClient
+
+        self.requetes = []
+        self._client = XrayClient.__new__(XrayClient)
+        self._client.gql = self.gql
+
+    def gql(self, q, v=None):
+        self.requetes.append((q, v))
+        if "__type" in q:
+            nom = (v or {}).get("n")
+            if nom == "Test":
+                return {"__type": {"fields": [{"name": n, "args": [{"name": "limit", "defaultValue": None, "type": {"kind": "NON_NULL"}}] if n == "preconditions" else []}
+                                              for n in ("issueId", "jira", "testType", "steps", "gherkin", "folder", "preconditions")]}}
+            if nom == "Query":
+                return {"__type": {"fields": [{"name": "getTests", "args": [{"name": n, "defaultValue": None, "type": {"kind": "SCALAR"}} for n in ("jql", "limit", "start")]}]}}
+        assert "unstructured" not in q  # champ absent du schéma : jamais demandé
+        res = [{"issueId": "10", "jira": {"key": "DEMO-301", "summary": "Connexion valide"}, "testType": {"name": "Cucumber", "kind": "Gherkin"},
+                "gherkin": "Given x", "folder": {"path": "/Connexion"}, "preconditions": {"results": [{"jira": {"key": "DEMO-PC1", "summary": "Compte actif"}}]}},
+               {"issueId": "11", "jira": {"key": "DEMO-302", "summary": "Mot de passe faux"}, "testType": {"name": "Manual", "kind": "Steps"},
+                "steps": [{"action": "Saisir", "data": "mdp faux", "result": "Refus"}], "folder": None, "preconditions": {"results": []}}]
+        return {"getTests": {"total": 2, "results": res}}
+
+
+def test_import_definitions_xray(demo):
+    from atelier.generation import conception
+    from atelier.intelligence import patrimoine_xray
+
+    x = FauxSchemaXray()
+    r = patrimoine_xray.completer_depuis_xray(xray=x._client)
+    assert r["importes"] == 2 and r["champs_absents"] == ["unstructured"] and "Xray (définitions)" in r["source"]
+    assert len(r["introuvables"]) == 7  # tests de l'instantané absents de la réponse : signalés, jamais inventés
+    t = {c["cle"]: c for c in conception.cas_de_test()}
+    assert t["DEMO-301"]["type"] == "Cucumber" and t["DEMO-301"]["editeur"] == "bdd" and t["DEMO-301"]["dossier"] == "/Connexion"
+    assert t["DEMO-301"]["preconditions"][0]["cle"] == "DEMO-PC1" and t["DEMO-301"]["issueId"] == "10"
+    assert t["DEMO-302"]["editeur"] == "etapes" and t["DEMO-302"]["etapes"][0]["resultat"] == "Refus" and t["DEMO-302"]["dossier"] == "/"
+    assert "définitions Xray importées" in t["DEMO-301"]["synchronisation"]
+    assert patrimoine_xray.charger()["tests"][0]["cle"]  # instantané toujours valide

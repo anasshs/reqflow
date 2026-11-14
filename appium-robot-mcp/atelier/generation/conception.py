@@ -82,7 +82,11 @@ def _revues() -> dict:
 
 
 def _etat_sync(etat_xray: dict) -> str:
-    return f"importé (instantané du {str(etat_xray.get('date'))[:10]})" if etat_xray.get("present") else "non synchronisé"
+    if not etat_xray.get("present"):
+        return "non synchronisé"
+    d = etat_xray.get("definitions_xray") or {}
+    return (f"définitions Xray importées le {d['date'][:10]}" if d.get("date")
+            else f"importé de Jira (instantané du {str(etat_xray.get('date'))[:10]}) ; définitions Xray non importées")
 
 
 # =========================================================================== écrans de consultation
@@ -101,7 +105,9 @@ def cas_de_test() -> list[dict]:
                     "dernier_resultat": p.get("dernier_resultat"), "editeur": EDITEURS.get(typ, "inconnu"),
                     "bdd": t["cle"] if t["cle"] in s["bdd"] else "", "statut_bdd": (s["bdd"].get(t["cle"]) or {}).get("statut", ""),
                     "revue": (rev.get(f"test:{t['cle']}") or {}).get("statut", "Draft"),
-                    "synchronisation": _etat_sync(s["etat_xray"])})
+                    "synchronisation": _etat_sync(s["etat_xray"]), "issueId": t.get("issueId", ""), "dossier": t.get("dossier", ""),
+                    "etapes": t.get("etapes"), "gherkin": t.get("gherkin", ""), "definition": t.get("definition", ""),
+                    "preconditions": t.get("preconditions") or [], "type_jira": t.get("type_jira", "")})
     return out
 
 

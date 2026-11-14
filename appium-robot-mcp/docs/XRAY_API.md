@@ -110,5 +110,8 @@ Variables Jira associées : `JIRA_CHAMP_CRITERES` (champ des critères d'accepta
 l'identifiant numérique Jira du projet (lu sur un test : `jira(fields: ["project"])`).
 Contrôle en lecture seule : `python -m atelier xray-statuts --projet <CLÉ>` compare `XRAY_STATUTS` aux statuts réels
 (PASS / FAIL doivent viser un statut final, EXECUTING un statut non final). Les statuts non finaux
-(`XRAY_STATUTS_NON_FINAUX`, défaut `TODO,EXECUTING`) ne reçoivent jamais d'heure de fin : un test SKIP (→ TODO)
+(`XRAY_STATUTS_NON_FINAUX`, défaut `TO DO,TODO,EXECUTING,BLOCKED`) ne reçoivent jamais d'heure de fin : un test SKIP (→ TO DO)
 n'est donc plus refusé par Xray.
+
+Statuts réels constatés sur le projet de recette (2026-11-14, `xray-statuts`) : PASSED (final), FAILED (final),
+TO DO, EXECUTING, BLOCKED (non finaux). Le statut « à faire » s'écrit **`TO DO`** (avec une espace) : table par défaut corrigée.

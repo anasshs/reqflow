@@ -4,6 +4,7 @@
                                              (ou de tous les runs sous ce dossier)
     python -m atelier xray-verifier          compare les appels du client au schéma GraphQL réel
     python -m atelier xray-statuts --projet TAM   contrôle XRAY_STATUTS avec les statuts réels du projet
+    python -m atelier xray-import --projet TAM    importe les définitions Xray des tests (lecture seule dans Xray)
 """
 from __future__ import annotations
 
@@ -67,6 +68,15 @@ def xray_statuts(projet: str) -> int:
     return 0 if c["ok"] else 1
 
 
+def xray_import(projet: str, jql: str = "") -> int:
+    from atelier.intelligence.patrimoine_xray import completer_depuis_xray
+
+    r = completer_depuis_xray(projet, jql)
+    print(json.dumps({k: r.get(k) for k in ("fichier", "source", "nb_tests", "importes", "introuvables", "champs_absents")},
+                     ensure_ascii=False, indent=1))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m atelier", description="Atelier d'automatisation")
     sous = p.add_subparsers(dest="commande", required=True)
@@ -76,11 +86,16 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--sortie", default="", help="Fichier Markdown du résultat (ex. docs/XRAY_API_resultat.md)")
     st = sous.add_parser("xray-statuts", help="Contrôle la table des statuts avec les statuts réels du projet Xray")
     st.add_argument("--projet", required=True, help="Clé du projet Jira (ex. TAM) ou son identifiant numérique")
+    im = sous.add_parser("xray-import", help="Importe les définitions de tests Xray dans l'instantané du projet")
+    im.add_argument("--projet", default="", help="Clé du projet (utilisée sans instantané existant)")
+    im.add_argument("--jql", default="", help="JQL des tests à importer (remplace l'instantané)")
     args = p.parse_args(argv)
     if args.commande == "xray-sync":
         return xray_sync(args.dossier)
     if args.commande == "xray-verifier":
         return xray_verifier(args.sortie)
+    if args.commande == "xray-import":
+        return xray_import(args.projet, args.jql)
     if args.commande == "xray-statuts":
         return xray_statuts(args.projet)
     return 2

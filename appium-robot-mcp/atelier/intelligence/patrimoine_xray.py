@@ -25,7 +25,7 @@ from pathlib import Path
 from atelier.domain import projet
 
 CHAMPS_TEST = ("cle", "resume", "type", "module", "libelles", "statut", "criticite", "exigences", "plans",
-               "executions")
+               "executions", "type_jira", "issueId", "etapes", "gherkin", "definition", "dossier", "preconditions")
 
 
 def fichier() -> Path:
@@ -71,7 +71,8 @@ def etat() -> dict:
     if not d:
         return {"present": False, "fichier": str(fichier())}
     return {"present": True, "fichier": str(fichier()), "date": d.get("date"), "source": d.get("source"),
-            "projet": d.get("projet"), "nb_tests": len(d["tests"]), "nb_exigences": len(d.get("exigences", []))}
+            "projet": d.get("projet"), "nb_tests": len(d["tests"]), "nb_exigences": len(d.get("exigences", [])),
+            "definitions_xray": d.get("definitions_xray")}
 
 
 # =========================================================================== synchronisation Jira
@@ -121,6 +122,47 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
                 exigences.append({"cle": i["key"], "type": "epic", "resume": f.get("summary"), "parent": None,
                                   "module": _module(f), "statut": (f.get("status") or {}).get("name")})
     return enregistrer({"projet": projet_cle, "tests": tests, "exigences": exigences}, f"Jira : {jql}")
+
+
+CHAMPS_DEFINITION = ("type", "type_genre", "issueId", "etapes", "gherkin", "definition", "dossier", "preconditions")
+
+
+def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dict:
+    """Mode A (import) réel : complète l'instantané avec les définitions Xray de chaque test (type Xray Manual /
+    Cucumber / Generic, étapes, Gherkin, définition, dossier du Test Repository, préconditions, issueId).
+    Sans instantané, les tests viennent du JQL (défaut : tous les tests du projet). Lecture seule dans Xray.
+    Le type Jira d'origine est conservé (type_jira) ; un champ que le schéma n'expose pas reste absent."""
+    from atelier.integrations.xray import XrayClient
+
+    xray = xray or XrayClient()
+    base = charger()
+    if base and not jql:
+        d = xray.definitions_tests(cles=[t["cle"] for t in base["tests"]])
+    else:
+        if not (jql or projet_cle):
+            raise ValueError("Projet ou JQL requis (aucun instantané à compléter).")
+        d = xray.definitions_tests(jql=jql or f'project = "{projet_cle}"')
+    defs = {t["cle"]: t for t in d["tests"] if t.get("cle")}
+    if base and not jql:
+        data, introuvables = base, []
+        for t in data["tests"]:
+            x = defs.get(t["cle"])
+            if not x:
+                introuvables.append(t["cle"])
+                continue
+            if t.get("type") and t.get("type") != x.get("type"):
+                t["type_jira"] = t["type"]
+            t.update({k: x[k] for k in CHAMPS_DEFINITION if k in x})
+    else:
+        data = {**(base or {}), "projet": projet_cle or (base or {}).get("projet"), "tests": list(defs.values())}
+        data.setdefault("exigences", [])
+        introuvables = []
+    source = (data.get("source") or "").split(" + Xray")[0]
+    data["date"] = None
+    data["definitions_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "importes": len(defs),
+                                "introuvables": introuvables, "champs_absents": d["champs_absents"]}
+    etat_ = enregistrer(data, (source + " + Xray (définitions)") if source else f"Xray : {jql or 'project = ' + projet_cle}")
+    return {**etat_, **data["definitions_xray"]}
 
 
 def _description_et_criteres(f: dict, champ_criteres: str = "") -> dict:

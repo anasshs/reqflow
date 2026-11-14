@@ -108,6 +108,61 @@ class XrayClient:
         q = "query($p: String) { getStatuses(projectId: $p) { name description final color } }"
         return self.gql(q, {"p": project_id})["getStatuses"] or []
 
+    # ------------------------------------------------------------ définitions de tests (Test Design, mode A)
+    def _type_champs(self, nom: str) -> dict:
+        """{champ: {args: {nom: obligatoire}}} d'un type GraphQL, par introspection (rien n'est supposé)."""
+        q = ('query($n: String!) { __type(name: $n) { fields { name args { name defaultValue type { kind } } '
+             'type { kind name ofType { kind name ofType { kind name } } } } } }')
+        t = (self.gql(q, {"n": nom}).get("__type") or {})
+        return {f["name"]: {"args": {a["name"]: (a.get("type") or {}).get("kind") == "NON_NULL" and a.get("defaultValue") is None
+                                     for a in f.get("args") or []}} for f in t.get("fields") or []}
+
+    def selection_definitions(self) -> tuple[str, list[str]]:
+        """Sélection GraphQL des champs de définition réellement présents sur le type Test, et liste des absents."""
+        test, absents, sel = self._type_champs("Test"), [], ["issueId", 'jira(fields: ["key", "summary"])']
+        voulus = {"testType": "testType { name kind }", "gherkin": "gherkin", "unstructured": "unstructured",
+                  "folder": "folder { path }", "steps": "steps { action data result }",
+                  "preconditions": 'preconditions(limit: 20) { results { issueId jira(fields: ["key", "summary"]) } }'}
+        for champ, texte in voulus.items():
+            if champ not in test:
+                absents.append(champ)
+                continue
+            if champ == "preconditions" and "limit" not in test[champ]["args"]:
+                texte = texte.replace("(limit: 20)", "")
+            sel.append(texte)
+        return " ".join(sel), absents
+
+    def definitions_tests(self, cles: list[str] | None = None, jql: str = "", limite: int = 2000) -> dict:
+        """Définitions Xray (type, étapes, Gherkin, définition Generic, dossier, préconditions) des tests donnés
+        (par lots de 100 clés) ou d'un JQL (pages de 100). Lecture seule."""
+        sel, absents = self.selection_definitions()
+        args = self._type_champs("Query").get("getTests", {}).get("args", {})
+        pagine = "start" in args
+        q = f"query($jql: String, $l: Int, $s: Int) {{ getTests(jql: $jql, limit: $l{', start: $s' if pagine else ''}) {{ total results {{ {sel} }} }} }}" \
+            if pagine else f"query($jql: String, $l: Int) {{ getTests(jql: $jql, limit: $l) {{ total results {{ {sel} }} }} }}"
+        brut: list[dict] = []
+        if cles:
+            cles = list(dict.fromkeys(cles))
+            for i in range(0, len(cles), 100):
+                lot = cles[i:i + 100]
+                try:
+                    brut += self.gql(q, {"jql": f"key in ({', '.join(lot)})", "l": 100, **({"s": 0} if pagine else {})})["getTests"]["results"]
+                except ErreurGraphQL:  # une clé inconnue fait échouer le JQL : clé par clé
+                    for k in lot:
+                        try:
+                            brut += self.gql(q, {"jql": f'key = "{k}"', "l": 1, **({"s": 0} if pagine else {})})["getTests"]["results"]
+                        except ErreurGraphQL:
+                            pass
+        else:
+            debut = 0
+            while len(brut) < limite:
+                page = self.gql(q, {"jql": jql, "l": 100, **({"s": debut} if pagine else {})})["getTests"]
+                brut += page["results"]
+                debut += 100
+                if not pagine or not page["results"] or debut >= (page.get("total") or 0):
+                    break
+        return {"tests": [_definition(x) for x in brut], "champs_absents": absents, "pagination": pagine}
+
     def search_tests(self, jql: str, limit: int = 50) -> list[dict]:
         """Tests correspondant à un JQL (ex. candidats à l'automatisation)."""
         q = ('query($jql: String, $l: Int!) { getTests(jql: $jql, limit: $l) { results { issueId '
@@ -264,3 +319,25 @@ class XrayClient:
                 "exec_id": exec_id, "runs": runs,
                 "tests_inconnus_xray": [k for k in test_keys if k not in ids],
                 "avertissements": warnings}
+
+
+def _definition(x: dict) -> dict:
+    """Résultat getTests -> champs de l'instantané. Un champ absent de la réponse reste absent."""
+    j = x.get("jira") or {}
+    out = {"cle": j.get("key"), "resume": j.get("summary"), "issueId": x.get("issueId")}
+    if x.get("testType"):
+        out["type"] = x["testType"].get("name")
+        out["type_genre"] = x["testType"].get("kind")
+    if "steps" in x and x["steps"] is not None:
+        out["etapes"] = [{"action": e.get("action") or "", "donnees": e.get("data") or "", "resultat": e.get("result") or ""}
+                         for e in x["steps"]]
+    if x.get("gherkin"):
+        out["gherkin"] = x["gherkin"]
+    if x.get("unstructured"):
+        out["definition"] = x["unstructured"]
+    if "folder" in x:
+        out["dossier"] = (x.get("folder") or {}).get("path") or "/"
+    if "preconditions" in x and x["preconditions"] is not None:
+        out["preconditions"] = [{"cle": (p.get("jira") or {}).get("key"), "resume": (p.get("jira") or {}).get("summary")}
+                                for p in x["preconditions"].get("results") or []]
+    return out

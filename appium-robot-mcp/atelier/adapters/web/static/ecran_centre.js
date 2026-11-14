@@ -293,7 +293,7 @@
       <table class="table-strat"><tr><th>Run</th><th>Début</th><th>Run</th><th>Test Execution Xray</th><th>Événements</th><th>Restants</th><th>Synchronisation</th></tr>
       ${l.map(x => `<tr><td class="cle-xray">${esc(x.run)}</td><td class="mono">${esc((x.debut || "").replace("T", " "))}</td><td>${statut(x.statut_run)}</td><td>${esc(x.xray_execution || "—")}</td>
         <td>${x.evenements}</td><td>${x.restants}</td><td><span class="pill ${P[x.statut] || ""}">${esc(x.statut)}</span>${x.restants ? ` <button class="btn petit" data-rejouer="${esc(x.run)}">Rejouer</button>` : ""}</td></tr>`).join("")}</table>
-      <p class="lib" style="margin-top:10px">Ordre d'envoi en fin de test : statut final, puis heures et commentaire, puis captures ; résultats Robot (zip) joints après le run (XRAY_ARTEFACTS). Mapping des statuts : variable XRAY_STATUTS (défaut PASS → PASSED, FAIL → FAILED, SKIP → TODO ; aucune heure de fin sur un statut non final) ; schéma Xray vérifié par introspection, contrôle des statuts réels : <code>python -m atelier xray-statuts --projet &lt;CLÉ&gt;</code>.</p></div>`;
+      <p class="lib" style="margin-top:10px">Ordre d'envoi en fin de test : statut final, puis heures et commentaire, puis captures ; résultats Robot (zip) joints après le run (XRAY_ARTEFACTS). Mapping des statuts : variable XRAY_STATUTS (défaut PASS → PASSED, FAIL → FAILED, SKIP → TO DO ; aucune heure de fin sur un statut non final) ; schéma Xray vérifié par introspection, contrôle des statuts réels : <code>python -m atelier xray-statuts --projet &lt;CLÉ&gt;</code>.</p></div>`;
   }
 
   function parametres(z) {

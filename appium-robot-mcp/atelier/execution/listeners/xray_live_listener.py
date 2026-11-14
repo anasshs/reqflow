@@ -198,7 +198,7 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
             previous = self.statut_robot.get(key, "NOT RUN")
             pire = result.status if GRAVITE.get(result.status, 0) >= GRAVITE.get(previous, 0) else previous
             self.statut_robot[key] = pire
-            agg = self.statuts.get(pire, "TODO")
+            agg = self.statuts.get(pire, "TO DO")
         etat = self._etat()
         run_id = (etat.get("runs") or {}).get(key)
         self.tests.append({"test": data.name, "cle_xray": key, "statut_robot": result.status,

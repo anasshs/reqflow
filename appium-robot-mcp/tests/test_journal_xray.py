@@ -228,7 +228,7 @@ def test_controle_des_statuts_xray(monkeypatch):
     monkeypatch.delenv("XRAY_STATUTS", raising=False)
     monkeypatch.delenv("XRAY_STATUTS_NON_FINAUX", raising=False)
     reels = [{"name": "PASSED", "final": True}, {"name": "FAILED", "final": True},
-             {"name": "TODO", "final": False}, {"name": "EXECUTING", "final": False}]
+             {"name": "TO DO", "final": False}, {"name": "EXECUTING", "final": False}]
     c = controler_statuts(reels)
     assert c["ok"] and all(l["etat"] == "conforme" for l in c["lignes"])
     c = controler_statuts(reels + [{"name": "BLOQUE", "final": False}], {"FAIL": "ECHEC", "EXECUTING": "EXECUTING"})

@@ -32,6 +32,9 @@ MUTATIONS = {
     "updateGherkinTestDefinition": ["issueId", "gherkin"],      # Test Design : mise à jour (mode B)
 }
 TYPES_ENTREE = {"AttachmentDataInput": ["filename", "mimeType", "data"]}
+# Champs lus par l'import des définitions (Test Design, mode A) ; l'import s'adapte de toute façon au schéma réel.
+TYPES_SORTIE = {"Test": ["issueId", "testType", "steps", "gherkin", "unstructured", "folder", "preconditions"],
+                "Step": ["action", "data", "result"], "Folder": ["path"], "TestType": ["name", "kind"]}
 
 _TYPE = "type { kind name ofType { kind name ofType { kind name ofType { kind name } } } }"
 INTROSPECTION = (
@@ -106,6 +109,14 @@ def verifier(client=None) -> dict:
                 sig["champs_retour"] = [f"{f['name']}: {_texte_type(f.get('type'))}" for f in (t.get("__type") or {}).get("fields") or []]
             except Exception as e:  # noqa: BLE001 - un échec ici ne doit pas masquer le résultat principal
                 sig["champs_retour"] = [f"(non lu : {e})"]
+    for nom, attendus in TYPES_SORTIE.items():
+        try:
+            t = client.gql(f'query {{ __type(name: "{nom}") {{ fields {{ name }} }} }}').get("__type")
+        except Exception:  # noqa: BLE001
+            t = None
+        connus = {f["name"] for f in (t or {}).get("fields") or []}
+        res["types"].append({"nom": nom, "present": t is not None, "inconnus": [a for a in attendus if a not in connus], "sortie": True})
+    res["ok"] = res["ok"] and all(x["present"] and not x["inconnus"] for x in res["types"])
     return res
 
 

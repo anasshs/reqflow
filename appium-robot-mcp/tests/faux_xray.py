@@ -73,6 +73,13 @@ class FauxXray:
             q, v = req["query"], req.get("variables") or {}
             if "__schema" in q:
                 return 200, {"data": self.schema}
+            if "__type" in q:  # types de sortie lus par l'import des définitions (Test Design)
+                from atelier.integrations.xray.verification import TYPES_SORTIE
+
+                import re as _re
+                nom = v.get("n") or (_re.search(r'__type\(name: "(\w+)"\)', q) or [None, ""])[1]
+                champs = TYPES_SORTIE.get(nom)
+                return 200, {"data": {"__type": {"fields": [{"name": c, "args": []} for c in champs]} if champs else None}}
             op = next(o for o in OPERATIONS if o in q)
             self.appels.append(op)
             try:
@@ -117,7 +124,7 @@ class FauxXray:
             return None
         if op == "updateTestRun":
             # règle constatée sur Xray Cloud (essai réel du 2026-11-14) : finishedOn exige un statut final
-            if "finishedOn" in v and (self.statuts.get(v["id"]) or ["TODO"])[-1] in ("TODO", "EXECUTING"):
+            if "finishedOn" in v and (self.statuts.get(v["id"]) or ["TO DO"])[-1] in ("TODO", "TO DO", "EXECUTING", "BLOCKED"):
                 raise RefusXray("Cannot set finishedOn because test run status is not final.")
             self.maj_runs[v["id"]] = {k: v[k] for k in v if k != "id"}
             return {"warnings": []}

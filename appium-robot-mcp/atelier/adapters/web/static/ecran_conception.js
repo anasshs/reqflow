@@ -37,7 +37,7 @@
   async function vue(z) {
     const v = await api("/api/conception/vue"), k = v.kpi;
     const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
-    z.innerHTML = `${entete("Vue d'ensemble", `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Importer le repository Xray</a>
+    z.innerHTML = `${entete("Vue d'ensemble", `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Importer le repository Xray</a><button class="btn" id="cv-def">${ico("xray")}Importer les définitions Xray</button>
         <a class="btn" href="#conception/exigences">Exigences sans tests</a><a class="btn" href="#conception/revue">En attente de validation</a><a class="btn primaire" href="#bdd">${ico("bdd")}Créer un scénario BDD</a>`)}
       <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(8,minmax(0,1fr));margin-bottom:12px">
         ${kpi(k.exigences, "exigences importées")}${kpi(k.cas_xray, "cas de test Xray")}${kpi(k.scenarios_bdd, "scénarios BDD")}${kpi(k.a_revoir, "à revoir", "warn-t")}
@@ -50,6 +50,13 @@
             <td style="width:45%"><div class="barre"><i style="width:${x.exigences ? x.couvertes / x.exigences * 100 : 0}%"></i></div></td></tr>`).join("")}</table>
             ${v.exigences_sans_test.length ? `<p class="lib">Sans test : ${v.exigences_sans_test.map(esc).join(", ")}</p>` : ""}</section>
           <section class="bloc-strat"><h3>Activités récentes</h3><ul class="liste">${v.activite.map(a => `<li><span class="mono lib">${esc(a.date.slice(5, 16).replace("T", " "))}</span><span class="item">${esc(a.op)} ${esc(a.cle || a.nom || "")} ${a.vers ? "→ " + esc(LIB_REVUE[a.vers] || a.vers) : ""}</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul></section></div></div>`;
+    $("#cv-def").onclick = async () => {
+      const projet = v.xray.present ? "" : prompt("Clé du projet Xray (aucun instantané à compléter) :");
+      if (projet === null) return;
+      try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {projet}});
+        toast(`${r.importes} définition(s) importée(s)${r.introuvables.length ? `, ${r.introuvables.length} introuvable(s)` : ""}${r.champs_absents.length ? ` ; champs absents du schéma : ${r.champs_absents.join(", ")}` : ""}.`, r.introuvables.length ? "ko" : "ok");
+        vue(z); } catch (e) { toast(e.message, "ko"); }
+    };
   }
 
   /* ------------------------------------------------------------------ 02 exigences */
@@ -94,7 +101,12 @@
       <p><b>${esc(c.resume)}</b></p><dl class="props"><dt>Type Xray</dt><dd>${esc(c.type)}</dd><dt>Éditeur</dt><dd>${esc(EDITEUR[c.editeur])}</dd>
         <dt>Module</dt><dd>${esc(c.module)}</dd><dt>Priorité</dt><dd>${esc(c.priorite)}</dd><dt>Exigences</dt><dd>${esc(c.exigences.join(", ") || "—")}</dd>
         <dt>Plans</dt><dd>${esc(c.plans.join(", ") || "—")}</dd><dt>Statut Xray</dt><dd>${esc(c.statut_xray)}</dd><dt>Revue interne</dt><dd>${pillRevue(c.revue)}</dd>
-        <dt>Scénario BDD</dt><dd>${c.bdd ? `${esc(c.bdd)} (${esc(c.statut_bdd)})` : "—"}</dd><dt>Synchronisation</dt><dd>${esc(c.synchronisation)}</dd></dl>
+        <dt>Scénario BDD</dt><dd>${c.bdd ? `${esc(c.bdd)} (${esc(c.statut_bdd)})` : "—"}</dd><dt>Synchronisation</dt><dd>${esc(c.synchronisation)}</dd>
+        <dt>Dossier Xray</dt><dd>${esc(c.dossier || "—")}</dd><dt>Préconditions</dt><dd>${esc(c.preconditions.map(x => x.cle).join(", ") || "—")}</dd></dl>
+      ${c.etapes ? `<h3 class="lib" style="margin-top:10px">ÉTAPES XRAY (${c.etapes.length}, lecture)</h3><table class="table-strat"><tr><th>#</th><th>Action</th><th>Données</th><th>Résultat attendu</th></tr>
+        ${c.etapes.map((e, i) => `<tr><td>${i + 1}</td><td>${esc(e.action)}</td><td>${esc(e.donnees)}</td><td>${esc(e.resultat)}</td></tr>`).join("")}</table>` : ""}
+      ${c.gherkin ? `<h3 class="lib" style="margin-top:10px">GHERKIN XRAY (lecture)</h3><pre class="code-bloc">${esc(c.gherkin)}</pre>` : ""}
+      ${c.definition ? `<h3 class="lib" style="margin-top:10px">DÉFINITION (Generic, lecture)</h3><pre class="code-bloc">${esc(c.definition)}</pre>` : ""}
       <div class="btns" style="margin-top:12px">${ouvrir}<a class="btn" href="#conception/revue" id="pc-rev">Revue</a>
         <button class="btn" id="pc-graphe">${ico("graphe")}Traçabilité</button></div></div>`;
     $("#pc-x").onclick = () => { p.hidden = true; SEL = null; };

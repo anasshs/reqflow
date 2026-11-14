@@ -25,3 +25,10 @@ Légende : ✅ existant · 🆕 ajouté par cette livraison · ⏳ restant · �
 
 Hors périmètre de cette livraison : rôles et droits (pas d'authentification dans l'interface
 locale), multi-projets dans une même interface.
+
+## Import réel des définitions Xray (2026-11-14)
+- 🆕 `python -m atelier xray-import --projet <CLÉ>` / Vue d'ensemble › « Importer les définitions Xray » : type Xray
+  (Manual / Cucumber / Generic), étapes, Gherkin, définition Generic, dossier du Test Repository, préconditions, issueId.
+  Champs choisis par introspection du type `Test` : un champ absent du schéma n'est jamais demandé ni inventé.
+  Tests de l'instantané introuvables dans Xray : listés, jamais supprimés. Lecture seule dans Xray.
+- RG-X05 (éditeur selon le type Xray) et RG-X01 (issueId conservé) tenues après import.

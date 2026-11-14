@@ -921,6 +921,13 @@ async def patrimoine_importer(req: Request):
     return _call(patrimoine_xray.enregistrer, b, "import manuel (interface)")
 
 
+@app.post("/api/patrimoine/xray-definitions")
+async def patrimoine_xray_definitions(req: Request):
+    """Mode A : définitions des tests (type, étapes, Gherkin, dossier, préconditions) lues dans Xray."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, patrimoine_xray.completer_depuis_xray, b.get("projet", ""), b.get("jql", ""))
+
+
 @app.post("/api/patrimoine/synchroniser")
 async def patrimoine_synchroniser(req: Request):
     b = await req.json()

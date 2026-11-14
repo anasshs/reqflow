@@ -29,7 +29,8 @@ ETAT = "xray_outbox.etat.json"
 VERROU = "xray_outbox.verrou"
 
 
-STATUTS_DEFAUT = {"PASS": "PASSED", "FAIL": "FAILED", "SKIP": "TODO", "NOT RUN": "TODO", "EXECUTING": "EXECUTING"}
+# Noms constatés sur Xray Cloud (getStatuses, essai réel du 2026-11-14) : « TO DO » avec une espace.
+STATUTS_DEFAUT = {"PASS": "PASSED", "FAIL": "FAILED", "SKIP": "TO DO", "NOT RUN": "TO DO", "EXECUTING": "EXECUTING"}
 
 
 def statuts_xray() -> dict:
@@ -44,8 +45,8 @@ def statuts_xray() -> dict:
 
 def statuts_non_finaux() -> set[str]:
     """Statuts Xray non finaux (Xray refuse alors l'heure de fin). Défaut : TODO, EXECUTING ;
-    XRAY_STATUTS_NON_FINAUX='TODO,EXECUTING,EN ATTENTE' (contrôle : `python -m atelier xray-statuts`)."""
-    v = os.environ.get("XRAY_STATUTS_NON_FINAUX") or "TODO,EXECUTING"
+    XRAY_STATUTS_NON_FINAUX='TO DO,EXECUTING,BLOCKED,EN ATTENTE' (contrôle : `python -m atelier xray-statuts`)."""
+    v = os.environ.get("XRAY_STATUTS_NON_FINAUX") or "TO DO,TODO,EXECUTING,BLOCKED"
     return {x.strip().upper() for x in v.split(",") if x.strip()}
 
 
