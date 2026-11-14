@@ -245,10 +245,12 @@ def test_synchro_jira_au_dela_de_1000_et_troncature_signalee(tmp_path, monkeypat
             n = min(1500, limite)
             self.tronque = limite < 1500
             return [{"key": f"TAM-{i}", "fields": {"summary": "t", "issuetype": {"name": "Test"},
-                                                    "issuelinks": [{"type": {"name": "Test"}, "outwardIssue": {"key": f"TAM-US{i}"}}]}} for i in range(n)]
+                                                    "issuelinks": [{"type": {"name": "Test"}, "outwardIssue": {"key": f"TAM-US{i}", "fields": {"issuetype": {"name": "Story"}}}},
+                                                                     {"type": {"name": "Test"}, "inwardIssue": {"key": f"TAM-EX{i}", "fields": {"issuetype": {"name": "Test Execution"}}}}]}}
+                    for i in range(n)]
 
     r = patrimoine_xray.synchroniser_jira("TAM", jira=JiraVolumineux())
-    assert r["nb_tests"] == 1500 and r["nb_exigences"] == 1500 and not r["tronque"]  # plus de plafond à 1000
+    assert r["nb_tests"] == 1500 and r["nb_exigences"] == 1500 and not r["tronque"]  # plus de plafond à 1000 ; Test Execution exclue
     monkeypatch.setenv("PATRIMOINE_LIMITE", "1200")
     r = patrimoine_xray.synchroniser_jira("TAM", jira=JiraVolumineux())
     assert r["nb_tests"] == 1200 and "1200" in r["tronque"]

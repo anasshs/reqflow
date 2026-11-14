@@ -262,6 +262,8 @@
     p.innerHTML = `${entete(cle, `<button class="icone" id="pu-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
       <p><b>${esc(u.resume)}</b></p><p><span class="pill ${ST_US[u.statut] || ""}">${esc(u.statut)}</span> <span class="lib">${esc(u.espace)} · Jira : ${esc(u.statut_jira)}${u.assigne ? " · " + esc(u.assigne) : ""}</span></p>
       ${(u.alertes || []).map(a => `<p class="warn-t">${esc(a.message)}</p>`).join("")}
+      <p class="lib">Tests Xray liés : <span class="mono">${esc((u.tests_lies || []).join(", ") || "aucun")}</span></p>
+      ${(u.liens_ignores || []).length ? `<p class="warn-t">Liens non comptés comme couverture : ${u.liens_ignores.map(x => `${esc(x.cle)} (${esc(x.type)}, lien « ${esc(x.lien)} »)`).join(", ")}</p>` : ""}
       <details><summary>Description et critères</summary><pre class="code-bloc" style="white-space:pre-wrap">${esc(u.description || "(vide)")}${u.criteres_jira ? "\n\nCritères :\n" + esc(u.criteres_jira) : ""}</pre></details>
       <div class="btns" style="margin-top:8px"><button class="btn" id="pu-an">Analyser (règles)</button><button class="btn" id="pu-ia">Analyse IA</button><button class="btn" id="pu-cas">Proposer des cas</button>
         <button class="btn danger" id="pu-nt">Non testable</button></div>

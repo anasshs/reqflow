@@ -77,6 +77,17 @@ def etat() -> dict:
 
 
 # =========================================================================== synchronisation Jira
+TYPES_XRAY = {"test", "test execution", "test plan", "test set", "precondition", "pre-condition", "précondition",
+              "sub test execution", "exécution de test", "plan de test"}
+
+
+def _objet_xray(issue: dict) -> bool:
+    """Ticket lié de type Xray (ou de type inconnu : prudence, il n'est pas compté comme exigence)."""
+    nom = (((issue.get("fields") or {}).get("issuetype") or {}).get("name") or "").strip().lower()
+    types = TYPES_XRAY | {t.strip().lower() for t in (os.environ.get("XRAY_TEST_ISSUE_TYPE") or "").split(",") if t.strip()}
+    return not nom or nom in types
+
+
 def limite_import() -> int:
     """Plafond de sécurité d'un import (tickets) : PATRIMOINE_LIMITE, défaut 20 000. Un import tronqué est signalé."""
     try:
@@ -124,7 +135,8 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
         f = i["fields"]
         liees = [lien.get("outwardIssue") or lien.get("inwardIssue") for lien in f.get("issuelinks") or []
                  if "test" in ((lien.get("type") or {}).get("name") or "").lower()]
-        exig = sorted({x["key"] for x in liees if x})
+        # une exigence est une US / epic / bug… jamais un objet Xray (Test, Test Execution, Test Plan, Test Set, précondition)
+        exig = sorted({x["key"] for x in liees if x and not _objet_xray(x)})
         ids_exigences |= set(exig)
         tests.append({"cle": i["key"], "resume": f.get("summary"), "type": (f.get("issuetype") or {}).get("name"),
                       "module": _module(f), "libelles": f.get("labels") or [],

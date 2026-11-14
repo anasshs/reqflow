@@ -258,15 +258,13 @@ def detecter(jira=None, limite: int = 500, sprint: str = "") -> dict:
 def _integrer(d: dict, i: dict, e: dict, sp: dict | None, champ_crit: str, adf_vers_texte, bilan: dict):
     """Fusionne une US lue dans Jira dans l'état local (création, mise à jour, couverture existante, sprint)."""
     f = i.get("fields") or {}
-    liens = [l.get("outwardIssue") or l.get("inwardIssue") or {} for l in f.get("issuelinks") or []
-             if "test" in ((l.get("type") or {}).get("name") or "").lower()]
-    tests_lies = sorted({x.get("key") for x in liens if x.get("key")})
+    tests_lies, ignores = liens_de_test(f.get("issuelinks") or [])
     crit = f.get(champ_crit) if champ_crit else None
     u = d.get(i["key"])
     base = {"cle": i["key"], "espace": e["projet_jira"], "resume": f.get("summary") or "",
             "description": adf_vers_texte(f.get("description")), "criteres_jira": adf_vers_texte(crit) if crit else "",
             "statut_jira": (f.get("status") or {}).get("name", ""), "assigne": ((f.get("assignee") or {}).get("displayName") or ""),
-            "maj_jira": f.get("updated", ""), "tests_lies": tests_lies}
+            "maj_jira": f.get("updated", ""), "tests_lies": tests_lies, "liens_ignores": ignores}
     if u is None:
         u = {**base, "statut": "", "historique": [], "constats": [], "questions": {}, "cas": []}
         _changer(u, "Couverte (existant)" if len(tests_lies) >= e["min_tests"] else "Détectée",
@@ -284,6 +282,30 @@ def _integrer(d: dict, i: dict, e: dict, sp: dict | None, champ_crit: str, adf_v
     bilan["deja_couvertes"] += u["statut"].startswith("Couverte")
     bilan["us"] += 1
     d[i["key"]] = u
+
+
+def types_test() -> set[str]:
+    """Nom(s) du type de ticket Test de Xray (XRAY_TEST_ISSUE_TYPE, virgules ; défaut « Test »), en minuscules."""
+    return {t.strip().lower() for t in (os.environ.get("XRAY_TEST_ISSUE_TYPE") or "Test").split(",") if t.strip()}
+
+
+def liens_de_test(issuelinks: list[dict]) -> tuple[list[str], list[dict]]:
+    """Couverture réelle d'une US : seuls comptent les tickets liés dont le TYPE est Test (Xray), quel que soit le nom
+    du lien. Un « is tested by » vers une Task, un Bug, une Test Execution… n'est pas une couverture : il est ignoré
+    et signalé. Un ticket lié dont le type n'est pas renvoyé par Jira n'est jamais compté."""
+    tests, ignores, types = set(), [], types_test()
+    for l in issuelinks or []:
+        cible = l.get("outwardIssue") or l.get("inwardIssue") or {}
+        if not cible.get("key"):
+            continue
+        type_cible = (((cible.get("fields") or {}).get("issuetype") or {}).get("name") or "")
+        lien = (l.get("type") or {}).get("name") or ""
+        if type_cible.lower() in types:
+            tests.add(cible["key"])
+        elif "test" in lien.lower() or "test" in type_cible.lower():  # piège : lien « test » vers autre chose qu'un Test
+            ignores.append({"cle": cible["key"], "type": type_cible or "inconnu", "lien": lien,
+                            "raison": "ticket lié qui n'est pas un Test Xray : ne couvre pas l'US"})
+    return sorted(tests), ignores
 
 
 def _dans(u: dict, sprint: str) -> bool:

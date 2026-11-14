@@ -18,7 +18,7 @@ class FauxJira:
                                              "En tant que conseiller je crée une carte rapidement pour le client, etc."}]}]}}},
             {"key": "SQ1-11", "fields": {"summary": "Consultation du plafond", "status": {"name": "Ready"}, "issuetype": {"name": "Story"},
                                          "updated": "2026-11-14T10:00:00.000+0000", "description": None,
-                                         "issuelinks": [{"type": {"name": "Test"}, "inwardIssue": {"key": "TAM-900"}}]}},
+                                         "issuelinks": [{"type": {"name": "Test"}, "inwardIssue": {"key": "TAM-900", "fields": {"issuetype": {"name": "Test"}}}}]}},
         ]
 
     def rechercher(self, jql, champs, limite):
@@ -202,3 +202,21 @@ def test_recherche_projets_jira_pour_la_politique(t):
     assert j.q == "squad" and [p["suivi"] for p in l] == [True, False]  # SQ1 déjà suivi par la politique
     d = t.details_projet_jira("SQ1", jira=j)
     assert d["types"][1] == "Story" and d["sprint_actif"]["nom"] == "Sprint 12" and "Ready" in d["statuts"]
+
+
+
+def test_lien_tested_by_vers_un_non_test_ne_couvre_pas(t):
+    """Piège : « is tested by » vers une Task, une Test Execution ou un ticket sans type connu = pas de couverture."""
+    liens = [{"type": {"name": "Test", "inward": "is tested by"}, "inwardIssue": {"key": "SQ1-5", "fields": {"issuetype": {"name": "Task"}}}},
+             {"type": {"name": "Test"}, "inwardIssue": {"key": "TAM-50", "fields": {"issuetype": {"name": "Test Execution"}}}},
+             {"type": {"name": "Test"}, "inwardIssue": {"key": "TAM-51"}},
+             {"type": {"name": "Relates"}, "outwardIssue": {"key": "TAM-52", "fields": {"issuetype": {"name": "Test"}}}},
+             {"type": {"name": "Blocks"}, "outwardIssue": {"key": "SQ1-6", "fields": {"issuetype": {"name": "Story"}}}}]
+    tests, ignores = t.liens_de_test(liens)
+    assert tests == ["TAM-52"]  # seul un ticket de type Test couvre, quel que soit le nom du lien
+    assert {x["cle"] for x in ignores} == {"SQ1-5", "TAM-50", "TAM-51"}
+    j = FauxJira()
+    j.us[0]["fields"]["issuelinks"] = liens[:3]
+    t.detecter(jira=j)
+    d = t.detail("SQ1-10")
+    assert d["statut"] == "Détectée" and d["tests_lies"] == [] and len(d["liens_ignores"]) == 3
