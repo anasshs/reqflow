@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Test Engineering Platform</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/plateforme.css">
+</head>
+<body>
+<nav id="nav" aria-label="Espaces de travail"></nav>
+<main class="espace" id="espace">
+  <div class="entete"><h1 id="titre">Dashboard</h1><p id="sous-titre"></p></div>
+  <div class="outils" id="outils"></div>
+  <div class="corps" id="corps">
+    <div class="zone-graphe" id="zone"></div>
+    <aside id="panneau" aria-live="polite"></aside>
+  </div>
+  <div class="ia" id="barre-ia" hidden>
+    <strong>Assistant IA</strong>
+    <button class="btn" data-ia="expliquer">Expliquer le graphe</button>
+    <button class="btn" data-ia="resumer">Résumer les dépendances</button>
+    <button class="btn" data-ia="anomalies">Anomalies</button>
+    <button class="btn" data-ia="lacunes">Lacunes</button>
+    <button class="btn" data-ia="impacts">Impacts</button>
+    <button class="btn" data-ia="ameliorations">Améliorations</button>
+    <button class="btn" data-ia="manquants">Éléments manquants</button>
+    <input id="ia-question" placeholder="Question sur le graphe ou l'élément sélectionné…" aria-label="Question à l'assistant">
+    <button class="btn primaire" id="ia-envoyer">Demander</button>
+  </div>
+</main>
+<script src="/static/graphe.js"></script>
+<script src="/static/plateforme.js"></script>
+</body>
+</html>

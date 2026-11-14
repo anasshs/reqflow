@@ -56,6 +56,14 @@ premier run réel sur un projet de recette Xray reste nécessaire (voir « Essai
 | `POST {base}/import/execution/robot?projectKey=&testExecKey=&testPlanKey=` corps output.xml, `Content-Type: application/xml` | paramètres acceptés (`testEnvironments`, `revision`, `fixVersion`…), Content-Type exact, forme de la réponse (`key`) | à vérifier |
 | Base `https://xray.cloud.getxray.app/api/v2` (réglable par `XRAY_BASE_URL`) | URL régionales (US / EU / AU) à proposer si le tenant n'est pas sur l'instance globale | à vérifier |
 
+## Jira (instantané du patrimoine, espaces de travail)
+
+| Appel | Points précis à vérifier | Résultat |
+|---|---|---|
+| `POST {JIRA_BASE_URL}/rest/api/3/search/jql` corps `{jql, fields, maxResults, nextPageToken}` → `issues`, `nextPageToken` | endpoint actuel de recherche Jira Cloud (remplace `/search`), pagination | à vérifier |
+| champs `summary, issuetype, labels, status, components, priority, issuelinks, parent` | `parent` pour l'epic d'une user story ; composants comme module | à vérifier |
+| lien Xray test ↔ exigence dans `issuelinks` (type dont le nom contient « test ») | nom exact du type de lien créé par Xray sur le site | à vérifier |
+
 ## Statuts de test run personnalisés
 
 Les noms envoyés à Xray ne sont plus figés dans le code : table par défaut

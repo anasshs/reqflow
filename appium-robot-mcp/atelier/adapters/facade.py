@@ -396,4 +396,45 @@ def import_results_to_xray(output_xml: str = "results/mcp/output.xml",
     return suivi.import_results_to_xray(output_xml, test_execution_key, project_key, test_plan_key)
 
 
+
+# --------------------------------------------------------------------------- espaces de travail (ajouts)
+@outil
+def knowledge_graph(categorie: str = "", recherche: str = "", centre: str = "", profondeur: int = 1) -> dict:
+    """Graphe de connaissance de l'application (carte, dépôt Robot, JDD, patrimoine Xray, déclarations).
+    categorie : APPLICATION, FONCTIONNEL, TECHNIQUE, JIRA, XRAY, BDD ou AUTOMATION (vide = tout).
+    centre : identifiant d'un nœud (ex. 'ecran:virement_saisie') pour n'avoir que son voisinage."""
+    from atelier.discovery import espaces
+
+    return espaces.vue_connaissance(None, [categorie] if categorie else None, "", recherche, centre, profondeur)
+
+
+@outil
+def impact_analysis(element: str) -> dict:
+    """Analyse d'impact d'une modification (locator, keyword, resource, écran, JDD…) : tests Robot et Xray,
+    modules, plateformes concernés et TNR ciblée (include_tags pour run_robot).
+    element : identifiant de nœud, ex. 'locator:virement_saisie.bouton_valider@android', 'keyword:seconnecter'."""
+    from atelier.discovery import espaces
+
+    return espaces.impact(element)
+
+
+@outil
+def coverage_report(module: str = "") -> dict:
+    """Couverture du patrimoine Xray (instantané patrimoine/xray.json) : tests automatisés / manuels par module,
+    exigences non couvertes, redondances candidates, avec les définitions utilisées."""
+    from atelier.discovery import espaces
+
+    v = espaces.vue_couverture(module)
+    return {"indicateurs": v["indicateurs"], "instantane": v["instantane"]}
+
+
+@outil
+def automation_flow(cible: str = "") -> dict:
+    """Construction technique d'un test automatisé : scénario Xray -> test Robot -> keywords -> locators,
+    JDD -> requêtes, bibliothèques et plateformes. cible : 'test:DEMO-1' ou 'test_robot:<fichier>::<nom>'."""
+    from atelier.discovery import espaces
+
+    return espaces.vue_flux(cible)
+
+
 __all__ = [f.__name__ for f in OUTILS]

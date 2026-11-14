@@ -52,6 +52,35 @@ aucun doublon ; test avec Xray totalement indisponible → run terminé, journal
 
 ---
 
+## Espaces de travail de l'automaticien (docs/ESPACES_DE_TRAVAIL.md)
+
+Demandé le 2026-11-14, en parallèle de la roadmap par phases. Page `/plateforme` de l'interface.
+
+### MVP (§13 de la spécification)
+- [x] Navigation des 7 espaces (§12) ; entrées non livrées signalées « phase 2 » / « à venir », jamais simulées.
+- [x] Composant graphe commun (§10) : recherche, filtres type / plateforme / statut, zoom, ajuster, plein écran,
+      déplacement, sélection avec voisins, développement des dépendances, mini-carte, légende, historique,
+      export JSON / SVG, panneau de propriétés et d'actions, barre IA contextuelle. Sans bibliothèque externe.
+- [x] Application Knowledge Graph : carte + dépôt Robot + JDD + instantané Xray + résultats + déclarations ;
+      ajouter / modifier / masquer / relier / fusionner / valider, tout historisé (connaissance/).
+- [x] Xray Coverage Graph : Epic → US → Test Xray → Test Robot, filtres module et manuel / automatisé,
+      indicateurs sur définitions explicites, exigences non couvertes, redondances candidates.
+- [x] Automation Flow Graph : scénario → test Robot → keywords → locators (+ secours) → écrans, resource,
+      JDD → requêtes Oracle, bibliothèques, plateformes.
+- [x] Impact Analysis : tests, scénarios, modules, plateformes, TNR ciblée (dry run ou run).
+- [x] Pages : Dashboard, Xray Portfolio (import / synchronisation Jira), Automation Candidates (faits observables
+      seulement), Coverage Dashboard, Robot Suites, Locators, Keywords, Test Data / JDD.
+- [x] Outils MCP ajoutés : `knowledge_graph`, `impact_analysis`, `coverage_report`, `automation_flow`.
+- [ ] Synchronisation Jira à vérifier sur un vrai site (`POST /rest/api/3/search/jql`, champs, lien « Test » ; docs/XRAY_API.md).
+- [ ] Comparer deux versions (graphe par build) ; tests similaires ; lot / plan d'automatisation (avec la phase 3).
+- [ ] Modifier le code / un locator depuis le Studio avec validation et dry run ; MR GitLab (phase 7).
+
+### Deuxième phase (§13)
+- [ ] Journey Graph. - [ ] BDD Scenario Graph (synchronisé avec le .feature). - [ ] Failure Diagnosis Graph.
+- [ ] Automation Health Graph (nécessite l'historique des exécutions).
+
+---
+
 ## Phase 2 — Assertions (fiabilité des tests générés)
 
 - [ ] Modèle d'assertion : `type` ∈ {ui, api, base, historique}, `cible`, `attendu`, `source`

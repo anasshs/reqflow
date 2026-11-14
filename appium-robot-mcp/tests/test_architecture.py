@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 
@@ -58,7 +59,9 @@ def test_points_d_entree_historiques_designent_les_moteurs():
 
 def test_server_py_se_charge_dans_un_processus_neuf():
     r = subprocess.run([sys.executable, "-c", "import server, xray_client, xray_live_listener, "
-                        "cartographie_listener; print(len(server.mcp._tool_manager.list_tools()))"],
+                        "cartographie_listener, json; print(json.dumps([t.name for t in server.mcp._tool_manager.list_tools()]))"],
                        cwd=RACINE, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
-    assert r.stdout.strip() == "48"
+    noms = json.loads(r.stdout)
+    assert len(noms) == 52  # 48 outils historiques + 4 outils des espaces de travail
+    assert {"knowledge_graph", "impact_analysis", "coverage_report", "automation_flow"} <= set(noms)

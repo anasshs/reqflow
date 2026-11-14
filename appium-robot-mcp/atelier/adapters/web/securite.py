@@ -25,6 +25,7 @@ from atelier.integrations.interface_web import ENTETE_JETON, FICHIER_JETON_DEFAU
 COOKIE = "atelier_jeton"
 ROUTES_PROCESSUS = ("/api/events", "/api/externe/")
 TAILLE_MAX_DEFAUT = 2 * 1024 * 1024
+PAGES = ("/", "/plateforme")  # pages qui posent le cookie de session
 
 
 class TropGros(Exception):
@@ -131,7 +132,7 @@ class SecuriteLocale:
             nonlocal commence
             if msg["type"] == "http.response.start":
                 commence = True
-                if scope.get("path") == "/" and scope.get("method") == "GET":
+                if scope.get("path") in PAGES and scope.get("method") == "GET":
                     msg = {**msg, "headers": list(msg.get("headers", [])) + [
                         (b"set-cookie", f"{COOKIE}={self.jeton_session}; HttpOnly; SameSite=Strict; Path=/"
                          .encode())]}

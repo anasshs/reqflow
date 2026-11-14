@@ -6,7 +6,9 @@ automatiser, puis générer, exécuter et maintenir des tests Robot Framework (m
 web Browser library, API RequestsLibrary) avec une traçabilité complète dans Xray et Jira.
 
 ## Où on en est
-Phase 1 : 1.1, 1.2, 1.3 faites ; 1.4 outillée mais NON vérifiée (voir docs/XRAY_API.md). Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).
+Phase 1 : 1.1, 1.2, 1.3 faites ; 1.4 outillée mais NON vérifiée (voir docs/XRAY_API.md).
+Espaces de travail (docs/ESPACES_DE_TRAVAIL.md) : MVP livré (3 graphes + impact, page /plateforme) ;
+la deuxième phase des espaces n'est pas commencée. Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).
 Les fichiers racine `server.py`, `app_map.py`, `jdd.py`, `xray_client.py`, `web_backend.py`,
 `xray_live_listener.py`, `cartographie_listener.py` et `web/app.py` ne sont plus que des points
 d'entrée de rétrocompatibilité. Outils MCP : `atelier/adapters/facade.py` (enregistrés par

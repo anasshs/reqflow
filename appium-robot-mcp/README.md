@@ -37,6 +37,26 @@ Le code vit dans le paquet `atelier/` : moteurs (`discovery`, `generation`, `exe
 restent les points d'entrée : les configurations existantes n'ont pas à changer.
 Tests : `pytest -q` (aucun service réel appelé).
 
+## Espaces de travail (graphes) — http://127.0.0.1:8765/plateforme
+
+Spécification : `docs/ESPACES_DE_TRAVAIL.md`. MVP livré :
+
+- **Application Knowledge Graph** (Application Map, Functional / Technical Graph) : carte, dépôt Robot, JDD,
+  instantané Xray, derniers résultats, et ce que l'automaticien déclare (ajout, modification, masquage,
+  relation, fusion, validation — tout est historisé dans `connaissance/` du projet de tests).
+- **Xray Coverage Graph** : Epic → User Story → Test Xray → Test Robot, indicateurs par module calculés sur
+  des définitions affichées (un test est « automatisé » si sa clé est portée en tag par un test Robot).
+  Le patrimoine vient d'un instantané daté `patrimoine/xray.json` (Xray Portfolio : import JSON ou
+  synchronisation Jira).
+- **Automation Flow Graph** : scénario → test Robot → keywords → locators (et secours) → écrans ; JDD →
+  requêtes Oracle ; bibliothèques et plateformes.
+- **Impact Analysis** : depuis un locator, keyword, resource, écran ou JDD : tests, scénarios, modules,
+  plateformes concernés, et TNR ciblée (dry run ou run réel).
+- Assistant IA contextuel : anomalies calculées sans IA ; avec `ANTHROPIC_API_KEY`, questions sur le seul
+  graphe sélectionné. Rien n'est appliqué sans validation.
+
+Outils MCP correspondants : `knowledge_graph`, `impact_analysis`, `coverage_report`, `automation_flow`.
+
 ## Outils exposés
 
 | Domaine | Outils |

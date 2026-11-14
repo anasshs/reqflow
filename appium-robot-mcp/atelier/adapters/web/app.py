@@ -40,10 +40,11 @@ from atelier.adapters import facade as outils  # noqa: E402
 from atelier.adapters.web.agent import Agent  # noqa: E402
 from atelier.adapters.web.securite import SecuriteLocale, jeton_processus  # noqa: E402
 from atelier.discovery import carte as amap  # noqa: E402
-from atelier.discovery import carte_outils, exploration, session  # noqa: E402
-from atelier.domain import evenements, projet  # noqa: E402
+from atelier.discovery import carte_outils, espaces, exploration, session  # noqa: E402
+from atelier.domain import declarations, evenements, projet  # noqa: E402
 from atelier.execution import jdd  # noqa: E402
 from atelier.generation import locators as gen_locators  # noqa: E402
+from atelier.intelligence import patrimoine_xray  # noqa: E402
 
 outils.WEB_EVENTS_URL = ""  # dans ce processus, l'agent intégré émet lui-même ses événements
 HOOK_TYPES = {"carte_change", "exploration", "locators_change", "navigation"}
@@ -549,6 +550,12 @@ def fichiers(pattern: str = "**/*.robot"):
     return _call(outils.list_project_files, pattern)
 
 
+@app.get("/api/projet/fichier")
+def projet_fichier(chemin: str):
+    """Lecture d'un fichier du projet de tests (limitée au projet)."""
+    return {"chemin": chemin, "contenu": _call(projet.lire_fichier, chemin)[:200000]}
+
+
 @app.get("/api/jdd")
 def jdd_envs():
     return _call(outils.list_jdd)
@@ -769,6 +776,143 @@ async def carte_importer(req: Request):
 async def carte_exporter(req: Request):
     b = await req.json()
     return {"fichier": _call(outils.export_screen_resource, b["id"])}
+
+
+# --------------------------------------------------------------------------- espaces de travail (graphes)
+@app.get("/plateforme")
+def page_plateforme():
+    return FileResponse(STATIC / "plateforme.html")
+
+
+@app.get("/static/{nom}")
+def fichier_statique(nom: str):
+    if not re.fullmatch(r"[a-z_]+\.(js|css)", nom) or not (STATIC / nom).is_file():
+        raise HTTPException(404, "Fichier inconnu.")
+    return FileResponse(STATIC / nom)
+
+
+def _liste(v: str) -> list[str] | None:
+    return [x for x in v.split(",") if x] or None
+
+
+@app.get("/api/graphes/referentiel")
+def graphes_referentiel():
+    return espaces.referentiel()
+
+
+@app.get("/api/graphes/connaissance")
+async def graphe_connaissance(types: str = "", categories: str = "", plateforme: str = "", recherche: str = "",
+                              centre: str = "", profondeur: int = 1):
+    return await asyncio.to_thread(_call, espaces.vue_connaissance, _liste(types), _liste(categories), plateforme,
+                                   recherche, centre, profondeur)
+
+
+@app.get("/api/graphes/couverture")
+async def graphe_couverture(module: str = "", afficher: str = "tous", recherche: str = ""):
+    return await asyncio.to_thread(_call, espaces.vue_couverture, module, afficher, recherche)
+
+
+@app.get("/api/graphes/candidats")
+async def graphe_candidats(module: str = ""):
+    return await asyncio.to_thread(_call, espaces.candidats, module)
+
+
+@app.get("/api/graphes/flux")
+async def graphe_flux(cible: str = ""):
+    return await asyncio.to_thread(_call, espaces.vue_flux, cible)
+
+
+@app.get("/api/graphes/noeud")
+async def graphe_noeud(id: str):
+    return await asyncio.to_thread(_call, espaces.detail, id)
+
+
+@app.get("/api/graphes/impact")
+async def graphe_impact(id: str):
+    return await asyncio.to_thread(_call, espaces.impact, id)
+
+
+@app.get("/api/graphes/anomalies")
+async def graphe_anomalies(graphe: str = "connaissance", module: str = ""):
+    return await asyncio.to_thread(_call, espaces.anomalies, graphe, module)
+
+
+@app.get("/api/graphes/historique")
+def graphe_historique(id: str = ""):
+    return _call(declarations.historique, id)
+
+
+@app.post("/api/graphes/noeuds")
+async def graphe_ajout_noeud(req: Request):
+    b = await req.json()
+    return _call(espaces.ajouter_noeud, b["id"], b["type"], b["libelle"], b.get("description", ""),
+                 b.get("plateformes"))
+
+
+@app.post("/api/graphes/noeuds/modifier")
+async def graphe_modif_noeud(req: Request):
+    b = await req.json()
+    champs = {k: b[k] for k in ("libelle", "description", "statut", "plateformes") if k in b}
+    return _call(espaces.modifier_noeud, b["id"], **champs)
+
+
+@app.post("/api/graphes/noeuds/supprimer")
+async def graphe_supp_noeud(req: Request):
+    b = await req.json()
+    _call(espaces.supprimer_noeud, b["id"])
+    return {"ok": True}
+
+
+@app.post("/api/graphes/relations")
+async def graphe_ajout_relation(req: Request):
+    b = await req.json()
+    return _call(espaces.ajouter_relation, b["de"], b["vers"], b["type"])
+
+
+@app.post("/api/graphes/relations/supprimer")
+async def graphe_supp_relation(req: Request):
+    b = await req.json()
+    _call(espaces.supprimer_relation, b["id"])
+    return {"ok": True}
+
+
+@app.post("/api/graphes/valider")
+async def graphe_valider(req: Request):
+    b = await req.json()
+    _call(espaces.valider, b["id"])
+    return {"ok": True}
+
+
+@app.post("/api/graphes/fusionner")
+async def graphe_fusionner(req: Request):
+    b = await req.json()
+    _call(espaces.fusionner, b["source"], b["cible"])
+    return {"ok": True}
+
+
+@app.post("/api/graphes/ia")
+async def graphe_ia(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, espaces.demander_ia, b.get("graphe", "connaissance"),
+                                   b.get("intention", "expliquer"), b.get("selection", ""), b.get("question", ""),
+                                   b.get("cible", ""), b.get("module", ""))
+
+
+@app.get("/api/patrimoine")
+def patrimoine_etat():
+    return patrimoine_xray.etat()
+
+
+@app.post("/api/patrimoine/importer")
+async def patrimoine_importer(req: Request):
+    b = await req.json()
+    return _call(patrimoine_xray.enregistrer, b, "import manuel (interface)")
+
+
+@app.post("/api/patrimoine/synchroniser")
+async def patrimoine_synchroniser(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, patrimoine_xray.synchroniser_jira, b["projet"], b.get("jql", ""))
 
 
 # --------------------------------------------------------------------------- runs
