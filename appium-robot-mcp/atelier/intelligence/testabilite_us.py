@@ -32,7 +32,9 @@ from atelier.domain import projet
 STATUTS = ["Détectée", "Analysée", "Questions envoyées", "Réponses reçues", "Cas proposés", "Couverte",
            "Couverte (existant)", "Non testable"]
 TYPES_TEST = ("Manual", "Cucumber")
-PORTEES = {"sprint": "sprint actif", "sprint_et_suivant": "sprint actif + sprint suivant", "statuts": "statuts (sans sprint)"}
+PORTEES = {"sprint": "sprint actif", "sprint_suivant": "prochain sprint uniquement", "sprint_et_suivant": "sprint actif + prochain sprint",
+           "backlog": "backlog entier (US non terminées, avec ou sans sprint)", "hors_sprint": "backlog hors sprint (non planifié)",
+           "statuts": "statuts (sans sprint)"}
 MARQUEUR = "[Atelier QA] Questions de testabilité"
 
 # --------------------------------------------------------------------------- règles d'analyse (explicables)
@@ -205,24 +207,49 @@ def details_projet_jira(cle: str, jira=None) -> dict:
     return out
 
 
-def _cibles(e: dict, jira, sprint: str = "") -> list[tuple[str, dict | None]]:
-    """Requêtes de détection d'un espace : une par sprint visé (avec le sprint), ou par statuts."""
-    if e.get("portee", "sprint") == "statuts" and not sprint:
-        return [(jql_espace(e), None)]
+def _prochain(l: list[dict]) -> dict | None:
+    """Prochain sprint : sprint futur qui commence le plus tôt (sinon le plus ancien créé)."""
+    futurs = [s for s in l if s["etat"] == "future"]
+    return min(futurs, key=lambda s: (s.get("debut") or "9999", s["id"])) if futurs else None
+
+
+def _jql_backlog(e: dict, hors_sprint: bool) -> str:
+    """Backlog : US non terminées de l'espace (types de la politique) ; hors sprint = non planifiées."""
+    base = jql_espace({**e, "statuts": [], "jql_complement": e.get("jql_complement", "")}).replace(" ORDER BY created DESC", "")
+    return base + (" AND sprint is EMPTY" if hors_sprint else "") + " ORDER BY created DESC"
+
+
+def _cibles(e: dict, jira, sprint: str = "", portee: str = "", messages: list | None = None) -> list[tuple[str, dict | None]]:
+    """Requêtes de détection d'un espace. portee (filtre de détection) prime sur la portée de la politique :
+    sprint (actif), sprint_suivant (prochain uniquement), sprint_et_suivant, backlog (entier), hors_sprint, statuts."""
+    messages = messages if messages is not None else []
+    portee = portee if portee in PORTEES else e.get("portee", "sprint")
+    if not sprint:
+        if portee == "statuts":
+            return [(jql_espace(e), None)]
+        if portee in ("backlog", "hors_sprint"):
+            return [(_jql_backlog(e, portee == "hors_sprint"), None)]
     sp = sprints(e["projet_jira"], jira).get(e["projet_jira"], {})
     l = sp.get("sprints") or []
     if sprint:
         choisis = [s for s in l if str(s["id"]) == str(sprint)] or [{"id": int(sprint), "nom": f"sprint {sprint}", "etat": ""}]
     else:
-        actifs = [s for s in l if s["etat"] == "active"]
-        suivants = [s for s in l if s["etat"] == "future"][:1] if e.get("portee") == "sprint_et_suivant" else []
-        choisis = actifs + suivants
+        actifs = [s for s in l if s["etat"] == "active"] if portee in ("sprint", "sprint_et_suivant") else []
+        prochain = _prochain(l) if portee in ("sprint_suivant", "sprint_et_suivant") else None
+        choisis = actifs + ([prochain] if prochain else [])
+        if portee in ("sprint_suivant", "sprint_et_suivant") and not prochain and not sp.get("erreur"):
+            messages.append(f"{e['projet_jira']} : aucun prochain sprint créé dans Jira.")
+        if portee in ("sprint", "sprint_et_suivant") and not actifs and not sp.get("erreur"):
+            messages.append(f"{e['projet_jira']} : aucun sprint actif.")
     if not choisis:
-        return [(jql_espace(e, "openSprints()"), None)] if sp.get("erreur") else []
+        if sp.get("erreur"):
+            messages.append(f"{e['projet_jira']} : sprints non lus (API agile), repli JQL.")
+            return [(jql_espace(e, "futureSprints()" if portee == "sprint_suivant" else "openSprints()"), None)]
+        return []
     return [(jql_espace(e, s["id"]), s) for s in choisis]
 
 
-def detecter(jira=None, limite: int = 500, sprint: str = "") -> dict:
+def detecter(jira=None, limite: int = 500, sprint: str = "", portee: str = "") -> dict:
     """Lecture seule dans Jira : backlog du (des) sprint(s) visé(s) de chaque espace actif (ou US par statuts), avec
     description, critères et tests déjà liés. Une US sortie d'un sprint perd l'étiquette de ce sprint (tracé)."""
     from atelier.integrations.jira import JiraClient, adf_vers_texte
@@ -233,10 +260,11 @@ def detecter(jira=None, limite: int = 500, sprint: str = "") -> dict:
     champ_crit = os.environ.get("JIRA_CHAMP_CRITERES", "").strip()
     champs = ["summary", "description", "status", "issuelinks", "issuetype", "assignee", "updated"] + ([champ_crit] if champ_crit else [])
     d = _us()
-    bilan = {"espaces": 0, "us": 0, "nouvelles": 0, "deja_couvertes": 0, "sprints": [], "retirees": 0}
+    bilan = {"espaces": 0, "us": 0, "nouvelles": 0, "deja_couvertes": 0, "sprints": [], "retirees": 0, "messages": [],
+             "portee": PORTEES.get(portee, "selon la politique de chaque espace")}
     for e in [x for x in espaces() if x.get("actif")]:
         bilan["espaces"] += 1
-        for jql, sp in _cibles(e, jira, sprint):
+        for jql, sp in _cibles(e, jira, sprint, portee, bilan["messages"]):
             if sp:
                 bilan["sprints"].append(f"{e['projet_jira']} · {sp['nom']}")
             trouvees = set()
@@ -252,6 +280,8 @@ def detecter(jira=None, limite: int = 500, sprint: str = "") -> dict:
                         bilan["retirees"] += 1
     _sauver_us(d)
     _journaliser("detection", **{k: (", ".join(v) if isinstance(v, list) else v) for k, v in bilan.items()})
+    if not bilan["us"] and not bilan["messages"]:
+        bilan["messages"].append("Aucune US trouvée pour cette portée.")
     return {**bilan, "file": file(sprint=sprint)}
 
 

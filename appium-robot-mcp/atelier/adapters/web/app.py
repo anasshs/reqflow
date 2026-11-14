@@ -1061,7 +1061,7 @@ async def testabilite_detecter(req: Request):
     from atelier.intelligence import testabilite_us
 
     b = await req.json() if (await req.body()) else {}
-    return await asyncio.to_thread(_call, testabilite_us.detecter, None, 500, str(b.get("sprint") or ""))
+    return await asyncio.to_thread(_call, testabilite_us.detecter, None, 500, str(b.get("sprint") or ""), str(b.get("portee") or ""))
 
 
 @app.post("/api/testabilite/reponses")

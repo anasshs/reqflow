@@ -135,7 +135,7 @@
   const ST_US = {"Détectée": "", "Analysée": "info", "Questions envoyées": "warn", "Réponses reçues": "violet", "Cas proposés": "info",
     "Couverte": "ok", "Couverte (existant)": "ok", "Non testable": "ko"};
   const GRAV = {haute: "ko", moyenne: "warn", basse: ""};
-  let SPRINT = "", SPRINTS = null;  // sprint choisi ("" = toutes les US suivies) ; sprints lus dans Jira (une fois)
+  let SPRINT = "", SPRINTS = null, PORTEE = "";  // sprint choisi ("" = toutes les US suivies) ; sprints lus dans Jira (une fois)
   async function us(z) {
     if (SPRINTS === null) SPRINTS = await api("/api/testabilite/sprints").catch(() => ({}));
     const options = Object.entries(SPRINTS).flatMap(([esp, v]) => (v.sprints || []).map(s => ({esp, ...s})));
@@ -146,9 +146,11 @@
     const ind = cfg.indicateurs;
     const ETAT = {active: "actif", future: "à venir", closed: "fermé"};
     z.innerHTML = `${entete("US à couvrir", `<button class="btn" id="us-cfg">Politique (espaces Jira)</button><button class="btn" id="us-rep">Relever les réponses</button>
-        <button class="btn primaire" id="us-det">${ico("rejouer")}Détecter ${idSel ? "le backlog du sprint" : "les US"}</button>`)}<div class="corps-carte">
+        <button class="btn primaire" id="us-det">${ico("rejouer")}Détecter</button>`)}<div class="corps-carte">
       <div class="btns" style="margin-bottom:8px"><label class="lib" for="us-sp">Sprint</label><select class="in" id="us-sp" style="width:auto">
         <option value="">Toutes les US suivies</option>${options.map(s => `<option value="${esc(s.esp)}|${s.id}" ${SPRINT === `${s.esp}|${s.id}` ? "selected" : ""}>${esc(s.esp)} · ${esc(s.nom)} (${ETAT[s.etat] || s.etat})</option>`).join("")}</select>
+        <label class="lib" for="us-po" style="margin-left:12px">Détecter</label><select class="in" id="us-po" style="width:auto" title="Portée de la détection (sinon : politique de chaque espace)">
+          <option value="">selon la politique</option>${Object.entries(cfg.portees).map(([k, v]) => `<option value="${k}" ${PORTEE === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
         ${idSel ? `<button class="btn" id="us-fig">Figer le périmètre du sprint</button><button class="btn" id="us-bil">Bilan du sprint</button>` : ""}
         ${Object.entries(SPRINTS).filter(([, v]) => v.erreur).map(([e, v]) => `<span class="pill warn" title="${esc(v.erreur)}">${esc(e)} : sprints non lus (API agile)</span>`).join("")}</div>
       <p class="lib">Chaque US d'un espace activé doit être comprise, clarifiée puis couverte par au moins un test Xray. Rien n'est écrit dans Jira ni Xray
@@ -164,8 +166,15 @@
             <td class="mono">${esc((x.tests_lies || []).join(", ") || "—")}</td></tr>`).join("")}</table>`
         : vide("Aucune US détectée", "« Détecter les US » interroge Jira (lecture seule).")}</div>`;
     $("#us-cfg").onclick = () => politiqueUS(cfg);
-    $("#us-det").onclick = async () => { try { const r = await api("/api/testabilite/detecter", {method: "POST", body: {sprint: idSel}});
-      toast(`${r.us} US (${r.nouvelles} nouvelles${r.retirees ? `, ${r.retirees} retirée(s) du sprint` : ""})${r.sprints.length ? " · " + r.sprints.join(", ") : ""}.`, "ok"); us(z); } catch (e) { toast(e.message, "ko"); } };
+    $("#us-po").onchange = e => { PORTEE = e.target.value; };
+    $("#us-det").onclick = async () => {
+      // une portée choisie prime sur le sprint sélectionné (ex. « prochain sprint uniquement »)
+      try { const r = await api("/api/testabilite/detecter", {method: "POST", body: PORTEE ? {portee: PORTEE} : {sprint: idSel}});
+        toast(`${r.us} US (${r.nouvelles} nouvelles${r.retirees ? `, ${r.retirees} retirée(s) du sprint` : ""}) · ${r.portee}${r.sprints.length ? " · " + r.sprints.join(", ") : ""}`
+          + (r.messages.length ? ` — ${r.messages.join(" ")}` : ""), r.messages.length && !r.us ? "ko" : "ok");
+        if (PORTEE && PORTEE !== "sprint" && PORTEE !== "sprint_et_suivant") SPRINT = "-";  // afficher ce qui vient d'être détecté
+        if (PORTEE === "sprint_suivant") { const p = options.filter(s => s.etat === "future"); if (p.length === 1) SPRINT = `${p[0].esp}|${p[0].id}`; }
+        us(z); } catch (e) { toast(e.message, "ko"); } };
     $("#us-sp").onchange = e => { SPRINT = e.target.value || "-"; us(z); };
     if ($("#us-fig")) $("#us-fig").onclick = async () => {
       if (!confirm("Figer le périmètre du sprint (photo immuable du backlog, base du bilan de fin de sprint) ?")) return;

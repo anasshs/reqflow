@@ -220,3 +220,30 @@ def test_lien_tested_by_vers_un_non_test_ne_couvre_pas(t):
     t.detecter(jira=j)
     d = t.detail("SQ1-10")
     assert d["statut"] == "Détectée" and d["tests_lies"] == [] and len(d["liens_ignores"]) == 3
+
+
+
+def test_portees_prochain_sprint_et_backlog(t):
+    j = FauxJiraAgile()
+    t.enregistrer_espace({"projet_jira": "SQ1", "projet_xray": "TAM"})
+    r = t.detecter(jira=j, portee="sprint_suivant")
+    assert "sprint = 13" in j.jql and r["sprints"] == ["SQ1 · Sprint 13"]  # le prochain seul, sans le sprint actif
+    assert {u["cle"] for u in t.file(sprint="13")} == {"SQ1-11"} and t.file(sprint="12") == []
+
+    class SansProchain(FauxJiraAgile):
+        def sprints(self, tableau, etats=""):
+            return [s for s in super().sprints(tableau) if s["etat"] != "future"]
+
+    r = t.detecter(jira=SansProchain(), portee="sprint_suivant")
+    assert r["us"] == 0 and "aucun prochain sprint" in r["messages"][0]
+
+    class Backlog(FauxJiraAgile):
+        def rechercher(self, jql, champs, limite):
+            self.jql = jql
+            return self.us
+
+    b = Backlog()
+    t.detecter(jira=b, portee="backlog")
+    assert "statusCategory != Done" in b.jql and "sprint" not in b.jql
+    t.detecter(jira=b, portee="hors_sprint")
+    assert "sprint is EMPTY" in b.jql
