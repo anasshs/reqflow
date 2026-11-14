@@ -102,13 +102,80 @@ def detail_test(run_id: str, test_id: str) -> dict:
                 captures.append(src)
             logs.append({"heure": str(m.timestamp or ""), "niveau": m.level, "keyword": kw.name,
                          "message": re.sub(r"<[^>]+>", "", txt)[:800]})
-        return {"nom": kw.name, "args": [str(a) for a in getattr(kw, "args", ())][:6], "statut": kw.status,
+        return {"nom": kw.name, "bibliotheque": str(getattr(kw, "owner", "") or ""), "args": [str(a) for a in getattr(kw, "args", ())][:6], "statut": kw.status,
                 "debut": str(kw.start_time or ""), "duree_s": round(kw.elapsed_time.total_seconds(), 2),
                 "message": getattr(kw, "message", "")[:500],
                 "sous_etapes": [etape(x, niveau + 1) for x in enfants] if niveau < 2 else []}
     etapes = [etape(k) for k in test.body if getattr(k, "type", "") in ("KEYWORD", "SETUP", "TEARDOWN")]
     fautive = next((i for i, e in enumerate(etapes) if e["statut"] == "FAIL"), None)
     captures = [c for c in dict.fromkeys(captures) if (d / c).exists()]
+    try:
+        fichier = str(Path(str(test.source)).resolve().relative_to(projet.PROJECT_DIR))
+    except (ValueError, TypeError):
+        fichier = str(test.source or "")
+    plateforme = ((data.get("params") or {}).get("variables") or {}).get("PLATFORM", "")
+    references = _references_carte(plateforme)
+    definitions = _definitions_keywords()
+    for e in etapes:
+        _enrichir(e, references, definitions)
     return {"id": test.id, "nom": test.name, "statut": test.status, "message": test.message, "tags": list(test.tags),
+            "fichier": fichier, "ligne": test.lineno, "plateforme": plateforme,
+            "donnees": ((data.get("bilan") or {}).get("jdd") or {}).get("valeurs") or {},
             "etapes": etapes, "etape_en_echec": fautive, "logs": logs[-300:], "captures": captures,
             "dossier": str(d.relative_to(projet.PROJECT_DIR))}
+
+
+LOCATOR = re.compile(r"^(id|accessibility_id|xpath|android|nsp|chain|class|name|css|data-testid|text|role)=|^//")
+STRATEGIES = {"id": "id (resource-id)", "accessibility_id": "accessibility id", "xpath": "xpath", "//": "xpath",
+              "android": "android uiautomator", "nsp": "iOS predicate", "chain": "iOS class chain", "class": "class name",
+              "name": "name", "css": "css (Playwright)", "data-testid": "data-testid (Playwright)", "text": "texte (Playwright)",
+              "role": "rôle ARIA (Playwright)"}
+
+
+def _references_carte(plateforme: str) -> dict:
+    """{valeur de locator: écran de la carte qui le contient (nom, vignette de la plateforme)}."""
+    from atelier.discovery import carte
+
+    out: dict = {}
+    try:
+        if not carte.app_courante():
+            return out
+        for ec in carte.ecrans():
+            for el in (ec.get("elements") or {}).values():
+                for plat, locs in (el.get("locators") or {}).items():
+                    if plateforme and plat != plateforme:
+                        continue
+                    vignette = ((ec.get("plateformes") or {}).get(plat) or {}).get("vignette")
+                    for loc in locs or []:
+                        out.setdefault(loc, {"ecran": ec.get("nom") or ec["id"], "id": ec["id"], "plateforme": plat,
+                                             "vignette": vignette})
+    except Exception:
+        pass
+    return out
+
+
+def _definitions_keywords() -> dict:
+    try:
+        from atelier.execution import depot_robot
+
+        inv = depot_robot.lire_depot()
+        return {k: {"fichier": v["fichier"], "ligne": v["ligne"]} for k, v in inv["keywords"].items()}
+    except Exception:
+        return {}
+
+
+def _enrichir(e: dict, references: dict, definitions: dict):
+    """Locator utilisé (dans l'étape ou ses sous-étapes), stratégie, écran de référence, définition du keyword."""
+    from atelier.execution.depot_robot import normaliser
+
+    def locators(x):
+        yield from (a for a in x["args"] if LOCATOR.match(a))
+        for s in x["sous_etapes"]:
+            yield from locators(s)
+    loc = next(locators(e), "")
+    e["locator"] = loc
+    prefixe = "//" if loc.startswith("//") else loc.split("=", 1)[0] if loc else ""
+    e["type_locator"] = prefixe.replace("//", "xpath") if loc else ""
+    e["strategie"] = STRATEGIES.get(prefixe, "") if loc else ""
+    e["ecran_reference"] = references.get(loc)
+    e["definition"] = definitions.get(normaliser(e["nom"]))

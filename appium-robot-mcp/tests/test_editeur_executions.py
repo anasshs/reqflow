@@ -164,3 +164,32 @@ def test_parcours_bdd(client, depot):
     assert [x["cle"] for x in client.get("/api/bdd").json()] == ["DEMO-9"]
     ia = client.post("/api/bdd/DEMO-9/ia", json={}).json()
     assert ia["disponible"] is False and "controles" in ia
+
+
+def test_etape_enrichie_avec_ecran_de_reference(client, depot):
+    import server
+    from atelier.discovery import carte
+    from conftest import lire_fixture
+
+    carte.creer_app("Banque Démo", ["android"])
+    obs = carte.observer(server._parse_elements(lire_fixture("hierarchies", "android_classique.xml"), "android"), "android")
+    carte.renommer(obs["id"], "virement_saisie")
+    (depot / "tests" / "ref.robot").write_text(
+        "*** Test Cases ***\nValider\n    [Tags]    DEMO-1\n    Should Be Equal    id=com.exemple.banque:id/valider    autre\n", "utf-8")
+    run_id = client.post("/api/run", json={"target": "tests/ref.robot", "variables": {"PLATFORM": "android"}}).json()["run_id"]
+    _attendre_fin(client)
+    tid = client.get(f"/api/executions/{run_id}").json()["tests"][0]["id"]
+    t = client.get(f"/api/executions/{run_id}/test", params={"id": tid}).json()
+    e = t["etapes"][0]
+    assert e["locator"] == "id=com.exemple.banque:id/valider" and e["type_locator"] == "id"
+    assert e["strategie"] == "id (resource-id)" and e["bibliotheque"] == "BuiltIn"
+    assert e["ecran_reference"]["ecran"] == "virement_saisie" and e["ecran_reference"]["plateforme"] == "android"
+    assert t["fichier"] == "tests/ref.robot" and t["ligne"] == 2 and t["plateforme"] == "android"
+
+
+def test_suites_capture_et_utilisateur(client, depot):
+    suites = client.get("/api/depot/suites").json()
+    assert {s["fichier"] for s in suites} == {"tests/connexion.robot", "tests/virement.robot"}
+    assert next(s for s in suites if s["fichier"] == "tests/virement.robot")["tests"] == 2
+    assert client.post("/api/resultats/capturer", json={}).status_code == 400   # aucun device ni navigateur
+    assert "utilisateur" in client.get("/api/contexte").json()

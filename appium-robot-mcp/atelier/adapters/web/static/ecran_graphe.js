@@ -1,8 +1,8 @@
 /* Knowledge Graph : Application Knowledge Graph, Coverage Graph, Automation Flow Graph, Impact Analysis. */
 "use strict";
 (() => {
-  const VUES = [["connaissance", "Graphe de connaissances"], ["couverture", "Couverture Xray"], ["flux", "Flux d'automatisation"],
-    ["impact", "Analyse d'impact"]];
+  const VUES = [["connaissance", "Graphe de connaissances"], ["parcours", "Parcours utilisateur"], ["bdd", "Construction BDD"],
+    ["couverture", "Couverture"], ["flux", "Flux"], ["impact", "Impact"]];
   const RANGS = {
     couverture: {module: 0, epic: 1, user_story: 2, bug: 2, test_plan: 3, test: 4, test_execution: 5, test_robot: 5},
     flux: {test: 0, suite: 1, test_robot: 2, jdd: 3, keyword: 3, requete: 4, resource: 4, locator: 5, ecran: 6, bibliotheque: 6, plateforme: 7},
@@ -16,6 +16,7 @@
   const E = {
     afficher(zone, sous) {
       S = {vue: "connaissance", params: {}, data: null, selection: null, categoriesMasquees: new Set(), statut: ""};
+      if (sous === "bdd") { location.hash = "bdd"; return; }
       if (VUES.some(v => v[0] === sous)) S.vue = sous;
       zone.className = "g-kg";
       zone.innerHTML = `
@@ -38,16 +39,21 @@
           <section class="carte" style="flex:1"><h2 class="titre-carte" id="kg-titre-detail">Détail</h2><div class="corps-carte" id="kg-detail"></div></section>
         </div>
         <div class="actions-graphe">
-          <button class="btn" id="kg-a-noeud">${ico("plus")}Ajouter nœud</button>
-          <button class="btn" id="kg-a-relier">${ico("lien")}Relier</button>
-          <button class="btn" id="kg-a-dev">${ico("graphe")}Explorer les dépendances</button>
-          <button class="btn" id="kg-a-impact">${ico("impact")}Analyse d'impact</button>
-          <button class="btn" id="kg-a-couv">${ico("assertion")}Vérifier la couverture</button>
-          <button class="btn" id="kg-a-histo">${ico("historique")}Historique</button>
+          <button class="btn outil" id="kg-a-noeud">${ico("plus")}Ajouter nœud</button>
+          <button class="btn outil" id="kg-a-relier">${ico("lien")}Relier</button>
+          <button class="btn outil" id="kg-a-etape">${ico("bdd")}Générer étape</button>
+          <button class="btn outil" id="kg-a-dev">${ico("graphe")}Explorer les dépendances</button>
+          <button class="btn outil" id="kg-a-ia">${ico("ia")}Analyser avec IA</button>
+          <button class="btn outil" id="kg-a-couv">${ico("assertion")}Vérifier la couverture</button>
+          <button class="btn outil" id="kg-a-impact">${ico("impact")}Analyse d'impact</button>
+          <button class="btn outil" id="kg-a-robot">${ico("editeur")}Générer Robot</button>
+          <button class="btn outil" id="kg-a-histo">${ico("historique")}Historique</button>
           <span style="flex:1"></span>
-          <input class="in" id="kg-question" style="width:min(380px,34vw)" placeholder="Question à l'assistant sur ce graphe…" aria-label="Question à l'assistant">
-          <button class="btn violet" id="kg-a-ia">${ico("ia")}Analyser avec l'IA</button>
-          <button class="btn" id="kg-a-anom">${ico("cloche")}Anomalies</button>
+          <button class="btn primaire" id="kg-a-valider">${ico("check")}Valider le scénario</button>
+        </div>
+        <div class="bas-kg">
+          <section class="carte"><h2 class="titre-carte">Scénario généré (BDD)<span class="actions-titre" id="kg-bdd-actions"></span></h2><div class="corps-carte" id="kg-bdd"></div></section>
+          <section class="carte"><h2 class="titre-carte">Assistant IA<span class="actions-titre"><input class="in" id="kg-question" style="width:190px" placeholder="Question sur le graphe…" aria-label="Question à l'assistant"></span></h2><div class="corps-carte" id="kg-assistant"></div></section>
         </div>`;
       G = null;
       $$(".sous-onglets [data-vue]", zone).forEach(b => b.onclick = () => { location.hash = "graphe/" + b.dataset.vue; });
@@ -67,10 +73,22 @@
       $("#kg-a-histo").onclick = historique;
       $("#kg-a-ia").onclick = () => demanderIA($("#kg-question").value.trim() ? "expliquer" : (S.selection ? "resumer" : "expliquer"));
       $("#kg-question").onkeydown = e => { if (e.key === "Enter") demanderIA("expliquer"); };
-      $("#kg-a-anom").onclick = anomalies;
+      $("#kg-a-etape").onclick = () => { location.hash = "bdd" + (S.bdd ? "/" + encodeURIComponent(S.bdd.scenario.cle) : ""); };
+      $("#kg-a-robot").onclick = () => { if (S.bdd) location.hash = "bdd/" + encodeURIComponent(S.bdd.scenario.cle); else toast("Aucun scénario BDD : le créer depuis Construction BDD."); };
+      $("#kg-a-valider").onclick = validerScenario;
+      bandeScenario();
+      assistant();
       desabo = [Atelier.on("carte_change", () => charger(true)), Atelier.on("theme", () => G?.rafraichirTheme())];
       options();
-      charger().then(() => { if (sous === "anomalies") anomalies(); });
+      const demarrage = async () => {
+        if (S.vue === "connaissance" && !sous) {  // comme la maquette : centré sur le test du scénario BDD en cours
+          const l = await api("/api/bdd").catch(() => []);
+          if (l.length) { S.params.centre = "test:" + l[0].cle; S.params.profondeur = 2; S.auto = true; }
+        }
+        await charger();
+        if (sous === "anomalies") anomalies();
+      };
+      demarrage();
     },
     quitter() { desabo.forEach(f => f()); desabo = []; },
   };
@@ -79,7 +97,7 @@
   /* ------------------------------------------------------------------ options par vue */
   function options() {
     const o = $("#kg-options");
-    if (S.vue === "connaissance" || S.vue === "impact") {
+    if (S.vue === "connaissance" || S.vue === "impact" || S.vue === "parcours") {
       o.innerHTML = `<button class="btn" id="kg-tout" title="Revenir au graphe complet">Tout le graphe</button>`;
       $("#kg-tout").onclick = () => { delete S.params.centre; charger(); };
     } else if (S.vue === "couverture") {
@@ -96,10 +114,14 @@
   /* ------------------------------------------------------------------ chargement */
   async function charger(garder = false) {
     const url = {connaissance: "/api/graphes/connaissance", impact: "/api/graphes/connaissance", couverture: "/api/graphes/couverture",
-      flux: "/api/graphes/flux"}[S.vue];
+      flux: "/api/graphes/flux", parcours: "/api/graphes/connaissance"}[S.vue];
     const q = new URLSearchParams(Object.entries(S.params).filter(([, v]) => v));
+    if (S.vue === "parcours" && !S.params.centre) q.set("types", "application,module,ecran");
     try { S.data = await api(url + "?" + q); }
-    catch (e) { $("#kg-detail").innerHTML = vide("Erreur", esc(e.message)); return; }
+    catch (e) {
+      if (S.params.centre && S.auto) { delete S.params.centre; S.auto = false; return charger(garder); }  // centre automatique absent du graphe
+      $("#kg-detail").innerHTML = vide("Erreur", esc(e.message)); return;
+    }
     if (S.vue === "couverture") {
       const sel = $("#kg-module");
       if (sel && sel.options.length === 1) for (const m of S.data.modules || []) sel.add(new Option(m, m));
@@ -126,7 +148,6 @@
     }
     const mode = S.vue === "couverture" || S.vue === "flux" ? "couches" : (S.params.centre ? "grappes" : "forces");
     G.afficher(data, mode, RANGS[S.vue], S.params.centre);
-    if (S.params.centre) G.selectionner(S.params.centre, false);
     if (!data.noeuds.length) {
       $("#kg-zone").insertAdjacentHTML("beforeend", `<div class="vide" style="position:absolute;inset:30% 10% auto">${S.vue === "couverture"
         ? "<b>Aucun instantané Xray</b>Importer ou synchroniser le patrimoine depuis Rapports › Patrimoine Xray."
@@ -148,7 +169,7 @@
   }
 
   function developper(id) {
-    if (S.vue !== "connaissance" && S.vue !== "impact") { S.vue = "connaissance"; history.replaceState(null, "", "#graphe/connaissance");
+    if (!["connaissance", "impact", "parcours"].includes(S.vue)) { S.vue = "connaissance"; history.replaceState(null, "", "#graphe/connaissance");
       $$(".sous-onglets [data-vue]").forEach(b => b.setAttribute("aria-selected", b.dataset.vue === "connaissance")); options(); }
     S.params.centre = id;
     S.params.profondeur = 1;
@@ -191,6 +212,7 @@
 
   async function selectionner(id) {
     S.selection = id;
+    if (id.startsWith("test:")) bandeScenario(id.slice(5));
     let d;
     try { d = await api("/api/graphes/noeud?id=" + encodeURIComponent(id)); } catch (e) { return detail("Erreur", esc(e.message)); }
     const n = d.noeud, p = n.proprietes || {};
@@ -332,6 +354,48 @@
     detail("Historique", h.length ? `<ul class="liste">${h.map(x => `<li><span class="mono lib">${esc(x.date.slice(0, 16).replace("T", " "))}</span>
       <span class="item">${esc(x.op.replace(/_/g, " "))} <button class="lien" data-sel="${esc((x.cible || "").split("|")[0])}">${esc(x.cible)}</button></span><span class="lib">${esc(x.auteur)}</span></li>`).join("")}</ul>`
       : "<p class='lib'>Aucune modification.</p>");
+  }
+
+  /* ------------------------------------------------------------------ bande « scénario généré » et assistant */
+  async function bandeScenario(cle) {
+    const z = $("#kg-bdd");
+    if (!z) return;
+    let v = null;
+    if (cle) v = await api("/api/bdd/" + encodeURIComponent(cle)).catch(() => null);
+    if (!v) { const l = await api("/api/bdd").catch(() => []); if (l.length) v = await api("/api/bdd/" + encodeURIComponent((cle && l.find(x => x.cle === cle)?.cle) || l[0].cle)).catch(() => null); }
+    S.bdd = v;
+    if (!v) { z.innerHTML = vide("Aucun scénario BDD", "Construction BDD › Nouveau scénario, à partir d'un test Xray."); $("#kg-bdd-actions").innerHTML = ""; return; }
+    const m = v.scenario, p = m.scenarios.find(x => x.type === "principal") || m.scenarios[0];
+    const mot = e => e.mot || {given: "Given", when: "When", then: "Then", and: "And", but: "But"}[e.type];
+    const puce = e => `<div class="puce-etape"><span class="mot ${e.type}">${esc(mot(e))}</span><div class="carte-etape">${esc(e.texte)}</div></div>`;
+    const br = m.scenarios.filter(x => x !== p);
+    $("#kg-bdd-actions").innerHTML = `<span class="pill ${m.statut === "validé" ? "ok" : "warn"}">${esc(m.statut)}</span><a class="btn" href="#bdd/${encodeURIComponent(m.cle)}">${esc(m.cle)} ${ico("ext")}</a>`;
+    z.innerHTML = `<div class="bande-bdd">${p.etapes.map(puce).join(`<span class="fleche">${ico("fleche")}</span>`)}</div>
+      ${br.map(b => { const textesP = p.etapes.map(e => e.texte); const propres = b.etapes.filter((e, i) => textesP[i] !== e.texte);
+        return `<div class="bande-bdd"><span class="pill ${b.type === "negatif" ? "ko" : "violet"}">${b.type === "negatif" ? "Branche négative" : "Branche"}</span>${propres.map(puce).join(`<span class="fleche">${ico("fleche")}</span>`)}</div>`; }).join("")}
+      <p class="lib" style="margin:4px 0 0">${ico("check")} ${v.statistiques.etapes_validees}/${v.statistiques.etapes_total} étapes validées · bdd/${esc(m.cle)}.feature</p>`;
+  }
+
+  async function assistant() {
+    const z = $("#kg-assistant");
+    if (!z) return;
+    const a = await api("/api/graphes/anomalies").catch(() => []);
+    const cnt = g => a.filter(x => x.gravite === g).length;
+    const lignes = [
+      [cnt("haute") ? "ko" : "ok", cnt("haute") ? "x" : "check", cnt("haute") ? `${cnt("haute")} anomalie(s) haute(s) à traiter` : "Aucune anomalie haute"],
+      [cnt("moyenne") ? "warn" : "ok", cnt("moyenne") ? "aide" : "check", `${cnt("moyenne")} point(s) moyen(s) (traçabilité, couverture)`],
+      ["violet", "ia", `${cnt("info")} proposition(s) IA à valider`],
+      ...a.filter(x => x.gravite === "haute").slice(0, 2).map(x => ["ko", "x", x.message]),
+    ];
+    z.innerHTML = `<ul class="liste checklist">${lignes.map(([c, i, t]) => `<li><span class="${c}-t" style="color:var(--${c === "violet" ? "violet-ink" : c})">${ico(i)}</span><span class="item">${esc(t)}</span></li>`).join("")}</ul>
+      <button class="btn contour" id="kg-toutes" style="width:100%;justify-content:center;margin-top:6px">Voir toutes les recommandations</button>`;
+    $("#kg-toutes").onclick = anomalies;
+  }
+
+  async function validerScenario() {
+    if (!S.bdd) return toast("Aucun scénario BDD à valider.", "ko");
+    try { S.bdd = await api(`/api/bdd/${encodeURIComponent(S.bdd.scenario.cle)}/operation`, {method: "POST", body: {op: "valider"}}); toast("Scénario validé.", "ok"); bandeScenario(S.bdd.scenario.cle); }
+    catch (e) { toast(e.message, "ko"); }
   }
 
   async function demanderIA(intention) {

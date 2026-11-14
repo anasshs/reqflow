@@ -18,6 +18,11 @@ const el = (tag, attrs = {}, parent) => {
   if (parent) parent.appendChild(e);
   return e;
 };
+const ICONE_TYPE = {ecran: "ecran", module: "dossier", fonctionnalite: "condition", parcours: "branche", action: "play", regle: "bouclier",
+  role: "graphe", epic: "bdd", user_story: "bdd", bug: "x", test: "assertion", test_plan: "rapports", test_set: "rapports",
+  test_execution: "execution", test_robot: "play", suite: "fichier", keyword: "editeur", locator: "cible", resource: "fichier",
+  jdd: "donnee", requete: "donnee", bibliotheque: "graphe", plateforme: "mobile", application: "mobile", version: "historique",
+  endpoint: "api", entite: "donnee", composant: "graphe", feature: "bdd", scenario: "bdd", step: "check", resultat: "assertion"};
 const court = (t, n = 26) => (t && t.length > n ? t.slice(0, n - 1) + "…" : t || "");
 
 class GrapheVue {
@@ -31,7 +36,10 @@ class GrapheVue {
     const defs = el("defs", {}, this.svg);
     const m = el("marker", {id: "gv-fleche", viewBox: "0 0 10 10", refX: 10, refY: 5, markerWidth: 7,
       markerHeight: 7, orient: "auto-start-reverse"}, defs);
-    el("path", {d: "M0,0 L10,5 L0,10 z", class: "gv-fleche"}, m);
+    el("path", {d: "M0,0 L10,5 L0,10 z", fill: "context-stroke"}, m);
+    const dg = el("radialGradient", {id: "gv-degrade", cx: "50%", cy: "40%", r: "65%"}, defs);
+    el("stop", {offset: "0%", "stop-color": "#2B5FD9"}, dg);
+    el("stop", {offset: "100%", "stop-color": "#0E2A6B"}, dg);
     this.racine = el("g", {}, this.svg);
     this.gGrappes = el("g", {}, this.racine);
     this.gLiens = el("g", {}, this.racine);
@@ -110,18 +118,18 @@ class GrapheVue {
       groupes.get(n.categorie).push(n);
     }
     const cats = [...groupes.keys()].sort((a, b) => CATEGORIES_G.indexOf(a) - CATEGORIES_G.indexOf(b));
-    const L = 176, H = 52, marge = 26;
+    const L = 186, H = 56, marge = 26;
     const tailles = cats.map(c => { const n = groupes.get(c).length, col = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(n / 2))));
       return {col, lig: Math.ceil(n / col)}; });
     const plusGrand = Math.max(...tailles.map(t => Math.max(t.col * L, t.lig * H)), 200);
-    const R = Math.max(300, plusGrand * 0.85 + 140 + cats.length * 18);
+    const R = Math.max(190, plusGrand * 0.55 + 110 + cats.length * 10);
     cats.forEach((cat, i) => {
       const a = -Math.PI / 2 + (i / cats.length) * 2 * Math.PI, {col, lig} = tailles[i];
-      const w = col * L, h = lig * H, cx = Math.cos(a) * R * 1.25, cy = Math.sin(a) * R;
+      const w = col * L, h = lig * H, cx = Math.cos(a) * R * 1.45, cy = Math.sin(a) * R;
       groupes.get(cat).sort((x, y) => x.type.localeCompare(y.type) || x.libelle.localeCompare(y.libelle)).forEach((n, j) => {
         this.pos.set(n.id, {x: cx - w / 2 + (j % col) * L + L / 2, y: cy - h / 2 + Math.floor(j / col) * H + H / 2 + 10});
       });
-      this._grappes.push({cat, x: cx - w / 2 - marge / 2, y: cy - h / 2 - marge + 4, w: w + marge, h: h + marge + 8});
+      this._grappes.push({cat, x: cx - w / 2 + 4, y: cy - h / 2 - 14, w: w, h: h + 24});
     });
   }
 
@@ -166,17 +174,17 @@ class GrapheVue {
     this.gLiens.replaceChildren();
     this.gNoeuds.replaceChildren();
     this.gGrappes.replaceChildren();
-    for (const gr of this._grappes || []) {
+    for (const gr of this._grappes || []) {  // titres de grappes colorés (maquette)
       const g = el("g", {class: "gv-grappe", style: `--gc:${couleurVar(gr.cat)}`}, this.gGrappes);
-      el("rect", {x: gr.x, y: gr.y, width: gr.w, height: gr.h, rx: 12}, g);
-      el("text", {x: gr.x + 12, y: gr.y + 16}, g).textContent = TITRES_GRAPPES[gr.cat] || gr.cat;
+      el("text", {x: gr.x + 4, y: gr.y + 12}, g).textContent = TITRES_GRAPPES[gr.cat] || gr.cat;
     }
     this.elLiens = new Map();
     this.elNoeuds = new Map();
     for (const r of this.liens) {
+      const cat = (r.de === this.centre ? this.parId.get(r.vers) : this.parId.get(r.de)).categorie;
       const g = el("g", {class: "gv-lien" + (r.provenance === "déduit" ? " gv-deduit" : "") +
         (r.statut === "à valider" ? " gv-a-valider" : "")}, this.gLiens);
-      const ligne = el("line", {"marker-end": "url(#gv-fleche)"}, g);
+      const ligne = el("path", {"marker-end": "url(#gv-fleche)", style: `stroke:${couleurVar(cat)}`}, g);
       const t = el("text", {class: "gv-lien-texte"}, g);
       t.textContent = r.libelle;
       el("title", {}, g).textContent = `${r.de} — ${r.libelle} → ${r.vers} (${r.provenance}${r.statut !== "validé" ? ", " + r.statut : ""})`;
@@ -184,21 +192,28 @@ class GrapheVue {
       this.elLiens.set(r.id, {g, ligne, t, r});
     }
     for (const n of this.noeuds) {
-      const g = el("g", {class: "gv-noeud" + (n.id === this.centre ? " gv-centre" : ""), tabindex: 0, role: "button", "data-id": n.id,
+      const centre = n.id === this.centre;
+      const g = el("g", {class: "gv-noeud" + (centre ? " gv-centre" : ""), tabindex: 0, role: "button", "data-id": n.id,
         "aria-label": `${n.type} ${n.libelle}`}, this.gNoeuds);
       const coul = COULEURS[n.categorie] || "#888";
-      const anomalie = n.proprietes?.non_defini || n.proprietes?.dernier_statut === "FAIL";
-      el("rect", {x: -78, y: -20, width: 156, height: 40, rx: 8, class: "gv-boite" +
-        (n.statut === "à valider" ? " gv-a-valider" : "") + (anomalie ? " gv-anomalie" : ""),
-        style: `--c:${coul}`}, g);
-      el("rect", {x: -78, y: -20, width: 6, height: 40, rx: 3, style: `fill:${coul}`}, g);
-      const t1 = el("text", {x: -66, y: -4, class: "gv-type"}, g);
-      t1.textContent = n.type.replace("_", " ") + (n.plateformes?.length ? " · " + n.plateformes.join("/") : "");
-      const t2 = el("text", {x: -66, y: 12, class: "gv-libelle"}, g);
-      t2.textContent = court(n.type === "locator" && n.plateformes?.length ? `${n.libelle} · ${n.plateformes.join("/")}` : n.libelle);
-      if (n.type === "test" && n.proprietes) {
-        const a = n.proprietes.automatise;
-        el("circle", {cx: 66, cy: -8, r: 5, class: a ? "gv-pastille-auto" : "gv-pastille-manuel"}, g);
+      if (centre) {  // nœud central : grand cercle lumineux
+        el("circle", {r: 60, class: "gv-centre-cercle"}, g);
+        const mots = String(n.libelle).split(/\s+/), lignes = [];
+        for (const m of mots) { if (lignes.length && (lignes[lignes.length - 1] + " " + m).length <= 14) lignes[lignes.length - 1] += " " + m; else lignes.push(m); }
+        lignes.slice(0, 3).forEach((l, i, a) => { el("text", {y: (i - (a.length - 1) / 2) * 18 + 5, class: "gv-centre-texte"}, g).textContent = court(l, 16); });
+      } else {
+        const anomalie = n.proprietes?.non_defini || n.proprietes?.dernier_statut === "FAIL";
+        el("rect", {x: -86, y: -22, width: 172, height: 44, rx: 9, class: "gv-boite" +
+          (n.statut === "à valider" ? " gv-a-valider" : "") + (anomalie ? " gv-anomalie" : ""), style: `--c:${coul}`}, g);
+        el("rect", {x: -78, y: -13, width: 26, height: 26, rx: 6, class: "gv-ico-fond", style: `--c:${coul}`}, g);
+        const ic = (typeof ICONES !== "undefined" && ICONES[ICONE_TYPE[n.type] || "graphe"]) || "";
+        const gi = el("g", {transform: "translate(-74,-9) scale(0.75)"}, g);
+        el("path", {d: ic, class: "gv-ico", style: `--c:${coul}`}, gi);
+        el("text", {x: -44, y: n.plateformes?.length || n.type ? -1 : 4, class: "gv-libelle"}, g).textContent = court(n.libelle, 18);
+        el("text", {x: -44, y: 13, class: "gv-sous"}, g).textContent = court(n.type.replace("_", " ") + (n.plateformes?.length ? " · " + n.plateformes.join("/") : ""), 24);
+        if (n.type === "test" && n.proprietes) {
+          el("circle", {cx: 74, cy: -10, r: 5, class: n.proprietes.automatise ? "gv-pastille-auto" : "gv-pastille-manuel"}, g);
+        }
       }
       el("title", {}, g).textContent = `${n.libelle}\n${n.id}\n${n.provenance} · ${n.statut} · confiance ${n.confiance}`;
       g.addEventListener("pointerdown", e => this._debutGlisser(e, n.id));
@@ -217,20 +232,22 @@ class GrapheVue {
     }
     for (const {ligne, t, r} of this.elLiens.values()) {
       const a = this.pos.get(r.de), b = this.pos.get(r.vers);
-      const [x1, y1] = this._bord(a, b), [x2, y2] = this._bord(b, a);
-      ligne.setAttribute("x1", x1); ligne.setAttribute("y1", y1);
-      ligne.setAttribute("x2", x2); ligne.setAttribute("y2", y2);
-      t.setAttribute("x", (x1 + x2) / 2); t.setAttribute("y", (y1 + y2) / 2 - 3);
+      const [x1, y1] = this._bord(a, b, r.de), [x2, y2] = this._bord(b, a, r.vers);
+      const dx = x2 - x1, dy = y2 - y1, horiz = Math.abs(dx) >= Math.abs(dy);
+      const c1 = horiz ? [x1 + dx * 0.45, y1] : [x1, y1 + dy * 0.45], c2 = horiz ? [x2 - dx * 0.45, y2] : [x2, y2 - dy * 0.45];
+      ligne.setAttribute("d", `M${x1},${y1} C${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${x2},${y2}`);
+      t.setAttribute("x", (x1 + x2) / 2); t.setAttribute("y", (y1 + y2) / 2 - 4);
     }
     this.racine.setAttribute("transform", `translate(${this.vue.x},${this.vue.y}) scale(${this.vue.k})`);
     this.svg.classList.toggle("gv-loin", this.vue.k < 0.55);
     this._mini();
   }
 
-  _bord(a, b) {  // point de sortie sur le rectangle du nœud a, vers b
-    const dx = b.x - a.x, dy = b.y - a.y, w = 80, h = 22;
+  _bord(a, b, id) {  // point de sortie sur le nœud a (cercle central ou carte), vers b
+    const dx = b.x - a.x, dy = b.y - a.y;
     if (!dx && !dy) return [a.x, a.y];
-    const s = Math.min(w / Math.abs(dx || 1e-9), h / Math.abs(dy || 1e-9));
+    if (id === this.centre) { const l = Math.hypot(dx, dy); return [a.x + dx / l * 62, a.y + dy / l * 62]; }
+    const s = Math.min(88 / Math.abs(dx || 1e-9), 24 / Math.abs(dy || 1e-9));
     return [a.x + dx * s, a.y + dy * s];
   }
 
@@ -269,7 +286,7 @@ class GrapheVue {
   ajuster() {
     if (!this.noeuds?.length) { this._placer(); return; }
     const r = this.svg.getBoundingClientRect(), b = this._bornes();
-    const k = Math.min(1.4, Math.max(0.15, Math.min((r.width - 40) / b.w, (r.height - 40) / b.h)));
+    const k = Math.min(1.5, Math.max(0.15, Math.min((r.width - 60) / b.w, (r.height - 60) / b.h)));
     this.vue = {k, x: r.width / 2 - (b.x + b.w / 2) * k, y: r.height / 2 - (b.y + b.h / 2) * k};
     this._placer();
   }

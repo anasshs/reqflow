@@ -1120,7 +1120,50 @@ def contexte():
             "xray": {"configure": bool(os.environ.get("XRAY_CLIENT_ID")), "connecte": xray[0] if xray else None,
                      "detail": xray[1] if xray else "non vérifié"},
             "run_en_cours": bool(state["run"] and state["run"].is_alive()),
-            "agent_integre": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+            "agent_integre": bool(os.environ.get("ANTHROPIC_API_KEY")),
+            "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"),
+            "utilisateur": _utilisateur()}
+
+
+def _utilisateur() -> str:
+    """Compte du poste (l'interface est locale, sans authentification) : affiché tel quel, jamais inventé."""
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except Exception:
+        return ""
+
+
+@app.get("/api/depot/suites")
+async def depot_suites():
+    """Suites du dépôt (arborescence par dossier) avec le dernier statut connu de leurs tests."""
+    def calcul():
+        from atelier.execution import depot_robot
+        from atelier.execution.robot import derniers_resultats
+
+        inv = depot_robot.lire_depot()
+        res = derniers_resultats()
+        out = []
+        for f, s in sorted(inv["suites"].items()):
+            statuts = [res.get(t, {}).get("statut") for t in s["tests"]]
+            out.append({"fichier": f, "dossier": f.rsplit("/", 1)[0] if "/" in f else "", "nom": s["nom"], "tests": len(s["tests"]),
+                        "echecs": statuts.count("FAIL"), "passes": statuts.count("PASS"), "jamais": statuts.count(None)})
+        return out
+    return await asyncio.to_thread(_call, calcul)
+
+
+@app.post("/api/resultats/capturer")
+async def resultats_capturer():
+    """Enregistre l'écran courant (device ou navigateur) dans results/captures/ comme preuve."""
+    png = await asyncio.to_thread(_grab)
+    if not png:
+        raise HTTPException(400, "Aucun écran à capturer : connecter un device ou un navigateur.")
+    nom = time.strftime("capture-%Y%m%d-%H%M%S.png")
+    d = projet.safe_path("results/captures")
+    d.mkdir(parents=True, exist_ok=True)
+    (d / nom).write_bytes(png)
+    return {"chemin": nom, "dossier": "results/captures"}
 
 
 @app.get("/api/run/dernier")

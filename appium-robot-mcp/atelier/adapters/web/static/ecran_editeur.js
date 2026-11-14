@@ -10,47 +10,50 @@
       zone.className = "g-ed";
       zone.innerHTML = `
         <div class="barre-ed">
-          <div><div class="lib">Suite courante</div><b id="e-courant">—</b></div>
+          <div><div class="lib">Suite courante</div><select class="in" id="e-suite" aria-label="Suite courante" style="min-width:250px;font-weight:600"></select></div>
           <span class="pill" id="e-valide">—</span>
           <span style="flex:1"></span>
-          <button class="btn" id="e-enr" title="Enregistrer (Ctrl+S)">${ico("disque")}Enregistrer</button>
-          <button class="btn" id="e-lint">${ico("lint")}Linter</button>
-          <button class="btn" id="e-robocop">${ico("bouclier")}Robocop</button>
-          <button class="btn" id="e-dry">${ico("play")}Dry Run</button>
-          <button class="btn primaire" id="e-exe">${ico("play")}Exécuter</button>
-          <button class="btn" disabled title="Merge request GitLab : roadmap phase 7 (3 exécutions stables + revue humaine)">${ico("git")}Commit / MR</button>
-          <span style="width:1px;height:28px;background:var(--line)"></span>
+          <button class="btn outil" id="e-enr" title="Enregistrer (Ctrl+S)">${ico("disque")}Enregistrer</button>
+          <button class="btn outil" id="e-lint">${ico("lint")}Linter</button>
+          <button class="btn outil" id="e-robocop">${ico("bouclier")}Robocop</button>
+          <button class="btn outil" id="e-dry">${ico("play")}Dry Run</button>
+          <button class="btn outil" id="e-exe">${ico("play")}Exécuter</button>
+          <button class="btn succes" disabled title="Merge request GitLab : roadmap phase 7 (3 exécutions stables + revue humaine)">${ico("git")}Commit / MR</button>
+          <button class="icone" id="e-plus" title="Plus d'actions">⋮</button>
+          <span class="sep-v"></span>
           <div><div class="lib">Plateforme active</div><b id="e-plat"></b></div>
-          <select class="in" id="e-device" style="width:auto" aria-label="Device"></select>
+          <select class="in" id="e-device" aria-label="Device"></select>
           <span class="pill" id="e-session"></span>
         </div>
         <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
-          <section class="carte" style="flex:1.3"><h2 class="titre-carte">Explorateur<span class="actions-titre"><button class="icone" id="e-rafr" title="Rafraîchir">${ico("rejouer")}</button></span></h2>
+          <section class="carte" style="flex:1.25"><h2 class="titre-carte">Explorateur<span class="actions-titre"><button class="icone" id="e-rafr" title="Rafraîchir">${ico("rejouer")}</button></span></h2>
             <div class="corps-carte" id="e-arbre" style="padding:6px 4px"></div></section>
           <section class="carte" style="flex:1"><h2 class="titre-carte">Réutilisation</h2>
             <div class="sous-onglets" id="e-reu-onglets"></div>
-            <div style="padding:8px 10px 0"><input class="in" id="e-reu-q" placeholder="Rechercher…" aria-label="Rechercher dans la réutilisation"></div>
+            <div style="padding:8px 10px 0"><span class="boite" style="padding:0 6px"><input class="in" id="e-reu-q" placeholder="Rechercher un keyword…" style="border:0;background:none" aria-label="Rechercher dans la réutilisation">${ico("recherche")}</span></div>
             <div class="corps-carte" id="e-reu" style="padding-top:4px"></div>
             <div style="padding:8px 10px;border-top:1px solid var(--line)"><button class="btn" id="e-nouveau-kw" style="width:100%;justify-content:center">${ico("plus")}Créer un keyword</button></div></section>
         </div>
         <section class="carte">
           <div class="tabs-fichiers" id="e-tabs" role="tablist"></div>
-          <div class="lib" id="e-fil" style="padding:6px 12px;border-bottom:1px solid var(--line)"></div>
-          <div class="editeur" id="e-ed"><div class="numeros" id="e-num"></div><div class="surface"><pre id="e-pre" aria-hidden="true"></pre>
+          <div class="fil"><span class="lib" id="e-fil"></span><div class="bascule-mode"><button aria-pressed="true">Mode source</button><button id="e-visuel" title="Ouvrir le scénario BDD du test">Mode visuel</button></div></div>
+          <div class="code editeur" id="e-ed"><div class="numeros" id="e-num"></div><div class="surface"><pre id="e-pre" aria-hidden="true"></pre>
             <textarea id="e-txt" spellcheck="false" aria-label="Contenu du fichier" wrap="off"></textarea></div></div>
-          <div class="statut-ed"><span id="e-pos">Ligne 1, Col 1</span><span>Espaces : 4</span><span>UTF-8</span><span id="e-type">Robot Framework</span><span style="margin-left:auto" id="e-lint-statut"></span></div>
+          <div class="statut-ed"><span id="e-pos">Ligne 1, Col 1</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
+            <span style="margin-left:auto" id="e-robocop-statut"></span><span id="e-lint-statut"></span></div>
         </section>
-        <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
-          <section class="carte" style="flex:1.4"><h2 class="titre-carte">Propriétés du test</h2><div class="corps-carte" id="e-props"></div></section>
-          <section class="carte" style="flex:1"><h2 class="titre-carte">Aperçu mobile (live)<span class="actions-titre"><button class="icone" id="e-frame-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2>
-            <div class="corps-carte" style="padding:8px;display:flex;justify-content:center;overflow:hidden"><div class="mobile" id="e-mobile"></div></div></section>
-        </div>
-        <section class="carte" style="grid-column:1 / span 2;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:0">
-          <div style="display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)">
-            <div class="sous-onglets" id="e-bas-onglets" role="tablist"></div><div class="corps-carte console" id="e-bas"></div></div>
-          <div style="display:flex;flex-direction:column;min-height:0"><h2 class="titre-carte">Dépendances & impact</h2><div class="corps-carte" id="e-dep"></div></div>
-        </section>
-        <section class="carte"><h2 class="titre-carte">Captures récentes</h2><div class="corps-carte" id="e-captures"></div></section>`;
+        <section class="carte"><h2 class="titre-carte">Propriétés du test<span class="actions-titre"><button class="icone" id="e-props-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2><div class="corps-carte" id="e-props"></div></section>
+        <section class="carte"><h2 class="titre-carte">Aperçu mobile (live)<span class="actions-titre"><button class="icone" id="e-frame-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2>
+          <div class="sous-onglets" id="e-mob-onglets"><button aria-selected="true" data-mp="android">Android</button><button aria-selected="false" data-mp="ios">iOS</button>
+            <button style="margin-left:auto" id="e-identifier" title="Identifier l'écran courant dans la carte (enregistre l'observation)">Identifier l'écran</button></div>
+          <div class="corps-carte" style="padding:10px;display:flex;justify-content:center;overflow:hidden"><div class="mobile" id="e-mobile"></div></div>
+          <div id="e-ecran-id" class="lib" style="padding:8px 12px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center"></div></section>
+        <div class="bas-ed">
+          <section class="carte"><div class="sous-onglets" id="e-bas-onglets" role="tablist"></div><div class="corps-carte console" id="e-bas"></div></section>
+          <section class="carte"><div class="sous-onglets" id="e-dep-onglets"><button aria-selected="true" data-dep="dep">Dépendances & impact</button><button aria-selected="false" data-dep="histo">Historique des modifications</button></div>
+            <div class="corps-carte" id="e-dep"></div></section>
+          <section class="carte"><h2 class="titre-carte">Captures récentes</h2><div class="corps-carte" id="e-captures"></div></section>
+        </div>`;
       const t = $("#e-txt");
       t.oninput = () => { modifie(); surligner(); clearTimeout(lintT); lintT = setTimeout(() => linter(true), 900); };
       t.onscroll = () => { $("#e-pre").scrollTop = t.scrollTop; $("#e-pre").scrollLeft = t.scrollLeft; $("#e-num").scrollTop = t.scrollTop; };
@@ -68,6 +71,20 @@
       $("#e-frame-r").onclick = frame;
       $("#e-nouveau-kw").onclick = nouveauKeyword;
       $("#e-reu-q").oninput = reutil;
+      $("#e-suite").onchange = e => { if (e.target.value) location.hash = "editeur/" + encodeURIComponent(e.target.value); };
+      $("#e-props-r").onclick = proprietes;
+      $("#e-visuel").onclick = () => { const k = S.props?.tests?.[0]?.xray?.[0]?.cle; if (k) location.hash = "bdd/" + encodeURIComponent(k); else toast("Aucune clé Xray sur ce test : pas de scénario BDD associé."); };
+      $("#e-plus").onclick = () => {
+        const m = modale("Plus d'actions", `<ul class="menu-actions"><li id="pa-hist">${ico("historique")}Historique du fichier</li>
+          <li id="pa-fermer">${ico("x")}Fermer tous les onglets</li><li id="pa-graphe">${ico("graphe")}Ouvrir le Knowledge Graph</li></ul>`);
+        $("#pa-hist", m.el).onclick = () => { m.fermer(); S.ongletDep = "histo"; dependances(); };
+        $("#pa-fermer", m.el).onclick = () => { m.fermer(); if ([...S.ouverts.values()].some(f => f.modifie) && !confirm("Des modifications ne sont pas enregistrées. Fermer quand même ?")) return; S.ouverts.clear(); location.hash = "editeur"; };
+        $("#pa-graphe", m.el).onclick = () => { m.fermer(); location.hash = "graphe/connaissance"; };
+      };
+      $$("#e-mob-onglets [data-mp]").forEach(b => b.onclick = () => { Atelier.plateforme = b.dataset.mp; Atelier.diffuser({type: "contexte"}); });
+      $("#e-identifier").onclick = identifier;
+      $$("#e-dep-onglets [data-dep]").forEach(b => b.onclick = () => { S.ongletDep = b.dataset.dep; dependances(); });
+      suites();
       ongletsBas();
       contexte();
       desabo = [Atelier.on("contexte", contexte), ...["run_lance", "run_debut", "test_debut", "kw_debut", "kw_fin", "test_fin", "run_bilan", "journal"].map(t => Atelier.on(t, sortie))];
@@ -86,11 +103,11 @@
   async function arbre() {
     const a = await api("/api/editeur/arbre").catch(e => ({erreur: e.message, enfants: []}));
     const noeud = n => n.type === "dossier"
-      ? `<li><div data-dossier>${ico("dossier")}${esc(n.nom || "projet")}</div><ul class="arbre">${n.enfants.map(noeud).join("")}</ul></li>`
-      : `<li><div data-fichier="${esc(n.chemin)}" class="${S.courant === n.chemin ? "sel" : ""} ${S.ouverts.get(n.chemin)?.modifie ? "modifie" : ""}">${ico("fichier")}${esc(n.nom)}</div></li>`;
+      ? `<li><div data-dossier><span class="chev">▾</span>${ico("dossier")}${esc(n.nom || "projet")}</div><ul class="arbre">${n.enfants.map(noeud).join("")}</ul></li>`
+      : `<li><div data-fichier="${esc(n.chemin)}" class="${S.courant === n.chemin ? "sel" : ""} ${S.ouverts.get(n.chemin)?.modifie ? "modifie" : ""}"><span class="chev"></span>${ico(/\.(robot|resource)$/.test(n.chemin) ? "editeur" : "fichier")}${esc(n.nom)}</div></li>`;
     $("#e-arbre").innerHTML = a.erreur ? vide("Erreur", esc(a.erreur)) : a.enfants.length ? `<ul class="arbre racine">${a.enfants.map(noeud).join("")}</ul>` : vide("Projet vide", "ROBOT_PROJECT_DIR ne contient aucun fichier éditable.");
     $$("#e-arbre [data-fichier]").forEach(d => d.onclick = () => { location.hash = "editeur/" + encodeURIComponent(d.dataset.fichier); });
-    $$("#e-arbre [data-dossier]").forEach(d => d.onclick = () => d.nextElementSibling.hidden = !d.nextElementSibling.hidden);
+    $$("#e-arbre [data-dossier]").forEach(d => d.onclick = () => { const u = d.nextElementSibling; u.hidden = !u.hidden; $(".chev", d).textContent = u.hidden ? "▸" : "▾"; });
   }
 
   async function ouvrir(chemin) {
@@ -115,8 +132,10 @@
       location.hash = "editeur/" + encodeURIComponent(b.dataset.tab);
     });
     const f = S.ouverts.get(S.courant);
-    $("#e-courant").textContent = S.courant || "Aucun fichier ouvert";
-    $("#e-fil").innerHTML = S.courant ? S.courant.split("/").map(esc).join(" › ") + ` <span style="margin-left:10px">${ico("editeur")} ${S.courant.endsWith(".robot") || S.courant.endsWith(".resource") ? "Robot Framework" : "Texte"}</span>` : "Ouvrir un fichier dans l'explorateur.";
+    const sel = $("#e-suite");
+    if (S.courant && ![...sel.options].some(o => o.value === S.courant)) sel.add(new Option(S.courant, S.courant));
+    sel.value = S.courant || "";
+    $("#e-fil").innerHTML = S.courant ? S.courant.split("/").map(esc).join(" › ") + `<span style="margin-left:12px">${ico("editeur")} ${S.courant.endsWith(".robot") || S.courant.endsWith(".resource") ? "Robot Framework" : "Texte"}</span>` : "Ouvrir un fichier dans l'explorateur.";
     $("#e-txt").value = f ? f.contenu : "";
     $("#e-txt").disabled = !f;
     $("#e-type").textContent = S.courant?.split(".").pop() === "robot" || S.courant?.endsWith(".resource") ? "Robot Framework" : (S.courant?.split(".").pop() || "").toUpperCase();
@@ -216,6 +235,7 @@
     if (f?.modifie) await enregistrer();
     const r = await api("/api/editeur/robocop", {method: "POST", body: {chemin: S.courant}}).catch(e => ({disponible: false, message: e.message}));
     S.robocop = r;
+    $("#e-robocop-statut").innerHTML = !r.disponible ? `<span class="lib">Robocop non installé</span>` : r.code_retour === 0 ? '<span class="ok-t">✓ Robocop OK</span>' : '<span class="ko-t">✕ Robocop : à corriger</span>';
     S.ongletBas = "problemes";
     ongletsBas();
   }
@@ -249,7 +269,8 @@
 
   /* ------------------------------------------------------------------ panneau bas */
   function ongletsBas() {
-    const o = [["sortie", "Sortie"], ["problemes", `Problèmes${S.problemes.length ? ` (${S.problemes.length})` : ""}`], ["historique", "Historique des modifications"]];
+    if (S.ongletBas === "historique") S.ongletBas = "sortie";
+    const o = [["sortie", "Sortie"], ["problemes", `Problèmes${S.problemes.length ? ` (${S.problemes.length})` : ""}`]];
     $("#e-bas-onglets").innerHTML = o.map(([id, lib]) => `<button role="tab" aria-selected="${id === S.ongletBas}" data-bas="${id}">${lib}</button>`).join("");
     $$("#e-bas-onglets [data-bas]").forEach(b => b.onclick = () => { S.ongletBas = b.dataset.bas; ongletsBas(); });
     rendreBas();
@@ -258,7 +279,8 @@
   async function rendreBas() {
     const z = $("#e-bas");
     if (S.ongletBas === "sortie") {
-      z.innerHTML = S.sortie.length ? S.sortie.map(l => `<div><span class="t">${esc(l.t)}</span><span class="${l.classe || ""}">[${esc(l.niveau)}]</span><span style="flex:1">${esc(l.texte)}</span>${l.statut ? `<span class="${l.statut === "PASS" ? "pass" : "fail"}">${esc(l.statut)}</span>` : ""}</div>`).join("")
+      z.innerHTML = S.sortie.length ? S.sortie.map(l => `<div><span class="t">${esc(l.t)}</span><span class="niv ${l.classe || ""}">[${esc(l.niveau)}]</span><span class="txt ${l.classe || ""}" title="${esc(l.texte)}">${esc(l.texte)}</span>
+        ${l.statut ? `<span class="${l.statut === "PASS" ? "badge-pass" : l.statut === "FAIL" ? "badge-fail" : "pill"}" style="font-size:10px">${esc(l.statut)}</span>` : ""}<span class="duree">${esc(l.duree || "")}</span></div>`).join("")
         : `<span class="lib">La sortie des runs (dry run ou exécution) s'affiche ici en direct.</span>`;
       z.scrollTop = z.scrollHeight;
     } else if (S.ongletBas === "problemes") {
@@ -281,8 +303,14 @@
     if (ev.type === "run_lance") ajout("INFO", `Run lancé : ${ev.suite || ""}`);
     else if (ev.type === "run_debut") ajout("INFO", `Suite ${ev.suite} : ${ev.tests.length} test(s)`);
     else if (ev.type === "test_debut") ajout("INFO", `TEST START  ${ev.nom}`);
-    else if (ev.type === "kw_debut" && ev.niveau <= 2) ajout("INFO", `${"  ".repeat(ev.niveau - 1)}${ev.nom}  ${(ev.args || []).join("  ")}`);
-    else if (ev.type === "kw_fin" && ev.niveau <= 2 && ev.statut === "FAIL") ajout("FAIL", `${ev.nom}`, {classe: "fail", statut: "FAIL"});
+    else if (ev.type === "kw_debut" && ev.niveau <= 2) ajout("INFO", `${"  ".repeat(ev.niveau - 1)}${ev.nom}  ${(ev.args || []).join("  ")}`, {kw: ev.nom, debut: ev.heure, niveauKw: ev.niveau});
+    else if (ev.type === "kw_fin" && ev.niveau <= 2) {
+      const l = [...S.sortie].reverse().find(x => x.niveauKw === ev.niveau && !x.statut && (ev.nom || "").endsWith(String(x.kw).split(".").pop()));
+      if (!l) return;
+      l.statut = ev.statut;
+      if (ev.statut === "FAIL") l.classe = "fail";
+      if (l.debut && ev.heure) { const d = Math.max(0, (new Date(ev.heure) - new Date(l.debut)) / 1000); l.duree = `${String(Math.floor(d / 60)).padStart(2, "0")}:${String(Math.round(d % 60)).padStart(2, "0")}`; }
+    }
     else if (ev.type === "test_fin") ajout(ev.statut === "PASS" ? "INFO" : "FAIL", `TEST END  ${ev.nom}${ev.message ? " — " + ev.message : ""}`, {statut: ev.statut, classe: ev.statut === "PASS" ? "" : "fail"});
     else if (ev.type === "journal") ajout(ev.niveau === "erreur" ? "WARN" : "XRAY", ev.message, {classe: ev.niveau === "erreur" ? "warn" : ""});
     else if (ev.type === "run_bilan") {
@@ -290,6 +318,7 @@
       ajout("INFO", r ? `Bilan : ${r.passes} réussi(s), ${r.echecs} échec(s)` : `Bilan : ${ev.bilan?.statut || ev.bilan?.erreur || "terminé"}`, {classe: r?.echecs ? "fail" : "pass"});
       captures(); proprietes();
     } else return;
+    if (ev.type === "test_fin") { const d = S.sortie[S.sortie.length - 1]; d.duree = ""; }
     S.sortie = S.sortie.slice(-400);
     if (S.ongletBas === "sortie") rendreBas();
   }
@@ -317,24 +346,43 @@
     S.testAffiche = t.id;
     const x = t.xray[0] || {};
     const r = t.dernier_resultat;
-    $("#e-props").innerHTML = `<div class="champ"><span class="lib">Nom du test</span><input class="in" readonly value="${esc(t.nom)}"></div>
-      <div class="champ"><span class="lib">ID Xray</span>${t.xray.length ? t.xray.map(k => `<a class="in" style="display:block" href="#graphe/connaissance" data-noeud="test:${esc(k.cle)}">${esc(k.cle)}</a>`).join("") : '<span class="pill warn">aucune clé Xray en tag</span>'}</div>
-      ${x.cle ? (x.absent_instantane ? `<p class="lib">${esc(x.cle)} absent de l'instantané Xray.</p>` : `
-        <div class="grille-2"><div class="champ"><span class="lib">Type</span><span>${esc(x.type || "—")}</span></div><div class="champ"><span class="lib">Priorité</span><span>${esc(x.criticite || "—")}</span></div>
-          <div class="champ"><span class="lib">Statut Xray</span><span class="${x.statut ? "ok-t" : ""}">${esc(x.statut || "—")}</span></div><div class="champ"><span class="lib">Module</span><span>${esc(x.module || "—")}</span></div></div>
-        <div class="champ"><span class="lib">Test Plan</span><span>${esc((x.plans || []).join(", ") || "—")}</span></div>
-        <div class="champ"><span class="lib">Exécutions</span><span>${esc((x.executions || []).join(", ") || "—")}</span></div>`) : ""}
-      <h3 class="lib" style="margin:10px 0 4px">DONNÉES & PRÉREQUIS</h3>
-      <div class="champ"><span class="lib">Jeu de données</span><span>${t.jdd.map(j => `<span class="pill info">${esc(j)}</span>`).join(" ") || "—"}</span></div>
-      <div class="champ"><span class="lib">Requêtes utilisées</span><span class="mono">${esc(t.requetes.join(", ") || "—")}</span></div>
-      <div class="champ"><span class="lib">Dernière exécution</span><span>${r ? `${statutIco(r.statut)} ${esc(r.fin.slice(0, 19).replace("T", " "))}` : "jamais exécuté"}</span></div>
-      <div class="champ"><span class="lib">Plateformes</span><span>${t.plateformes.map(x => `<span class="pill">${esc(x)}</span>`).join(" ") || "—"}</span></div>`;
-    $$("#e-props [data-noeud]").forEach(a => a.onclick = () => { location.hash = "graphe/connaissance"; });
-    $("#e-dep").innerHTML = `<div class="grille-2"><div><h3 class="lib" style="margin:0 0 4px">CE TEST UTILISE</h3>
-        <div class="lib">Keywords (${t.keywords.length})</div><ul class="liste">${t.keywords.map(k => `<li style="padding:3px 2px">${esc(k)}</li>`).join("")}</ul>
-        <div class="lib" style="margin-top:6px">Locators (${t.locators.length})</div><ul class="liste">${t.locators.map(l => `<li style="padding:3px 2px"><code>${esc(l)}</code></li>`).join("")}</ul></div>
-      <div><h3 class="lib" style="margin:0 0 4px;color:var(--ko)">IMPACT — AUTRES TESTS (${t.autres_tests_impactes.length})</h3>
-        <ul class="liste">${t.autres_tests_impactes.map(o => `<li style="padding:4px 2px"><div class="item"><b>${esc(o.cles_xray.join(", ") || "sans clé")}</b><div class="sous">${esc(o.nom)}</div></div></li>`).join("") || "<li class='lib'>Aucun autre test ne partage ses keywords ou locators.</li>"}</ul></div></div>`;
+    const boite = (v, icone = "") => `<span class="boite">${v}${icone ? ico(icone) : ""}</span>`;
+    $("#e-props").innerHTML = `<div class="lib" style="font-weight:600;color:var(--ink);margin-bottom:8px">Informations générales</div>
+      <div class="champ"><span>Nom du test</span>${boite(esc(t.nom))}</div>
+      <div class="champ"><span>ID Xray</span>${t.xray.length ? t.xray.map(k => `<a class="boite" style="color:var(--accent-ink);text-decoration:none" href="#bdd/${encodeURIComponent(k.cle)}">${esc(k.cle)}${ico("ext")}</a>`).join("") : '<span class="pill warn">aucune clé Xray en tag</span>'}</div>
+      ${x.cle && !x.absent_instantane ? `<div class="champ"><span>Type</span>${boite(esc(x.type || "—"))}</div>
+        <div class="champ"><span>Priorité</span>${boite(x.criticite ? `<span style="color:var(--orange)">${ico("haut")}</span>${esc(x.criticite)}` : "—")}</div>
+        <div class="champ"><span>Statut Xray</span>${boite(`<span class="${x.statut ? "ok-t" : ""}">${esc(x.statut || "—")}</span>`)}</div>
+        <div class="champ"><span>Test Plan</span>${boite(esc((x.plans || []).join(", ") || "—"))}</div>
+        <div class="champ"><span>Execution</span>${boite(esc((x.executions || []).join(", ") || "—"))}</div>` : x.cle ? `<p class="lib">${esc(x.cle)} absent de l'instantané Xray.</p>` : ""}
+      <div class="lib" style="font-weight:600;color:var(--ink);margin:12px 0 8px">Données & Pré-requis</div>
+      <div class="champ"><span>Jeu de données</span>${t.jdd.length ? t.jdd.map(j => boite(esc("JDD_" + j), "ext")).join("") : boite("—")}</div>
+      <div class="champ"><span>Requêtes utilisées</span><span class="boite" style="display:block;font-family:ui-monospace,Menlo,monospace;font-size:11.5px">${t.requetes.map(esc).join("<br>") || "—"}</span></div>
+      <div class="champ"><span>Dernière exécution</span><span style="display:flex;justify-content:space-between;align-items:center">${r ? `<span>${esc(r.fin.slice(0, 16).replace("T", " "))}</span><span class="pill ${r.statut === "PASS" ? "ok" : "ko"}">${r.statut === "PASS" ? "Passed" : "Failed"}</span>` : '<span class="lib">jamais exécuté</span>'}</span></div>
+      <div class="lib" style="font-weight:600;color:var(--ink);margin:12px 0 8px">Plateformes</div>
+      <div class="btns">${["android", "ios", "web"].map(pl => `<span class="pill ${t.plateformes.includes(pl) ? "ok" : ""}">${ico(t.plateformes.includes(pl) ? "check" : "x")}${{android: "Android", ios: "iOS", web: "Web"}[pl]}</span>`).join("")}</div>`;
+    S.testInfo = t;
+    dependances();
+  }
+
+  async function dependances() {
+    const z = $("#e-dep"), t = S.testInfo;
+    $$("#e-dep-onglets [data-dep]").forEach(b => b.setAttribute("aria-selected", b.dataset.dep === (S.ongletDep || "dep")));
+    if (S.ongletDep === "histo") {
+      if (!S.courant) { z.innerHTML = vide("Aucun fichier"); return; }
+      const h = await api("/api/editeur/historique?chemin=" + encodeURIComponent(S.courant)).catch(() => []);
+      z.innerHTML = h.length ? `<ul class="liste">${h.map(x => `<li><span class="mono lib">${esc(x.date.slice(0, 19).replace("T", " "))}</span><span class="item">${esc(x.auteur)}</span>
+        <span class="ok-t mono">+${x.apres?.lignes_ajoutees ?? 0}</span><span class="ko-t mono">−${x.apres?.lignes_retirees ?? 0}</span></li>`).join("")}</ul>` : vide("Aucun enregistrement", "Les enregistrements faits depuis l'atelier sont historisés ici.");
+      return;
+    }
+    if (!t) { z.innerHTML = vide("—", "Ouvrir une suite .robot."); return; }
+    const res = (S.props?.resources || []).filter(r => r.endsWith(".resource"));
+    const boite = (titre, items, cls = "") => `<div class="boite-g ${cls}"><h4>${titre}</h4>${items.slice(0, 6).map(x => `<div title="${esc(x)}">${esc(x)}</div>`).join("") || '<div class="lib">—</div>'}${items.length > 6 ? `<div class="lib">(+${items.length - 6} autres)</div>` : ""}</div>`;
+    z.innerHTML = `<div class="lib" style="margin-bottom:6px">Ce test utilise</div><div class="mini-graphe">
+        ${boite(`Keywords (${t.keywords.length})`, t.keywords)}
+        <div style="display:grid;gap:10px">${boite("Ressource", res)}${boite(`Locators (${t.locators.length})`, t.locators)}</div>
+        ${boite(`Impact — autres tests (${t.autres_tests_impactes.length})`, t.autres_tests_impactes.map(o => `${o.cles_xray.join(", ") || "sans clé"} · ${o.nom}`), "impact")}
+      </div>`;
   }
 
   /* ------------------------------------------------------------------ réutilisation */
@@ -371,6 +419,7 @@
   async function contexte() {
     const c = Atelier.ctx;
     $("#e-plat").textContent = {android: "Android", ios: "iOS", web: "Web"}[Atelier.plateforme] || Atelier.plateforme;
+    $$("#e-mob-onglets [data-mp]").forEach(b => b.setAttribute("aria-selected", b.dataset.mp === Atelier.plateforme));
     $("#e-session").className = "pill " + (c.session ? "ok" : "");
     $("#e-session").innerHTML = c.session ? `${ico("check")}Connecté (${esc(c.session)})` : "Aucune session";
     const d = await api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []}));
@@ -390,9 +439,30 @@
   }
 
   async function captures() {
-    const l = await api("/api/resultats/captures?dossier=results&limite=8").catch(() => []);
-    $("#e-captures").innerHTML = l.length ? `<div class="captures">${l.map(c => `<div><a href="/api/resultats/fichier?dossier=${encodeURIComponent(c.dossier)}&chemin=${encodeURIComponent(c.chemin)}" target="_blank" rel="noopener">
-      <img loading="lazy" alt="Capture ${esc(c.chemin)}" src="/api/resultats/fichier?dossier=${encodeURIComponent(c.dossier)}&chemin=${encodeURIComponent(c.chemin)}"></a><small>${esc(c.date)}</small></div>`).join("")}</div>`
-      : vide("Aucune capture", "Les captures des runs (AppiumLibrary, Browser) apparaissent ici.");
+    const l = await api("/api/resultats/captures?dossier=results&limite=7").catch(() => []);
+    $("#e-captures").innerHTML = `<div class="captures">${l.map(c => `<div><a href="/api/resultats/fichier?dossier=${encodeURIComponent(c.dossier)}&chemin=${encodeURIComponent(c.chemin)}" target="_blank" rel="noopener">
+      <img loading="lazy" alt="Capture ${esc(c.chemin)}" src="/api/resultats/fichier?dossier=${encodeURIComponent(c.dossier)}&chemin=${encodeURIComponent(c.chemin)}"></a><small>${esc(c.date)}</small></div>`).join("")}
+      <div><button class="ajout" id="e-capturer" style="width:100%">${ico("plus")}<br>Ajouter une capture</button></div></div>`;
+    $("#e-capturer").onclick = async () => {
+      try { await api("/api/resultats/capturer", {method: "POST", body: {}}); toast("Capture enregistrée dans results/captures/.", "ok"); captures(); }
+      catch (e) { toast(e.message, "ko"); }
+    };
+  }
+
+  async function suites() {
+    const l = await api("/api/projet/fichiers?pattern=" + encodeURIComponent("**/*.robot")).catch(() => []);
+    const sel = $("#e-suite");
+    sel.innerHTML = `<option value="">— choisir une suite —</option>` + l.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
+    if (S.courant) { if (![...sel.options].some(o => o.value === S.courant)) sel.add(new Option(S.courant, S.courant)); sel.value = S.courant; }
+  }
+
+  async function identifier() {
+    const z = $("#e-ecran-id");
+    z.innerHTML = "Identification…";
+    try {
+      const r = await api("/api/carte/ou-suis-je", {method: "POST", body: {}});
+      z.innerHTML = `<span>Écran : <b style="color:var(--ink)">${esc(r.nom || r.titre || r.id)}</b></span>
+        <span class="pill ${r.score >= 0.9 ? "ok" : "warn"}" style="margin-left:auto" title="Similarité avec l'écran connu de la carte">${r.nouveau ? "Nouvel écran" : `Reconnu : ${Math.round(r.score * 100)} %`}</span>`;
+    } catch (e) { z.innerHTML = `<span class="lib">${esc(e.message)}</span>`; }
   }
 })();

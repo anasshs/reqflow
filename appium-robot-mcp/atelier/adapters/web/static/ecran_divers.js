@@ -8,46 +8,63 @@
   };
   const csv = lignes => lignes.map(l => l.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\n");
 
-  /* ================================================================== Dashboard */
+  /* ================================================================== Dashboard (style « Centre d'exécution ») */
+  const PLATICO = p => ico({android: "android", ios: "pomme", web: "globe"}[p] || "mobile");
   Atelier.enregistrer("dashboard", {
     async afficher(zone) {
       zone.className = "g-dash";
-      zone.innerHTML = `<section class="carte pleine"><div class="corps-carte">${vide("Chargement…")}</div></section>`;
-      const [cv, an, runs, bdd] = await Promise.all([api("/api/graphes/couverture").catch(() => null), api("/api/graphes/anomalies").catch(() => []),
-        api("/api/executions").catch(() => []), api("/api/bdd").catch(() => [])]);
+      zone.innerHTML = `<section class="carte s12"><div class="corps-carte">${vide("Chargement…")}</div></section>`;
+      const [cv, an, runs, bdd, dev] = await Promise.all([api("/api/graphes/couverture").catch(() => null), api("/api/graphes/anomalies").catch(() => []),
+        api("/api/executions").catch(() => []), api("/api/bdd").catch(() => []), api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []}))]);
       const ind = cv?.indicateurs, g = ind?.disponible ? ind.global : null;
-      const termines = runs.filter(r => r.passes !== null && r.passes !== undefined && !r.dry_run);
-      const tp = termines.slice(0, 10).reduce((a, r) => a + r.passes, 0), te = termines.slice(0, 10).reduce((a, r) => a + r.echecs, 0);
-      const nb = gr => an.filter(x => x.gravite === gr).length;
-      const max = Math.max(1, ...termines.slice(0, 14).map(r => r.passes + r.echecs));
+      const reels = runs.filter(r => !r.dry_run && r.passes !== null && r.passes !== undefined);
+      const enCours = runs.filter(r => r.statut === "en cours").length;
+      const reussis = reels.filter(r => r.statut === "réussi").length, echoues = reels.filter(r => r.statut === "échec").length;
+      const tp = reels.reduce((a, r) => a + r.passes, 0), te = reels.reduce((a, r) => a + r.echecs, 0);
+      const kpi = (icone, couleur, v, l) => `<div class="kpi kpi-rond"><span class="rond" style="color:var(--${couleur})">${ico(icone)}</span><div class="v" style="color:var(--${couleur})">${v}</div><div class="l">${l}</div></div>`;
+      // tendance sur 7 jours (tests réussis / échoués des runs réels, runs en cours)
+      const jours = [...Array(7)].map((_, k) => new Date(Date.now() - (6 - k) * 864e5).toISOString().slice(0, 10));
+      const parJour = jours.map(d => { const l = runs.filter(r => (r.debut || "").startsWith(d));
+        return {d, ok: l.reduce((a, r) => a + (r.dry_run ? 0 : r.passes || 0), 0), ko: l.reduce((a, r) => a + (r.dry_run ? 0 : r.echecs || 0), 0), run: l.filter(r => r.statut === "en cours").length}; });
+      const max = Math.max(1, ...parJour.map(x => x.ok + x.ko + x.run));
+      const devices = [...dev.android.map(x => ["android", x.udid, x.details]), ...dev.ios_simulateurs.map(x => ["ios", x.udid, `${x.nom} ${x.runtime}`]), ...dev.ios_physiques.map(u => ["ios", u, "physique"])];
+      const xrayStatut = r => !r.xray ? '<span class="lib">—</span>' : `<span class="ok-t">Synchronisé ${ico("check")}</span>`;
       zone.innerHTML = `
-        <section class="carte pleine"><div class="corps-carte"><div class="kpis">
-          <div class="kpi" style="display:flex;gap:12px;align-items:center"><div class="anneau" style="--p:${Math.round((g?.couverture_automatisee || 0) * 100)}"><span>${pct(g?.couverture_automatisee)}</span></div>
-            <div><div class="l">Couverture automatisée</div><b>${g ? `${g.automatises}/${g.tests} tests` : "instantané Xray absent"}</b></div></div>
-          <div class="kpi"><div class="v info">${g ? `${g.exigences_couvertes}/${g.exigences}` : "—"}</div><div class="l">Exigences couvertes</div></div>
-          <div class="kpi"><div class="v ok">${tp + te ? pct(tp / (tp + te)) : "—"}</div><div class="l">Taux de réussite (10 derniers runs)</div></div>
-          <div class="kpi"><div class="v">${runs.length}</div><div class="l">Runs lancés depuis l'atelier</div></div>
-          <div class="kpi"><div class="v ko">${nb("haute")}</div><div class="l">Anomalies hautes</div></div>
-          <div class="kpi"><div class="v violet">${nb("info")}</div><div class="l">Propositions IA à valider</div></div>
-          <div class="kpi"><div class="v">${bdd.filter(b => b.statut === "validé").length}/${bdd.length}</div><div class="l">Scénarios BDD validés</div></div>
-        </div></div></section>
-        <section class="carte large"><h2 class="titre-carte">Tendance des exécutions<span class="actions-titre"><span class="pill ok">réussis</span><span class="pill ko">échecs</span></span></h2>
-          <div class="corps-carte">${termines.length ? `<div style="display:flex;align-items:flex-end;gap:10px;height:150px;padding-top:10px">${termines.slice(0, 14).reverse().map(r => `
-            <a href="#execution/${esc(r.id)}" title="${esc(r.id)} : ${r.passes} réussi(s), ${r.echecs} échec(s)" style="flex:0 1 38px;display:flex;flex-direction:column;justify-content:flex-end;height:100%;text-decoration:none">
-              <span style="background:var(--ko);height:${(r.echecs / max) * 100}%;border-radius:3px 3px 0 0;min-height:${r.echecs ? 3 : 0}px"></span>
-              <span style="background:var(--ok);height:${(r.passes / max) * 100}%;min-height:${r.passes ? 3 : 0}px"></span>
-              <small class="lib" style="text-align:center;margin-top:4px">${esc((r.debut || "").slice(11, 16))}</small></a>`).join("")}</div>`
-            : vide("Aucun run terminé", "Les runs lancés depuis l'atelier alimentent cette tendance.")}</div></section>
-        <section class="carte"><h2 class="titre-carte">Derniers runs</h2><div class="corps-carte"><ul class="liste">${runs.slice(0, 7).map(r => `<li>${statutIco(r.statut)}
-          <a class="item ellipse" href="#execution/${esc(r.id)}">${esc((r.suite || "").split("/").pop() || r.id)}</a><span class="lib mono">${esc((r.debut || "").slice(5, 16).replace("T", " "))}</span></li>`).join("") || "<li class='lib'>Aucun run.</li>"}</ul></div></section>
-        <section class="carte large"><h2 class="titre-carte">Couverture par module</h2><div class="corps-carte">${ind?.disponible
+        <section class="carte s4"><div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+          ${kpi("execution", "accent-ink", enCours, "en cours")}${kpi("check", "ok", reussis, "réussis")}${kpi("x", "ko", echoues, "échoués")}
+          ${kpi("rapports", "violet-ink", tp + te ? pct(tp / (tp + te)) : "—", "taux de réussite")}</div></div></section>
+        <section class="carte s5"><h2 class="titre-carte">Tendance des exécutions (7 derniers jours)<span class="actions-titre">
+            <span class="lib"><span class="pt ok"></span> Réussis</span><span class="lib"><span class="pt ko"></span> Échoués</span><span class="lib"><span class="pt" style="background:var(--accent)"></span> En cours</span></span></h2>
+          <div class="corps-carte"><div style="display:flex;align-items:flex-end;gap:14px;height:120px">${parJour.map(x => `
+            <div title="${x.d} : ${x.ok} réussi(s), ${x.ko} échec(s)" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;align-items:center">
+              <span style="width:16px;background:var(--accent);height:${x.run / max * 100}%;border-radius:2px"></span>
+              <span style="width:16px;background:var(--ko);height:${x.ko / max * 100}%"></span>
+              <span style="width:16px;background:var(--ok);height:${x.ok / max * 100}%;border-radius:0 0 2px 2px"></span>
+              <small class="lib" style="margin-top:4px">${x.d.slice(8, 10)}/${x.d.slice(5, 7)}</small></div>`).join("")}</div></div></section>
+        <section class="carte s3"><h2 class="titre-carte">Disponibilité des devices</h2><div class="corps-carte">
+          ${devices.length ? `<ul class="liste">${devices.map(([p, u, det]) => `<li>${PLATICO(p)}<div class="item"><b class="ellipse" style="display:block">${esc(u)}</b><span class="sous">${esc(det || "")}</span></div><span class="pill ok">connecté</span></li>`).join("")}</ul>`
+            : vide("Aucun device détecté", "adb / simctl ne voient aucun appareil.")}</div></section>
+        <section class="carte s12"><h2 class="titre-carte">Exécutions<span class="actions-titre"><a class="btn" href="#execution">Centre d'exécution ${ico("ext")}</a></span></h2><div class="corps-carte" style="max-height:330px">
+          ${runs.length ? `<table><tr><th>Run</th><th>Suite</th><th>Type</th><th>Plateforme</th><th>Statut</th><th style="width:22%">Progression</th><th>Durée</th><th>Xray</th><th></th></tr>
+          ${runs.slice(0, 12).map(r => { const total = (r.passes || 0) + (r.echecs || 0), prog = r.statut === "en cours" ? null : total ? 100 : 0;
+            const d = r.debut && r.fin ? (new Date(r.fin) - new Date(r.debut)) / 1000 : null;
+            const cls = {"réussi": "ok", "échec": "ko", "en cours": "info", "arrêté": "warn"}[r.statut] || "";
+            return `<tr class="cliquable" data-run="${esc(r.id)}"><td class="cle-xray">${esc(r.id)}</td><td>${esc((r.suite || "").split("/").pop())}</td>
+              <td>${r.dry_run ? "Dry run" : "TNR automatisé"}</td><td style="color:var(--ok)">${PLATICO(r.plateforme)}</td>
+              <td><span class="pill ${cls}">${esc(r.statut.toUpperCase())}</span></td>
+              <td><div style="display:flex;gap:8px;align-items:center"><div class="barre ${r.statut === "échec" ? "rouge" : r.statut === "en cours" ? "bleu" : ""}" style="flex:1"><i style="width:${prog ?? 50}%"></i></div><span class="mono">${prog === null ? "…" : prog + " %"}</span></div></td>
+              <td class="mono">${d === null ? "—" : new Date(d * 1000).toISOString().slice(14, 19)}</td><td>${xrayStatut(r)}</td>
+              <td>${r.statut === "échec" ? `<span class="ko-t">${ico("aide")}</span>` : r.statut === "réussi" ? `<span class="ok-t">${ico("check")}</span>` : ""}</td></tr>`; }).join("")}</table>`
+            : vide("Aucun run", "Les exécutions lancées depuis l'atelier apparaissent ici.")}</div></section>
+        <section class="carte s8"><h2 class="titre-carte">Couverture par module</h2><div class="corps-carte">${ind?.disponible
           ? `<table><tr><th>Module</th><th>Tests</th><th>Automatisés</th><th>Manuels</th><th style="width:40%">Couverture automatisée</th></tr>${ind.modules.map(m => `<tr><td>${esc(m.module)}</td><td>${m.tests}</td>
-            <td>${m.automatises}</td><td>${m.manuels}</td><td style="display:flex;gap:10px;align-items:center"><div class="barre" style="flex:1"><i style="width:${(m.couverture_automatisee || 0) * 100}%"></i></div>${pct(m.couverture_automatisee)}</td></tr>`).join("")}</table>
-            <p class="lib">Définition : ${esc(ind.definitions.test_automatise)} Instantané du ${esc((cv.instantane.date || "").slice(0, 16).replace("T", " "))}.</p>`
+            <td>${m.automatises}</td><td>${m.manuels}</td><td><div style="display:flex;gap:10px;align-items:center"><div class="barre" style="flex:1"><i style="width:${(m.couverture_automatisee || 0) * 100}%"></i></div>${pct(m.couverture_automatisee)}</div></td></tr>`).join("")}</table>
+            <p class="lib">Couverture globale ${pct(g.couverture_automatisee)} (${g.automatises}/${g.tests}). Définition : ${esc(ind.definitions.test_automatise)} Scénarios BDD validés : ${bdd.filter(b => b.statut === "validé").length}/${bdd.length}.</p>`
           : vide("Aucun instantané Xray", `<a href="#rapports/patrimoine">Importer ou synchroniser le patrimoine</a>`)}</div></section>
-        <section class="carte"><h2 class="titre-carte">Anomalies prioritaires<span class="actions-titre"><a class="btn" href="#graphe/anomalies">Tout voir</a></span></h2><div class="corps-carte">
-          <ul class="liste">${an.slice(0, 8).map(a => `<li><span class="pill ${a.gravite === "haute" ? "ko" : a.gravite === "moyenne" ? "warn" : a.gravite === "info" ? "info" : ""}">${esc(a.gravite)}</span>
+        <section class="carte s4"><h2 class="titre-carte">Anomalies prioritaires<span class="actions-titre"><a class="btn" href="#graphe/anomalies">Tout voir</a></span></h2><div class="corps-carte">
+          <ul class="liste">${an.slice(0, 7).map(a => `<li><span class="pill ${a.gravite === "haute" ? "ko" : a.gravite === "moyenne" ? "warn" : a.gravite === "info" ? "info" : ""}">${esc(a.gravite)}</span>
             <span class="item">${esc(a.message)}</span></li>`).join("") || "<li class='lib'>Aucune anomalie.</li>"}</ul></div></section>`;
+      $$("[data-run]", zone).forEach(tr => tr.onclick = () => { location.hash = "execution/" + tr.dataset.run; });
     },
   });
 

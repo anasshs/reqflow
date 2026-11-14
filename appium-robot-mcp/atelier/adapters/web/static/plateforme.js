@@ -43,7 +43,12 @@ const ICONES = {
   export: "M12 3v12M7 10l5 5 5-5M5 21h14", plein: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
   zoomp: "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0M21 21l-5-5M11 8v6M8 11h6", zoomm: "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0M21 21l-5-5M8 11h6",
   cible: "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
-  historique: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2", mobile: "M7 2h10v20H7zM11 18h2", git: "M6 3v12M18 9a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM18 9v1a5 5 0 0 1-5 5H6",
+  historique: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2",
+  android: "M6 10h12v7a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zM6 10a6 6 0 0 1 12 0M9 6.5 7.5 4M15 6.5 16.5 4M9.5 8h.01M14.5 8h.01M9 18v3M15 18v3",
+  globe: "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18",
+  pomme: "M15 4c-1 0-2.5 1-3 2M8 8c-3 0-4 3-4 5.5C4 17 6.5 21 8.5 21c1 0 1.7-.6 3.5-.6s2.4.6 3.5.6c2 0 4.5-4 4.5-7.5C20 11 18.8 8 16 8c-1.6 0-2.6 1-4 1s-2.4-1-4-1z",
+  aide: "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.9-.9 1.6V14M12 17h.01",
+  xray: "M4 4h16v16H4zM8 12l3 3 5-6", fleche: "M5 12h14M13 6l6 6-6 6", mobile: "M7 2h10v20H7zM11 18h2", git: "M6 3v12M18 9a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM18 9v1a5 5 0 0 1-5 5H6",
   bouclier: "M12 2 4 5v6c0 5 3.4 9.5 8 11 4.6-1.5 8-6 8-11V5z", lint: "M4 7h10M4 12h16M4 17h7M17 15l2 2 3-4",
 };
 const ico = (nom, titre = "") => `<svg class="i" viewBox="0 0 24 24" ${titre ? "" : 'aria-hidden="true"'}>${titre ? `<title>${esc(titre)}</title>` : ""}<path d="${ICONES[nom] || ""}"/></svg>`;
@@ -111,6 +116,13 @@ const Atelier = {
     $("#b-alertes").innerHTML = ico("cloche");
     $("#b-alertes").onclick = () => { location.hash = "graphe/anomalies"; };
     $("header .droite a").innerHTML = ico("ext");
+    $("#b-aide").innerHTML = ico("aide");
+    $("#b-aide").onclick = () => modale("Aide", `<p><b>Dashboard</b> : indicateurs calculés sur le dépôt, la carte et l'instantané Xray.</p>
+      <p><b>Knowledge Graph</b> : cliquer un élément pour ses propriétés, double-cliquer pour le placer au centre avec ses dépendances.</p>
+      <p><b>Construction BDD</b> : chaque étape se relie à un écran, un locator, une donnée ; le fichier .feature est réécrit à chaque modification.</p>
+      <p><b>Éditeur de test</b> : Ctrl+S enregistre (historisé) ; le lint vérifie la syntaxe Robot et les conventions du projet.</p>
+      <p><b>Exécution</b> : suivi en direct, étapes, logs et captures ; « Rejouer les échecs » relance les tests en échec.</p>
+      <p class="lib">Interface locale (127.0.0.1). Les secrets restent dans les variables d'environnement.</p>`);
     window.addEventListener("hashchange", () => this.ouvrir());
     await this.chargerContexte();
     this.connecterFlux();
@@ -165,10 +177,13 @@ const Atelier = {
       <div><label>Projet</label><span class="val" title="${esc(c.projet_chemin)}">${esc(c.projet || "—")}</span></div>
       <div><label for="c-app">Application</label><select id="c-app">${(c.applications || []).map(a => `<option value="${esc(a.slug)}" ${a.slug === c.application ? "selected" : ""}>${esc(a.nom)}</option>`).join("") || "<option value=''>Aucune (à cartographier)</option>"}</select></div>
       <div><label>Version</label><span class="val">${esc(c.version || "—")}</span></div>
-      <div><label for="c-plat">Plateforme</label><select id="c-plat">${plats.map(p => `<option value="${p}" ${p === this.plateforme ? "selected" : ""}>${{android: "Android", ios: "iOS", web: "Web"}[p] || esc(p)}</option>`).join("")}</select></div>
+      <div><label for="c-plat">Plateforme</label><span class="ligne">${ico({android: "android", ios: "pomme", web: "globe"}[this.plateforme] || "mobile")}<select id="c-plat">${plats.map(p => `<option value="${p}" ${p === this.plateforme ? "selected" : ""}>${{android: "Android", ios: "iOS", web: "Web"}[p] || esc(p)}</option>`).join("")}</select></span></div>
       <div><label for="c-env">Environnement</label><select id="c-env">${(c.environnements || []).map(e => `<option ${e === this.env ? "selected" : ""}>${esc(e)}</option>`).join("") || "<option value=''>Aucun JDD</option>"}</select></div>
-      <div><label>Xray</label><span class="val" title="${esc(c.xray?.detail || "")}"><span class="pt ${xray[0]}"></span>${xray[1]}</span></div>
-      <div><label>Session</label><span class="val"><span class="pt ${c.session ? "ok" : ""}"></span>${c.session ? esc(c.session) : "Aucune"}${c.run_en_cours ? " · run en cours" : ""}</span></div>`;
+      <div><label>Outil</label><span class="val">${Atelier.plateforme === "web" ? "Browser + Robot Framework" : "Appium + Robot Framework"}</span></div>
+      <div><label>Xray</label><span class="val" title="${esc(c.xray?.detail || "")}" style="color:var(--${xray[0] === "ok" ? "ok" : xray[0] === "ko" ? "ko" : "ink"})">${ico("xray")}${xray[1]}</span></div>
+`;
+    const u = c.utilisateur || "";
+    $("#utilisateur").innerHTML = u ? `<span class="avatar" aria-hidden="true">${esc(u.slice(0, 2).toUpperCase())}</span><div><b>${esc(u)}</b><small>Compte du poste</small></div>` : "";
     $("#c-app").onchange = async e => {
       if (!e.target.value) return;
       try { await api("/api/apps/choisir", {method: "POST", body: {slug: e.target.value}}); toast("Application active changée.", "ok"); await this.chargerContexte(); this.ouvrir(); }

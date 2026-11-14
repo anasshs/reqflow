@@ -1,50 +1,53 @@
-/* Exécution : runs en direct et historique, détail d'un test (étapes, logs, captures), relance, arrêt. */
+/* Exécution (maquette « Suite en cours ») : runs en direct et historique, déroulement d'un test, étape, logs, preuves. */
 "use strict";
 (() => {
   let S = {}, desabo = [];
+  const PLATICO = p => ico({android: "android", ios: "pomme", web: "globe"}[p] || "mobile", p || "");
 
   const E = {
     afficher(zone, runId) {
-      S = {runId: runId || "", runs: [], detail: null, test: null, etape: null, live: S.live || null, filtreStatut: "", filtrePlat: ""};
+      S = {runId: runId || "", runs: [], detail: null, test: null, testDetail: null, etape: 0, live: S.live || null, categorie: "toutes",
+        filtres: {statut: "", plateforme: "", env: "", plan: "", date: ""}, ongletD: "etapes", ongletLog: "kw", ongletEtape: "mobile", typesXray: S.typesXray || {}};
       zone.className = "g-exe";
       zone.innerHTML = `
-        <section class="carte" style="grid-row:1 / span 2">
+        <section class="carte col-g">
           <h2 class="titre-carte">Exécutions</h2>
-          <div class="corps-carte" style="padding:8px 10px">
-            <button class="btn primaire" id="x-lancer" style="width:100%;justify-content:center;margin-bottom:10px">${ico("play")}Lancer une exécution</button>
-            <div class="lib" style="margin:6px 0">FILTRES</div>
-            <label class="ligne-champ" style="grid-template-columns:80px 1fr"><span>Statut</span><select class="in" id="x-f-statut"><option value="">Tous</option>
-              <option value="réussi">Réussi</option><option value="échec">Échec</option><option value="en cours">En cours</option><option value="arrêté">Arrêté</option></select></label>
-            <label class="ligne-champ" style="grid-template-columns:80px 1fr"><span>Plateforme</span><select class="in" id="x-f-plat"><option value="">Toutes</option>
-              <option value="android">Android</option><option value="ios">iOS</option><option value="web">Web</option></select></label>
-            <div class="lib" style="margin:12px 0 4px">RUNS</div>
-            <ul class="liste" id="x-runs"></ul>
-            <div class="lib" style="margin:12px 0 4px">APPAREILS</div>
-            <ul class="liste" id="x-devices"></ul>
+          <div class="corps-carte" style="padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+            <ul class="liste menu-exe" id="x-cat"></ul>
+            <div class="lib" style="margin:10px 0 2px;font-weight:600;letter-spacing:.06em">FILTRES</div>
+            <div id="x-filtres"></div>
+            <button class="lien" id="x-reinit" style="margin:4px 0 6px">Réinitialiser les filtres</button>
+            <div class="lib" style="margin:6px 0 2px;font-weight:600;letter-spacing:.06em">SUITES DE TESTS</div>
+            <ul class="liste arbre-suites" id="x-suites"></ul>
+            <span style="flex:1"></span>
+            <button class="btn" id="x-lancer" style="width:100%;justify-content:center;padding:10px">${ico("plus")}Lancer une exécution</button>
           </div>
         </section>
-        <section class="carte">
-          <div class="titre-carte" id="x-entete" style="text-transform:none;letter-spacing:0;font-size:13px"></div>
+        <section class="carte x-tableau">
+          <div class="titre-carte" id="x-entete" style="text-transform:none;letter-spacing:0;font-size:13px;min-height:54px"></div>
           <div class="corps-carte" style="display:flex;flex-direction:column;gap:12px">
-            <div class="kpis" id="x-kpis"></div>
+            <div class="kpis" id="x-kpis" style="grid-template-columns:repeat(7,minmax(0,1fr))"></div>
             <div style="flex:1;min-height:0;overflow:auto"><table id="x-tests"></table></div>
           </div>
         </section>
-        <section class="carte">
-          <h2 class="titre-carte">Déroulement du test sélectionné</h2>
-          <div class="corps-carte" id="x-deroule"></div>
+        <section class="carte x-deroule">
+          <h2 class="titre-carte">Déroulement du test sélectionné<span class="actions-titre"><button class="icone" id="x-fermer-test" title="Fermer">${ico("x")}</button></span></h2>
+          <div id="x-deroule-tete" style="padding:10px 14px 0"></div>
+          <div class="sous-onglets" id="x-d-onglets"></div>
+          <div class="corps-carte" id="x-deroule" style="padding-top:6px"></div>
         </section>
-        <section class="carte">
-          <h2 class="titre-carte" id="x-titre-etape">Détails de l'étape sélectionnée</h2>
-          <div class="corps-carte" id="x-etape" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:14px"></div>
+        <section class="carte x-etape">
+          <h2 class="titre-carte"><span id="x-titre-etape">Détails de l'étape sélectionnée</span><span class="actions-titre"><span class="lib">DIFF</span><input type="checkbox" class="bascule" id="x-diff" aria-label="Afficher le diff"></span></h2>
+          <div class="corps-carte" id="x-etape" style="display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px"></div>
         </section>
-        <section class="carte">
-          <h2 class="titre-carte">Pièces jointes et captures</h2>
-          <div class="corps-carte" id="x-pj"></div>
-        </section>`;
+        <div class="bas-d">
+          <section class="carte"><div class="sous-onglets" id="x-l-onglets"></div><div class="corps-carte console" id="x-logs"></div></section>
+          <section class="carte"><h2 class="titre-carte">Pièces jointes et captures</h2><div class="corps-carte" id="x-pj"></div></section>
+        </div>`;
       $("#x-lancer").onclick = lancer;
-      $("#x-f-statut").onchange = e => { S.filtreStatut = e.target.value; runs(); };
-      $("#x-f-plat").onchange = e => { S.filtrePlat = e.target.value; runs(); };
+      $("#x-reinit").onclick = () => { S.filtres = {statut: "", plateforme: "", env: "", plan: "", date: ""}; S.categorie = "toutes"; filtres(); runsMenu(); };
+      $("#x-fermer-test").onclick = () => { S.test = null; S.testDetail = null; deroule(); etape(); logs(); };
+      $("#x-diff").onchange = e => { S.ongletEtape = e.target.checked ? "diff" : "mobile"; etape(); };
       desabo = [
         Atelier.on("run_lance", ev => { S.live = {run_id: ev.run_id, suite: ev.suite, tests: new Map(), kws: [], debut: new Date().toISOString()}; S.runId = ev.run_id;
           history.replaceState(null, "", "#execution/" + ev.run_id); charger(); }),
@@ -52,176 +55,292 @@
         Atelier.on("test_debut", ev => { const t = S.live?.tests.get(ev.id); if (!t) return; Object.assign(t, {statut: "RUNNING", debut: ev.heure}); S.live.kws = []; S.live.courant = ev.id; vueLive(); }),
         Atelier.on("kw_debut", ev => { if (!S.live || ev.niveau !== 1) return; S.live.kws.push({nom: ev.nom, args: ev.args, statut: "RUNNING", debut: ev.heure}); vueLive(); }),
         Atelier.on("kw_fin", ev => { if (!S.live || ev.niveau !== 1) return; const k = [...S.live.kws].reverse().find(x => x.statut === "RUNNING"); if (k) { k.statut = ev.statut; k.fin = ev.heure; } vueLive(); }),
-        Atelier.on("test_fin", ev => { const t = S.live?.tests.get(ev.id); if (!t) return; Object.assign(t, {statut: ev.statut, fin: ev.fin, message: ev.message, keyword: ev.keyword_en_echec,
-          duree_s: t.debut ? (new Date(ev.fin) - new Date(t.debut)) / 1000 : null, statut_xray: ev.statut_xray}); vueLive(); }),
-        Atelier.on("run_bilan", ev => { S.live = null; if (ev.run_id) S.runId = ev.run_id; charger(); }),
+        Atelier.on("test_fin", ev => { const t = S.live?.tests.get(ev.id); if (!t) return; Object.assign(t, {statut: ev.statut, fin: ev.fin, message: ev.message,
+          duree_s: t.debut ? (new Date(ev.fin) - new Date(t.debut)) / 1000 : null}); vueLive(); }),
+        Atelier.on("run_bilan", ev => { S.live = null; if (ev.run_id) S.runId = ev.run_id; charger(); suites(); }),
       ];
-      devices();
+      typesXray();
+      suites();
       charger();
     },
     quitter() { desabo.forEach(f => f()); desabo = []; },
   };
   Atelier.enregistrer("execution", E);
 
+  /* ------------------------------------------------------------------ colonne gauche */
+  const statutRun = r => r.statut;
+  function filtrees() {
+    const f = S.filtres, auj = new Date().toISOString().slice(0, 10), sem = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+    return S.runs.filter(r => (S.categorie === "toutes" || (S.categorie === "en cours" ? r.statut === "en cours" : r.statut !== "en cours"))
+      && (!f.statut || statutRun(r) === f.statut) && (!f.plateforme || r.plateforme === f.plateforme)
+      && (!f.date || (f.date === "jour" ? (r.debut || "").startsWith(auj) : (r.debut || "").slice(0, 10) >= sem)));
+  }
+
+  function runsMenu() {
+    const n = c => S.runs.filter(r => c === "toutes" || (c === "en cours" ? r.statut === "en cours" : r.statut !== "en cours")).length;
+    $("#x-cat").innerHTML = [["en cours", "En cours", "execution"], ["terminees", "Terminées", "check"], ["toutes", "Toutes les exécutions", "rapports"]].map(([id, lib, i]) =>
+      `<li data-cat="${id}" class="${S.categorie === id ? "actif" : ""}">${ico(i)}<span class="item">${lib}</span><span class="compteur">${n(id === "terminees" ? "x" : id)}</span></li>`).join("");
+    $$("#x-cat [data-cat]").forEach(li => li.onclick = () => { S.categorie = li.dataset.cat === "terminees" ? "x" : li.dataset.cat; runsMenu(); entete(); });
+    if (S.categorie === "x") $('#x-cat [data-cat="terminees"]').classList.add("actif");
+  }
+
+  function filtres() {
+    const f = S.filtres, opt = (v, l, cur) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(l)}</option>`;
+    const champ = (id, lib, options) => `<label class="ligne-champ" style="grid-template-columns:86px 1fr"><span>${lib}</span><select class="in" data-f="${id}">${options}</select></label>`;
+    $("#x-filtres").innerHTML = champ("statut", "Statut", opt("", "Tous") + ["réussi", "échec", "en cours", "arrêté"].map(s => opt(s, s.charAt(0).toUpperCase() + s.slice(1), f.statut)).join(""))
+      + champ("plateforme", "Plateforme", opt("", "Toutes") + [["android", "Android"], ["ios", "iOS"], ["web", "Web"]].map(([v, l]) => opt(v, l, f.plateforme)).join(""))
+      + champ("env", "Environnement", opt("", Atelier.env || "Tous") )
+      + champ("date", "Date", opt("", "Toutes") + opt("jour", "Aujourd'hui", f.date) + opt("semaine", "7 derniers jours", f.date));
+    $$("#x-filtres [data-f]").forEach(s => s.onchange = () => { S.filtres[s.dataset.f] = s.value; entete(); });
+  }
+
+  async function suites() {
+    const l = await api("/api/depot/suites").catch(() => []);
+    const dossiers = {};
+    l.forEach(s => (dossiers[s.dossier || "."] ||= []).push(s));
+    $("#x-suites").innerHTML = Object.entries(dossiers).map(([d, ss]) => `<li style="font-weight:600;padding-top:8px">${ico("dossier")}<span class="item">${esc(d)}</span>
+      <span class="compteur">${ss.reduce((a, s) => a + s.tests, 0)}</span></li>${ss.map(s => `<li data-suite="${esc(s.fichier)}" style="padding-left:18px">
+        <span class="item ellipse">${esc(s.fichier.split("/").pop())}</span><span class="compteur">${s.tests}</span>
+        ${s.echecs ? '<span class="statut-ico ko" title="Échecs au dernier run">!</span>' : s.passes ? '<span class="statut-ico ok">✓</span>' : '<span class="statut-ico attente" title="Jamais exécutée">·</span>'}</li>`).join("")}`).join("")
+      || "<li class='lib'>Aucune suite dans le dépôt.</li>";
+    $$("#x-suites [data-suite]").forEach(li => li.onclick = () => {
+      const r = S.runs.find(x => x.suite === li.dataset.suite);
+      if (r) location.hash = "execution/" + r.id; else lancer(li.dataset.suite);
+    });
+  }
+
+  async function typesXray() {
+    if (Object.keys(S.typesXray).length) return;
+    const c = await api("/api/graphes/candidats").catch(() => []);
+    c.forEach(x => S.typesXray[x.cle] = x.type);
+  }
+
   /* ------------------------------------------------------------------ données */
   async function charger() {
     S.runs = await api("/api/executions").catch(() => []);
-    runs();
+    runsMenu(); filtres();
     if (!S.runId && S.runs.length) S.runId = S.runs[0].id;
     if (S.live && S.live.run_id === S.runId) return vueLive();
     if (!S.runId) return aucun();
-    try { S.detail = await api("/api/executions/" + encodeURIComponent(S.runId)); }
-    catch (e) { return aucun(e.message); }
+    try { S.detail = await api("/api/executions/" + encodeURIComponent(S.runId)); } catch (e) { return aucun(e.message); }
     S.test = S.detail.tests.find(t => t.statut === "FAIL") || S.detail.tests[0] || null;
     vueRun();
-    if (S.test) chargerTest(S.test.id);
-  }
-
-  function runs() {
-    const l = S.runs.filter(r => (!S.filtreStatut || r.statut === S.filtreStatut) && (!S.filtrePlat || r.plateforme === S.filtrePlat));
-    $("#x-runs").innerHTML = l.map(r => `<li data-run="${esc(r.id)}" style="cursor:pointer;${r.id === S.runId ? "background:var(--accent-soft);border-radius:6px" : ""}">
-      ${statutIco(r.statut)}<div class="item"><b class="ellipse" style="display:block">${esc((r.suite || "").split("/").pop() || r.id)}</b>
-      <span class="sous">${esc(r.id)}${r.dry_run ? " · dry run" : ""}${r.passes !== null && r.passes !== undefined ? ` · ${r.passes}✓ ${r.echecs}✕` : ""}</span></div></li>`).join("")
-      || "<li class='lib'>Aucun run lancé depuis l'atelier.</li>";
-    $$("#x-runs [data-run]").forEach(li => li.onclick = () => { location.hash = "execution/" + li.dataset.run; });
-  }
-
-  async function devices() {
-    const d = await api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []}));
-    const l = [...d.android.map(x => ["android", x.udid, x.details]), ...d.ios_simulateurs.map(x => ["ios", x.udid, `${x.nom} ${x.runtime}`]), ...d.ios_physiques.map(u => ["ios", u, "physique"])];
-    $("#x-devices").innerHTML = l.map(([p, u, det]) => `<li><span class="pt ok"></span><div class="item"><b>${esc(u)}</b><div class="sous ellipse">${esc(p)} · ${esc(det || "")}</div></div></li>`).join("")
-      || "<li class='lib'>Aucun device détecté (adb / simctl).</li>";
+    if (S.test) chargerTest(S.test.id); else { deroule(); etape(); logs(); }
   }
 
   function aucun(msg = "") {
-    $("#x-entete").innerHTML = "Aucune exécution";
+    S.detail = null;
+    entete();
     $("#x-kpis").innerHTML = "";
-    $("#x-tests").innerHTML = `<tr><td>${vide(msg || "Aucun run", "Lancer une exécution : suite, tags, plateforme, ticket Xray. Le suivi est en direct.")}</td></tr>`;
-    ["#x-deroule", "#x-etape", "#x-pj"].forEach(s => $(s).innerHTML = "");
+    $("#x-tests").innerHTML = `<tr><td>${vide(msg || "Aucune exécution", "« Lancer une exécution » : suite, tags, plateforme, ticket Xray, JDD. Le suivi est en direct.")}</td></tr>`;
+    deroule(); etape(); logs(); pieces();
   }
 
-  /* ------------------------------------------------------------------ vues */
-  function entete(suite, statut, id, debut, enCours) {
-    const cls = {"réussi": "ok", "échec": "ko", "en cours": "info", "arrêté": "warn"}[statut] || "";
-    $("#x-entete").innerHTML = `<b style="font-size:14px">SUITE : ${esc(suite || "—")}</b><span class="pill ${cls}">${esc(statut)}</span>
-      <span class="lib">ID : ${esc(id)}</span><span class="lib">Démarré : ${esc(heure(debut))}</span>
-      <span class="actions-titre"><button class="btn primaire" id="x-rejouer" ${enCours ? "disabled" : ""}>${ico("rejouer")}Rejouer les échecs</button>
-      <button class="btn danger" id="x-stop" ${enCours ? "" : "disabled"}>${ico("stop")}Arrêter</button></span>`;
+  /* ------------------------------------------------------------------ en-tête, KPI, tableau */
+  function entete(info) {
+    const d = info || (S.detail && {suite: S.detail.params?.target, statut: statutDetail(), id: S.detail.id, debut: S.detail.debut, enCours: !S.detail.fin});
+    const cls = {"réussi": "ok", "échec": "ko", "en cours": "info", "arrêté": "warn"}[d?.statut] || "";
+    const runs = filtrees();
+    $("#x-entete").innerHTML = `<b style="font-size:14.5px;letter-spacing:.02em">SUITE : ${esc((d?.suite || "—").split("/").pop().replace(".robot", "").toUpperCase())}</b>
+      ${d ? `<span class="pill ${cls}">${esc(d.statut.charAt(0).toUpperCase() + d.statut.slice(1))}</span>` : ""}
+      <select class="in" id="x-run" style="width:auto;font-size:12px" aria-label="Exécution">${runs.map(r => `<option value="${esc(r.id)}" ${r.id === S.runId ? "selected" : ""}>ID Exécution : ${esc(r.id)}</option>`).join("") || "<option>Aucune exécution</option>"}</select>
+      ${d ? `<span class="lib">Démarrée à : ${esc(heure(d.debut))}</span>` : ""}
+      <span class="actions-titre"><button class="btn primaire" id="x-rejouer" ${!d || d.enCours ? "disabled" : ""}>${ico("rejouer")}Rejouer les échecs</button>
+        <button class="btn" id="x-stop" ${d?.enCours ? "" : "disabled"}>${ico("stop")}Arrêter</button>
+        <button class="btn" id="x-actions" ${d ? "" : "disabled"}>Actions ▾</button></span>`;
+    $("#x-run").onchange = e => { location.hash = "execution/" + e.target.value; };
     $("#x-rejouer").onclick = rejouer;
     $("#x-stop").onclick = async () => { const r = await api("/api/run/arreter", {method: "POST", body: {}}).catch(e => ({message: e.message})); toast(r.message); };
+    $("#x-actions").onclick = actions;
   }
 
-  function kpis(tests, enCours, dureeTotale) {
+  const statutDetail = () => { const d = S.detail, b = d.bilan || {}; return !d.fin ? "en cours" : b.arrete ? "arrêté" : b.statut === "bloqué données" ? "bloqué données" : (b.resultat?.echecs ? "échec" : b.resultat ? "réussi" : "erreur"); };
+
+  function kpis(tests, dureeTotale) {
     const n = tests.length, p = tests.filter(t => t.statut === "PASS").length, f = tests.filter(t => t.statut === "FAIL").length;
     const s = tests.filter(t => t.statut === "SKIP" || t.statut === "NOT RUN").length, r = tests.filter(t => t.statut === "RUNNING").length;
     const ds = tests.map(t => t.duree_s).filter(x => x !== null && x !== undefined);
-    const k = (v, l, cls = "", sous = "") => `<div class="kpi"><div class="v ${cls}">${v}${sous ? `<small>${sous}</small>` : ""}</div><div class="l">${l}</div></div>`;
+    const hms = v => (v === null || v === undefined ? "—" : new Date(v * 1000).toISOString().slice(11, 19));
+    const k = (v, l, cls = "", sous = "") => `<div class="kpi"><div class="l">${l}</div><div class="v ${cls}">${v}${sous ? `<small>${sous}</small>` : ""}</div></div>`;
     $("#x-kpis").innerHTML = k(n, "Total tests") + k(p, "Passés", "ok", n ? pct(p / n) : "") + k(f, "Échecs", "ko", n ? pct(f / n) : "")
-      + k(s, "Skip / non lancés", "violet") + k(r, "En cours", "info") + k(duree(dureeTotale ?? (ds.length ? ds.reduce((a, b) => a + b, 0) : null)), "Durée totale")
-      + k(duree(ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : null), "Durée moyenne / test");
+      + k(s, "Skip", "violet", n ? pct(s / n) : "") + k(r, "En cours", "info", n ? pct(r / n) : "")
+      + k(hms(dureeTotale ?? (ds.length ? ds.reduce((a, b) => a + b, 0) : null)), "Durée totale") + k(hms(ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : null), "Durée moyenne / test");
   }
 
   function table(tests, plat) {
-    $("#x-tests").innerHTML = `<tr><th>Statut</th><th>ID Test Xray</th><th>Nom du test</th><th>Plateforme</th><th>Début</th><th>Durée</th></tr>` +
-      tests.map(t => `<tr class="cliquable ${S.test?.id === t.id ? "sel" : ""}" data-test="${esc(t.id)}"><td>${statutIco(t.statut)}</td>
-        <td><b style="color:var(--accent-ink)">${esc((t.cles_xray || []).join(", ") || "—")}</b></td><td>${esc(t.nom)}</td><td>${esc(plat || "—")}</td>
-        <td class="mono">${esc(heure(t.debut))}</td><td class="mono">${t.statut === "RUNNING" ? "en cours" : duree(t.duree_s)}</td></tr>`).join("");
-    $$("#x-tests [data-test]").forEach(tr => tr.onclick = () => { S.test = tests.find(t => t.id === tr.dataset.test); table(tests, plat); if (!S.live) chargerTest(S.test.id); else vueLive(); });
+    $("#x-tests").innerHTML = `<tr><th>Statut</th><th>ID Test Xray</th><th>Nom du test</th><th>Type</th><th>Plateforme</th><th>Début</th><th>Durée</th><th></th></tr>` +
+      tests.map(t => { const cle = (t.cles_xray || [])[0];
+        return `<tr class="cliquable ${S.test?.id === t.id ? "sel" : ""}" data-test="${esc(t.id)}"><td>${statutIco(t.statut)}</td>
+        <td class="cle-xray">${esc((t.cles_xray || []).join(", ") || "—")}</td><td>${esc(t.nom)}</td><td>${esc((cle && S.typesXray[cle]) || "—")}</td>
+        <td style="color:var(--ok)">${PLATICO(plat)}</td><td class="mono">${esc(heure(t.debut))}</td><td class="mono">${t.statut === "RUNNING" ? "--:--:--" : t.duree_s === null || t.duree_s === undefined ? "—" : new Date(t.duree_s * 1000).toISOString().slice(11, 19)}</td>
+        <td class="lib">${ico("fichier")}</td></tr>`; }).join("") + `<tr><td colspan="8" class="lib" style="border:0">Affichage 1 - ${tests.length} sur ${tests.length} tests</td></tr>`;
+    $$("#x-tests [data-test]").forEach(tr => tr.onclick = () => { S.test = tests.find(t => t.id === tr.dataset.test); table(tests, plat); if (S.live) vueLive(); else chargerTest(S.test.id); });
   }
 
   function vueRun() {
-    const d = S.detail, b = d.bilan || {};
-    const statut = !d.fin ? "en cours" : b.arrete ? "arrêté" : b.statut === "bloqué données" ? "bloqué données" : (b.resultat?.echecs ? "échec" : b.resultat ? "réussi" : "erreur");
-    entete(d.params?.target, statut, d.id, d.debut, !d.fin);
-    kpis(d.tests, false, d.fin && d.debut ? (new Date(d.fin) - new Date(d.debut)) / 1000 : null);
+    const d = S.detail;
+    entete();
+    kpis(d.tests, d.fin && d.debut ? (new Date(d.fin) - new Date(d.debut)) / 1000 : null);
     table(d.tests, d.params?.variables?.PLATFORM);
     if (!d.tests.length) {
+      const b = d.bilan || {};
       $("#x-deroule").innerHTML = b.statut === "bloqué données"
         ? `<div class="echec"><b>Bloqué données</b><ul>${(b.jdd?.bloques || []).map(x => `<li>${esc(x.jeu)} : ${esc(x.message)}</li>`).join("")}</ul></div>`
         : vide("Aucun résultat", esc(b.erreur || b.erreurs || "Pas de output.xml pour ce run."));
     }
-    pieces([]);
+    pieces();
   }
 
   async function chargerTest(id) {
     try { S.testDetail = await api(`/api/executions/${encodeURIComponent(S.runId)}/test?id=${encodeURIComponent(id)}`); }
     catch (e) { $("#x-deroule").innerHTML = vide("Détail indisponible", esc(e.message)); return; }
-    deroule(S.testDetail);
+    S.etape = S.testDetail.etape_en_echec ?? 0;
+    deroule(); etape(); logs(); pieces();
   }
 
-  function deroule(t) {
-    const echec = t.etape_en_echec;
-    S.etape = echec ?? 0;
-    $("#x-deroule").innerHTML = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">${statutIco(t.statut)}<b>${esc((t.tags || []).filter(x => /^[A-Z][A-Z0-9_]+-\d+$/.test(x)).join(", "))}</b><span>${esc(t.nom)}</span></div>
-      <ul class="etapes-exe">${t.etapes.map((e, i) => `<li data-etape="${i}" class="${e.statut === "FAIL" ? "ko" : ""} ${i === S.etape ? "sel" : ""}"><span class="lib">${i + 1}</span>
-        <div class="item"><b class="ellipse" style="display:block">${esc(e.nom)}</b><span class="sous ellipse" style="display:block">${esc(e.args.join("  "))}</span></div>${statutIco(e.statut)}<span class="mono lib">${duree(e.duree_s)}</span></li>`).join("")}</ul>
-      ${t.statut === "FAIL" ? `<div class="echec"><b>${ico("x")} Échec</b><div style="margin-top:4px;white-space:pre-wrap">${esc(t.message)}</div></div>` : ""}`;
-    $$("#x-deroule [data-etape]").forEach(li => li.onclick = () => { S.etape = +li.dataset.etape; $$("#x-deroule [data-etape]").forEach(x => x.classList.toggle("sel", x === li)); etape(t); });
-    etape(t);
-    pieces(t.captures, t.dossier);
+  /* ------------------------------------------------------------------ déroulement (droite) */
+  function deroule() {
+    const t = S.testDetail;
+    if (!t) { $("#x-deroule-tete").innerHTML = ""; $("#x-d-onglets").innerHTML = ""; $("#x-deroule").innerHTML = vide("Aucun test sélectionné"); return; }
+    const cle = t.tags.filter(x => /^[A-Z][A-Z0-9_]+-\d+$/.test(x)).join(", ");
+    $("#x-deroule-tete").innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px">${t.statut === "FAIL" ? `<span class="pill ko">${ico("x")}Échec</span>` : `<span class="pill ok">${ico("check")}Réussi</span>`}
+      <b>${esc(cle)}</b><span>${esc(t.nom)}</span></div>`;
+    const o = [["etapes", `Étapes <span class="compteur" style="display:inline-grid">${t.etapes.length}</span>`], ["details", "Détails"], ["logs", "Logs"], ["pj", "Pièces jointes"]];
+    $("#x-d-onglets").innerHTML = o.map(([id, lib]) => `<button aria-selected="${S.ongletD === id}" data-d="${id}">${lib}</button>`).join("");
+    $$("#x-d-onglets [data-d]").forEach(b => b.onclick = () => { S.ongletD = b.dataset.d; deroule(); });
+    const z = $("#x-deroule");
+    if (S.ongletD === "details") {
+      z.innerHTML = `<dl class="props"><dt>Test</dt><dd>${esc(t.nom)}</dd><dt>Fichier</dt><dd><a href="#editeur/${encodeURIComponent(t.fichier)}">${esc(t.fichier)}</a> (ligne ${t.ligne})</dd>
+        <dt>Plateforme</dt><dd>${esc(t.plateforme || "—")}</dd><dt>Tags</dt><dd>${t.tags.map(x => `<span class="pill">${esc(x)}</span>`).join(" ")}</dd>
+        <dt>Statut</dt><dd>${statutIco(t.statut)} ${esc(t.statut)}</dd><dt>Message</dt><dd>${esc(t.message || "—")}</dd></dl>`;
+      return;
+    }
+    if (S.ongletD === "logs") { z.innerHTML = `<div class="console">${t.logs.map(ligneLog).join("") || "<span class='lib'>Aucun message.</span>"}</div>`; return; }
+    if (S.ongletD === "pj") { z.innerHTML = pjHtml(); return; }
+    z.innerHTML = `<table class="etapes-exe"><tr><th style="width:30px"></th><th>Étape / Keyword</th><th>Statut</th><th style="text-align:right">Durée</th></tr>
+      ${t.etapes.map((e, i) => `<tr data-etape="${i}" class="cliquable ${e.statut === "FAIL" ? "ko" : ""} ${i === S.etape ? "sel" : ""}"><td class="lib">${i + 1}</td>
+        <td><b>${esc(e.nom)}</b><span class="sous ellipse">${esc(e.bibliotheque ? e.bibliotheque + " · " : "")}${esc(e.args.join("  "))}</span></td>
+        <td>${statutIco(e.statut)}</td><td class="mono" style="text-align:right">${new Date((e.duree_s || 0) * 1000).toISOString().slice(11, 19)}</td></tr>`).join("")}</table>
+      ${t.statut === "FAIL" ? echecHtml(t.message) : ""}`;
+    $$("#x-deroule [data-etape]").forEach(tr => tr.onclick = () => { S.etape = +tr.dataset.etape; deroule(); etape(); logs(); });
   }
 
-  function etape(t) {
-    const e = t.etapes[S.etape];
-    if (!e) { $("#x-etape").innerHTML = ""; return; }
+  function echecHtml(msg) {
+    const m = String(msg || "").match(/^(.*?)\s+!=\s+(.*)$/s);
+    return `<div class="echec"><b>${ico("x")} Assertion Failed</b><div style="margin-top:6px">${m
+      ? `Attendu : « ${esc(m[1])} »<br>Trouvé : « ${esc(m[2])} »` : esc(msg)}</div></div>`;
+  }
+
+  /* ------------------------------------------------------------------ étape sélectionnée (centre bas) */
+  function etape() {
+    const t = S.testDetail, z = $("#x-etape");
+    if (!t || !t.etapes[S.etape]) { z.innerHTML = vide("Aucune étape sélectionnée"); $("#x-titre-etape").textContent = "Détails de l'étape sélectionnée"; return; }
+    const e = t.etapes[S.etape], ref = e.ecran_reference, cap = t.captures[t.captures.length - 1];
     $("#x-titre-etape").textContent = `Détails de l'étape sélectionnée (étape ${S.etape + 1})`;
-    const logs = t.logs.filter(l => l.keyword === e.nom || e.sous_etapes.some(s => s.nom === l.keyword));
-    const cap = t.captures[t.captures.length - 1];
-    $("#x-etape").innerHTML = `<div><div class="sous-onglets" style="padding:0;margin-bottom:8px"><button aria-selected="true">Écran réel</button>
-        <button aria-selected="false" disabled title="Écran de référence : rattachement étape ↔ écran de la carte à venir">Écran de référence</button></div>
-        ${cap ? `<div class="mobile" style="width:170px"><img alt="Capture au moment de l'échec" src="/api/resultats/fichier?dossier=${encodeURIComponent(t.dossier)}&chemin=${encodeURIComponent(cap)}"></div>`
-          : vide("Aucune capture", "Aucune capture d'écran produite par ce test.")}</div>
-      <div><dl class="props"><dt>Keyword</dt><dd><b>${esc(e.nom)}</b></dd><dt>Arguments</dt><dd><code>${esc(e.args.join("  ") || "—")}</code></dd>
-        <dt>Statut</dt><dd>${statutIco(e.statut)} ${esc(e.statut)}</dd><dt>Début</dt><dd class="mono">${esc(heure(e.debut))}</dd><dt>Durée</dt><dd>${duree(e.duree_s)}</dd>
-        ${e.message ? `<dt>Message</dt><dd class="ko-t">${esc(e.message)}</dd>` : ""}</dl>
-        ${e.sous_etapes.length ? `<div class="lib" style="margin:10px 0 4px">SOUS-ÉTAPES</div><ul class="liste">${e.sous_etapes.map(s => `<li style="padding:4px 2px">${statutIco(s.statut)}<span class="item ellipse">${esc(s.nom)} <span class="lib">${esc(s.args.join("  "))}</span></span><span class="mono lib">${duree(s.duree_s)}</span></li>`).join("")}</ul>` : ""}
-        <div class="lib" style="margin:10px 0 4px">LOGS KEYWORD</div>
-        <div class="console" style="max-height:160px;overflow:auto">${logs.map(l => `<div><span class="t">${esc(heure(l.heure))}</span><span class="${l.niveau === "FAIL" ? "fail" : l.niveau === "WARN" ? "warn" : ""}">${esc(l.niveau)}</span><span>${esc(l.message)}</span></div>`).join("") || "<span class='lib'>Aucun message.</span>"}</div></div>`;
+    const img = (src, alt) => `<div class="mobile">${src ? `<img alt="${esc(alt)}" src="${src}">` : `<span style="padding:16px">${esc(alt)}</span>`}</div>`;
+    const reel = cap ? `/api/resultats/fichier?dossier=${encodeURIComponent(t.dossier)}&chemin=${encodeURIComponent(cap)}` : "";
+    const attendu = ref?.vignette ? `/api/carte/vignette/${encodeURIComponent(ref.vignette)}` : "";
+    const ongl = [["mobile", "Vue mobile"], ["reference", "Écran de référence"], ["diff", "Diff"]];
+    const vue = S.ongletEtape === "reference" ? `<figure>${img(attendu, "Aucun écran de référence : locator absent de la carte.")}<figcaption>${ref ? `Écran ${esc(ref.ecran)} (carte)` : "—"}</figcaption></figure>`
+      : `<div class="ecrans-diff"><figure>${img(attendu, "Aucun écran de référence dans la carte pour ce locator.")}<figcaption>Écran attendu ${ref ? `<span class="pill info">${esc(ref.ecran)}</span>` : ""}</figcaption></figure>
+         <figure>${img(reel, "Aucune capture produite par ce test.")}<figcaption>Écran réel ${cap ? `<span class="pill ${e.statut === "FAIL" ? "ko" : "ok"}">${e.statut === "FAIL" ? "au moment de l'échec" : "capture"}</span>` : ""}</figcaption></figure></div>`;
+    const donnees = Object.entries(t.donnees || {}).flatMap(([jeu, v]) => Object.entries(v).map(([k, val]) => [k, val, jeu]));
+    z.innerHTML = `<div><div class="sous-onglets" style="padding:0;margin-bottom:10px">${ongl.map(([id, lib]) => `<button aria-selected="${(S.ongletEtape === id) || (id === "mobile" && S.ongletEtape === "diff" && false)}" data-oe="${id}">${lib}</button>`).join("")}</div>${vue}</div>
+      <div><div class="lib" style="font-weight:600;letter-spacing:.06em;margin-bottom:8px">INFORMATIONS</div>
+        <dl class="props"><dt>Keyword</dt><dd><b>${esc(e.nom)}</b></dd><dt>Bibliothèque</dt><dd>${esc(e.bibliotheque || "—")}</dd>
+          <dt>Fichier</dt><dd><a href="#editeur/${encodeURIComponent(t.fichier)}">${esc(t.fichier)}</a></dd><dt>Ligne (test)</dt><dd>${esc(t.ligne)}</dd>
+          ${e.definition ? `<dt>Défini dans</dt><dd>${esc(e.definition.fichier)}:${esc(e.definition.ligne)}</dd>` : ""}
+          <dt>Locator</dt><dd><code>${esc(e.locator || "—")}</code></dd><dt>Type locator</dt><dd>${esc((e.type_locator || "—").toUpperCase())}</dd>
+          <dt>Stratégie</dt><dd>${esc(e.strategie || "—")}</dd><dt>Durée</dt><dd>${duree(e.duree_s)}</dd></dl>
+        <div class="lib" style="font-weight:600;letter-spacing:.06em;margin:14px 0 8px">DONNÉES UTILISÉES</div>
+        ${donnees.length ? `<dl class="props">${donnees.map(([k, v, jeu]) => `<dt>${esc(k)}</dt><dd>${esc(v)} <span class="lib">${esc(jeu)}</span></dd>`).join("")}</dl>`
+          : `<p class="lib">Aucun jeu de données injecté dans ce run.</p>`}</div>`;
+    $$("#x-etape [data-oe]").forEach(b => { b.setAttribute("aria-selected", b.dataset.oe === S.ongletEtape); b.onclick = () => { S.ongletEtape = b.dataset.oe; $("#x-diff").checked = b.dataset.oe === "diff"; etape(); }; });
   }
 
-  function pieces(captures, dossier) {
-    const d = S.detail?.params?.output_dir || dossier || "";
-    const lien = (f, lib, ico_) => `<a class="btn" href="/api/resultats/fichier?dossier=${encodeURIComponent(d)}&chemin=${encodeURIComponent(f)}" target="_blank" rel="noopener">${ico(ico_)}${lib}</a>`;
-    $("#x-pj").innerHTML = `${(captures || []).length ? `<div class="captures" style="margin-bottom:10px">${captures.map(c => `<div><a href="/api/resultats/fichier?dossier=${encodeURIComponent(dossier)}&chemin=${encodeURIComponent(c)}" target="_blank" rel="noopener">
-        <img alt="${esc(c)}" src="/api/resultats/fichier?dossier=${encodeURIComponent(dossier)}&chemin=${encodeURIComponent(c)}"></a><small>${esc(c)}</small></div>`).join("")}</div>` : ""}
-      ${d ? `<div class="btns">${lien("log.html", "log.html", "fichier")}${lien("report.html", "report.html", "rapports")}${lien("output.xml", "output.xml", "editeur")}
-        ${S.detail?.bilan?.xray?.execution ? `<span class="pill violet">Xray ${esc(S.detail.bilan.xray.execution)}</span>` : ""}</div>` : ""}
+  /* ------------------------------------------------------------------ logs et pièces jointes (droite bas) */
+  const ligneLog = l => `<div><span class="t">${esc(heure(l.heure))}</span><span class="niv ${l.niveau === "FAIL" ? "fail" : l.niveau === "WARN" ? "warn" : ""}">${esc(l.niveau)}</span>
+    <span class="txt" title="${esc(l.message)}">${l.keyword ? `<span class="info-t">[KEYWORD] ${esc(l.keyword)}</span> ` : ""}${esc(l.message)}</span></div>`;
+
+  function logs() {
+    const t = S.testDetail, o = [["kw", "Logs keyword"], ["det", "Logs détaillés"], ["console", "Console"]];
+    $("#x-l-onglets").innerHTML = o.map(([id, lib]) => `<button aria-selected="${S.ongletLog === id}" data-l="${id}">${lib}</button>`).join("");
+    $$("#x-l-onglets [data-l]").forEach(b => b.onclick = () => { S.ongletLog = b.dataset.l; logs(); });
+    const z = $("#x-logs");
+    if (S.ongletLog === "console") { z.innerHTML = `<pre style="margin:0;white-space:pre-wrap">${esc(S.detail?.bilan?.console_fin || "Console disponible à la fin du run.")}</pre>`; return; }
+    if (!t) { z.innerHTML = "<span class='lib'>Sélectionner un test.</span>"; return; }
+    const e = t.etapes[S.etape];
+    const l = S.ongletLog === "kw" && e ? t.logs.filter(x => x.keyword === e.nom || e.sous_etapes.some(s => s.nom === x.keyword)) : t.logs;
+    z.innerHTML = l.map(ligneLog).join("") || "<span class='lib'>Aucun message pour cette étape.</span>";
+  }
+
+  function pjHtml() {
+    const t = S.testDetail, d = S.detail?.params?.output_dir || t?.dossier || "";
+    if (!d) return vide("Aucune pièce jointe");
+    const url = (dos, f) => `/api/resultats/fichier?dossier=${encodeURIComponent(dos)}&chemin=${encodeURIComponent(f)}`;
+    const caps = (t?.captures || []).map(c => `<a href="${url(t.dossier, c)}" target="_blank" rel="noopener" style="padding:4px"><img alt="${esc(c)}" src="${url(t.dossier, c)}" style="width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:5px"><div class="ellipse">${esc(c)}</div></a>`).join("");
+    const fichier = (f, type, taille = "") => `<a href="${url(d, f)}" target="_blank" rel="noopener"><div class="lib">${ico("fichier")}</div><div class="type">${type}</div><div class="ellipse">${esc(f)}</div></a>`;
+    return `<div class="fichiers-pj">${caps}${fichier("output.xml", "XML")}${fichier("log.html", "HTML")}${fichier("report.html", "HTML")}
+      <button class="ajout" id="x-capturer">${ico("plus")}<br>Ajouter</button></div>
       ${S.detail?.bilan?.xray?.synchro?.restants ? `<p class="echec" style="margin-top:8px"><b>${S.detail.bilan.xray.synchro.restants} événement(s) Xray à rejouer</b> : python -m atelier xray-sync ${esc(d)}</p>` : ""}`;
   }
 
+  function pieces() {
+    $("#x-pj").innerHTML = pjHtml();
+    const b = $("#x-capturer");
+    if (b) b.onclick = async () => {
+      try { await api("/api/resultats/capturer", {method: "POST", body: {}}); toast("Capture enregistrée dans results/captures/.", "ok"); }
+      catch (e) { toast(e.message, "ko"); }
+    };
+  }
+
+  /* ------------------------------------------------------------------ direct */
   function vueLive() {
     const L = S.live;
     if (!L) return;
     const tests = [...L.tests.values()];
-    entete(L.suite, "en cours", L.run_id, L.debut, true);
-    kpis(tests, true, null);
+    entete({suite: L.suite, statut: "en cours", id: L.run_id, debut: L.debut, enCours: true});
+    kpis(tests, null);
     table(tests, Atelier.plateforme);
     const t = (S.test && L.tests.get(S.test.id)) || L.tests.get(L.courant);
     if (!t) { $("#x-deroule").innerHTML = vide("En attente du premier test…"); return; }
-    $("#x-deroule").innerHTML = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">${statutIco(t.statut)}<b>${esc((t.cles_xray || []).join(", "))}</b><span>${esc(t.nom)}</span></div>
-      ${t.id === L.courant ? `<ul class="etapes-exe">${L.kws.map((k, i) => `<li class="${k.statut === "FAIL" ? "ko" : ""}"><span class="lib">${i + 1}</span><div class="item"><b class="ellipse" style="display:block">${esc(k.nom)}</b>
-        <span class="sous ellipse" style="display:block">${esc((k.args || []).join("  "))}</span></div>${statutIco(k.statut)}<span class="mono lib">${esc(heure(k.debut))}</span></li>`).join("")}</ul>`
-        : `<p class="lib">Étapes détaillées disponibles à la fin du run.</p>`}
-      ${t.statut === "FAIL" ? `<div class="echec"><b>Échec</b> ${esc(t.keyword || "")}<div>${esc(t.message || "")}</div></div>` : ""}`;
-    $("#x-etape").innerHTML = vide("Run en cours", "Le détail des étapes, les logs et les captures s'affichent à la fin du run.");
+    $("#x-deroule-tete").innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px">${statutIco(t.statut)}<b>${esc((t.cles_xray || []).join(", "))}</b><span>${esc(t.nom)}</span></div>`;
+    $("#x-d-onglets").innerHTML = `<button aria-selected="true">Étapes <span class="compteur" style="display:inline-grid">${t.id === L.courant ? L.kws.length : 0}</span></button>`;
+    $("#x-deroule").innerHTML = t.id === L.courant ? `<table class="etapes-exe"><tr><th></th><th>Étape / Keyword</th><th>Statut</th><th>Début</th></tr>${L.kws.map((k, i) => `<tr class="${k.statut === "FAIL" ? "ko" : ""}"><td class="lib">${i + 1}</td>
+      <td><b>${esc(k.nom)}</b><span class="sous ellipse">${esc((k.args || []).join("  "))}</span></td><td>${statutIco(k.statut)}</td><td class="mono">${esc(heure(k.debut))}</td></tr>`).join("")}</table>
+      ${t.statut === "FAIL" ? echecHtml(t.message) : ""}` : `<p class="lib">Étapes détaillées disponibles à la fin du run.</p>`;
+    $("#x-etape").innerHTML = vide("Run en cours", "Le détail des étapes, les logs et les preuves s'affichent à la fin du run.");
   }
 
   /* ------------------------------------------------------------------ actions */
+  function actions() {
+    const d = S.detail?.params?.output_dir;
+    const url = f => `/api/resultats/fichier?dossier=${encodeURIComponent(d)}&chemin=${encodeURIComponent(f)}`;
+    const m = modale("Actions sur l'exécution", `<ul class="menu-actions">
+      <li data-o="log.html">${ico("fichier")}Ouvrir le journal (log.html)</li><li data-o="report.html">${ico("rapports")}Ouvrir le rapport (report.html)</li>
+      <li data-o="output.xml">${ico("editeur")}Télécharger output.xml</li><li id="ac-csv">${ico("export")}Exporter les tests (CSV)</li></ul>`);
+    $$("[data-o]", m.el).forEach(li => li.onclick = () => { window.open(url(li.dataset.o), "_blank", "noopener"); m.fermer(); });
+    $("#ac-csv", m.el).onclick = () => {
+      const lignes = [["test", "cles_xray", "statut", "duree_s", "message"], ...S.detail.tests.map(t => [t.nom, t.cles_xray.join(" "), t.statut, t.duree_s, t.message])];
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([lignes.map(l => l.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\n")], {type: "text/csv"}));
+      a.download = `${S.detail.id}.csv`; a.click(); m.fermer();
+    };
+  }
+
   async function rejouer() {
     const p = S.detail?.params;
     if (!p) return;
-    try {
-      const r = await api("/api/run", {method: "POST", body: {...p, relancer_echecs: true, events_url: undefined}});
-      toast(`Relance des échecs : ${r.run_id}`, "ok");
-    } catch (e) { toast(e.message, "ko"); }
+    try { const r = await api("/api/run", {method: "POST", body: {...p, relancer_echecs: true}}); toast(`Relance des échecs : ${r.run_id}`, "ok"); }
+    catch (e) { toast(e.message, "ko"); }
   }
 
-  async function lancer() {
+  async function lancer(cible = "") {
     const fichiers = await api("/api/projet/fichiers?pattern=" + encodeURIComponent("**/*.robot")).catch(() => []);
     const dossiers = [...new Set(fichiers.map(f => f.split("/").slice(0, -1).join("/")).filter(Boolean))];
     const jeux = Atelier.env ? (await api("/api/jdd/" + encodeURIComponent(Atelier.env)).catch(() => ({jeux: []}))).jeux : [];
     const m = modale("Lancer une exécution", `
-      <div class="champ"><label for="l-cible">Suite ou dossier</label><select class="in" id="l-cible">${dossiers.map(d => `<option>${esc(d)}</option>`).join("")}${fichiers.map(f => `<option>${esc(f)}</option>`).join("")}</select></div>
+      <div class="champ"><label for="l-cible">Suite ou dossier</label><select class="in" id="l-cible">${[...dossiers, ...fichiers].map(d => `<option ${d === cible ? "selected" : ""}>${esc(d)}</option>`).join("")}</select></div>
       <div class="grille-2"><div class="champ"><label for="l-tags">Tags à inclure (séparés par des virgules)</label><input class="in" id="l-tags" placeholder="smoke, TAM-745"></div>
         <div class="champ"><label for="l-plat">Plateforme</label><select class="in" id="l-plat">${["android", "ios", "web"].map(p => `<option ${p === Atelier.plateforme ? "selected" : ""}>${p}</option>`).join("")}</select></div>
         <div class="champ"><label for="l-xray">Ticket Xray (plan, exécution, US ou projet)</label><input class="in" id="l-xray" placeholder="optionnel"></div>
