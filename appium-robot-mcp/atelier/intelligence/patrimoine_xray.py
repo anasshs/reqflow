@@ -72,11 +72,28 @@ def etat() -> dict:
         return {"present": False, "fichier": str(fichier())}
     return {"present": True, "fichier": str(fichier()), "date": d.get("date"), "source": d.get("source"),
             "projet": d.get("projet"), "nb_tests": len(d["tests"]), "nb_exigences": len(d.get("exigences", [])),
+            "tronque": d.get("tronque", ""),
             "definitions_xray": d.get("definitions_xray")}
 
 
 # =========================================================================== synchronisation Jira
-def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: int = 1000) -> dict:
+def limite_import() -> int:
+    """Plafond de sécurité d'un import (tickets) : PATRIMOINE_LIMITE, défaut 20 000. Un import tronqué est signalé."""
+    try:
+        return max(100, int(os.environ.get("PATRIMOINE_LIMITE") or 20000))
+    except ValueError:
+        return 20000
+
+
+def _par_lots(jira, cles: list[str], champs: list[str], taille: int = 100) -> list[dict]:
+    """« key in (…) » découpé par lots : un JQL avec des milliers de clés est refusé par Jira."""
+    out = []
+    for i in range(0, len(cles), taille):
+        out += jira.rechercher(f"key in ({', '.join(cles[i:i + taille])})", champs, taille)
+    return out
+
+
+def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: int | None = None) -> dict:
     """Instantané depuis Jira Cloud (recherche JQL) : tests, exigences liées, epics parents.
 
     Champs lus (à vérifier, voir docs/XRAY_API.md) : summary, issuetype, labels, status, components,
@@ -91,7 +108,9 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
     type_test = os.environ.get("XRAY_TEST_ISSUE_TYPE", "Test")
     jql = jql_tests or f'project = "{projet_cle}" AND issuetype = "{type_test}"'
     champs = ["summary", "issuetype", "labels", "status", "components", "priority", "issuelinks", "parent"]
+    limite = limite or limite_import()
     issues = jira.rechercher(jql, champs, limite)
+    tronque = bool(getattr(jira, "tronque", False))
     if not issues:  # rien trouvé : diagnostic, et l'instantané existant n'est jamais écrasé par un résultat vide
         types = sorted({(i["fields"].get("issuetype") or {}).get("name", "?")
                         for i in jira.rechercher(f'project = "{projet_cle}"', ["issuetype"], 200)})
@@ -115,10 +134,11 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
     champ_criteres = os.environ.get("JIRA_CHAMP_CRITERES", "").strip()  # ex. customfield_10050 (critères d'acceptation)
     champs_exig = champs + ["description"] + ([champ_criteres] if champ_criteres else [])
     if ids_exigences:
-        for i in jira.rechercher(f"key in ({', '.join(sorted(ids_exigences))})", champs_exig, limite):
+        for i in _par_lots(jira, sorted(ids_exigences), champs_exig):
             f = i["fields"]
             parent = (f.get("parent") or {}).get("key")
-            exigences.append({"cle": i["key"], "type": _type_exigence(f), "resume": f.get("summary"),
+            exigences.append({"cle": i["key"], "type": _type_exigence(f), "type_jira": (f.get("issuetype") or {}).get("name"),
+                              "resume": f.get("summary"),
                               "parent": parent, "module": _module(f), "statut": (f.get("status") or {}).get("name"),
                               **_description_et_criteres(f, champ_criteres)})
             if parent:
@@ -126,11 +146,13 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
         connues = {e["cle"] for e in exigences}
         manquants = sorted(epics - connues)
         if manquants:
-            for i in jira.rechercher(f"key in ({', '.join(manquants)})", champs, limite):
+            for i in _par_lots(jira, manquants, champs):
                 f = i["fields"]
-                exigences.append({"cle": i["key"], "type": "epic", "resume": f.get("summary"), "parent": None,
+                exigences.append({"cle": i["key"], "type": _type_exigence(f) if f.get("issuetype") else "epic",
+                                  "type_jira": (f.get("issuetype") or {}).get("name"), "resume": f.get("summary"), "parent": None,
                                   "module": _module(f), "statut": (f.get("status") or {}).get("name")})
-    return enregistrer({"projet": projet_cle, "tests": tests, "exigences": exigences}, f"Jira : {jql}")
+    return enregistrer({"projet": projet_cle, "tests": tests, "exigences": exigences,
+                        "tronque": f"limite de {limite} tickets atteinte (PATRIMOINE_LIMITE)" if tronque else ""}, f"Jira : {jql}")
 
 
 CHAMPS_DEFINITION = ("type", "type_genre", "issueId", "etapes", "gherkin", "definition", "dossier", "preconditions")
@@ -169,7 +191,7 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
     else:
         if not (jql or projet_cle):
             raise ValueError("Projet ou JQL requis (aucun instantané à compléter).")
-        d = xray.definitions_tests(jql=jql or f'project = "{projet_cle}"')
+        d = xray.definitions_tests(jql=jql or f'project = "{projet_cle}"', limite=limite_import())
     defs = {t["cle"]: t for t in d["tests"] if t.get("cle")}
     if not defs:  # rien trouvé : l'instantané n'est pas modifié
         if not completer:
@@ -192,7 +214,7 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
     source = (data.get("source") or "").split(" + Xray")[0] if completer else ""
     data["date"] = None
     data["definitions_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "importes": len(defs),
-                                "introuvables": introuvables, "champs_absents": d["champs_absents"]}
+                                "introuvables": introuvables, "champs_absents": d["champs_absents"], "tronque": d.get("tronque", False)}
     etat_ = enregistrer(data, (source + " + Xray (définitions)") if source else f"Xray : {jql or 'project = ' + projet_cle}")
     return {**etat_, **data["definitions_xray"]}
 
@@ -224,9 +246,13 @@ def _module(f: dict) -> str | None:
 
 
 def _type_exigence(f: dict) -> str:
-    nom = ((f.get("issuetype") or {}).get("name") or "").lower()
-    if "epic" in nom:
+    """Catégorie d'une exigence. Le niveau hiérarchique Jira (1 = Epic) prime sur le nom du type, qui dépend de la
+    langue du site (« Epic », « Épopée »…) ; le nom exact reste conservé dans « type_jira »."""
+    it = f.get("issuetype") or {}
+    nom = (it.get("name") or "").lower()
+    niveau = it.get("hierarchyLevel")
+    if (isinstance(niveau, int) and niveau >= 1) or any(m in nom for m in ("epic", "épopée", "epopee")):
         return "epic"
-    if "bug" in nom:
+    if any(m in nom for m in ("bug", "bogue", "anomalie", "défaut")):
         return "bug"
     return "user_story"

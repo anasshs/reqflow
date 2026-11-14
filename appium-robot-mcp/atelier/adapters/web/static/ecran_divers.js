@@ -135,7 +135,7 @@
         <h3 class="lib" style="margin-top:14px">IMPORTER UN INSTANTANÉ (JSON)</h3>
         <div class="btns"><input type="file" id="p-fichier" accept=".json,application/json" aria-label="Fichier JSON"><button class="btn" id="p-import">Importer</button></div></div></div>`;
     $("#p-sync").onclick = async () => {
-      try { const r = await api("/api/patrimoine/synchroniser", {method: "POST", body: {projet: $("#p-projet").value.trim(), jql: $("#p-jql").value.trim()}}); toast(`${r.nb_tests} tests synchronisés.`, "ok"); patrimoine(z); }
+      try { const r = await api("/api/patrimoine/synchroniser", {method: "POST", body: {projet: $("#p-projet").value.trim(), jql: $("#p-jql").value.trim()}}); toast(`${r.nb_tests} tests synchronisés${r.tronque ? ` — TRONQUÉ : ${r.tronque}` : ""}.`, r.tronque ? "ko" : "ok"); patrimoine(z); }
       catch (err) { toast(err.message, "ko"); }
     };
     $("#p-import").onclick = async () => {

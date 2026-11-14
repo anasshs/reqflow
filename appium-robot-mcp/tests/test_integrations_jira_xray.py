@@ -225,3 +225,39 @@ def test_synchro_vide_diagnostic_et_import_depuis_xray(tmp_path, monkeypatch):
     jqls = [v.get("jql") for q, v in x.requetes if v and "jql" in v]
     assert jqls and all(j == 'project = "TAM"' for j in jqls)  # instantané vide : tests du projet, jamais « tous »
     assert r["importes"] == 2 and r["nb_tests"] == 2 and r["source"].startswith("Xray")
+
+
+def test_synchro_jira_au_dela_de_1000_et_troncature_signalee(tmp_path, monkeypatch):
+    from atelier.domain import projet
+    from atelier.intelligence import patrimoine_xray
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+
+    class JiraVolumineux:
+        enabled = True
+        tronque = False
+
+        def rechercher(self, jql, champs, limite):
+            if jql.startswith("key in"):
+                cles = jql[8:-1].split(", ")
+                assert len(cles) <= 100  # lots de 100 clés au plus
+                return [{"key": c, "fields": {"summary": c, "issuetype": {"name": "Story"}}} for c in cles]
+            n = min(1500, limite)
+            self.tronque = limite < 1500
+            return [{"key": f"TAM-{i}", "fields": {"summary": "t", "issuetype": {"name": "Test"},
+                                                    "issuelinks": [{"type": {"name": "Test"}, "outwardIssue": {"key": f"TAM-US{i}"}}]}} for i in range(n)]
+
+    r = patrimoine_xray.synchroniser_jira("TAM", jira=JiraVolumineux())
+    assert r["nb_tests"] == 1500 and r["nb_exigences"] == 1500 and not r["tronque"]  # plus de plafond à 1000
+    monkeypatch.setenv("PATRIMOINE_LIMITE", "1200")
+    r = patrimoine_xray.synchroniser_jira("TAM", jira=JiraVolumineux())
+    assert r["nb_tests"] == 1200 and "1200" in r["tronque"]
+
+
+def test_type_exigence_independant_de_la_langue():
+    from atelier.intelligence.patrimoine_xray import _type_exigence
+
+    assert _type_exigence({"issuetype": {"name": "Épopée", "hierarchyLevel": 1}}) == "epic"
+    assert _type_exigence({"issuetype": {"name": "Feature parente", "hierarchyLevel": 1}}) == "epic"  # nom quelconque, niveau Epic
+    assert _type_exigence({"issuetype": {"name": "Story", "hierarchyLevel": 0}}) == "user_story"
+    assert _type_exigence({"issuetype": {"name": "Bogue", "hierarchyLevel": 0}}) == "bug"

@@ -114,6 +114,7 @@ class JiraClient:
             raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")
         out: list[dict] = []
         jeton = None
+        self.tronque = False
         while len(out) < limite:
             corps = {"jql": jql, "fields": champs, "maxResults": min(100, limite - len(out))}
             if jeton:
@@ -123,6 +124,7 @@ class JiraClient:
             jeton = r.get("nextPageToken")
             if not jeton:
                 break
+        self.tronque = bool(jeton)  # limite atteinte alors que Jira avait encore des pages : signalé, jamais silencieux
         return out[:limite]
 
 

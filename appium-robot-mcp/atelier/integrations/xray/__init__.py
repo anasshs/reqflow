@@ -167,7 +167,10 @@ class XrayClient:
                 debut += 100
                 if not pagine or not page["results"] or debut >= (page.get("total") or 0):
                     break
-        return {"tests": [_definition(x) for x in brut], "champs_absents": absents, "pagination": pagine}
+        tronque = not cles and len(brut) >= limite  # par clés : toutes les clés demandées sont lues, sans plafond
+        if tronque:
+            brut = brut[:limite]
+        return {"tests": [_definition(x) for x in brut], "champs_absents": absents, "pagination": pagine, "tronque": tronque}
 
     def search_tests(self, jql: str, limit: int = 50) -> list[dict]:
         """Tests correspondant à un JQL (ex. candidats à l'automatisation)."""

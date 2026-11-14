@@ -54,7 +54,7 @@
       const projet = v.xray.present || Atelier.ctx.projet_xray ? "" : prompt("Clé du projet Xray (aucun instantané à compléter) :");
       if (projet === null) return;
       try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {projet}});
-        toast(`${r.importes} définition(s) importée(s)${r.introuvables.length ? `, ${r.introuvables.length} introuvable(s)` : ""}${r.champs_absents.length ? ` ; champs absents du schéma : ${r.champs_absents.join(", ")}` : ""}.`, r.introuvables.length ? "ko" : "ok");
+        toast(`${r.importes} définition(s) importée(s)${r.tronque ? " — TRONQUÉ (PATRIMOINE_LIMITE)" : ""}${r.introuvables.length ? `, ${r.introuvables.length} introuvable(s)` : ""}${r.champs_absents.length ? ` ; champs absents du schéma : ${r.champs_absents.join(", ")}` : ""}.`, r.introuvables.length ? "ko" : "ok");
         vue(z); } catch (e) { toast(e.message, "ko"); }
     };
   }
@@ -66,7 +66,7 @@
     z.innerHTML = `${entete("Exigences & import", `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Importer / synchroniser Jira</a>`)}
       <div class="corps-carte"><p class="lib">Source : instantané Jira / Xray (clés externes conservées). ${sans} exigence(s) sans test.</p>
       ${l.length ? `<table class="table-strat"><tr><th>Clé Jira</th><th>Type</th><th>Titre</th><th>Parent</th><th>Module</th><th>Statut</th><th>Cas de test</th></tr>
-        ${l.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.type)}</td><td>${esc(e.resume || "")}</td><td>${esc(e.parent || "")}</td><td>${esc(e.module || "")}</td><td>${esc(e.statut || "")}</td>
+        ${l.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc({epic: "Epic", user_story: "User Story", bug: "Bug"}[e.type] || e.type)}${e.type_jira ? ` <span class="lib">(${esc(e.type_jira)})</span>` : ""}</td><td>${esc(e.resume || "")}</td><td>${esc(e.parent || "")}</td><td>${esc(e.module || "")}</td><td>${esc(e.statut || "")}</td>
           <td>${e.sans_test ? '<span class="pill ko">aucun test</span>' : e.tests.map(t => `<a class="pill" href="#conception/cas">${esc(t)}</a>`).join(" ")}</td></tr>`).join("")}</table>`
         : vide("Aucune exigence", `<a href="#rapports/patrimoine">Importer l'instantané Xray ou synchroniser Jira.</a>`)}
       <p class="lib" style="margin-top:10px">Génération IA de cas de test depuis une exigence : à venir (les propositions devront être validées avant création dans Xray).</p></div>`;
