@@ -78,6 +78,10 @@ class FauxXray:
 
                 import re as _re
                 nom = v.get("n") or (_re.search(r'__type\(name: "(\w+)"\)', q) or [None, ""])[1]
+                from atelier.integrations.xray.verification import TYPES_ENTREE_EXTRA
+
+                if nom in TYPES_ENTREE_EXTRA:
+                    return 200, {"data": {"__type": {"inputFields": [{"name": c} for c in TYPES_ENTREE_EXTRA[nom]]}}}
                 champs = TYPES_SORTIE.get(nom)
                 return 200, {"data": {"__type": {"fields": [{"name": c, "args": []} for c in champs]} if champs else None}}
             op = next(o for o in OPERATIONS if o in q)

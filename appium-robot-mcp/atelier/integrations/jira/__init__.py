@@ -85,6 +85,38 @@ class JiraClient:
         r = json.loads(http("POST", f"{self.base}/rest/api/3/issue", json.dumps(body).encode(), self._h()))
         return r["key"]
 
+    def commenter(self, key: str, texte: str) -> dict:
+        """Commentaire (texte simple, une ligne = un paragraphe ; « - » en tête = puce). POST /rest/api/3/issue/{key}/comment."""
+        if not self.enabled:
+            raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")
+        lignes = [l for l in texte.splitlines() if l.strip()]
+        contenu, puces = [], []
+        for l in lignes + [""]:
+            if l.lstrip().startswith("- "):
+                puces.append({"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": l.lstrip()[2:]}]}]})
+                continue
+            if puces:
+                contenu.append({"type": "bulletList", "content": puces})
+                puces = []
+            if l:
+                contenu.append({"type": "paragraph", "content": [{"type": "text", "text": l}]})
+        corps = {"body": {"type": "doc", "version": 1, "content": contenu}}
+        r = json.loads(http("POST", f"{self.base}/rest/api/3/issue/{key}/comment", json.dumps(corps).encode(), self._h()))
+        return {"id": r.get("id"), "auteur_id": (r.get("author") or {}).get("accountId"), "date": r.get("created")}
+
+    def commentaires(self, key: str) -> list[dict]:
+        """Commentaires d'un ticket, du plus ancien au plus récent (texte extrait de l'ADF)."""
+        out, debut = [], 0
+        while True:
+            r = self.get(f"/rest/api/3/issue/{key}/comment?startAt={debut}&maxResults=100&orderBy=created")
+            for c in r.get("comments") or []:
+                out.append({"id": c.get("id"), "auteur": (c.get("author") or {}).get("displayName", ""),
+                            "auteur_id": (c.get("author") or {}).get("accountId", ""), "date": c.get("created", ""),
+                            "texte": adf_vers_texte(c.get("body"))})
+            debut += len(r.get("comments") or [])
+            if not r.get("comments") or debut >= (r.get("total") or 0):
+                return out
+
     def link(self, issue_a: str, issue_b: str, type_name: str = "Relates"):
         body = {"type": {"name": type_name}, "inwardIssue": {"key": issue_a},
                 "outwardIssue": {"key": issue_b}}

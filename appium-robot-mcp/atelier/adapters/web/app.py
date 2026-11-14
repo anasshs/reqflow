@@ -997,6 +997,72 @@ async def patrimoine_importer(req: Request):
     return _call(patrimoine_xray.enregistrer, b, "import manuel (interface)")
 
 
+# --------------------------------------------------------------------------- Testabilité des US (stratégie actionnable)
+@app.get("/api/testabilite/espaces")
+def testabilite_espaces():
+    from atelier.intelligence import fournisseur_ia, testabilite_us
+
+    return {"espaces": _call(testabilite_us.espaces), "ia": fournisseur_ia.etat(), "indicateurs": _call(testabilite_us.indicateurs)}
+
+
+@app.post("/api/testabilite/espaces")
+async def testabilite_enregistrer_espace(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.enregistrer_espace, await req.json())
+
+
+@app.post("/api/testabilite/espaces/supprimer")
+async def testabilite_supprimer_espace(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.supprimer_espace, (await req.json()).get("projet_jira", ""))
+
+
+@app.post("/api/testabilite/detecter")
+async def testabilite_detecter():
+    from atelier.intelligence import testabilite_us
+
+    return await asyncio.to_thread(_call, testabilite_us.detecter)
+
+
+@app.post("/api/testabilite/reponses")
+async def testabilite_reponses(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    return await asyncio.to_thread(_call, testabilite_us.relever_reponses, (await req.json()).get("cle", ""))
+
+
+@app.get("/api/testabilite/file")
+def testabilite_file(espace: str = "", statut: str = ""):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.file, espace, statut)
+
+
+@app.get("/api/testabilite/us/{cle}")
+def testabilite_detail(cle: str):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.detail, cle)
+
+
+@app.post("/api/testabilite/us/{cle}/{action}")
+async def testabilite_action(cle: str, action: str, req: Request):
+    """Actions explicites sur une US ; les écritures Jira / Xray (envoyer, publier) ne partent que d'ici."""
+    from atelier.intelligence import testabilite_us as t
+
+    b = await req.json() if (await req.body()) else {}
+    actions = {"analyser": lambda: t.analyser(cle), "analyser-ia": lambda: t.analyser_ia(cle),
+               "questions": lambda: t.modifier_questions(cle, b.get("texte", "")), "envoyer": lambda: t.envoyer_questions(cle),
+               "reponses": lambda: t.relever_reponses(cle), "proposer-cas": lambda: t.proposer_cas(cle),
+               "cas": lambda: t.modifier_cas(cle, b.get("id", ""), b), "decision": lambda: t.decider_cas(cle, b.get("id", ""), b.get("decision", ""), b.get("motif", "")),
+               "publier": lambda: t.publier_cas(cle), "non-testable": lambda: t.non_testable(cle, b.get("justification", ""))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    return await asyncio.to_thread(_call, actions[action])
+
+
 @app.post("/api/patrimoine/xray-definitions")
 async def patrimoine_xray_definitions(req: Request):
     """Mode A : définitions des tests (type, étapes, Gherkin, dossier, préconditions) lues dans Xray."""

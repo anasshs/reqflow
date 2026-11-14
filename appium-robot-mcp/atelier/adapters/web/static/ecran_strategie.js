@@ -91,13 +91,23 @@
 
   /* ------------------------------------------------------------------ 01 vue d'ensemble */
   function vue(z) {
+    setTimeout(() => api("/api/testabilite/espaces").then(c => {
+      const b = $("#v-us");
+      if (!b) return;
+      const k = c.indicateurs;
+      b.querySelector("p").innerHTML = c.espaces.length
+        ? `Espaces Jira suivis : <b>${c.espaces.map(e => esc(e.projet_jira)).join(", ")}</b> → tests dans ${esc([...new Set(c.espaces.map(e => e.projet_xray))].join(", "))}.
+           ${k.us} US suivies, ${k.couvertes} couvertes${k.taux_couverture === null ? "" : ` (${String(k.taux_couverture).replace(".", ",")} %)`}, ${k.en_attente_reponse} en attente de réponse, ${k.non_testables} non testable(s). IA : ${esc(c.ia.fournisseur)}.`
+        : "Aucun espace Jira activé : chaque US des squads choisies devra être clarifiée puis couverte par des tests Xray. <a href='#conception/us'>Configurer</a>.";
+    }).catch(() => {}), 0);
     const s = E.strategie, y = E.synthese, i = s.infos;
     const bloc = (titre, cible, corps) => `<section class="bloc-strat"><h3>${titre}<button class="lien" data-aller="${cible}">Détails ${ico("ext")}</button></h3>${corps}</section>`;
     const n = (v, l, c = "") => `<div class="chiffre"><b class="${c}">${v ?? "—"}</b><span>${l}</span></div>`;
     const ind = y.indicateurs;
     z.innerHTML = `${entete("Vue d'ensemble", `<button class="btn" id="v-modif">${ico("editeur")}Modifier</button><button class="btn" id="v-comp">Comparer les versions</button>
         <button class="btn" id="v-pdf">${ico("export")}Exporter en PDF</button><button class="btn primaire" data-aller="validation">${ico("check")}Publier…</button>`)}
-      <div class="corps-carte"><div class="grille-strat">
+      <div class="corps-carte"><section class="bloc-strat" id="v-us" style="margin-bottom:12px"><h3>Politique : testabilité des US<a class="lien" href="#conception/us">Ouvrir ${ico("ext")}</a></h3>
+        <p class="lib">Chargement…</p></section><div class="grille-strat">
         ${bloc("A · Informations générales", "validation", `<dl class="props"><dt>Nom</dt><dd><b>${esc(i.nom)}</b></dd><dt>Application</dt><dd>${esc(i.application)}</dd>
           <dt>Version</dt><dd>${esc(i.version_application || "—")}</dd><dt>Responsable QA</dt><dd>${esc(i.responsable)}</dd>
           <dt>Créée le</dt><dd>${esc(i.cree_le.replace("T", " "))}</dd><dt>Modifiée le</dt><dd>${esc(i.modifie_le.replace("T", " "))}</dd>

@@ -437,4 +437,25 @@ def automation_flow(cible: str = "") -> dict:
     return espaces.vue_flux(cible)
 
 
+@outil
+def testabilite_us_a_traiter(limite: int = 20) -> list:
+    """Testabilité des US : User Stories à analyser (texte masqué, réponses de l'équipe). Lire chaque US, repérer les
+    ambiguïtés, formuler des questions et proposer des cas de test, puis les déposer avec testabilite_deposer_proposition.
+    Aucune proposition n'est appliquée sans validation humaine dans l'atelier."""
+    from atelier.intelligence import testabilite_us
+
+    return testabilite_us.a_traiter(limite)
+
+
+@outil
+def testabilite_deposer_proposition(cle: str, constats: list, cas: list) -> dict:
+    """Dépose l'analyse de l'agent pour une US. constats : [{"gravite": "haute|moyenne|basse", "message", "extrait",
+    "question"}] ; cas : [{"titre", "etapes": [{"action", "donnees", "resultat"}], "gherkin"}]. N'invente aucune règle
+    métier : une information absente devient une question. Rien n'est envoyé à Jira ni créé dans Xray."""
+    from atelier.intelligence import testabilite_us
+
+    r = testabilite_us.deposer_proposition(cle, constats or [], cas or [], "Cursor (MCP)")
+    return {"cle": cle, "statut": r["statut"], "constats": len(r["constats"]), "cas": len(r["cas"])}
+
+
 __all__ = [f.__name__ for f in OUTILS]

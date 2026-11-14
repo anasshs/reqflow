@@ -85,3 +85,12 @@ Une ligne datée par décision d'architecture ou de conception.
   d'environnement du poste reste prioritaire ; « Effacer » retire le secret de la session et du coffre.
 - Coffre indisponible (aucun backend système) ou ATELIER_COFFRE=non : saisie en mémoire de session uniquement.
 - Règle du CLAUDE.md amendée en conséquence (secrets : environnement ou coffre du système, jamais un fichier de l'atelier).
+
+
+## 2026-11-14 — Stratégie actionnable : testabilité des US ; IA interchangeable
+- À la demande de l'utilisateur, la stratégie agit sur les US des squads (espaces Jira activés) plutôt que sur des
+  critères d'entrée bloquants : détection, analyse, questions en commentaire Jira, cas de test, publication Xray.
+- IA choisie par l'entreprise (`IA_FOURNISSEUR`) : aucune, Cursor via le MCP (autorisé), LLM interne compatible
+  OpenAI (prévu par l'entreprise), Claude sur autorisation. Les règles explicables fonctionnent seules.
+- Toute écriture externe (commentaire Jira, test Xray, lien) est explicite et historisée ; les propositions d'IA ne
+  sont jamais appliquées sans validation ; détails et points à vérifier : docs/TESTABILITE_US.md.

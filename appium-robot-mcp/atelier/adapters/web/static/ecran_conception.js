@@ -2,7 +2,7 @@
    Données réelles : instantané Xray, scénarios BDD, dépôt Robot, JDD ; métadonnées de conception côté plateforme. */
 "use strict";
 (() => {
-  const MENU = [["vue", "Vue d'ensemble"], ["exigences", "Exigences & import"], ["cas", "Cas de test (Xray)"], ["bdd", "Scénarios BDD"],
+  const MENU = [["vue", "Vue d'ensemble"], ["us", "US à couvrir"], ["exigences", "Exigences & import"], ["cas", "Cas de test (Xray)"], ["bdd", "Scénarios BDD"],
     ["jdd", "Jeux de données"], ["regles", "Règles de test"], ["suites", "Suites de test"], ["tracabilite", "Traçabilité"],
     ["reutilisables", "Réutilisables"], ["revue", "Revue & validation"], ["baseline", "Baseline & versioning"],
     ["mapping", "Xray Mapping & synchronisation"], ["parametres", "Paramètres"]];
@@ -23,7 +23,7 @@
         <section class="carte corps-strat"><div class="corps-carte">${vide("Chargement…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "conception/" + b.dataset.r; });
       const z = $(".corps-strat");
-      try { await ({vue, exigences, cas, jdd, regles, suites, tracabilite, reutilisables, revue, baseline, mapping, parametres}[R])(z); }
+      try { await ({vue, us, exigences, cas, jdd, regles, suites, tracabilite, reutilisables, revue, baseline, mapping, parametres}[R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
   });
@@ -129,6 +129,115 @@
       }
       toast(`${r.mode} · ${r.cle_xray} : ${r.resultat}`, r.non_publies?.length ? "ko" : "ok");
     } catch (e) { toast(e.message, "ko"); }
+  }
+
+  /* ------------------------------------------------------------------ US à couvrir (testabilité des US) */
+  const ST_US = {"Détectée": "", "Analysée": "info", "Questions envoyées": "warn", "Réponses reçues": "violet", "Cas proposés": "info",
+    "Couverte": "ok", "Couverte (existant)": "ok", "Non testable": "ko"};
+  const GRAV = {haute: "ko", moyenne: "warn", basse: ""};
+  async function us(z) {
+    const [cfg, l] = await Promise.all([api("/api/testabilite/espaces"), api("/api/testabilite/file")]);
+    const ind = cfg.indicateurs;
+    z.innerHTML = `${entete("US à couvrir", `<button class="btn" id="us-cfg">Politique (espaces Jira)</button><button class="btn" id="us-rep">Relever les réponses</button>
+        <button class="btn primaire" id="us-det">${ico("rejouer")}Détecter les US</button>`)}<div class="corps-carte">
+      <p class="lib">Chaque US d'un espace activé doit être comprise, clarifiée puis couverte par au moins un test Xray. Rien n'est écrit dans Jira ni Xray
+        sans action explicite. IA : <b>${esc(cfg.ia.fournisseur)}</b> — ${esc(cfg.ia.detail)}.</p>
+      <div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin:10px 0">${[[ind.us, "US suivies"], [ind.couvertes, "couvertes"],
+        [ind.taux_couverture === null ? "—" : String(ind.taux_couverture).replace(".", ",") + " %", "taux de couverture"], [ind.en_attente_reponse, "en attente de réponse"],
+        [ind.non_testables, "non testables"]].map(([v, t]) => `<div class="kpi"><div class="v">${v ?? "—"}</div><div class="l">${t}</div></div>`).join("")}</div>
+      ${!cfg.espaces.length ? vide("Aucun espace activé", "« Politique (espaces Jira) » : choisir les projets Jira des squads à suivre.")
+        : l.length ? `<table class="table-strat"><tr><th>US</th><th>Espace</th><th>Résumé</th><th>Statut Jira</th><th>Testabilité</th><th>Constats</th><th>Cas</th><th>Tests liés</th></tr>
+          ${l.map(x => `<tr class="cliquable" data-us="${esc(x.cle)}"><td class="cle-xray">${esc(x.cle)}${x.alertes ? ' <span class="pill warn" title="modifiée dans Jira">!</span>' : ""}</td><td>${esc(x.espace)}</td>
+            <td>${esc(x.resume)}</td><td class="lib">${esc(x.statut_jira)}</td><td><span class="pill ${ST_US[x.statut] || ""}">${esc(x.statut)}</span></td><td>${x.constats}</td><td>${x.cas}</td>
+            <td class="mono">${esc((x.tests_lies || []).join(", ") || "—")}</td></tr>`).join("")}</table>`
+        : vide("Aucune US détectée", "« Détecter les US » interroge Jira (lecture seule).")}</div>`;
+    $("#us-cfg").onclick = () => politiqueUS(cfg);
+    $("#us-det").onclick = async () => { try { const r = await api("/api/testabilite/detecter", {method: "POST", body: {}}); toast(`${r.us} US (${r.nouvelles} nouvelles).`, "ok"); us(z); } catch (e) { toast(e.message, "ko"); } };
+    $("#us-rep").onclick = async () => { try { const r = await api("/api/testabilite/reponses", {method: "POST", body: {}}); toast(`${r.nouvelles} réponse(s) nouvelle(s).`, "ok"); us(z); } catch (e) { toast(e.message, "ko"); } };
+    $$("[data-us]", z).forEach(tr => tr.onclick = () => panneauUS(tr.dataset.us, z));
+  }
+
+  function politiqueUS(cfg) {
+    const ligne = e => `<tr><td><b>${esc(e.projet_jira)}</b> ${e.actif ? '<span class="pill ok">actif</span>' : '<span class="pill">inactif</span>'}</td><td>${esc(e.nom)}</td>
+      <td>${esc((e.types_issue || []).join(", "))}</td><td>${esc((e.statuts || []).join(", ") || "non terminées")}</td><td>${esc(e.projet_xray)}</td><td>${esc(e.type_test)} · ${e.min_tests} min.</td>
+      <td><button class="btn petit danger" data-sup="${esc(e.projet_jira)}">Retirer</button></td></tr>`;
+    const m = modale("Politique de testabilité des US", `<p class="lib">Espaces Jira (projets des squads) dont chaque US doit être couverte par des tests du projet Xray cible.</p>
+      ${cfg.espaces.length ? `<table><tr><th>Projet Jira</th><th>Nom</th><th>Types</th><th>Statuts déclencheurs</th><th>Xray</th><th>Tests</th><th></th></tr>${cfg.espaces.map(ligne).join("")}</table>` : ""}
+      <h3 class="lib" style="margin-top:12px">AJOUTER / MODIFIER UN ESPACE</h3><div class="grille-2">
+        <div class="champ"><label for="es-pj">Projet Jira de la squad</label><input class="in" id="es-pj" placeholder="SQUAD1"></div>
+        <div class="champ"><label for="es-nom">Nom</label><input class="in" id="es-nom" placeholder="Squad Cartes"></div>
+        <div class="champ"><label for="es-ty">Types de ticket (virgules)</label><input class="in" id="es-ty" value="Story"></div>
+        <div class="champ"><label for="es-st">Statuts déclencheurs (virgules ; vide = non terminées)</label><input class="in" id="es-st" placeholder="Ready, To Do"></div>
+        <div class="champ"><label for="es-x">Projet Xray cible</label><input class="in" id="es-x" value="${esc(Atelier.ctx.projet_xray || "")}"></div>
+        <div class="champ"><label for="es-tt">Type de test créé</label><select class="in" id="es-tt"><option>Manual</option><option>Cucumber</option></select></div>
+        <div class="champ"><label for="es-min">Tests minimum par US</label><input class="in" type="number" min="1" id="es-min" value="1"></div>
+        <div class="champ"><label for="es-jql">Complément JQL (optionnel)</label><input class="in" id="es-jql" placeholder="sprint in openSprints()"></div></div>`,
+      `<button class="btn primaire" id="es-ok">Enregistrer l'espace</button>`);
+    const liste = v => v.split(",").map(x => x.trim()).filter(Boolean);
+    $("#es-ok", m.el).onclick = async () => {
+      try { await api("/api/testabilite/espaces", {method: "POST", body: {projet_jira: $("#es-pj", m.el).value, nom: $("#es-nom", m.el).value, types_issue: liste($("#es-ty", m.el).value),
+          statuts: liste($("#es-st", m.el).value), projet_xray: $("#es-x", m.el).value, type_test: $("#es-tt", m.el).value, min_tests: +$("#es-min", m.el).value, jql_complement: $("#es-jql", m.el).value, actif: true}});
+        m.fermer(); toast("Espace enregistré.", "ok"); location.hash = "conception/us"; Atelier.ouvrir(); } catch (e) { toast(e.message, "ko"); }
+    };
+    $$("[data-sup]", m.el).forEach(b => b.onclick = async () => { await api("/api/testabilite/espaces/supprimer", {method: "POST", body: {projet_jira: b.dataset.sup}}); m.fermer(); Atelier.ouvrir(); });
+  }
+
+  async function panneauUS(cle, z) {
+    const u = await api("/api/testabilite/us/" + encodeURIComponent(cle));
+    const p = $(".panneau-strat");
+    p.hidden = false;
+    const act = (a, b = {}) => api(`/api/testabilite/us/${encodeURIComponent(cle)}/${a}`, {method: "POST", body: b});
+    const q = u.questions || {};
+    const casHtml = c => `<div class="bloc-strat" style="margin-top:8px"><div class="btns"><b class="item">${esc(c.titre)}</b><span class="pill ${c.statut === "Validé" ? "ok" : c.statut === "Publié" ? "violet" : c.statut === "Rejeté" ? "ko" : "info"}">${esc(c.statut)}</span>
+        <span class="lib">${esc(c.source)}</span>${c.cle_xray ? `<span class="cle-xray">${esc(c.cle_xray)}</span>` : ""}</div>
+      ${u.politique.type_test === "Cucumber" ? `<textarea class="in mono" rows="4" data-g="${c.id}" ${c.statut === "Publié" ? "disabled" : ""}>${esc(c.gherkin)}</textarea>`
+        : `<table><tr><th>Action</th><th>Données</th><th>Résultat attendu</th></tr>${c.etapes.map((e, i) => `<tr>${["action", "donnees", "resultat"].map(k => `<td><input class="in" data-e="${c.id}" data-i="${i}" data-k="${k}" value="${esc(e[k])}" ${c.statut === "Publié" ? "disabled" : ""}></td>`).join("")}</tr>`).join("")}</table>`}
+      ${c.notes ? `<p class="lib">${esc(c.notes)}</p>` : ""}${c.avertissement ? `<p class="warn-t">${esc(c.avertissement)}</p>` : ""}
+      ${c.statut === "Publié" || c.statut === "Rejeté" ? "" : `<div class="btns"><button class="btn petit" data-cas-ok="${c.id}">Enregistrer</button><button class="btn petit succes" data-cas-v="${c.id}">Valider</button><button class="btn petit danger" data-cas-r="${c.id}">Rejeter</button></div>`}</div>`;
+    p.innerHTML = `${entete(cle, `<button class="icone" id="pu-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
+      <p><b>${esc(u.resume)}</b></p><p><span class="pill ${ST_US[u.statut] || ""}">${esc(u.statut)}</span> <span class="lib">${esc(u.espace)} · Jira : ${esc(u.statut_jira)}${u.assigne ? " · " + esc(u.assigne) : ""}</span></p>
+      ${(u.alertes || []).map(a => `<p class="warn-t">${esc(a.message)}</p>`).join("")}
+      <details><summary>Description et critères</summary><pre class="code-bloc" style="white-space:pre-wrap">${esc(u.description || "(vide)")}${u.criteres_jira ? "\n\nCritères :\n" + esc(u.criteres_jira) : ""}</pre></details>
+      <div class="btns" style="margin-top:8px"><button class="btn" id="pu-an">Analyser (règles)</button><button class="btn" id="pu-ia">Analyse IA</button><button class="btn" id="pu-cas">Proposer des cas</button>
+        <button class="btn danger" id="pu-nt">Non testable</button></div>
+      <h3 class="lib" style="margin-top:12px">CONSTATS (${(u.constats || []).length})</h3><ul class="liste">${(u.constats || []).map(c => `<li><span class="pill ${GRAV[c.gravite] || ""}">${esc(c.gravite)}</span>
+        <span class="item">${esc(c.message)}${c.extrait ? `<br><span class="lib">« ${esc(c.extrait)} »</span>` : ""}</span><span class="lib">${esc(c.source)}</span></li>`).join("") || "<li class='lib'>Analyse non faite.</li>"}</ul>
+      <h3 class="lib" style="margin-top:12px">QUESTIONS À L'ÉQUIPE (commentaire Jira, relu avant envoi)</h3>
+      <textarea class="in" id="pu-q" rows="6">${esc(q.brouillon || "")}</textarea>
+      <div class="btns"><button class="btn" id="pu-qs">Enregistrer le brouillon</button><button class="btn primaire" id="pu-qe">Envoyer en commentaire Jira</button></div>
+      ${(q.envois || []).map(e => `<p class="lib">Envoyé le ${esc(e.date.replace("T", " ").slice(0, 16))} par ${esc(e.auteur)}</p>`).join("")}
+      ${(q.reponses || []).length ? `<h3 class="lib">RÉPONSES</h3><ul class="liste">${q.reponses.map(r => `<li><b>${esc(r.auteur)}</b><span class="item">${esc(r.texte)}</span><span class="lib">${esc(String(r.date).slice(0, 16).replace("T", " "))}</span></li>`).join("")}</ul>` : ""}
+      <h3 class="lib" style="margin-top:12px">CAS DE TEST (${(u.cas || []).length}) · ${esc(u.politique.type_test || "")} dans ${esc(u.politique.projet_xray || "")}</h3>
+      ${(u.cas || []).map(casHtml).join("") || "<p class='lib'>Aucun cas : « Proposer des cas » (règles) ou analyse IA / Cursor.</p>"}
+      ${(u.cas || []).some(c => c.statut === "Validé") ? `<div class="btns" style="margin-top:8px"><button class="btn primaire" id="pu-pub">${ico("xray")}Publier les cas validés dans Xray et lier à l'US</button></div>` : ""}
+      <h3 class="lib" style="margin-top:12px">HISTORIQUE</h3><ul class="liste">${(u.historique || []).slice().reverse().map(h => `<li class="lib">${esc(h.date.replace("T", " ").slice(0, 16))} · ${esc(h.auteur)} · ${esc(h.de || "—")} → ${esc(h.vers)} ${esc(h.detail || "")}</li>`).join("")}</ul></div>`;
+    const ok = async (promesse, msg) => { try { const r = await promesse; if (r?.disponible === false) toast(r.raison, "ko"); else toast(msg, "ok"); panneauUS(cle, z); } catch (e) { toast(e.message, "ko"); } };
+    $("#pu-x").onclick = () => { p.hidden = true; us(z); };
+    $("#pu-an").onclick = () => ok(act("analyser"), "Analyse faite.");
+    $("#pu-ia").onclick = () => ok(act("analyser-ia"), "Propositions de l'IA ajoutées (à valider).");
+    $("#pu-cas").onclick = () => ok(act("proposer-cas"), "Cas proposés (à compléter et valider).");
+    $("#pu-nt").onclick = () => { const j = prompt("Pourquoi cette US n'est-elle pas testable ? (historisé)"); if (j) ok(act("non-testable", {justification: j}), "US marquée non testable."); };
+    $("#pu-qs").onclick = () => ok(act("questions", {texte: $("#pu-q").value}), "Brouillon enregistré.");
+    $("#pu-qe").onclick = async () => {
+      if (!confirm(`Publier ces questions en commentaire sur ${cle} dans Jira (visible par l'équipe) ?`)) return;
+      try { await act("questions", {texte: $("#pu-q").value}); await ok(act("envoyer"), "Questions publiées dans Jira."); } catch (e) { toast(e.message, "ko"); }
+    };
+    $$("[data-cas-ok]", p).forEach(b => b.onclick = () => ok(act("cas", lireCas(b.dataset.casOk, p)), "Cas enregistré."));
+    $$("[data-cas-v]", p).forEach(b => b.onclick = async () => { try { await act("cas", lireCas(b.dataset.casV, p)); await ok(act("decision", {id: b.dataset.casV, decision: "valider"}), "Cas validé."); } catch (e) { toast(e.message, "ko"); } });
+    $$("[data-cas-r]", p).forEach(b => b.onclick = () => { const mo = prompt("Motif du rejet :"); if (mo) ok(act("decision", {id: b.dataset.casR, decision: "rejeter", motif: mo}), "Cas rejeté."); });
+    if ($("#pu-pub")) $("#pu-pub").onclick = async () => {
+      if (!confirm(`Créer les cas validés dans Xray (${u.politique.projet_xray}) et les lier à ${cle} ?`)) return;
+      try { const r = await act("publier"); toast(`${r.publies.length} test(s) créé(s)${r.erreurs.length ? `, ${r.erreurs.length} erreur(s) : ${r.erreurs[0].erreur}` : ""}.`, r.erreurs.length ? "ko" : "ok"); panneauUS(cle, z); }
+      catch (e) { toast(e.message, "ko"); }
+    };
+  }
+
+  function lireCas(id, p) {
+    const g = $(`[data-g="${id}"]`, p);
+    if (g) return {id, gherkin: g.value};
+    const etapes = [];
+    $$(`[data-e="${id}"]`, p).forEach(i => { (etapes[+i.dataset.i] ||= {})[i.dataset.k] = i.value; });
+    return {id, etapes};
   }
 
   /* ------------------------------------------------------------------ 05 JDD, 07 suites, 08 traçabilité, 09 réutilisables, 06 règles */

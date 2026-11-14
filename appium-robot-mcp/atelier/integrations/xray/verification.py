@@ -28,10 +28,11 @@ MUTATIONS = {
     "updateTestRunStatus": ["id", "status"],
     "updateTestRun": ["id", "startedOn", "finishedOn", "comment"],
     "addEvidenceToTestRun": ["id", "evidence"],
-    "createTest": ["testType", "gherkin", "jira"],               # Test Design : publication d'un scénario BDD
+    "createTest": ["testType", "gherkin", "steps", "jira"],      # Test Design : scénario BDD ; Testabilité des US : test Manual
     "updateGherkinTestDefinition": ["issueId", "gherkin"],      # Test Design : mise à jour (mode B)
 }
 TYPES_ENTREE = {"AttachmentDataInput": ["filename", "mimeType", "data"]}
+TYPES_ENTREE_EXTRA = {"CreateStepInput": ["action", "data", "result"]}  # étapes d'un test Manual (Testabilité des US)
 # Champs lus par l'import des définitions (Test Design, mode A) ; l'import s'adapte de toute façon au schéma réel.
 TYPES_SORTIE = {"Test": ["issueId", "testType", "steps", "gherkin", "unstructured", "folder", "preconditions"],
                 "Step": ["action", "data", "result"], "Folder": ["path"], "TestType": ["name", "kind"]}
@@ -116,6 +117,13 @@ def verifier(client=None) -> dict:
             t = None
         connus = {f["name"] for f in (t or {}).get("fields") or []}
         res["types"].append({"nom": nom, "present": t is not None, "inconnus": [a for a in attendus if a not in connus], "sortie": True})
+    for nom, attendus in TYPES_ENTREE_EXTRA.items():
+        try:
+            t = client.gql(f'query {{ __type(name: "{nom}") {{ inputFields {{ name }} }} }}').get("__type")
+        except Exception:  # noqa: BLE001
+            t = None
+        connus = {f["name"] for f in (t or {}).get("inputFields") or []}
+        res["types"].append({"nom": nom, "present": t is not None, "inconnus": [a for a in attendus if a not in connus]})
     res["ok"] = res["ok"] and all(x["present"] and not x["inconnus"] for x in res["types"])
     return res
 

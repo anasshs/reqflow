@@ -244,6 +244,15 @@ class XrayClient:
         t = r["createTest"]["test"]
         return {"cle": t["jira"]["key"], "issueId": t["issueId"], "avertissements": r["createTest"].get("warnings") or []}
 
+    def creer_test_manuel(self, projet: str, resume: str, etapes: list[dict]) -> dict:
+        """Crée un Test Xray de type Manual avec ses étapes (createTest, argument steps : vérifié par xray-verifier)."""
+        q = ('mutation($tt: UpdateTestTypeInput, $s: [CreateStepInput], $j: JSON!) { createTest(testType: $tt, steps: $s, jira: $j) '
+             '{ test { issueId jira(fields: ["key"]) } warnings } }')
+        steps = [{"action": e.get("action") or "", "data": e.get("donnees") or "", "result": e.get("resultat") or ""} for e in etapes]
+        r = self.gql(q, {"tt": {"name": "Manual"}, "s": steps, "j": {"fields": {"summary": resume, "project": {"key": projet}}}})
+        t = r["createTest"]["test"]
+        return {"cle": t["jira"]["key"], "issueId": t["issueId"], "avertissements": r["createTest"].get("warnings") or []}
+
     def lire_gherkin(self, cle: str) -> dict | None:
         q = 'query($jql: String) { getTests(jql: $jql, limit: 1) { results { issueId gherkin testType { name } jira(fields: ["key"]) } } }'
         res = self.gql(q, {"jql": f"key = {cle}"})["getTests"]["results"]
