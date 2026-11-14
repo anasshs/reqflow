@@ -263,3 +263,38 @@ def test_type_exigence_independant_de_la_langue():
     assert _type_exigence({"issuetype": {"name": "Feature parente", "hierarchyLevel": 1}}) == "epic"  # nom quelconque, niveau Epic
     assert _type_exigence({"issuetype": {"name": "Story", "hierarchyLevel": 0}}) == "user_story"
     assert _type_exigence({"issuetype": {"name": "Bogue", "hierarchyLevel": 0}}) == "bug"
+
+
+
+def test_organisation_xray_plans_sets_dossiers(tmp_path, monkeypatch):
+    from atelier.domain import projet
+    from atelier.intelligence import patrimoine_xray
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+
+    class XrayOrganisation(FauxSchemaXray):
+        def gql(self, q, v=None):
+            n = (v or {}).get("n")
+            if "__type" in q and n == "Query":
+                args = [{"name": a, "defaultValue": None, "type": {"kind": "NON_NULL" if a == "limit" else "SCALAR"}} for a in ("jql", "limit", "start")]
+                return {"__type": {"fields": [{"name": f, "args": args} for f in ("getTests", "getTestPlans", "getTestSets")]}}
+            if "__type" in q and n in ("TestPlan", "TestSet"):
+                return {"__type": {"fields": [{"name": "issueId", "args": []}, {"name": "tests", "args": [{"name": "limit", "defaultValue": None, "type": {"kind": "SCALAR"}}]}]}}
+            if "getTestPlans" in q:
+                assert "tests(limit: 100)" in q and v["jql"] == 'project = "TAM"'
+                return {"getTestPlans": {"total": 1, "results": [{"issueId": "9", "jira": {"key": "TAM-P1", "summary": "Plan release", "status": {"name": "Open"}},
+                                                                   "tests": {"total": 130, "results": [{"jira": {"key": "DEMO-301"}}]}}]}}
+            if "getTestSets" in q:
+                return {"getTestSets": {"total": 1, "results": [{"issueId": "8", "jira": {"key": "TAM-S1", "summary": "Non-régression"},
+                                                                  "tests": {"total": 2, "results": [{"jira": {"key": "DEMO-301"}}, {"jira": {"key": "DEMO-302"}}]}}]}}
+            return super().gql(q, v)
+
+    x = XrayOrganisation()
+    x._client.gql = x.gql
+    r = patrimoine_xray.completer_depuis_xray("TAM", xray=x._client)
+    assert r["organisation"] == {"plans": 1, "test_sets": 1, "absents": []}
+    o = patrimoine_xray.organisation()
+    assert o["plans"][0]["cle"] == "TAM-P1" and o["plans"][0]["tests_total"] == 130 and o["test_sets"][0]["tests"] == ["DEMO-301", "DEMO-302"]
+    assert {d["chemin"] for d in o["dossiers"]} == {"/Connexion", "/"}
+    t = {x["cle"]: x for x in patrimoine_xray.charger()["tests"]}
+    assert t["DEMO-301"]["plans"] == ["TAM-P1"] and t["DEMO-301"]["test_sets"] == ["TAM-S1"]

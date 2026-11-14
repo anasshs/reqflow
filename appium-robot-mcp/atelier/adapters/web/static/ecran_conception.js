@@ -370,13 +370,30 @@
   }
 
   async function suites(z) {
-    const [s, c] = await Promise.all([api("/api/depot/suites").catch(() => []), api("/api/conception/cas").catch(() => [])]);
-    const plans = {};
-    c.forEach(t => t.plans.forEach(p => (plans[p] = plans[p] || []).push(t.cle)));
-    z.innerHTML = `${entete("Suites de test")}<div class="corps-carte"><div class="grille-2">
+    const [s, c, o] = await Promise.all([api("/api/depot/suites").catch(() => []), api("/api/conception/cas").catch(() => []),
+      api("/api/conception/organisation-xray").catch(() => ({dossiers: [], plans: [], test_sets: []}))]);
+    const cles = l => l.slice(0, 12).map(k => `<span class="cle-xray">${esc(k)}</span>`).join(", ") + (l.length > 12 ? ` … +${l.length - 12}` : "");
+    const conteneurs = (titre, l) => `<section class="bloc-strat"><h3>${titre} (${l.length})</h3>${l.length ? `<table class="table-strat"><tr><th>Clé</th><th>Titre</th><th>Statut</th><th>Tests</th></tr>
+      ${l.map(p => `<tr><td class="cle-xray">${esc(p.cle)}</td><td>${esc(p.resume)}</td><td class="lib">${esc(p.statut)}</td>
+        <td><b>${p.tests_total ?? p.tests.length}</b>${p.tests_total > p.tests.length ? ` <span class="pill warn" title="100 premiers tests lus">partiel</span>` : ""}<br><span class="lib">${cles(p.tests)}</span></td></tr>`).join("")}</table>`
+      : "<p class='lib'>Aucun (ou organisation Xray non importée).</p>"}</section>`;
+    z.innerHTML = `${entete("Suites de test", `<button class="btn primaire" id="su-imp">${ico("xray")}Importer l'organisation Xray</button>`)}<div class="corps-carte">
+      <p class="lib">Organisation du Test Repository Xray (lecture seule) : dossiers, Test Plans et Test Sets.${o.date ? ` Import du ${esc(o.date.replace("T", " ").slice(0, 16))}.` : " Pas encore importée."}
+        ${o.organisation?.erreur ? `<span class="warn-t">Plans / sets non lus : ${esc(o.organisation.erreur)}</span>` : ""}${(o.organisation?.absents || []).length ? ` <span class="lib">Non exposés par le schéma : ${esc(o.organisation.absents.join(", "))}.</span>` : ""}</p>
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>Dossiers du Test Repository (${o.dossiers.length})</h3>${o.dossiers.length ? `<ul class="liste">${o.dossiers.map(d => `<li style="padding-left:${d.profondeur * 18}px">
+        <span class="item">📁 ${esc(d.nom)} <span class="lib mono">${esc(d.chemin)}</span></span><span class="compte">${d.tests.length} test(s)</span></li>`).join("")}</ul>` : "<p class='lib'>Dossiers inconnus : « Importer l'organisation Xray ».</p>"}</section>
+      <div class="grille-2">${conteneurs("Test Plans Xray", o.plans)}${conteneurs("Test Sets Xray", o.test_sets)}</div>
+      <div class="grille-2" style="margin-top:12px">
       <section class="bloc-strat"><h3>Suites Robot (dépôt)</h3><ul class="liste">${s.map(x => `<li><a class="item" href="#editeur/${encodeURIComponent(x.fichier)}">${esc(x.fichier)}</a><span class="compte">${x.tests} test(s)</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul></section>
-      <section class="bloc-strat"><h3>Test Plans Xray (instantané)</h3><ul class="liste">${Object.entries(plans).map(([p, l]) => `<li><span class="cle-xray">${esc(p)}</span><span class="item lib">${esc(l.join(", "))}</span><span class="compte">${l.length}</span></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul>
-        <p class="lib">Test Plan, Test Set et dossier du Test Repository sont trois objets distincts dans Xray. Organisation par glisser-déposer et Test Sets : à venir.</p></section></div></div>`;
+      <section class="bloc-strat"><h3>Correspondance Robot ↔ Xray</h3><p class="lib">Un test Robot est relié à son test Xray par le tag de clé (ex. <span class="mono">[Tags] TAM-735</span>) : voir Cas de test (mode automatisé / manuel) et Traçabilité.</p>
+        <p class="lib">Test Plan, Test Set et dossier du Test Repository sont trois objets distincts dans Xray. Réorganisation depuis l'atelier : à venir (lecture seule).</p></section></div></div>`;
+    $("#su-imp").onclick = async () => {
+      try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {}});
+        const og = r.organisation || {};
+        toast(`${r.importes} test(s), ${og.plans ?? "?"} Test Plan(s), ${og.test_sets ?? "?"} Test Set(s)${og.erreur ? " — plans / sets : " + og.erreur : ""}.`, og.erreur ? "ko" : "ok"); suites(z); }
+      catch (e) { toast(e.message, "ko"); }
+    };
+    recherche(z, "suites");
   }
 
   function tracabilite(z) {

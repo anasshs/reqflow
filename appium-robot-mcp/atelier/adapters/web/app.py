@@ -1101,6 +1101,11 @@ async def testabilite_action(cle: str, action: str, req: Request):
     return await asyncio.to_thread(_call, actions[action])
 
 
+@app.get("/api/conception/organisation-xray")
+def conception_organisation_xray():
+    return _call(patrimoine_xray.organisation)
+
+
 @app.post("/api/patrimoine/xray-definitions")
 async def patrimoine_xray_definitions(req: Request):
     """Mode A : définitions des tests (type, étapes, Gherkin, dossier, préconditions) lues dans Xray."""

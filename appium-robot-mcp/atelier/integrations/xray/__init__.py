@@ -132,6 +132,42 @@ class XrayClient:
             sel.append(texte)
         return " ".join(sel), absents
 
+    def conteneurs(self, projet: str, limite: int = 500) -> dict:
+        """Test Plans et Test Sets du projet avec leurs tests (lecture seule). Requêtes et champs choisis par
+        introspection : getTestPlans / getTestSets, champ « tests » et ses arguments ; un objet absent du schéma est
+        signalé, jamais supposé. Plus de 100 tests dans un conteneur : signalé (tests_total)."""
+        requete = self._type_champs("Query")
+        out = {"plans": [], "test_sets": [], "absents": []}
+        for cle_out, req, type_gql in (("plans", "getTestPlans", "TestPlan"), ("test_sets", "getTestSets", "TestSet")):
+            if req not in requete:
+                out["absents"].append(req)
+                continue
+            champs = self._type_champs(type_gql)
+            t = "Int!" if requete[req]["args"].get("limit") else "Int"
+            sel_tests = ""
+            if "tests" in champs:
+                a = champs["tests"]["args"]
+                sel_tests = ("tests(limit: 100) " if "limit" in a else "tests ") + '{ total results { jira(fields: ["key"]) } }'
+            else:
+                out["absents"].append(f"{type_gql}.tests")
+            pagine = "start" in requete[req]["args"]
+            q = (f"query($jql: String, $l: {t}{', $s: Int' if pagine else ''}) {{ {req}(jql: $jql, limit: $l{', start: $s' if pagine else ''}) "
+                 f'{{ total results {{ issueId jira(fields: ["key", "summary", "status"]) {sel_tests} }} }} }}')
+            debut, brut = 0, []
+            while len(brut) < limite:
+                page = self.gql(q, {"jql": f'project = "{projet}"', "l": 100, **({"s": debut} if pagine else {})})[req]
+                brut += page["results"]
+                debut += 100
+                if not pagine or not page["results"] or debut >= (page.get("total") or 0):
+                    break
+            for x in brut:
+                j = x.get("jira") or {}
+                tests = x.get("tests") or {}
+                out[cle_out].append({"cle": j.get("key"), "resume": j.get("summary") or "", "statut": (j.get("status") or {}).get("name", ""),
+                                     "issueId": x.get("issueId"), "tests": [(t.get("jira") or {}).get("key") for t in tests.get("results") or []],
+                                     "tests_total": tests.get("total")})
+        return out
+
     def definitions_tests(self, cles: list[str] | None = None, jql: str = "", limite: int = 2000) -> dict:
         """Définitions Xray (type, étapes, Gherkin, définition Generic, dossier, préconditions) des tests donnés
         (par lots de 100 clés) ou d'un JQL (pages de 100). Lecture seule."""

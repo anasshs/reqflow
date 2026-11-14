@@ -17,6 +17,7 @@ REQUETES = {
     "getTests": ["jql", "limit"],
     "getTestPlans": ["jql", "limit"],
     "getTestExecutions": ["jql", "limit"],
+    "getTestSets": ["jql", "limit"],  # Test Design › Suites de test (organisation du Test Repository)
     "getTestRuns": ["testIssueIds", "testExecIssueIds", "limit"],
 }
 MUTATIONS = {
@@ -35,7 +36,8 @@ TYPES_ENTREE = {"AttachmentDataInput": ["filename", "mimeType", "data"]}
 TYPES_ENTREE_EXTRA = {"CreateStepInput": ["action", "data", "result"]}  # étapes d'un test Manual (Testabilité des US)
 # Champs lus par l'import des définitions (Test Design, mode A) ; l'import s'adapte de toute façon au schéma réel.
 TYPES_SORTIE = {"Test": ["issueId", "testType", "steps", "gherkin", "unstructured", "folder", "preconditions"],
-                "Step": ["action", "data", "result"], "Folder": ["path"], "TestType": ["name", "kind"]}
+                "Step": ["action", "data", "result"], "Folder": ["path"], "TestType": ["name", "kind"],
+                "TestPlan": ["issueId", "tests"], "TestSet": ["issueId", "tests"]}
 
 _TYPE = "type { kind name ofType { kind name ofType { kind name ofType { kind name } } } }"
 INTROSPECTION = (

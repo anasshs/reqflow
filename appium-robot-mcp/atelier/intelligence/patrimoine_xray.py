@@ -227,8 +227,50 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
     data["date"] = None
     data["definitions_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "importes": len(defs),
                                 "introuvables": introuvables, "champs_absents": d["champs_absents"], "tronque": d.get("tronque", False)}
+    try:  # organisation du Test Repository : best effort, n'empêche jamais l'import des définitions
+        org = xray.conteneurs(projet_cle or data.get("projet") or "")
+        data["plans"] = [{k: p[k] for k in ("cle", "resume", "statut", "tests", "tests_total")} for p in org["plans"]]
+        data["test_sets"] = [{k: p[k] for k in ("cle", "resume", "statut", "tests", "tests_total")} for p in org["test_sets"]]
+        par_test: dict = {}
+        for genre in ("plans", "test_sets"):
+            for p in data[genre]:
+                for k in p["tests"]:
+                    par_test.setdefault(k, {}).setdefault(genre, []).append(p["cle"])
+        for t in data["tests"]:
+            t["plans"] = sorted(set(t.get("plans") or []) | set(par_test.get(t["cle"], {}).get("plans", [])))
+            t["test_sets"] = par_test.get(t["cle"], {}).get("test_sets", [])
+        data["definitions_xray"]["organisation"] = {"plans": len(data["plans"]), "test_sets": len(data["test_sets"]), "absents": org["absents"]}
+    except Exception as e:  # noqa: BLE001
+        data["definitions_xray"]["organisation"] = {"erreur": str(e)[:300]}
     etat_ = enregistrer(data, (source + " + Xray (définitions)") if source else f"Xray : {jql or 'project = ' + projet_cle}")
     return {**etat_, **data["definitions_xray"]}
+
+
+def organisation() -> dict:
+    """Suites de test côté Xray : dossiers du Test Repository (depuis les définitions), Test Plans et Test Sets."""
+    pat = charger() or {"tests": [], "plans": [], "executions": []}
+    dossiers: dict = {}
+    for t in pat["tests"]:
+        if t.get("dossier") is not None:
+            d = t["dossier"] or "/"
+            dossiers.setdefault(d, []).append(t["cle"])
+    arbre = []
+    for chemin in sorted(dossiers):
+        arbre.append({"chemin": chemin, "profondeur": 0 if chemin == "/" else chemin.strip("/").count("/") + 1,
+                      "nom": chemin.rstrip("/").split("/")[-1] or "Racine", "tests": sorted(dossiers[chemin])})
+    defs = pat.get("definitions_xray") or {}
+    def normaliser(conteneurs: list[dict], champ: str) -> list[dict]:
+        """Format ancien (clé et titre seulement) : tests retrouvés depuis le champ plans / test_sets des tests."""
+        out = []
+        for c in conteneurs:
+            tests = c.get("tests") if isinstance(c.get("tests"), list) else sorted(t["cle"] for t in pat["tests"] if c["cle"] in (t.get(champ) or []))
+            out.append({"cle": c["cle"], "resume": c.get("resume", ""), "statut": c.get("statut", ""), "tests": tests,
+                        "tests_total": c.get("tests_total", len(tests))})
+        return out
+
+    return {"dossiers": arbre, "plans": normaliser(pat.get("plans") or [], "plans"), "test_sets": normaliser(pat.get("test_sets") or [], "test_sets"),
+            "definitions_importees": bool(defs.get("date")), "date": defs.get("date"), "organisation": defs.get("organisation"),
+            "tests_sans_dossier": sum(1 for t in pat["tests"] if t.get("dossier") is None)}
 
 
 def _description_et_criteres(f: dict, champ_criteres: str = "") -> dict:
