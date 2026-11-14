@@ -18,7 +18,7 @@
           <button class="btn outil" id="e-robocop">${ico("bouclier")}Robocop</button>
           <button class="btn outil" id="e-dry">${ico("play")}Dry Run</button>
           <button class="btn outil" id="e-exe">${ico("play")}Exécuter</button>
-          <button class="btn succes" disabled title="Merge request GitLab : roadmap phase 7 (3 exécutions stables + revue humaine)">${ico("git")}Commit / MR</button>
+          <button class="btn succes" onclick="location.hash='studio/git'" title="Commit local puis merge request GitLab (revue humaine + 3 exécutions stables) : Automation Studio › Git">${ico("git")}Commit / MR</button>
           <button class="icone" id="e-plus" title="Plus d'actions">⋮</button>
           <span class="sep-v"></span>
           <div><div class="lib">Plateforme active</div><b id="e-plat"></b></div>

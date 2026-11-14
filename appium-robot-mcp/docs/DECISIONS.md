@@ -54,3 +54,14 @@ Une ligne datée par décision d'architecture ou de conception.
   repris, sauf si ROBOT_PROJECT_DIR est imposé. Le serveur MCP (processus séparé) reste sur ROBOT_PROJECT_DIR.
 - La clé du projet actif préremplit imports, synchronisation Jira, publication BDD et anomalies ; pour les runs elle
   n'est qu'une indication (un ticket Xray reste un choix explicite : pas de plan / exécution créés par défaut).
+
+
+## 2026-11-14 — GitLab d'entreprise (LDAP) : merge requests encadrées
+- Connexion par jeton d'accès personnel (portées api, write_repository), jamais le mot de passe LDAP ; jeton lu dans
+  GITLAB_TOKEN ou la variable désignée par le projet ; envoyé en en-tête (API) ou via GIT_CONFIG_* en environnement
+  (git push https) : jamais dans une URL, une ligne de commande, un fichier ou un log. Certificat : GITLAB_CA_BUNDLE.
+- Merge request depuis Automation Studio › Git : branche non protégée, pas de modification suivie non validée,
+  suites .robot modifiées approuvées en revue technique ET stables sur leurs 3 dernières exécutions réelles
+  (invariant 5), sinon dérogation justifiée écrite dans la MR et journalisée. Description générée : fichiers,
+  revues, stabilité, liens Xray. L'atelier ne fusionne jamais ; une MR déjà ouverte pour la branche est réutilisée.
+- Lecture : utilisateur, projet, branche par défaut, MR ouvertes, commits récents ; état dans Paramètres › Connexions.

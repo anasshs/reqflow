@@ -434,6 +434,138 @@ def commit(message: str, fichiers: list[str]) -> dict:
     return git()
 
 
+# =========================================================================== GitLab : merge request encadrée
+EXECUTIONS_STABLES = 3  # invariant 5 : 3 exécutions stables ET revue humaine
+
+
+def gitlab_etat() -> dict:
+    """Connexion GitLab du projet actif (utilisateur, projet, branche par défaut) et MR ouvertes pour la branche courante."""
+    from atelier.execution.centre import _git
+    from atelier.integrations import gitlab
+
+    if not gitlab.configure():
+        return {"configure": False, "message": "GitLab non configuré : URL et projet dans Paramètres › Projets, jeton d'accès personnel "
+                                               "dans la variable désignée (GITLAB_TOKEN par défaut)."}
+    try:
+        c = gitlab.GitLabClient()
+        branche = _git("rev-parse", "--abbrev-ref", "HEAD")
+        return {"configure": True, "utilisateur": c.utilisateur(), "projet": c.projet_info(), "branche": branche,
+                "mr_ouvertes": c.mr_ouvertes(branche) if branche and branche not in BRANCHES_PROTEGEES else []}
+    except Exception as e:  # noqa: BLE001 - GitLab indisponible : affiché, jamais bloquant pour le reste
+        return {"configure": True, "erreur": str(e)[:400]}
+
+
+def gitlab_commits(jours: int = 14, chemin: str = "") -> list[dict]:
+    from datetime import datetime, timedelta
+
+    from atelier.integrations.gitlab import GitLabClient
+
+    depuis = (datetime.now().astimezone() - timedelta(days=max(1, int(jours)))).isoformat(timespec="seconds")
+    return GitLabClient().commits(depuis=depuis, chemin=chemin)
+
+
+def _stabilite_suites(fichiers: list[str]) -> dict:
+    """Pour chaque suite : ses tests et leurs dernières exécutions réelles (au moins 3, toutes PASS = stable)."""
+    from atelier.intelligence import gouvernance
+
+    inv = _inv()
+    seq = {t["test"]: t["sequence"] for t in gouvernance.stabilite()["tests"]}
+    out = {}
+    for f in fichiers:
+        tests = [t["nom"] for t in inv["tests"].values() if t["fichier"] == f]
+        detail = {n: (seq.get(n) or [])[-EXECUTIONS_STABLES:] for n in tests}
+        out[f] = {"tests": detail, "stable": bool(tests) and all(len(s) == EXECUTIONS_STABLES and set(s) == {"PASS"} for s in detail.values())}
+    return out
+
+
+def _git_env_push(url_distant: str) -> dict:
+    """Environnement du « git push » : le jeton GitLab passe par la configuration Git en variables d'environnement
+    (GIT_CONFIG_*), jamais dans la ligne de commande, l'URL, un fichier ou un log. Distant SSH : clés de l'utilisateur."""
+    import base64
+    import os
+
+    from atelier.integrations.http import variable_secrete
+
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    ca = os.environ.get("GITLAB_CA_BUNDLE") or os.environ.get("XRAY_CA_BUNDLE")
+    if ca:
+        env["GIT_SSL_CAINFO"] = ca
+    jeton = variable_secrete("GITLAB_TOKEN")
+    if url_distant.startswith("https://") and jeton:
+        entete = "Authorization: Basic " + base64.b64encode(f"oauth2:{jeton}".encode()).decode()
+        n = int(env.get("GIT_CONFIG_COUNT") or 0)  # s'ajoute à une configuration Git déjà passée par l'environnement
+        env.update({"GIT_CONFIG_COUNT": str(n + 1), f"GIT_CONFIG_KEY_{n}": "http.extraHeader", f"GIT_CONFIG_VALUE_{n}": entete})
+    return env
+
+
+def proposer_mr(titre: str, description: str = "", cible: str = "", derogation: str = "", gitlab_client=None) -> dict:
+    """Pousse la branche de travail et crée une merge request GitLab, jamais une fusion.
+    Conditions : branche non protégée ; chaque suite .robot modifiée approuvée / publiée en revue technique (humaine)
+    ET stable sur ses 3 dernières exécutions réelles, sauf dérogation justifiée (journalisée et écrite dans la MR).
+    La description reprend fichiers, revues, stabilité et tests Xray concernés."""
+    import os
+    import subprocess
+
+    from atelier.execution.centre import _git
+    from atelier.integrations.gitlab import GitLabClient
+
+    branche = _git("rev-parse", "--abbrev-ref", "HEAD")
+    if not branche:
+        raise RuntimeError("Le projet de tests n'est pas un dépôt Git.")
+    if branche in BRANCHES_PROTEGEES or branche == "HEAD":
+        raise PermissionError(f"Merge request impossible depuis « {branche} » : créer une branche de travail.")
+    if not titre.strip():
+        raise ValueError("Titre de la merge request obligatoire.")
+    if _git("status", "--porcelain", "--untracked-files=no"):
+        raise ValueError("Modifications locales non validées : faire le commit (suites approuvées) avant la merge request.")
+    c = gitlab_client or GitLabClient()
+    info = c.projet_info()
+    cible = cible or info.get("branche_defaut") or "main"
+    deja = c.mr_ouvertes(branche)
+    if deja:
+        return {"deja_ouverte": True, "mr": deja[0]}
+    _git("fetch", "--quiet", "origin", cible)
+    base = _git("merge-base", "HEAD", f"origin/{cible}") or _git("merge-base", "HEAD", cible)
+    fichiers = [f for f in _git("diff", "--name-only", f"{base}..HEAD" if base else "HEAD~1..HEAD").splitlines() if f]
+    if not fichiers:
+        raise ValueError(f"Aucun changement entre « {branche} » et « {cible} ».")
+    suites = [f for f in fichiers if f.endswith(".robot")]
+    rev = revues_scripts()
+    non_revues = [f for f in suites if (rev.get(f) or {}).get("statut") not in ("Approved", "Published")]
+    if non_revues:
+        raise PermissionError("Revue technique non approuvée : " + ", ".join(non_revues))
+    stab = _stabilite_suites(suites)
+    instables = [f for f, x in stab.items() if not x["stable"]]
+    if instables and len(derogation.strip()) < 10:
+        raise PermissionError(f"Moins de {EXECUTIONS_STABLES} exécutions réelles stables pour : {', '.join(instables)}. "
+                              "Lancer les exécutions, ou proposer la merge request avec une dérogation justifiée.")
+    url = _git("remote", "get-url", "origin")
+    r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), "push", "--set-upstream", "origin", f"{branche}:{branche}"],
+                       capture_output=True, text=True, timeout=120, env=_git_env_push(url))
+    if r.returncode:
+        jeton = os.environ.get("GITLAB_TOKEN") or "\x00"
+        raise RuntimeError("git push refusé : " + (r.stderr or r.stdout).replace(jeton, "***").strip()[:400])
+    inv = _inv()
+    cles = sorted({k for t in inv["tests"].values() if t["fichier"] in suites for k in t.get("cles_xray") or []})
+    jira = (os.environ.get("JIRA_BASE_URL") or "").rstrip("/")
+    lignes = [description.strip(), "", "### Fichiers", *[f"- `{f}`" for f in fichiers], "", "### Revue technique (Automation Studio)"]
+    for f in suites:
+        h = ((rev.get(f) or {}).get("historique") or [{}])[-1]
+        lignes.append(f"- `{f}` : {rev[f]['statut']} par {h.get('auteur', '?')} le {str(h.get('date', ''))[:10]}")
+    lignes += ["", f"### Stabilité ({EXECUTIONS_STABLES} dernières exécutions réelles)"]
+    for f, x in stab.items():
+        lignes.append(f"- `{f}` : {'stable' if x['stable'] else '**non stable**'} — "
+                      + "; ".join(f"{n} : {' → '.join(s) or 'aucune exécution'}" for n, s in x["tests"].items()))
+    if instables:
+        lignes += ["", f"> Dérogation : {derogation.strip()}"]
+    if cles:
+        lignes += ["", "### Tests Xray", *[f"- [{k}]({jira}/browse/{k})" if jira else f"- {k}" for k in cles]]
+    lignes += ["", "_Merge request proposée par l'Atelier d'automatisation : la fusion reste une décision humaine._"]
+    mr = c.creer_mr(branche, cible, titre.strip(), "\n".join(lignes).strip(), ["automatisation"])
+    _journaliser("gitlab_mr", branche=branche, cible=cible, mr=mr.get("url", ""), derogation=derogation.strip() if instables else "")
+    return {"deja_ouverte": False, "mr": mr, "fichiers": fichiers, "stabilite": stab}
+
+
 # =========================================================================== Builder : test assemblé depuis le socle
 def construire_test(nom: str, cle_xray: str, jdd: str, etapes: list[dict], tags: list[str] | None = None, fichier: str = "") -> dict:
     """Assemble un test Robot conforme (INITIALISATION + JDD, Gherkin, tags) à partir de keywords EXISTANTS du socle.

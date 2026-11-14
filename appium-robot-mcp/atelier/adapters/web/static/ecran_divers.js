@@ -186,7 +186,11 @@
       <div class="champ"><label for="pj-env">Environnements (séparés par des virgules)</label><input class="in" id="pj-env" value="${esc((p?.environnements || []).join(", "))}" placeholder="recette, preprod"></div>
       <div class="champ"><label for="pj-s1">Variable contenant le Client ID Xray</label><input class="in mono" id="pj-s1" value="${sec(p, "XRAY_CLIENT_ID")}" placeholder="XRAY_CLIENT_ID_TAM"></div>
       <div class="champ"><label for="pj-s2">Variable contenant le Client Secret Xray</label><input class="in mono" id="pj-s2" value="${sec(p, "XRAY_CLIENT_SECRET")}" placeholder="XRAY_CLIENT_SECRET_TAM"></div>
-      <div class="champ"><label for="pj-s3">Variable contenant le jeton API Jira</label><input class="in mono" id="pj-s3" value="${sec(p, "JIRA_API_TOKEN")}" placeholder="JIRA_API_TOKEN_TAM"></div></div>
+      <div class="champ"><label for="pj-s3">Variable contenant le jeton API Jira</label><input class="in mono" id="pj-s3" value="${sec(p, "JIRA_API_TOKEN")}" placeholder="JIRA_API_TOKEN_TAM"></div>
+      <div class="champ"><label for="pj-gu">URL GitLab (entreprise)</label><input class="in" id="pj-gu" value="${esc(p?.gitlab_url || "")}" placeholder="https://gitlab.<entreprise>"></div>
+      <div class="champ"><label for="pj-gp">Projet GitLab (groupe/sous-groupe/projet)</label><input class="in" id="pj-gp" value="${esc(p?.gitlab_projet || "")}" placeholder="qa/automatisation/tests-banque"></div>
+      <div class="champ"><label for="pj-s4">Variable contenant le jeton d'accès personnel GitLab</label><input class="in mono" id="pj-s4" value="${sec(p, "GITLAB_TOKEN")}" placeholder="GITLAB_TOKEN_TAM"></div></div>
+      <p class="lib">GitLab avec LDAP : l'API n'utilise jamais le mot de passe LDAP mais un jeton d'accès personnel (GitLab › Préférences › Access Tokens, portées <code>api</code> et <code>write_repository</code>). Certificat interne : GITLAB_CA_BUNDLE.</p>
       <p class="lib">Secrets : saisir uniquement le <b>nom</b> de la variable d'environnement (jamais sa valeur). Vide = variables globales XRAY_CLIENT_ID, XRAY_CLIENT_SECRET, JIRA_API_TOKEN.</p>
       <div class="btns"><button class="btn primaire" id="pj-ok">${ico("disque")}Enregistrer</button><button class="btn" id="pj-an">Annuler</button></div>`;
     z.innerHTML = `<p class="lib">Un projet = un repository de tests et son projet Xray / Jira. Stratégie, conception, exécutions, échecs, gouvernance et Knowledge Graph
@@ -202,7 +206,8 @@
     $("#pj-ok").onclick = async () => {
       const b = {id: edition?.id || "", nom: $("#pj-nom").value, dossier: $("#pj-dos").value, xray_projet: $("#pj-xr").value, jira_projet: $("#pj-jp").value,
         jira_url: $("#pj-ju").value, jira_email: $("#pj-je").value, xray_url: $("#pj-xu").value, environnements: $("#pj-env").value.split(","),
-        secrets: {XRAY_CLIENT_ID: $("#pj-s1").value, XRAY_CLIENT_SECRET: $("#pj-s2").value, JIRA_API_TOKEN: $("#pj-s3").value}};
+        gitlab_url: $("#pj-gu").value, gitlab_projet: $("#pj-gp").value,
+        secrets: {XRAY_CLIENT_ID: $("#pj-s1").value, XRAY_CLIENT_SECRET: $("#pj-s2").value, JIRA_API_TOKEN: $("#pj-s3").value, GITLAB_TOKEN: $("#pj-s4").value}};
       try { await api("/api/projets", {method: "POST", body: b}); toast("Projet enregistré.", "ok"); await Atelier.chargerContexte(); projets(z); } catch (e) { toast(e.message, "ko"); }
     };
     $("#pj-an").onclick = () => projets(z);

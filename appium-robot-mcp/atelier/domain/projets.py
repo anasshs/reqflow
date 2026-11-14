@@ -20,8 +20,8 @@ from pathlib import Path
 from atelier.domain import projet
 
 # variables de connexion pilotées par le projet actif ; leurs valeurs de démarrage servent de défaut
-VARIABLES = ("JIRA_BASE_URL", "JIRA_EMAIL", "XRAY_BASE_URL")
-SECRETS = ("XRAY_CLIENT_ID", "XRAY_CLIENT_SECRET", "JIRA_API_TOKEN")
+VARIABLES = ("JIRA_BASE_URL", "JIRA_EMAIL", "XRAY_BASE_URL", "GITLAB_URL", "GITLAB_PROJET")
+SECRETS = ("XRAY_CLIENT_ID", "XRAY_CLIENT_SECRET", "JIRA_API_TOKEN", "GITLAB_TOKEN")
 _ORIGINE = {v: os.environ.get(v) for v in VARIABLES + SECRETS + ("ROBOT_PROJECT_DIR",)}
 NOM_VARIABLE = re.compile(r"^[A-Z_][A-Z0-9_]{1,80}$")
 CLE_PROJET = re.compile(r"^[A-Z][A-Z0-9_]{0,19}$")
@@ -114,12 +114,16 @@ def valider(p: dict) -> dict:
         if v and not CLE_PROJET.match(v):
             raise ValueError(f"{k} : clé de projet Jira attendue (ex. TAM).")
         out[k] = v
-    for k in ("jira_url", "xray_url"):
+    for k in ("jira_url", "xray_url", "gitlab_url"):
         v = str(p.get(k) or "").strip().rstrip("/")
         if v and not v.startswith("https://"):
             raise ValueError(f"{k} : URL https:// attendue.")
         out[k] = v
     out["jira_email"] = str(p.get("jira_email") or "").strip()
+    gp = str(p.get("gitlab_projet") or "").strip().strip("/")
+    if gp and not re.fullmatch(r"[\w.-]+(/[\w.-]+)*|\d+", gp):
+        raise ValueError("gitlab_projet : chemin « groupe/sous-groupe/projet » ou identifiant numérique.")
+    out["gitlab_projet"] = gp
     out["environnements"] = [str(e).strip() for e in (p.get("environnements") or []) if str(e).strip()]
     sec = {}
     for cible, src in (p.get("secrets") or {}).items():
@@ -167,7 +171,8 @@ def _appliquer(p: dict):
     if not os.environ.get("MCP_SNAPSHOT_DIR"):
         projet.SNAP_DIR = projet.PROJECT_DIR / ".mcp_snapshots"
     os.environ["ROBOT_PROJECT_DIR"] = str(projet.PROJECT_DIR)  # listeners et sous-processus Robot
-    valeurs = {"JIRA_BASE_URL": p.get("jira_url"), "JIRA_EMAIL": p.get("jira_email"), "XRAY_BASE_URL": p.get("xray_url")}
+    valeurs = {"JIRA_BASE_URL": p.get("jira_url"), "JIRA_EMAIL": p.get("jira_email"), "XRAY_BASE_URL": p.get("xray_url"),
+               "GITLAB_URL": p.get("gitlab_url"), "GITLAB_PROJET": p.get("gitlab_projet")}
     for v in VARIABLES:
         _poser(v, valeurs.get(v) or _ORIGINE.get(v))
     for v in SECRETS:

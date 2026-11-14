@@ -230,7 +230,7 @@
   }
 
   async function git(z) {
-    const g = await api("/api/studio/git");
+    const [g, gl] = await Promise.all([api("/api/studio/git"), api("/api/studio/gitlab").catch(e => ({configure: true, erreur: e.message}))]);
     z.innerHTML = `${entete("Git Repository")}<div class="corps-carte">${!g.depot ? vide("Projet hors Git", esc(g.message)) : `
       <p>Branche <b>${esc(g.branche)}</b> · commit <span class="mono">${esc(g.commit)}</span>${g.distant ? ` · distant ${esc(g.distant)}` : ""} · ${g.modifications.length} fichier(s) modifié(s)</p>
       <div class="grille-2"><section class="bloc-strat"><h3>Commits récents</h3><ul class="liste">${g.commits.map(c => `<li><span class="mono">${esc(c.hash)}</span><span class="item">${esc(c.message)}</span><span class="lib">${esc(c.auteur)} · ${esc(c.date.slice(0, 10))}</span></li>`).join("")}</ul></section>
@@ -239,7 +239,37 @@
       ${g.depot ? `<section class="bloc-strat" style="margin-top:12px"><h3>Branche et commit locaux</h3><div class="btns"><input class="in" id="gi-br" placeholder="automatisation/connexion" style="width:240px"><button class="btn" id="gi-br-ok">Créer la branche</button></div>
         <div class="champ" style="margin-top:8px"><label>Fichiers à valider (suites approuvées / publiées uniquement)</label>${g.modifications.map(m => { const f = m.slice(3); return `<label class="lib" style="display:block"><input type="checkbox" data-fic="${esc(f)}"> ${esc(m)}</label>`; }).join("") || "<span class='lib'>Aucune modification.</span>"}</div>
         <div class="btns"><input class="in" id="gi-msg" placeholder="Message de commit" style="flex:1"><button class="btn primaire" id="gi-ok">Commit local</button></div></section>` : ""}
-      <p class="lib" style="margin-top:10px">Commit refusé sur main / master / develop / production et pour toute suite non approuvée ; aucun push automatique. Merge request : phase 7 (API GitLab).</p></div>`;
+      <section class="bloc-strat" style="margin-top:12px"><h3>GitLab · merge request</h3>${!gl.configure ? `<p class="lib">${esc(gl.message)} <a href="#parametres/projets">Paramètres › Projets</a></p>`
+        : gl.erreur ? `<p><span class="pill ko">GitLab indisponible</span> ${esc(gl.erreur)}</p>`
+        : `<p>Connecté en <b>${esc(gl.utilisateur.login)}</b> · projet <a href="${esc(gl.projet.url)}" target="_blank" rel="noopener">${esc(gl.projet.chemin)}</a> · branche par défaut <span class="mono">${esc(gl.projet.branche_defaut)}</span></p>
+          ${gl.mr_ouvertes.length ? `<p>MR ouverte pour <span class="mono">${esc(gl.branche)}</span> : ${gl.mr_ouvertes.map(m => `<a href="${esc(m.url)}" target="_blank" rel="noopener">!${m.iid} ${esc(m.titre)}</a>`).join(", ")}</p>`
+          : `<div class="champ"><label for="mr-t">Titre</label><input class="in" id="mr-t" placeholder="Automatisation : connexion (DEMO-301)"></div>
+            <div class="grille-2"><div class="champ"><label for="mr-c">Branche cible</label><input class="in" id="mr-c" value="${esc(gl.projet.branche_defaut || "")}"></div>
+              <div class="champ"><label for="mr-d">Description (complétée automatiquement : fichiers, revues, stabilité, tests Xray)</label><textarea class="in" id="mr-d" rows="2"></textarea></div></div>
+            <div class="btns"><button class="btn primaire" id="mr-ok">${ico("git")}Pousser la branche et créer la merge request</button></div>`}
+          <button class="btn petit" id="gl-com" style="margin-top:8px">Commits GitLab des 14 derniers jours</button><div id="gl-com-l"></div>`}</section>
+      <p class="lib" style="margin-top:10px">Commit refusé sur main / master / develop / production et pour toute suite non approuvée. Merge request : suites approuvées ET stables sur leurs 3 dernières exécutions réelles (sinon dérogation justifiée, écrite dans la MR) ; l'atelier ne fusionne jamais.</p></div>`;
+    if ($("#mr-ok")) $("#mr-ok").onclick = async () => {
+      if (!confirm(`Pousser la branche « ${gl.branche} » vers GitLab et créer la merge request vers « ${$("#mr-c").value} » ?`)) return;
+      const corps = {titre: $("#mr-t").value, cible: $("#mr-c").value.trim(), description: $("#mr-d").value};
+      const envoyer = async b => api("/api/studio/gitlab/mr", {method: "POST", body: b});
+      try {
+        let r;
+        try { r = await envoyer(corps); }
+        catch (e) {
+          if (!/exécutions réelles stables/.test(e.message)) throw e;
+          const j = prompt(e.message + "\n\nJustification de la dérogation (écrite dans la MR et journalisée), ou Annuler :");
+          if (!j) return;
+          r = await envoyer({...corps, derogation: j});
+        }
+        toast(r.deja_ouverte ? `MR déjà ouverte : !${r.mr.iid}` : `Merge request !${r.mr.iid} créée.`, "ok"); git(z);
+      } catch (e) { toast(e.message, "ko"); }
+    };
+    if ($("#gl-com")) $("#gl-com").onclick = async () => {
+      try { const l = await api("/api/studio/gitlab/commits?jours=14");
+        $("#gl-com-l").innerHTML = `<ul class="liste">${l.map(c => `<li><a class="mono" href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.id)}</a><span class="item">${esc(c.titre)}</span><span class="lib">${esc(c.auteur)} · ${esc((c.date || "").slice(0, 10))}</span></li>`).join("") || "<li class='lib'>Aucun commit.</li>"}</ul>`; }
+      catch (e) { toast(e.message, "ko"); }
+    };
     if ($("#gi-br-ok")) {
       $("#gi-br-ok").onclick = async () => { try { await api("/api/studio/git/branche", {method: "POST", body: {nom: $("#gi-br").value.trim()}}); toast("Branche créée.", "ok"); git(z); } catch (e) { toast(e.message, "ko"); } };
       $("#gi-ok").onclick = async () => { try { await api("/api/studio/git/commit", {method: "POST", body: {message: $("#gi-msg").value, fichiers: $$("[data-fic]", z).filter(x => x.checked).map(x => x.dataset.fic)}}); toast("Commit local créé.", "ok"); git(z); } catch (e) { toast(e.message, "ko"); } };

@@ -7,16 +7,16 @@ import urllib.error
 import urllib.request
 
 
-def _ctx():
-    ca = os.environ.get("XRAY_CA_BUNDLE")
+def _ctx(cafile: str | None = None):
+    ca = cafile or os.environ.get("XRAY_CA_BUNDLE")
     return ssl.create_default_context(cafile=ca) if ca else ssl.create_default_context()
 
 
 def http(method: str, url: str, data: bytes | None = None, headers: dict | None = None,
-         timeout: int = 60) -> str:
+         timeout: int = 60, cafile: str | None = None) -> str:
     req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
     try:
-        with urllib.request.urlopen(req, context=_ctx(), timeout=timeout) as r:
+        with urllib.request.urlopen(req, context=_ctx(cafile), timeout=timeout) as r:
             return r.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "ignore")[:600]

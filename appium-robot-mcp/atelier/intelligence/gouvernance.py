@@ -126,7 +126,7 @@ def stabilite(s: dict | None = None) -> dict:
     p1 = sum((r["passes"] + r["echecs"]) for r in premiers)
     return {"tests": sorted(out, key=lambda x: (x["classification"] != "Potentially flaky", x["taux_reussite"])),
             "flaky": [x["test"] for x in out if x["classification"] == "Potentially flaky"], "instables_retry": instables_retry,
-            "definition": f"Potentially flaky : au moins {mini} exécutions réelles, résultats PASS et FAIL, et au moins 2 changements de statut. "
+            "definition": f"Potentially flaky : au moins {mini} exécutions réelles, résultats PASS et FAIL, et au moins {trans_min} changements de statut. "
                           "Un test toujours en échec n'est pas instable.", "tests_executes": len(out), "executions_total": p1}
 
 

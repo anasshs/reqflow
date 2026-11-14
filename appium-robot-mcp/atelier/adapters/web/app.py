@@ -294,10 +294,19 @@ def _sante_items() -> list[dict]:
             cache["jira"] = (True, me.get("displayName", "connecté"))
         except Exception as e:
             cache["jira"] = (False, str(e)[:120])
+        try:
+            from atelier.integrations.gitlab import GitLabClient
+            u = GitLabClient().utilisateur()
+            cache["gitlab"] = (True, f"{u.get('login')} · {os.environ.get('GITLAB_PROJET', '')}")
+        except Exception as e:
+            cache["gitlab"] = (False, str(e)[:120])
     item("xray", "Xray", *cache["xray"],
          "Renseigne XRAY_CLIENT_ID / XRAY_CLIENT_SECRET (et XRAY_CA_BUNDLE derrière le proxy).")
     item("jira", "Jira", *cache["jira"],
          "Renseigne JIRA_BASE_URL, JIRA_EMAIL et JIRA_API_TOKEN.", optionnel=True)
+    item("gitlab", "GitLab", *cache.get("gitlab", (False, "non vérifié")),
+         "URL et projet GitLab dans Paramètres › Projets ; jeton d'accès personnel (portées api, write_repository) "
+         "dans GITLAB_TOKEN ou la variable du projet ; GITLAB_CA_BUNDLE pour un certificat interne.", optionnel=True)
     envs_db = sorted({k.split("_")[1].lower() for k in os.environ if re.match(r"DB_[A-Z0-9]+_HOST$", k)})
     item("base", "Base de données", bool(envs_db), ", ".join(envs_db) or "",
          "Renseigne DB_<ENV>_HOST, _PORT, _SID, _USER, _PASSWORD pour la recherche de données.",
@@ -1601,6 +1610,23 @@ async def studio_enregistrer_espace(req: Request):
 @app.post("/api/studio/git/branche")
 async def studio_branche(req: Request):
     return await asyncio.to_thread(_call, studio.creer_branche, (await req.json()).get("nom", ""))
+
+
+@app.get("/api/studio/gitlab")
+async def studio_gitlab():
+    return await asyncio.to_thread(_call, studio.gitlab_etat)
+
+
+@app.get("/api/studio/gitlab/commits")
+async def studio_gitlab_commits(jours: int = 14, chemin: str = ""):
+    return await asyncio.to_thread(_call, studio.gitlab_commits, jours, chemin)
+
+
+@app.post("/api/studio/gitlab/mr")
+async def studio_gitlab_mr(req: Request):
+    """Push de la branche de travail + merge request (jamais de fusion) ; garde-fous dans studio.proposer_mr."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio.proposer_mr, b.get("titre", ""), b.get("description", ""), b.get("cible", ""), b.get("derogation", ""))
 
 
 @app.post("/api/studio/git/commit")
