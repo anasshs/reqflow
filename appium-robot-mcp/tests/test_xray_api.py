@@ -73,3 +73,13 @@ def test_statuts_personnalises_dans_un_run(projet, xray, monkeypatch):
     (projet / "tests" / "v.robot").write_text(SUITE, "utf-8")
     bilan = server.run_robot("tests/v.robot", xray_ticket="DEMO")
     assert xray.statut_final("DEMO-1") == "REUSSI" and xray.statut_final("DEMO-2") == "ECHOUE", bilan["erreurs"]
+
+
+def test_identifiants_nettoyes_des_guillemets(monkeypatch):
+    """Une clé copiée avec ses guillemets ou espaces (Read-Host, .env) ne doit pas provoquer de 401."""
+    from atelier.integrations.xray import XrayClient
+
+    monkeypatch.setenv("XRAY_CLIENT_ID", ' "abc" ')
+    monkeypatch.setenv("XRAY_CLIENT_SECRET", "'def'\n")
+    c = XrayClient()
+    assert (c.cid, c.secret) == ("abc", "def")

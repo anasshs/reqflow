@@ -44,8 +44,10 @@ def now_iso() -> str:
 # =========================================================================== Xray
 class XrayClient:
     def __init__(self):
-        self.cid = os.environ.get("XRAY_CLIENT_ID")
-        self.secret = os.environ.get("XRAY_CLIENT_SECRET")
+        from atelier.integrations.http import variable_secrete
+
+        self.cid = variable_secrete("XRAY_CLIENT_ID")
+        self.secret = variable_secrete("XRAY_CLIENT_SECRET")
         if not (self.cid and self.secret):
             raise RuntimeError("XRAY_CLIENT_ID / XRAY_CLIENT_SECRET non configurés.")
         self._token = None

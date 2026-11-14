@@ -21,3 +21,11 @@ def http(method: str, url: str, data: bytes | None = None, headers: dict | None 
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "ignore")[:600]
         raise RuntimeError(f"HTTP {e.code} sur {url.split('?')[0]} : {detail}") from None
+
+
+def variable_secrete(nom: str) -> str:
+    """Valeur d'une variable d'environnement de connexion, sans espaces ni guillemets copiés avec elle
+    (cause fréquente d'un 401 : Read-Host ou un .env qui conserve les guillemets)."""
+    import os
+
+    return (os.environ.get(nom) or "").strip().strip('"').strip("'").strip()

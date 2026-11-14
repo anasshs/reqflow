@@ -16,7 +16,9 @@ from atelier.integrations.http import http
 class JiraClient:
     def __init__(self):
         self.base = (os.environ.get("JIRA_BASE_URL") or "").rstrip("/")
-        email, token = os.environ.get("JIRA_EMAIL"), os.environ.get("JIRA_API_TOKEN")
+        from atelier.integrations.http import variable_secrete
+
+        email, token = variable_secrete("JIRA_EMAIL"), variable_secrete("JIRA_API_TOKEN")
         self.enabled = bool(self.base and email and token)
         self._auth = ("Basic " + base64.b64encode(f"{email}:{token}".encode()).decode()
                       if self.enabled else "")
