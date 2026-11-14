@@ -176,16 +176,19 @@
   }
 
   async function parametres(z) {
-    const p = await api("/api/gouvernance/parametres");
+    const [p, hist] = await Promise.all([api("/api/gouvernance/parametres"), api("/api/gouvernance/parametres/historique").catch(() => [])]);
     const champs = (g, o) => Object.entries(o).map(([k, v]) => `<div class="champ"><label>${esc(k)}</label><input class="in" type="number" data-g="${g}" data-k="${k}" value="${esc(v)}"></div>`).join("");
     z.innerHTML = `${entete("Governance Settings", `<button class="btn primaire" id="gs-ok">Enregistrer</button>`)}<div class="corps-carte"><div class="grille-2">
       <section class="bloc-strat"><h3>Seuils</h3>${champs("seuils", p.seuils)}</section><section class="bloc-strat"><h3>Release</h3>${champs("release", p.release)}
         <div class="champ"><label>Minutes d'exécution manuelle par test (ROI)</label><input class="in" type="number" id="gs-min" value="${esc(p.minutes_manuelles_par_test ?? "")}" placeholder="non renseigné : ROI indisponible"></div></section>
-      <section class="bloc-strat"><h3>Pondérations du risque</h3>${champs("poids_risque", p.poids_risque)}</section><section class="bloc-strat"><h3>Pondérations de la release</h3>${champs("poids_release", p.poids_release)}</section></div></div>`;
+      <section class="bloc-strat"><h3>Pondérations du risque</h3>${champs("poids_risque", p.poids_risque)}</section><section class="bloc-strat"><h3>Pondérations de la release</h3>${champs("poids_release", p.poids_release)}</section>
+      <section class="bloc-strat"><h3>Pondérations de la santé d'automatisation</h3>${champs("poids_sante", p.poids_sante)}</section></div>
+      <h3 class="lib" style="margin-top:14px">HISTORIQUE DES MODIFICATIONS</h3>${hist.length ? `<table class="table-strat"><tr><th>Date</th><th>Auteur</th><th>Changements (avant → après)</th></tr>${hist.map(h => `<tr><td class="mono">${esc(h.date.replace("T", " ").slice(0, 16))}</td><td>${esc(h.auteur)}</td>
+        <td>${Object.entries(h.changements).map(([k, v]) => `<code>${esc(k)}</code> ${esc(String(v.avant))} → ${esc(String(v.apres))}`).join("<br>")}</td></tr>`).join("")}</table>` : "<p class='lib'>Aucune modification.</p>"}</div>`;
     $("#gs-ok").onclick = async () => {
-      const b = {seuils: {}, release: {}, poids_risque: {}, poids_release: {}, minutes_manuelles_par_test: $("#gs-min").value ? +$("#gs-min").value : null};
+      const b = {seuils: {}, release: {}, poids_risque: {}, poids_release: {}, poids_sante: {}, minutes_manuelles_par_test: $("#gs-min").value ? +$("#gs-min").value : null};
       $$("[data-g]", z).forEach(i => { b[i.dataset.g][i.dataset.k] = +i.value; });
-      try { await api("/api/gouvernance/parametres", {method: "POST", body: b}); toast("Paramètres enregistrés.", "ok"); } catch (e) { toast(e.message, "ko"); }
+      try { await api("/api/gouvernance/parametres", {method: "POST", body: b}); toast("Paramètres enregistrés (historisés).", "ok"); parametres(z); } catch (e) { toast(e.message, "ko"); }
     };
   }
 })();

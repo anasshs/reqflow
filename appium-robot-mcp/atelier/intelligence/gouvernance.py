@@ -18,10 +18,12 @@ from atelier.domain import projet
 from atelier.intelligence.strategie import _auteur, _ecrire_atomique, _maintenant
 
 DEFAUTS = {
-    "seuils": {"couverture_ok": 80, "couverture_partielle": 50, "flaky_executions_min": 3, "fenetre_runs": 30, "jours_sans_execution": 30},
+    "seuils": {"couverture_ok": 80, "couverture_partielle": 50, "flaky_executions_min": 3, "flaky_transitions_min": 2,
+               "fenetre_runs": 30, "jours_sans_execution": 30, "risque_high": 60, "risque_medium": 35},
     "poids_risque": {"criticite": 30, "couverture": 25, "automatisation": 15, "echecs": 20, "instabilite": 10},
+    "poids_sante": {"locators": 40, "revue": 30, "reutilisation": 30},
     "poids_release": {"couverture_critique": 25, "resultats": 25, "anomalies": 20, "stabilite": 15, "couverture_auto": 10, "tracabilite": 5},
-    "release": {"seuil_ready": 80, "seuil_avec_risques": 60, "donnees_min_pct": 60},
+    "release": {"seuil_ready": 80, "seuil_avec_risques": 60, "donnees_min_pct": 60, "anomalies_plafond": 5},
     "minutes_manuelles_par_test": None,  # ROI indisponible tant que non renseigné
 }
 STATUTS_RECO = ["Proposed", "Accepted", "Rejected", "In Progress", "Completed"]
@@ -48,10 +50,29 @@ def enregistrer_parametres(p: dict) -> dict:
     m = p.get("minutes_manuelles_par_test")
     if m not in (None, "") and float(m) <= 0:
         raise ValueError("Minutes manuelles par test : nombre positif.")
-    base = parametres()
+    s = (p.get("seuils") or {})
+    if s and float(s.get("risque_medium", 0)) > float(s.get("risque_high", 100)):
+        raise ValueError("Seuil de risque MEDIUM supérieur au seuil HIGH.")
+    if "release" in p and float(p["release"].get("anomalies_plafond", 1)) <= 0:
+        raise ValueError("Plafond d'anomalies : nombre positif.")
+    avant = parametres()
+    base = json.loads(json.dumps(avant))
     base.update({k: v for k, v in p.items() if k in DEFAUTS})
     _ecrire_atomique(_d() / "parametres.yaml", yaml.safe_dump(base, allow_unicode=True, sort_keys=False))
-    return parametres()
+    apres = parametres()
+    diff = {f"{g}.{k}" if isinstance(apres[g], dict) else g: {"avant": (avant[g].get(k) if isinstance(avant[g], dict) else avant[g]),
+                                                               "apres": (v if isinstance(apres[g], dict) else apres[g])}
+            for g in apres for k, v in (apres[g].items() if isinstance(apres[g], dict) else [(None, apres[g])])
+            if (avant[g].get(k) if isinstance(avant[g], dict) else avant[g]) != v}
+    if diff:  # toute modification de paramètre est tracée (qui, quand, avant / après)
+        with (_d() / "parametres_historique.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"date": _maintenant(), "auteur": _auteur(), "changements": diff}, ensure_ascii=False) + "\n")
+    return apres
+
+
+def historique_parametres() -> list[dict]:
+    f = _d() / "parametres_historique.jsonl"
+    return [json.loads(x) for x in f.read_text("utf-8").splitlines() if x.strip()][::-1] if f.exists() else []
 
 
 # =========================================================================== données de base
@@ -90,11 +111,12 @@ def _par_exigence(pat) -> dict:
 def stabilite(s: dict | None = None) -> dict:
     s = s or _sources()
     mini = s["p"]["seuils"]["flaky_executions_min"]
+    trans_min = s["p"]["seuils"].get("flaky_transitions_min", 2)
     out = []
     for nom, l in s["seq"].items():
         st = [x["statut"] for x in l]
         transitions = sum(a != b for a, b in zip(st, st[1:]))
-        flaky = len(st) >= mini and "PASS" in st and "FAIL" in st and transitions >= 2
+        flaky = len(st) >= mini and "PASS" in st and "FAIL" in st and transitions >= trans_min
         out.append({"test": nom, "cle_xray": l[-1]["cle"], "executions": len(st), "sequence": st[-10:], "transitions": transitions,
                     "taux_reussite": round(100 * st.count("PASS") / len(st), 1), "classification": "Potentially flaky" if flaky else
                     "Constamment en échec" if set(st) == {"FAIL"} else "Stable" if set(st) == {"PASS"} else "À surveiller",
@@ -221,7 +243,8 @@ def sante_automatisation(s: dict | None = None) -> dict:
     sante_loc = round(100 * (n("Stable") + n("Reliable")) / len(locs), 1) if locs else None
     conformite = round(100 * sum(r["statut"] in ("Approved", "Published") for r in rev.values()) / len(rev), 1) if rev else None
     reutil = round(100 * sum(k["utilisations"] >= 2 for k in kws) / len(kws), 1) if kws else None
-    parts = [(sante_loc, 0.4), (conformite, 0.3), (reutil, 0.3)]
+    ps = s["p"]["poids_sante"]
+    parts = [(sante_loc, ps["locators"]), (conformite, ps["revue"]), (reutil, ps["reutilisation"])]
     dispo = [(v, w) for v, w in parts if v is not None]
     return {"indicateurs": {"locators_sains": sante_loc, "conformite_revue": conformite, "reutilisation_keywords": reutil,
                             "keywords_doublons": sum(k["doublon"] for k in kws), "keywords_inutilises": sum(k["inutilise"] for k in kws),
@@ -229,7 +252,8 @@ def sante_automatisation(s: dict | None = None) -> dict:
                             "backlog_maintenance": len(backlog),
                             "score": round(sum(v * w for v, w in dispo) / sum(w for _, w in dispo), 1) if dispo else None},
             "locators": Counter(l["etat"] for l in locs), "jamais_executes": jamais[:30], "backlog": backlog[:30],
-            "definition": "Santé = 40 % locators stables ou fiables + 30 % scripts approuvés / publiés + 30 % keywords réutilisés (2 appels et plus) ; "
+            "definition": f"Santé = moyenne pondérée : locators stables ou fiables (poids {ps['locators']}), scripts approuvés / publiés "
+                          f"(poids {ps['revue']}), keywords réutilisés, 2 appels et plus (poids {ps['reutilisation']}) ; "
                           "composantes sans donnée exclues et pondérations renormalisées.", "date": s["date"]}
 
 
@@ -237,6 +261,7 @@ def sante_automatisation(s: dict | None = None) -> dict:
 def risques(s: dict | None = None) -> dict:
     s = s or _sources()
     w = s["p"]["poids_risque"]
+    hi, med = s["p"]["seuils"].get("risque_high", 60), s["p"]["seuils"].get("risque_medium", 35)
     cf = {m["module"]: m for m in couverture_fonctionnelle(s)["modules"]}
     ca = {m["module"]: m for m in couverture_automatisation(s)["modules"]}
     crit_strat = {}
@@ -260,12 +285,12 @@ def risques(s: dict | None = None) -> dict:
                     "instabilite": sum(1 for n in flaky if any(x["cle"] in {t["cle"] for t in tests} for x in s["seq"].get(n, []))) / len(tests) if tests else None}
         dispo = {k: v for k, v in facteurs.items() if v is not None}
         score = round(100 * sum(w[k] * v for k, v in dispo.items()) / sum(w[k] for k in dispo), 1) if dispo else None
-        out.append({"module": mod, "score": score, "niveau": None if score is None else "HIGH" if score >= 60 else "MEDIUM" if score >= 35 else "LOW",
+        out.append({"module": mod, "score": score, "niveau": None if score is None else "HIGH" if score >= hi else "MEDIUM" if score >= med else "LOW",
                     "criticite": crit, "facteurs": {k: (round(v, 2) if v is not None else None) for k, v in facteurs.items()},
                     "tests": len(tests), "lacunes": [e["cle"] for e in couverture_fonctionnelle(s)["exigences"] if (e["module"] or "—") == mod and e["etat"] == "insuffisante"]})
     return {"modules": sorted(out, key=lambda x: -(x["score"] or 0)), "poids": w,
             "definition": "Score = moyenne pondérée des facteurs disponibles (0 à 1) × 100 : criticité, manque de couverture, manque d'automatisation, "
-                          "taux d'échec, part de tests instables. HIGH ≥ 60, MEDIUM ≥ 35. Facteur sans donnée exclu (pondérations renormalisées).",
+                          f"taux d'échec, part de tests instables. HIGH ≥ {hi}, MEDIUM ≥ {med} (paramétrables). Facteur sans donnée exclu (pondérations renormalisées).",
             "date": s["date"]}
 
 
@@ -345,7 +370,8 @@ def evaluer_release(version: str = "", campagne: str = "", environnement: str = 
         from atelier.execution import echecs
 
         ouverts = [e for e in echecs.collecter(60) if e["categorie_confirmee"] == "Application Defect" and e["statut"] not in ("Closed", "Fixed")]
-        anomalies = 1.0 if not ouverts else max(0.0, 1 - len(ouverts) / 5)
+        plafond = float(p["release"].get("anomalies_plafond", 5))
+        anomalies = 1.0 if not ouverts else max(0.0, 1 - len(ouverts) / plafond)
     except Exception:
         anomalies, ouverts = None, []
     st = stabilite(s)
@@ -456,8 +482,8 @@ def suivre_recommandation(rid: str, statut: str, responsable: str = "", commenta
 
 
 def vue_ensemble() -> dict:
+    """Lecture seule : l'instantané quotidien est pris par le planificateur de l'interface, pas par un affichage."""
     s = _sources()
-    instantane()
     return {"kpis": kpis(s), "modules": couverture_fonctionnelle(s)["modules"], "automatisation": couverture_automatisation(s)["modules"],
             "risques": risques(s)["modules"], "locators": dict(sante_automatisation(s)["locators"]), "date": s["date"],
             "recommandations": [r for r in recommandations() if r["statut"] in ("Proposed", "Accepted", "In Progress")][:6]}

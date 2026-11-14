@@ -1416,6 +1416,7 @@ def _planificateur():
                 emit({"type": "campagne_planifiee", "campagne": c["id"]})
         except Exception:
             pass  # un problème de planification ne doit jamais arrêter l'interface
+        _call_silencieux(gouvernance.instantane)  # au plus un instantané des KPI par jour (Quality Governance › Trends)
 
 
 @app.on_event("startup")
@@ -1685,6 +1686,11 @@ async def gouvernance_suivre(req: Request):
 @app.post("/api/gouvernance/instantane")
 async def gouvernance_instantane():
     return await asyncio.to_thread(_call, gouvernance.instantane, True)
+
+
+@app.get("/api/gouvernance/parametres/historique")
+def gouvernance_parametres_historique():
+    return _call(gouvernance.historique_parametres)
 
 
 @app.post("/api/gouvernance/parametres")

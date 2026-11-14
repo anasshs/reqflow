@@ -20,8 +20,8 @@
         <section class="carte corps-strat"><div class="corps-carte">${vide("Chargement…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = GRAPHE[b.dataset.r] || "intelligence/" + b.dataset.r; });
       const z = $(".corps-strat");
-      try { await ({vue, jira, parcours, ecrans, api: liste("api", "API Intelligence", "Endpoints et entités déclarés ou importés. Import OpenAPI / Postman : à venir (phase 6 de la roadmap)."),
-        regles: liste("regles", "Business Rules", "Règles métier déclarées (provenance conservée). Extraction depuis les critères d'acceptation Jira : nécessite l'import Jira complet."),
+      try { await ({vue, jira, parcours, ecrans, api: liste("api", "API Intelligence", "Endpoints et entités déclarés ou importés depuis les contrats OpenAPI / Swagger du projet (api/*.yaml|json ; module par tag, stories par x-jira). Import Postman : à venir."),
+        regles: liste("regles", "Business Rules", "Règles métier déclarées ou extraites des critères d'acceptation Jira (Jira Intelligence › « Proposer les règles métier ») ; provenance, ticket et extrait conservés, validation humaine obligatoire."),
         exploration, changements, validation, historique, parametres}[R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
@@ -53,8 +53,8 @@
       + e.enfants.map(c => par[c] ? ligne(par[c], n + 1) : "").join("");
     const cr = await api("/api/intelligence/criteres").catch(() => []);
     z.innerHTML = `${entete("Jira Intelligence", `<a class="btn" href="#rapports/patrimoine">Synchroniser (JQL)</a><button class="btn primaire" id="ji-an">Proposer les règles métier</button>`)}<div class="corps-carte">
-      <p class="lib">Tickets de l'instantané Jira / Xray, hiérarchie Epic → Story et tests Xray associés (traçabilité dans les deux sens). Extraction IA des fonctionnalités, critères d'acceptation et règles :
-        à venir avec l'import Jira complet (descriptions) ; chaque proposition passera par la file de validation.</p>
+      <p class="lib">Tickets de l'instantané Jira / Xray, hiérarchie Epic → Story et tests Xray associés (traçabilité dans les deux sens). Critères d'acceptation structurés et règles candidates extraits par motifs explicites (sans IA)
+        depuis les descriptions et le champ JIRA_CHAMP_CRITERES ; chaque proposition passe par la file de validation, un rejet est définitif. Extraction de fonctionnalités par IA : à venir.</p>
       ${l.length ? `<table class="table-strat"><tr><th>Ticket</th><th>Type</th><th>Statut</th><th>Module</th><th>Tests Xray</th></tr>${racines.map(e => ligne(e, 0)).join("")}</table>` : vide("Aucun ticket", "Importer l'instantané Xray / synchroniser Jira.")}
       <h3 class="lib" style="margin-top:14px">CRITÈRES D'ACCEPTATION STRUCTURÉS (motifs explicites, sans IA)</h3>
       ${cr.length ? `<table class="table-strat"><tr><th>Ticket</th><th>Critère</th><th>Condition</th><th>Action</th><th>Résultat attendu</th><th>Règle candidate</th></tr>${cr.map(c => `<tr><td class="cle-xray">${esc(c.ticket)}</td><td>${esc(c.texte)}</td>

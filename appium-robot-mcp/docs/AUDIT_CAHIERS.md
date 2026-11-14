@@ -19,7 +19,7 @@ Légende : ✅ conforme · 🟡 partiel · ❌ absent · ⛔ dépend d'un servic
 
 Transverse : aucune authentification ni rôle (tous les cahiers) ; aucun multi-projets dans une même instance.
 
-## Violations des règles transverses (à corriger en priorité)
+## Violations des règles transverses — toutes corrigées le 2026-11-14
 | # | Constat | Règle | Effort |
 |---|---|---|---|
 | 1 | Un script non approuvé s'exécute (revue non bloquante dans `centre.verifier`, `/api/run` et campagnes sans contrôle) | validation humaine | S |
@@ -45,3 +45,19 @@ Transverse : aucune authentification ni rôle (tous les cahiers) ; aucun multi-p
 - Failure Analysis : filtres de l'Inbox, temps de diagnostic / résolution, machine à états New → Closed — M.
 - Execution Center : parallélisme, runners distants, réservation de devices, états Blocked / Aborted / Cancelled — L ⛔.
 - Rôles et permissions (tous modules) — L.
+
+## Corrections apportées (2026-11-14)
+| # | Correction |
+|---|---|
+| 1 | `centre.controle_revue` : un script entré en revue (Builder, génération BDD) ne s'exécute qu'Approved / Published ; dry-run libre ; dérogation justifiée journalisée (`executions/derogations_revue.jsonl`) ; `ATELIER_REVUE_EXECUTION=avertissement` ; patrimoine jamais entré en revue non bloqué. |
+| 2 | Rejeu : nouveau dossier de run, `output.xml` d'origine copié ; retry rattaché à la Test Execution créée par la 1re tentative. |
+| 3 | `etat_xray` : Failed / Partial dès qu'un événement est abandonné, erreurs définitives affichées. |
+| 4 | `declarations.rejeter` : rejet motivé, mémorisé, jamais reproposé (IA, extraction Jira). |
+| 5 | Plus de pourcentage de confiance : base factuelle (observé, déclaré, déduit à valider, référencé non défini). |
+| 6 | IA des échecs : JDD et motifs sensibles masqués avant envoi ; contexte envoyé, modèle et réponse historisés (`analyses/ia/`). |
+| 7 | Seuils de risque, transitions flaky, poids de santé, plafond d'anomalies de release : paramètres affichés dans les définitions. |
+| 8 | Stratégie archivée : toute modification ouvre une nouvelle version. |
+| 9 | Validations de critères et vérifications d'environnement : suivi hors du document (`strategie/suivi.json`), version publiée intacte. |
+| 10 | Scenario Outline / Examples conservés ; Background inclus dans le test publié ; scénarios non publiés signalés ; erreurs Xray historisées. |
+| 11 | Paramètres de gouvernance historisés (avant / après) ; la vue ne s'écrit plus, l'instantané quotidien est pris par le planificateur. |
+| 12 | Textes d'écran et docstrings alignés sur le code. |

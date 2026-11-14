@@ -65,10 +65,13 @@ def _etape(mot: str, texte: str, **kw) -> dict:
 def parser(texte: str) -> dict:
     """Texte Gherkin -> modèle (Feature, Contexte, Scénarios, étapes)."""
     m = {"langue": "en", "feature": "", "description": [], "contexte": [], "scenarios": [], "tags": []}
-    courant, tags_attente = None, []
+    courant, tags_attente, exemples = None, [], None
     for brut in texte.splitlines():
         ligne = brut.strip()
         if not ligne:
+            continue
+        if exemples is not None and ligne.startswith("|"):  # lignes du tableau Examples, conservées telles quelles
+            exemples.append(ligne)
             continue
         if ligne.startswith("#"):
             lg = re.match(r"#\s*language\s*:\s*(\w+)", ligne)
@@ -80,6 +83,11 @@ def parser(texte: str) -> dict:
             continue
         cle, _, reste = ligne.partition(":")
         mot_cle = cle.strip().lower()
+        if mot_cle in ("examples", "scenarios", "exemples") and _ and m["scenarios"]:
+            exemples = m["scenarios"][-1].setdefault("exemples", [])
+            courant = None
+            continue
+        exemples = None
         if mot_cle in ("feature", "fonctionnalité", "fonctionnalite") and _:
             m["feature"], m["tags"], tags_attente = reste.strip(), tags_attente, []
             courant = None
@@ -92,6 +100,8 @@ def parser(texte: str) -> dict:
                 "principal" if not m["scenarios"] else "alternatif")
             sc = {"id": _id(), "nom": reste.strip(), "type": typ,
                   "tags": [t for t in tags_attente if t not in TYPES_SCENARIO], "etapes": [], "depuis": ""}
+            if mot_cle in ("scenario outline", "plan du scénario"):
+                sc["plan"] = True
             for t in tags_attente:
                 if t.startswith("depuis:"):
                     sc["depuis"] = t.split(":", 1)[1]
@@ -142,8 +152,12 @@ def serialiser(m: dict) -> str:
         out.append("")
         if tags:
             out.append("  " + " ".join("@" + t for t in tags))
-        out.append(f"  {kw['scenario']}: {sc['nom']}")
+        plan = sc.get("plan") or bool(sc.get("exemples"))
+        titre = ("Plan du scénario" if m.get("langue") == "fr" else "Scenario Outline") if plan else kw["scenario"]
+        out.append(f"  {titre}: {sc['nom']}")
         out += [f"    {mots[e['type']]} {e['texte']}" for e in sc["etapes"]]
+        if sc.get("exemples"):
+            out += ["", f"    {'Exemples' if m.get('langue') == 'fr' else 'Examples'}:"] + [f"      {l}" for l in sc["exemples"]]
     return "\n".join(out) + "\n"
 
 

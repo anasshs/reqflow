@@ -115,10 +115,11 @@ Moteur `atelier/generation/conception.py`, écran « Test Design » (13 rubrique
       Xray, contrôles (exigence, BDD, JDD, doublons), historique des décisions, réviseur.
 - [x] Baselines immuables et comparaison (dont tests impactés par une exigence modifiée).
 - [x] Xray Mapping : objets, champs (sens, actif, obligatoire, transformation, champs personnalisés), statuts sans
-      équivalent supposé, test du mapping sur l'instantané ; mode A (import) seul disponible.
+      équivalent supposé, test du mapping sur l'instantané ; modes A (import), B / C (publication du Gherkin Cucumber, conflits).
 - [x] Scénarios BDD, JDD, suites, traçabilité, réutilisables : écrans existants réutilisés ou vues en lecture.
 - [ ] Règles de test ; éditeur d'étapes manuelles ; génération IA de cas depuis une exigence ; import Excel / CSV.
-- [ ] Modes B / C, conflits, arborescence du Test Repository, Test Sets (bloqués par la vérification 1.4 de l'API Xray).
+- [x] Modes B / C pour le Gherkin, conflits détectés, historique (createTest / updateGherkinTestDefinition à confirmer par xray-verifier).
+- [ ] Arborescence du Test Repository, Test Sets, publication des tests Manual / Generic.
 
 ### Automation Studio et Execution Center (cahiers des charges du 2026-11-14) — docs/AUTOMATION_EXECUTION_ECARTS.md
 - [x] Navigation globale par module, projet unique dans le header, contexte d'exécution figé et historisé.
@@ -137,7 +138,8 @@ Moteur `atelier/generation/conception.py`, écran « Test Design » (13 rubrique
       regroupement réversible, tests impactés, décisions, retest via la file, brouillon Jira, IA à la demande.
 - [x] Quality Governance : KPI documentés et historisés, couvertures, efficacité, santé, stabilité, risques,
       release readiness avec avis QA, recommandations suivies, rapports PDF / CSV, paramètres.
-- [ ] Import Jira complet (descriptions, critères) et extraction IA ; création Jira ; versions du graphe ; propositions de code.
+- [x] Descriptions et critères Jira, création d'anomalies et doublons, versions du graphe.
+- [ ] Import Jira complet (tickets sans test, historique des instantanés), extraction IA, propositions de code.
 
 ### Deuxième phase (§13)
 - [ ] Journey Graph. - [x] BDD Scenario Graph (synchronisé avec le .feature). - [ ] Failure Diagnosis Graph.

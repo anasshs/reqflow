@@ -257,6 +257,41 @@ def charger() -> dict | None:
         s["rubriques"].setdefault(r["id"], [])
     s.setdefault("plan_automatisation", {})
     s.setdefault("commentaires", [])
+    # suivi opérationnel (validations de critères, vérifications d'environnement) : hors du document versionné,
+    # superposé en lecture uniquement ; jamais écrit dans la stratégie ni dans une version publiée.
+    suivi = _suivi()
+    for c in s["rubriques"].get("criteres", []):
+        c.pop("validation", None)
+        if c.get("id") in suivi["criteres"]:
+            c["validation"] = suivi["criteres"][c["id"]]
+    for e in s["rubriques"].get("environnements", []):
+        e.pop("derniere_verification", None)
+        if e.get("id") in suivi["environnements"]:
+            e["derniere_verification"] = suivi["environnements"][e["id"]]
+    return s
+
+
+def _suivi() -> dict:
+    f = _dossier() / "suivi.json"
+    d = json.loads(f.read_text("utf-8")) if f.exists() else {}
+    d.setdefault("criteres", {})
+    d.setdefault("environnements", {})
+    return d
+
+
+def _sauver_suivi(groupe: str, eid: str, valeur: dict):
+    d = _suivi()
+    d[groupe][eid] = valeur
+    _ecrire_atomique(_dossier() / "suivi.json", json.dumps(d, ensure_ascii=False, indent=1))
+
+
+def _sans_suivi(s: dict) -> dict:
+    """Copie du document sans les champs de suivi superposés par charger()."""
+    s = json.loads(json.dumps(s, ensure_ascii=False, default=str))
+    for c in s.get("rubriques", {}).get("criteres", []):
+        c.pop("validation", None)
+    for e in s.get("rubriques", {}).get("environnements", []):
+        e.pop("derniere_verification", None)
     return s
 
 
@@ -285,7 +320,7 @@ def journal(limite: int = 200) -> list[dict]:
 
 def _sauver(s: dict):
     s["infos"]["modifie_le"] = _maintenant()
-    _ecrire_atomique(_fichier(), yaml.safe_dump(s, allow_unicode=True, sort_keys=False))
+    _ecrire_atomique(_fichier(), yaml.safe_dump(_sans_suivi(s), allow_unicode=True, sort_keys=False))
 
 
 def _index() -> list[dict]:
@@ -313,9 +348,7 @@ def creer(nom: str, application: str, version_application: str = "", responsable
 
 def _avant_modification(s: dict, op: str):
     """RG12 : une version publiée n'est jamais modifiée ; une stratégie en revue ou approuvée revient en brouillon."""
-    if s["statut"] == "Archived":
-        raise PermissionError("Stratégie archivée : aucune modification.")
-    if s["statut"] == "Published":
+    if s["statut"] in ("Published", "Archived"):  # archivée : reprise possible, toujours dans une nouvelle version
         s["version"] += 1
         s["statut"] = "Draft"
         s.pop("approbation", None)
@@ -431,9 +464,8 @@ def valider_critere(eid: str, preuve: str) -> dict:
         raise ValueError("Critère à vérification automatique : il se mesure, il ne se valide pas à la main (RG10).")
     if not preuve.strip():
         raise ValueError("Preuve obligatoire.")
-    c["validation"] = {"par": _auteur(), "date": _maintenant(), "preuve": preuve.strip()}
-    _sauver(s)
-    _journaliser("validation_critere", s, element=eid)
+    _sauver_suivi("criteres", eid, {"par": _auteur(), "date": _maintenant(), "preuve": preuve.strip(), "version": s["version"]})
+    _journaliser("validation_critere", s, element=eid)  # suivi : la stratégie (et sa version publiée) n'est pas modifiée
     return etat()
 
 
@@ -459,8 +491,7 @@ def verifier_environnement(eid: str) -> dict:
         except Exception:
             ok = Path(chemin).exists()
         r = {"resultat": "disponible" if ok else "indisponible", "detail": "fichier local " + ("présent" if ok else "absent")}
-    env["derniere_verification"] = {**r, "date": _maintenant()}
-    _sauver(s)
+    _sauver_suivi("environnements", eid, {**r, "date": _maintenant()})
     _journaliser("verification_environnement", s, element=eid, resultat=r["resultat"])
     return etat()
 
@@ -726,7 +757,7 @@ def transition(action: str, commentaire: str = "") -> dict:
             if v["statut"] == "Published":
                 v["statut"] = "Archived"
                 v["remplacee_par"] = s["version"]
-        instantane = {k: v for k, v in s.items() if k != "commentaires"}
+        instantane = {k: v for k, v in _sans_suivi(s).items() if k != "commentaires"}
         instantane["statut"] = "Published"
         f.parent.mkdir(parents=True, exist_ok=True)
         with f.open("x", encoding="utf-8") as fh:  # création exclusive : jamais d'écrasement

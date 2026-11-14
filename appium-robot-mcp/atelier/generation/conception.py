@@ -6,7 +6,8 @@ scénarios BDD et le dépôt Robot, et ne conserve que des MÉTADONNÉES de conc
   conception/baselines/<nom>.json   baselines immuables (création exclusive)
   conception/mapping_xray.yaml      correspondances objets / champs / statuts plateforme ↔ Jira / Xray
   conception/journal.jsonl          journal d'audit
-Aucune écriture vers Xray ici : les mutations ne sont pas vérifiées (docs/XRAY_API.md).
+Seule écriture vers Xray : publier_bdd (test Cucumber créé ou Gherkin mis à jour), sur action explicite, avec détection
+de conflit et historique (conception/sync_xray.jsonl). createTest / updateGherkinTestDefinition : voir docs/XRAY_API.md.
 """
 from __future__ import annotations
 
@@ -342,11 +343,21 @@ def _empreinte(texte: str) -> str:
 
 
 def gherkin_xray(m: dict) -> str:
-    """Étapes du scénario principal, au format attendu par la définition d'un test Cucumber Xray."""
+    """Définition d'un test Cucumber Xray (1 test = 1 scénario) : étapes du Contexte (Background) puis du scénario
+    principal, et tableau Examples d'un Scenario Outline. Aucun élément du scénario principal n'est perdu."""
     from atelier.generation.bdd import MOTS_EN
 
     p = next((s for s in m["scenarios"] if s["type"] == "principal"), m["scenarios"][0])
-    return "\n".join(f"{MOTS_EN[e['type']]} {e['texte']}" for e in p["etapes"])
+    lignes = [f"{MOTS_EN[e['type']]} {e['texte']}" for e in (m.get("contexte") or []) + p["etapes"]]
+    if p.get("exemples"):
+        lignes += ["", "Examples:"] + [f"  {l}" for l in p["exemples"]]
+    return "\n".join(lignes)
+
+
+def non_publies(m: dict) -> list[str]:
+    """Scénarios du fichier qui ne font pas partie du test publié (un test Xray Cucumber = un scénario)."""
+    p = next((s for s in m["scenarios"] if s["type"] == "principal"), m["scenarios"][0])
+    return [s["nom"] for s in m["scenarios"] if s is not p]
 
 
 def _publications_xray() -> dict:
@@ -384,6 +395,16 @@ def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None) 
     st = sync.get(cle)
     xray = xray or XrayClient()
     cible = (st or {}).get("xray") or (cle if KEY_RE.match(cle) else "")
+    try:
+        return _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision)
+    except ValueError:
+        raise  # refus métier ou saisie locale incomplète : déjà historisé ou sans échange avec Xray
+    except Exception as e:  # RG-X07 : toute erreur d'échange avec Xray est historisée, puis remontée
+        _historiser_sync(cible or cle, "Local → Xray", "Erreur", str(e)[:300])
+        raise
+
+
+def _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision) -> dict:
     existant = xray.lire_gherkin(cible) if cible else None
     if existant:
         if (existant.get("type") or "").lower() not in ("", "cucumber"):
@@ -417,6 +438,9 @@ def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None) 
     from atelier.intelligence.strategie import _ecrire_atomique as _ea
 
     _ea(_dossier() / "sync_xray.json", json.dumps(sync, ensure_ascii=False, indent=1))
+    autres = non_publies(m)
+    if autres:
+        resultat += f" ; {len(autres)} autre(s) scénario(s) non publié(s) dans ce test : {', '.join(autres)}"
     _historiser_sync(cible, "Local → Xray" if decision != "xray" else "Xray → Local", statut, resultat)
     _journaliser("publication_xray", cle=cle, xray=cible, statut=statut)
-    return {"conflit": False, "mode": mode, "cle_xray": cible, "statut": statut, "resultat": resultat}
+    return {"conflit": False, "mode": mode, "cle_xray": cible, "statut": statut, "resultat": resultat, "non_publies": autres}

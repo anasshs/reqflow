@@ -106,3 +106,42 @@ def test_publication_bdd_creation_mise_a_jour_conflit(demo):
     with pytest.raises(ValueError, match="conversion"):
         conception.publier_bdd("DEMO-301", xray=x)
     assert [h["statut"] for h in conception.historique_sync()][:3] == ["Refusé", "Succès", "Conflit"]
+
+    class XrayEnPanne(FauxXrayClient):
+        def lire_gherkin(self, cle):
+            raise RuntimeError("Xray indisponible (502)")
+
+    with pytest.raises(RuntimeError):
+        conception.publier_bdd("DEMO-301", xray=XrayEnPanne())
+    h = conception.historique_sync()[0]
+    assert h["statut"] == "Erreur" and "502" in h["resultat"]  # RG-X07 : erreur historisée
+
+
+
+def test_outline_examples_conserves_et_publies():
+    from atelier.generation import bdd, conception
+
+    texte = """Feature: Connexion
+  Background:
+    Given l'application est ouverte
+
+  Scenario Outline: Refus des identifiants invalides
+    When je saisis <identifiant>
+    Then le message <message> est affiché
+
+    Examples:
+      | identifiant | message |
+      | inconnu     | refusé  |
+
+  Scenario: Autre cas
+    Given un compte bloqué
+"""
+    m = bdd.parser(texte)
+    sc = m["scenarios"][0]
+    assert sc["plan"] and sc["exemples"] == ["| identifiant | message |", "| inconnu     | refusé  |"]
+    ser = bdd.serialiser(m)
+    assert "Scenario Outline: Refus" in ser and "| inconnu     | refusé  |" in ser
+    assert bdd.parser(ser)["scenarios"][0]["exemples"] == sc["exemples"]  # aller-retour sans perte
+    g = conception.gherkin_xray(m)
+    assert g.startswith("Given l'application est ouverte") and "Examples:" in g and "| inconnu" in g
+    assert conception.non_publies(m) == ["Autre cas"]

@@ -138,3 +138,30 @@ def test_plan_automatisation_decision_humaine(st):
         st.decider_candidat("DEMO-308", "Rejeté")
     st.decider_candidat("DEMO-308", "Approuvé", "Robot + Playwright", "2 j")
     assert {c["cle"]: c for c in st.plan_automatisation()}["DEMO-308"]["statut_plan"] == "Approuvé"
+
+
+
+def test_archivee_reprise_et_suivi_hors_version(tmp_path, monkeypatch):
+    """Une stratégie archivée se reprend en nouvelle version ; valider un critère ne modifie pas la version publiée."""
+    from atelier.domain import projet
+    from atelier.intelligence import strategie as st
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+    st.creer("Stratégie", "Banque démo")
+    st.enregistrer_element("criteres", {"description": "Démo validée par le métier", "type": "sortie", "verification": "manuelle"})
+    s = st.charger()
+    s["statut"] = "Published"
+    st._sauver(s)
+    cid = st.charger()["rubriques"]["criteres"][0]["id"]
+    avant = (tmp_path / "strategie").joinpath("strategie.yaml").read_text("utf-8") if (tmp_path / "strategie" / "strategie.yaml").exists() else None
+    st.valider_critere(cid, "PV de recette du 14/11")
+    s = st.charger()
+    assert s["statut"] == "Published" and s["version"] == 1  # aucune nouvelle version, aucun retour en brouillon
+    assert s["rubriques"]["criteres"][0]["validation"]["preuve"] == "PV de recette du 14/11"
+    if avant is not None:
+        assert "PV de recette" not in (tmp_path / "strategie" / "strategie.yaml").read_text("utf-8")
+    s["statut"] = "Archived"
+    st._sauver(s)
+    st.enregistrer_element("criteres", {"description": "Nouveau critère", "type": "sortie", "verification": "manuelle"})
+    s = st.charger()
+    assert s["statut"] == "Draft" and s["version"] == 2

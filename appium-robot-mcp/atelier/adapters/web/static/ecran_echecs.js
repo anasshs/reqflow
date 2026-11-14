@@ -233,7 +233,7 @@
   function parametres(z) {
     z.innerHTML = `${entete("Settings")}<div class="corps-carte"><dl class="props"><dt>Catégories</dt><dd>${CATS.map(esc).join(", ")} ; Xray Synchronization Issue traitée à part (jamais un échec de test).</dd>
       <dt>Classification</dt><dd>règles déterministes (message, locator, référentiel, historique) ; force élevée / moyenne / faible</dd>
-      <dt>Regroupement</dt><dd>signature = message normalisé (nombres et valeurs entre guillemets retirés) + étape + locator ; réversible</dd>
+      <dt>Regroupement</dt><dd>signature = message d'erreur normalisé (nombres et valeurs entre guillemets retirés) ; réversible (séparer un échec de son groupe)</dd>
       <dt>IA</dt><dd>${Atelier.ctx.agent_integre ? "disponible à la demande (CLAUDE_MODEL)" : "désactivée (ANTHROPIC_API_KEY absente)"} ; aucune valeur de JDD transmise</dd>
       <dt>Clôture</dt><dd>retest réussi obligatoire</dd><dt>Preuves</dt><dd>dossiers des runs (Execution Center), jamais modifiés</dd></dl></div>`;
   }

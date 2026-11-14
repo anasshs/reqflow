@@ -112,3 +112,16 @@ def test_masquage_avant_ia():
     for fuite in ("jean.dupont", "FR76", "4970", "Azerty123", "12345678", "Martin"):
         assert fuite not in m, (fuite, m)
     assert "‹jdd›" in m and "‹email›" in m
+
+
+def test_parametres_gouvernance_historises(demo):
+    from atelier.intelligence import gouvernance as gv
+
+    p = gv.enregistrer_parametres({"seuils": {**gv.parametres()["seuils"], "risque_high": 70}})
+    assert p["seuils"]["risque_high"] == 70
+    h = gv.historique_parametres()[0]
+    assert h["changements"]["seuils.risque_high"] == {"avant": 60, "apres": 70}
+    assert "HIGH ≥ 70" in gv.risques()["definition"]
+    import pytest
+    with pytest.raises(ValueError):
+        gv.enregistrer_parametres({"seuils": {**gv.parametres()["seuils"], "risque_medium": 90}})

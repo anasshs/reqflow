@@ -236,7 +236,7 @@
       <table class="table-strat"><tr><th>Run</th><th>Suite</th><th>Plateforme</th><th>Statut</th><th>Réussis</th><th>Échecs</th><th>Durée</th><th>Xray</th></tr>
       ${runs.map(r => `<tr class="cliquable" data-run="${esc(r.id)}"><td class="cle-xray">${esc(r.id)}</td><td>${esc(r.suite || "")}</td><td>${esc(r.plateforme)}</td><td>${statut(r.statut)}</td>
         <td>${r.passes ?? "—"}</td><td>${r.echecs ?? "—"}</td><td class="mono">${duree(r)}</td><td>${esc(r.xray || "—")}</td></tr>`).join("")}</table>
-      <p class="lib" style="margin-top:10px">Qualification des échecs (applicatif, technique, environnement, données, flaky) : proposée puis validée dans Failure Analysis (à venir) ; un résultat n'est jamais modifié silencieusement.</p></div>`;
+      <p class="lib" style="margin-top:10px">Qualification des échecs (applicatif, technique, environnement, données, flaky) : proposée puis validée dans <a href="#echecs">Failure Analysis</a> ; un résultat n'est jamais modifié silencieusement.</p></div>`;
     $$("[data-run]", z).forEach(tr => tr.onclick = () => { location.hash = "execution/" + tr.dataset.run; });
     if (runs.length > 1) $("#cr-a").selectedIndex = 1;
     $("#cr-ok").onclick = () => comparer($("#cr-a").value, $("#cr-b").value);
@@ -293,7 +293,7 @@
       <table class="table-strat"><tr><th>Run</th><th>Début</th><th>Run</th><th>Test Execution Xray</th><th>Événements</th><th>Restants</th><th>Synchronisation</th></tr>
       ${l.map(x => `<tr><td class="cle-xray">${esc(x.run)}</td><td class="mono">${esc((x.debut || "").replace("T", " "))}</td><td>${statut(x.statut_run)}</td><td>${esc(x.xray_execution || "—")}</td>
         <td>${x.evenements}</td><td>${x.restants}</td><td><span class="pill ${P[x.statut] || ""}">${esc(x.statut)}</span>${x.restants ? ` <button class="btn petit" data-rejouer="${esc(x.run)}">Rejouer</button>` : ""}</td></tr>`).join("")}</table>
-      <p class="lib" style="margin-top:10px">Ordre d'envoi en fin de test : statut final, puis heures et commentaire, puis captures ; résultats Robot (zip) joints après le run (XRAY_ARTEFACTS). Mapping des statuts : variable XRAY_STATUTS (défaut PASS → PASSED, FAIL → FAILED, SKIP → TODO) ; appels Xray à vérifier (docs/XRAY_API.md).</p></div>`;
+      <p class="lib" style="margin-top:10px">Ordre d'envoi en fin de test : statut final, puis heures et commentaire, puis captures ; résultats Robot (zip) joints après le run (XRAY_ARTEFACTS). Mapping des statuts : variable XRAY_STATUTS (défaut PASS → PASSED, FAIL → FAILED, SKIP → TODO ; aucune heure de fin sur un statut non final) ; schéma Xray vérifié par introspection, contrôle des statuts réels : <code>python -m atelier xray-statuts --projet &lt;CLÉ&gt;</code>.</p></div>`;
   }
 
   function parametres(z) {

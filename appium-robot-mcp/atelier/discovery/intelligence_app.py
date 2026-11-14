@@ -56,8 +56,8 @@ def vue_ensemble() -> dict:
                             "tests_sans_exigence": [t["cle"] for t in pat["tests"] if t["cle"] not in lies],
                             "tests_automatises": sum(bool(n.proprietes.get("automatise")) for n in g.noeuds.values() if n.type == "test"),
                             "elements_a_valider": len(a_valider)},
-            "limites": "Descriptions et critères d'acceptation Jira absents de l'instantané : l'extraction IA de fonctionnalités et de règles "
-                       "nécessite l'import Jira complet (API à vérifier)."}
+            "limites": "Seules les exigences liées à au moins un test Xray sont importées depuis Jira ; l'extraction de fonctionnalités "
+                       "par IA n'est pas disponible (règles candidates : extraction par motifs, à valider)."}
 
 
 def jira() -> list[dict]:
