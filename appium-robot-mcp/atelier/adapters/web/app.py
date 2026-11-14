@@ -1304,7 +1304,8 @@ async def discovery_classer(req: Request):
 def discovery_classement():
     from atelier.discovery import classement
 
-    return {**_call(classement.regles), "classes": classement.CLASSES, "politique_defaut": classement.POLITIQUE_DEFAUT}
+    return {**_call(classement.regles), "classes": classement.CLASSES, "politique_defaut": classement.POLITIQUE_DEFAUT,
+            "journal": _call(classement.journal_autorisations, 30)}
 
 
 @app.post("/api/discovery/classement")
@@ -1314,7 +1315,7 @@ async def discovery_classement_maj(req: Request):
     b = await req.json()
     if "cle" in b:
         return _call(classement.marquer, b["cle"], b.get("classe", "auto"))
-    return _call(classement.maj_regles, b.get("sensibles"), b.get("environnements"))
+    return _call(classement.maj_regles, b.get("sensibles"), b.get("environnements"), None, b.get("liste_rouge_levee"), b.get("agent_sensible"))
 
 
 @app.get("/api/discovery/suggestions")

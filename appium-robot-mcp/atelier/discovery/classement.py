@@ -11,7 +11,12 @@
   autonome et les suggestions touchent.
 
 Règles par application (app.yaml, clé « classement ») : motifs sensibles, classement manuel par clé d'élément,
-classes autorisées par environnement. L'invariant de sécurité 6 s'applique : une action sensible n'est exécutée que
+classes autorisées par environnement, et par environnement (décision humaine journalisée dans
+discovery/autorisations.jsonl) :
+- motifs de la liste rouge levés sur cet environnement (actions guidées : automaticien ou agent ; l'exploration
+  autonome garde toujours la liste rouge complète) ;
+- agent autorisé : Cursor / Claude peuvent exécuter les actions sensibles pendant une session Discovery sur cet
+  environnement (sinon la confirmation d'une action sensible reste humaine). L'invariant de sécurité 6 s'applique : une action sensible n'est exécutée que
 si elle est explicitement autorisée, sur un environnement autorisé.
 """
 from __future__ import annotations
@@ -40,13 +45,70 @@ def regles(app: str | None = None) -> dict:
 
     c = carte.config_app(app).get("classement") or {}
     return {"sensibles": c.get("sensibles") or list(SENSIBLES_DEFAUT), "cles": dict(c.get("cles") or {}),
-            "environnements": {k: list(v) for k, v in (c.get("environnements") or {}).items()}}
+            "environnements": {k: list(v) for k, v in (c.get("environnements") or {}).items()},
+            "liste_rouge_levee": {k: list(v) for k, v in (c.get("liste_rouge_levee") or {}).items() if v},
+            "agent_sensible": {k: dict(v) for k, v in (c.get("agent_sensible") or {}).items() if (v or {}).get("actif")}}
 
 
-def maj_regles(sensibles: list[str] | None = None, environnements: dict | None = None, app: str | None = None) -> dict:
+def _journaliser(app: str | None, quoi: str, environnement: str, avant, apres):
+    import json
+    import os
+    from datetime import datetime
+
+    from atelier.domain import projet
+
+    f = projet.PROJECT_DIR / "discovery" / "autorisations.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"date": datetime.now().astimezone().isoformat(timespec="seconds"),
+                             "auteur": os.environ.get("USERNAME") or os.environ.get("USER") or "automaticien",
+                             "application": app or "", "environnement": environnement, "quoi": quoi, "avant": avant, "apres": apres},
+                            ensure_ascii=False) + "\n")
+
+
+def journal_autorisations(limite: int = 100) -> list[dict]:
+    import json
+
+    from atelier.domain import projet
+
+    f = projet.PROJECT_DIR / "discovery" / "autorisations.jsonl"
+    return [json.loads(x) for x in f.read_text("utf-8").splitlines() if x.strip()][-limite:][::-1] if f.exists() else []
+
+
+def maj_regles(sensibles: list[str] | None = None, environnements: dict | None = None, app: str | None = None,
+               liste_rouge_levee: dict | None = None, agent_sensible: dict | None = None) -> dict:
     from atelier.discovery import carte
 
     r = regles(app)
+    if liste_rouge_levee is not None:
+        rouge = set((carte.config_app(app).get("liste_rouge") or {}).get("textes") or [])
+        nouveau = {}
+        for env, motifs in liste_rouge_levee.items():
+            env, m = str(env).strip(), [x.strip() for x in motifs or [] if str(x).strip()]
+            inconnus = [x for x in m if x not in rouge]
+            if inconnus:
+                raise ValueError(f"Pas dans la liste rouge de l'application : {', '.join(inconnus)}.")
+            if env and m:
+                nouveau[env] = sorted(set(m))
+        for env in set(nouveau) | set(r["liste_rouge_levee"]):
+            if nouveau.get(env) != r["liste_rouge_levee"].get(env):
+                _journaliser(app, "liste rouge levée", env, r["liste_rouge_levee"].get(env, []), nouveau.get(env, []))
+        r["liste_rouge_levee"] = nouveau
+    if agent_sensible is not None:
+        from datetime import datetime
+        import os
+
+        nouveau = {}
+        for env, actif in agent_sensible.items():
+            env = str(env).strip()
+            if env and actif:
+                nouveau[env] = r["agent_sensible"].get(env) or {
+                    "actif": True, "par": os.environ.get("USERNAME") or os.environ.get("USER") or "automaticien",
+                    "date": datetime.now().astimezone().isoformat(timespec="seconds")}
+        for env in set(nouveau) | set(r["agent_sensible"]):
+            if bool(nouveau.get(env)) != bool(r["agent_sensible"].get(env)):
+                _journaliser(app, "agent autorisé sur les actions sensibles", env, bool(r["agent_sensible"].get(env)), bool(nouveau.get(env)))
+        r["agent_sensible"] = nouveau
     if sensibles is not None:
         motifs = [s.strip() for s in sensibles if str(s).strip()]
         for m in motifs:
@@ -86,15 +148,29 @@ def marquer(cle: str, classe: str, app: str | None = None) -> dict:
     return r
 
 
-def classer(element: dict, app: str | None = None, r: dict | None = None) -> dict:
-    """Classe d'un élément observé ({key, type, libelle}) et raison, du plus strict au moins strict."""
+def interdit(element: dict, app: str | None = None, r: dict | None = None, environnement: str = "") -> str:
+    """Motif de la liste rouge qui interdit l'élément (vide sinon) ; les motifs levés pour l'environnement ne
+    comptent pas (sans environnement : liste rouge complète)."""
     from atelier.discovery import carte
 
     r = r or regles(app)
+    lr = carte.config_app(app).get("liste_rouge") or {}
+    if element.get("key") in (lr.get("cles") or []):
+        return element.get("key")
+    leves = set(r["liste_rouge_levee"].get(environnement, [])) if environnement else set()
+    txt = f"{element.get('key', '')} {element.get('libelle', '')}"
+    return next((m for m in (lr.get("textes") or carte.LISTE_ROUGE_DEFAUT) if m not in leves and re.search(m, txt, re.I)), "")
+
+
+def classer(element: dict, app: str | None = None, r: dict | None = None, environnement: str = "") -> dict:
+    """Classe d'un élément observé ({key, type, libelle}) et raison, du plus strict au moins strict. environnement :
+    les motifs de liste rouge levés pour cet environnement ne s'appliquent pas (actions guidées seulement)."""
+    r = r or regles(app)
     cle = element.get("key") or ""
     txt = f"{cle} {element.get('libelle') or ''}"
-    if carte.interdit(element, app):
-        return {"classe": "forbidden", "raison": "liste rouge de l'application"}
+    rouge = interdit(element, app, r, environnement)
+    if rouge:
+        return {"classe": "forbidden", "raison": f"liste rouge de l'application (« {rouge} »)"}
     manuel = r["cles"].get(cle)
     if manuel:
         return {"classe": manuel, "raison": "classement manuel"}
@@ -110,13 +186,13 @@ def classer(element: dict, app: str | None = None, r: dict | None = None) -> dic
 
 
 def autorise(element: dict, contexte: str = "guidee", environnement: str = "", confirme: bool = False,
-             app: str | None = None) -> dict:
+             app: str | None = None, agent: bool = False) -> dict:
     """L'atelier peut-il exécuter cette action ? exploration et suggestion : « safe » seulement ; guidé : classes
     autorisées pour l'environnement ; une action sensible exige en plus une confirmation explicite."""
     if contexte not in CONTEXTES:
         raise ValueError(f"Contexte : {', '.join(CONTEXTES)}.")
     r = regles(app)
-    c = classer(element, app, r)
+    c = classer(element, app, r, environnement if contexte == "guidee" else "")  # exploration : liste rouge complète
     classe = c["classe"]
     if classe == "forbidden":
         return {**c, "autorise": False, "motif": "Action interdite (liste rouge) : jamais exécutée par l'atelier."}
@@ -128,6 +204,13 @@ def autorise(element: dict, contexte: str = "guidee", environnement: str = "", c
         return {**c, "autorise": False,
                 "motif": f"Action {LIBELLES[classe]} non autorisée sur l'environnement « {environnement or 'non précisé'} » "
                          f"(autorisées : {', '.join(LIBELLES[x] for x in permises)})."}
+    if classe == "sensitive" and agent:
+        a = r["agent_sensible"].get(environnement)
+        if not a:
+            return {**c, "autorise": False, "confirmation": True,
+                    "motif": f"Action sensible : réservée à l'automaticien sur « {environnement or 'environnement non précisé'} » "
+                             "(Discovery › Settings : autoriser l'agent sur cet environnement)."}
+        return {**c, "autorise": True, "motif": "", "par_agent": True, "autorisation": a}
     if classe == "sensitive" and not confirme:
         return {**c, "autorise": False, "confirmation": True, "motif": "Action sensible : confirmation explicite requise."}
     return {**c, "autorise": True, "motif": ""}

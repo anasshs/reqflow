@@ -295,21 +295,29 @@
     const [a, cl] = await Promise.all([api("/api/apps"), api("/api/discovery/classement").catch(() => null)]);
     const app = a.applications.find(x => x.slug === a.active);
     const envs = Object.entries(cl?.environnements || {});
-    const ligneEnv = ([env, classes]) => `<tr><td><input class="in" data-env value="${esc(env)}" placeholder="recette"></td>${["safe", "controlled", "sensitive"].map(k => `<td><input type="checkbox" data-cl="${k}" ${classes.includes(k) ? "checked" : ""} aria-label="${CL[k][1]}"></td>`).join("")}<td class="lib">jamais</td></tr>`;
+    const rouge = app?.liste_rouge?.textes || [];
+    const ligneEnv = ([env, classes]) => { const ag = (cl?.agent_sensible || {})[env], leves = (cl?.liste_rouge_levee || {})[env] || [];
+      return `<tr><td><input class="in" data-env value="${esc(env)}" placeholder="recette"></td>${["safe", "controlled", "sensitive"].map(k => `<td><input type="checkbox" data-cl="${k}" ${classes.includes(k) ? "checked" : ""} aria-label="${CL[k][1]}"></td>`).join("")}
+        <td><label class="lib"><input type="checkbox" data-agent ${ag ? "checked" : ""}> autorisé</label>${ag ? `<div class="lib" style="font-size:11px">par ${esc(ag.par)} le ${esc(String(ag.date).slice(0, 10))}</div>` : ""}</td>
+        <td><select class="in" multiple size="3" data-leves aria-label="Motifs de la liste rouge levés">${rouge.map(m => `<option ${leves.includes(m) ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></td></tr>`; };
     z.innerHTML = `${entete("Discovery Settings")}<div class="corps-carte">${!app ? vide("Aucune application") : `
       <p>Application active : <b>${esc(app.nom)}</b> (${esc(app.type)})</p>
       <h3 class="lib">CLASSEMENT DES ACTIONS</h3>
       <dl class="props"><dt>${pillClasse("safe")}</dt><dd>Navigation (bouton, lien, onglet) : seule classe touchée par l'exploration autonome et les suggestions.</dd>
         <dt>${pillClasse("controlled")}</dt><dd>Saisie ou sélection (champ, case) : jamais en exploration ; depuis le Studio selon l'environnement.</dd>
         <dt>${pillClasse("sensitive")}</dt><dd>Action métier à conséquence : un sujet sensible (motifs ci-dessous) avec un verbe d'action (effectuer, confirmer, ajouter, supprimer, modifier, nouveau…), ou élément classé sensible. Uniquement sur un environnement qui l'autorise, après confirmation. Un menu ou un lien vers le sujet (« Virements ») reste de la navigation.</dd>
-        <dt>${pillClasse("forbidden")}</dt><dd>Liste rouge : jamais exécutée par l'atelier, sur aucun environnement.</dd></dl>
+        <dt>${pillClasse("forbidden")}</dt><dd>Liste rouge : jamais exécutée par l'atelier, sauf les motifs levés explicitement pour un environnement (tableau ci-dessous) ; jamais en exploration autonome.</dd></dl>
       <div class="champ"><label for="dp-sens">Sujets sensibles (expressions régulières, une par ligne) : sensibles seulement avec un verbe d'action</label><textarea class="in mono" id="dp-sens" rows="5">${esc((cl?.sensibles || []).join("\n"))}</textarea></div>
       <h3 class="lib">ACTIONS AUTORISÉES PAR ENVIRONNEMENT (depuis le Studio)</h3>
       <p class="lib">Environnement non déclaré : ${(cl?.politique_defaut || []).map(pillClasse).join(" ")}.</p>
-      <table class="table-strat" id="dp-envs"><tr><th>Environnement</th><th>Safe</th><th>Controlled</th><th>Sensitive</th><th>Forbidden</th></tr>${envs.map(ligneEnv).join("")}</table>
+      <table class="table-strat" id="dp-envs"><tr><th>Environnement</th><th>Safe</th><th>Controlled</th><th>Sensitive</th><th>Cursor / Claude : actions sensibles</th><th>Liste rouge levée sur cet environnement</th></tr>${envs.map(ligneEnv).join("")}</table>
+      <p class="lib">« Cursor / Claude : actions sensibles » : l'agent exécute lui-même les actions sensibles pendant une session Discovery sur cet environnement (sinon la confirmation reste humaine) ; chaque action est tracée dans la timeline.
+        « Liste rouge levée » : motifs qui n'interdisent plus rien sur cet environnement (Ctrl + clic), pour l'automaticien et l'agent ; <b>l'exploration autonome garde toujours la liste rouge complète</b>. Décisions journalisées.</p>
       <div class="btns" style="margin:6px 0"><button class="btn petit" id="dp-env-add">${ico("plus")}Environnement</button></div>
       ${Object.keys(cl?.cles || {}).length ? `<h3 class="lib">CLASSEMENTS MANUELS</h3><ul class="liste">${Object.entries(cl.cles).map(([k, v]) => `<li><span class="mono item">${esc(k)}</span>${pillClasse(v)}<button class="btn petit" data-auto="${esc(k)}">Automatique</button></li>`).join("")}</ul>` : ""}
       <button class="btn primaire" id="dp-cl-ok">${ico("disque")}Enregistrer le classement</button>
+      ${(cl?.journal || []).length ? `<details style="margin-top:8px"><summary class="lib">Journal des autorisations (${cl.journal.length})</summary><table class="table-strat"><tr><th>Date</th><th>Par</th><th>Environnement</th><th>Décision</th><th>Avant → après</th></tr>
+        ${cl.journal.map(j => `<tr><td class="mono">${esc(j.date.slice(0, 16).replace("T", " "))}</td><td>${esc(j.auteur)}</td><td>${esc(j.environnement)}</td><td>${esc(j.quoi)}</td><td class="lib">${esc(JSON.stringify(j.avant))} → ${esc(JSON.stringify(j.apres))}</td></tr>`).join("")}</table></details>` : ""}
       <h3 class="lib" style="margin-top:16px">LISTE ROUGE (Forbidden)</h3>
       <div class="champ"><label for="dp-rouge">Actions jamais touchées par l'atelier, en plus de la saisie de texte et des cases à cocher en exploration</label>
         <textarea class="in mono" id="dp-rouge" rows="8">${esc((app.liste_rouge?.textes || []).join("\n"))}</textarea></div>
@@ -321,8 +329,15 @@
     $$("[data-auto]", z).forEach(b => b.onclick = async () => { await api("/api/discovery/classement", {method: "POST", body: {cle: b.dataset.auto, classe: "auto"}}); parametres(z); });
     $("#dp-cl-ok").onclick = async () => {
       const environnements = {};
-      $$("#dp-envs tr", z).forEach(tr => { const e = tr.querySelector("[data-env]")?.value.trim(); if (e) environnements[e] = [...tr.querySelectorAll("[data-cl]:checked")].map(x => x.dataset.cl); });
-      try { await api("/api/discovery/classement", {method: "POST", body: {sensibles: $("#dp-sens").value.split("\n"), environnements}}); toast("Classement enregistré.", "ok"); parametres(z); } catch (e) { toast(e.message, "ko"); }
+      const agent_sensible = {}, liste_rouge_levee = {};
+      $$("#dp-envs tr", z).forEach(tr => { const e = tr.querySelector("[data-env]")?.value.trim(); if (!e) return;
+        environnements[e] = [...tr.querySelectorAll("[data-cl]:checked")].map(x => x.dataset.cl);
+        agent_sensible[e] = tr.querySelector("[data-agent]").checked;
+        liste_rouge_levee[e] = [...tr.querySelector("[data-leves]").selectedOptions].map(o => o.value); });
+      if (Object.entries(agent_sensible).some(([e, v]) => v && !(cl?.agent_sensible || {})[e])
+          && !confirm("Autoriser Cursor / Claude à exécuter eux-mêmes les actions sensibles (virement, bénéficiaire…) sur : "
+            + Object.keys(agent_sensible).filter(e => agent_sensible[e]).join(", ") + " ?\n\nDécision journalisée à votre nom.")) return;
+      try { await api("/api/discovery/classement", {method: "POST", body: {sensibles: $("#dp-sens").value.split("\n"), environnements, agent_sensible, liste_rouge_levee}}); toast("Classement enregistré.", "ok"); parametres(z); } catch (e) { toast(e.message, "ko"); }
     };
     $("#dp-ok").onclick = async () => { try { await api("/api/apps/maj", {method: "POST", body: {slug: app.slug, liste_rouge: $("#dp-rouge").value.split("\n")}}); toast("Liste rouge enregistrée.", "ok"); } catch (e) { toast(e.message, "ko"); } };
   }

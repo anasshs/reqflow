@@ -190,14 +190,16 @@ def action_mcp(nom: str, locator: str, fn):
         el = {**el, "type": "champ"}
     interdite = sessions_discovery._interdite_session(s, el)
     v = {"autorise": False, "classe": "forbidden", "motif": f"action interdite pour la session (« {interdite} »)"} if interdite else \
-        classement.autorise(el, "guidee", s["config"].get("environnement", ""), False, s["config"]["app"])
+        classement.autorise(el, "guidee", s["config"].get("environnement", ""), False, s["config"]["app"], agent=True)
     if not v["autorise"]:
         motif = v.get("motif") or "action refusée"
-        if v.get("confirmation"):
-            motif = "Action sensible : la confirmation est humaine (fenêtre Discovery de l'atelier ou à la main sur le device)."
         sessions_discovery._evenement(s["id"], {"type": "refus", "detail": f"agent · {el.get('libelle') or el.get('key')} : {motif}"[:300]})
         raise PermissionError(f"Discovery {s['id']} : {motif}")
     ecran_avant = (observer([e for e in avant if e.get("key")]) or {}).get("id")
+    if v.get("par_agent"):  # trace de chaque action sensible faite par l'agent
+        a = v.get("autorisation") or {}
+        sessions_discovery._evenement(s["id"], {"type": "sensible_agent", "detail": f"agent · {el.get('libelle') or el.get('key')} "
+                                                f"(autorisé sur {s['config'].get('environnement')} par {a.get('par', '?')} le {str(a.get('date', ''))[:10]})"[:300]})
     res = fn()
     try:
         apres = comportements.etat_ecran()

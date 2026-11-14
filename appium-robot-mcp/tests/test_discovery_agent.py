@@ -38,7 +38,7 @@ def test_actions_mcp_classees_seulement_en_session(app):
     from atelier.discovery import classement
 
     classement.maj_regles(environnements={"recette": ["safe", "controlled", "sensitive"]})
-    with pytest.raises(PermissionError, match="confirmation est humaine"):  # même autorisée : jamais par l'agent
+    with pytest.raises(PermissionError, match="réservée à l'automaticien"):  # agent non autorisé sur cet environnement
         apprentissage.action_mcp("tap", "id=bouton_virement", lambda: faits.append("v3"))
     classement.maj_regles(environnements={"recette": ["safe"]})
     with pytest.raises(PermissionError, match="non autorisée"):
@@ -93,3 +93,35 @@ def test_ecran_courant_et_propositions_vers_le_graphe(app):
         from atelier.domain import declarations
 
         declarations.ajouter_noeud("regle:montant_obligatoire", "regle", "Montant obligatoire", auteur="ia")
+
+
+def test_agent_autorise_par_environnement_et_liste_rouge_levee(app):
+    from atelier.discovery import apprentissage, classement, sessions_discovery as ds
+
+    carte, ecran = app
+    ecran["els"] = ecran["els"] + [_el("bouton_valider", "Valider")]
+    faits = []
+    classement.maj_regles(environnements={"recette": ["safe", "controlled", "sensitive"], "preprod": ["safe"]},
+                          agent_sensible={"recette": True}, liste_rouge_levee={"recette": [r"\bvalid"]})
+    with pytest.raises(ValueError, match="liste rouge"):
+        classement.maj_regles(liste_rouge_levee={"recette": ["inexistant"]})
+    s = ds.creer({"environnement": "recette"})
+    ds.demarrer(s["id"])
+    apprentissage.action_mcp("tap", "id=bouton_virement", lambda: faits.append("virement"))  # sensible : agent autorisé en recette
+    apprentissage.action_mcp("tap", "id=bouton_valider", lambda: faits.append("valider"))    # liste rouge levée en recette
+    assert faits == ["virement", "valider"]
+    assert any(e["type"] == "sensible_agent" for e in ds.timeline(s["id"]))
+    # exploration autonome : liste rouge complète, quel que soit l'environnement
+    assert not classement.autorise({"key": "bouton_valider", "libelle": "Valider", "type": "bouton"}, "exploration", "recette")["autorise"]
+    ds.arreter(s["id"])
+    s2 = ds.creer({"environnement": "preprod"})
+    ds.demarrer(s2["id"])
+    with pytest.raises(PermissionError):
+        apprentissage.action_mcp("tap", "id=bouton_valider", lambda: faits.append("valider-preprod"))  # préprod : toujours interdit
+    with pytest.raises(PermissionError):
+        apprentissage.action_mcp("tap", "id=bouton_virement", lambda: faits.append("virement-preprod"))
+    # décisions journalisées ; retrait de l'autorisation
+    classement.maj_regles(agent_sensible={})
+    j = classement.journal_autorisations()
+    assert [x["quoi"] for x in j][:1] == ["agent autorisé sur les actions sensibles"] and j[0]["apres"] is False
+    assert {x["quoi"] for x in j} == {"agent autorisé sur les actions sensibles", "liste rouge levée"}

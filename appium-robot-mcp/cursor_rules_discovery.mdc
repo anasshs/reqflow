@@ -12,7 +12,8 @@ Démarrage :
    jamais tapés dans le chat ni recopiés dans tes messages) ; l'OTP / la validation forte est faite par l'automaticien.
 3. discovery_demarrer(environnement="recette", mode="assistee") : sans session Discovery, rien n'est rattaché.
    Un menu ou un lien vers un sujet sensible (« Virements », « Bénéficiaires ») est de la navigation : autorisé ;
-   une action sur ce sujet (« Nouveau virement », « Ajouter un bénéficiaire ») est sensible : refusée à l'agent.
+   une action sur ce sujet (« Nouveau virement », « Ajouter un bénéficiaire ») est sensible : refusée à l'agent, sauf si
+   l'automaticien a autorisé l'agent sur cet environnement (Discovery › Settings) ; chaque action sensible est tracée.
 
 Boucle d'exploration :
 - discovery_ecran_courant() après chaque action : écran (nouveau ou connu), éléments avec leur classe
