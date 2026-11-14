@@ -143,6 +143,11 @@ def valider(id: str):
         modifier_noeud(id, statut="validé")
 
 
+def rejeter(id: str, motif: str = ""):
+    """Rejet humain durable d'une proposition (nœud ou relation)."""
+    return declarations.rejeter(id, motif)
+
+
 def fusionner(source: str, cible: str):
     g = _graphe()
     for x in (source, cible):

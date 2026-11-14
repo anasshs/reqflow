@@ -185,7 +185,8 @@ def analyser_jira(proposer: bool = True) -> list[dict]:
     from atelier.intelligence import patrimoine_xray
 
     pat = patrimoine_xray.charger() or {"exigences": []}
-    existants = set(declarations.charger()["noeuds"])
+    decl = declarations.charger()
+    existants = set(decl["noeuds"]) | set(decl["rejets"])  # une proposition rejetée n'est jamais recréée
     out = []
     for e in pat["exigences"]:
         for n, texte in enumerate(criteres(e), 1):

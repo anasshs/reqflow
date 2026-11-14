@@ -119,8 +119,9 @@
         <td class="btns"><button class="btn petit succes" data-ok="${esc(x.id)}">Valider</button><button class="btn petit danger" data-ko="${esc(x.id)}" data-objet="${esc(x.objet)}">Rejeter</button></td></tr>`).join("")}</table>`
         : vide("File vide", "Aucune proposition en attente.")}</div>`;
     $$("[data-ok]", z).forEach(b => b.onclick = async () => { try { await api("/api/graphes/valider", {method: "POST", body: {id: b.dataset.ok}}); toast("Validé (historisé).", "ok"); validation(z); } catch (e) { toast(e.message, "ko"); } });
-    $$("[data-ko]", z).forEach(b => b.onclick = async () => { const url = b.dataset.objet === "relation" ? "/api/graphes/relations/supprimer" : "/api/graphes/noeuds/supprimer";
-      try { await api(url, {method: "POST", body: {id: b.dataset.ko}}); toast("Rejeté (historisé).", "ok"); validation(z); } catch (e) { toast(e.message, "ko"); } });
+    $$("[data-ko]", z).forEach(b => b.onclick = async () => { const motif = prompt("Motif du rejet (historisé ; la proposition ne sera plus jamais reproposée) :");
+      if (motif === null) return;
+      try { await api("/api/graphes/rejeter", {method: "POST", body: {id: b.dataset.ko, motif}}); toast("Rejeté (historisé, définitif).", "ok"); validation(z); } catch (e) { toast(e.message, "ko"); } });
   }
 
   async function historique(z) {

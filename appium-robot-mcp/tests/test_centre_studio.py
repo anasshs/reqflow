@@ -75,7 +75,31 @@ def test_controle_prealable(demo):
     codes = {c["code"]: c for c in ok["controles"]}
     assert not codes["plateforme"]["ok"]  # test web demandé sur Android
     assert not codes["donnees"]["ok"]  # JDD requis sans environnement
-    assert codes["revue"]["ok"] is False and codes["revue"]["bloquant"] is False  # script non revu : avertissement
+    assert codes["revue"]["ok"] is True  # patrimoine existant, jamais entré en revue : non bloqué
+
+
+def test_revue_bloquante_avant_execution(demo, monkeypatch):
+    """Invariant : un script généré par l'atelier ne s'exécute qu'approuvé (dry-run libre, dérogation journalisée)."""
+    from atelier.domain import projet
+    from atelier.execution import centre
+    from atelier.generation import studio
+
+    monkeypatch.delenv("ATELIER_REVUE_EXECUTION", raising=False)
+    tid = centre.referentiel()[0]["id"]
+    fichier = tid.split("::")[0]
+    assert centre.controle_revue("tests")["non_valides"] == []
+    studio.entrer_en_revue(fichier, "builder")
+    codes = {c["code"]: c for c in centre.verifier([tid], "web", "recette")["tests"][0]["controles"]}
+    assert codes["revue"]["ok"] is False and codes["revue"]["bloquant"] is True
+    with pytest.raises(PermissionError, match="Revue requise"):
+        centre.controle_revue("tests")
+    assert centre.controle_revue("tests", dry_run=True)["non_valides"] == [fichier]
+    with pytest.raises(PermissionError):
+        centre.controle_revue("tests", derogation="court")
+    assert centre.controle_revue("tests", derogation="correctif urgent validé par le PO")["derogation"] is True
+    assert "correctif urgent" in (projet.PROJECT_DIR / "executions" / "derogations_revue.jsonl").read_text("utf-8")
+    monkeypatch.setenv("ATELIER_REVUE_EXECUTION", "avertissement")
+    assert centre.controle_revue("tests")["derogation"] is False
 
 
 # --------------------------------------------------------------------------- Automation Studio
@@ -158,3 +182,37 @@ def test_retry_conserve_les_tentatives_et_detecte_l_instable(demo):
     (demo / ".marqueur").unlink()
     b = centre.executer_avec_retry(run_robot, {**params, "output_dir": "results/runs/RUN-20261114-110001"}, retry=False)
     assert b["resultat"]["echecs"] == 1 and "tentatives" not in b
+
+
+def test_rejeu_sans_ecraser_le_run_origine(demo, tmp_path):
+    from atelier.domain import projet
+    from atelier.execution import centre
+
+    orig = projet.PROJECT_DIR / "results" / "runs" / "R1"
+    orig.mkdir(parents=True)
+    (orig / "output.xml").write_text("<robot/>", "utf-8")
+    vus = {}
+
+    def faux_run(**p):
+        vus.update(p)
+        return {"resultat": {"echecs": 0}}
+
+    centre.executer_avec_retry(faux_run, {"target": "tests", "relancer_echecs": True, "output_dir": "results/runs/R2",
+                                          "source_echecs": "results/runs/R1"})
+    assert vus["output_dir"] == "results/runs/R2" and "source_echecs" not in vus
+    assert (projet.PROJECT_DIR / "results/runs/R2/output.xml").read_text("utf-8") == "<robot/>"
+    assert (orig / "output.xml").read_text("utf-8") == "<robot/>"
+
+
+def test_etat_xray_abandons_non_synced(demo):
+    from atelier.domain import projet
+    from atelier.execution import centre
+    from atelier.execution.journal_xray import Journal
+
+    d = projet.PROJECT_DIR / "results" / "runs" / "RUN-20261114-120000" / "xray" / "a"
+    d.mkdir(parents=True)
+    j = Journal(d)
+    ev = j.ajouter("R3", "test_fin", "T1", cle_xray="DEMO-1")
+    j.marquer(ev["cle"], "ignore", "ticket cible de type Test")
+    e = centre.etat_xray("RUN-20261114-120000")
+    assert e["statut"] == "Failed" and e["abandonnes"] == 1 and "Test" in e["erreurs_definitives"][0]

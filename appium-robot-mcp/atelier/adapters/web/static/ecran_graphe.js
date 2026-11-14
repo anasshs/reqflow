@@ -1,5 +1,9 @@
 /* Knowledge Graph : Application Knowledge Graph, Coverage Graph, Automation Flow Graph, Impact Analysis. */
 "use strict";
+/* Base factuelle d'un élément, à la place d'un pourcentage de confiance qui ne serait pas calculé. */
+const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle part"
+  : n.provenance === "déduit" ? (n.statut === "validé" ? "déduit, validé" : "déduit, à valider")
+  : n.provenance === "observé" ? "observé" : "déclaré";
 (() => {
   const TYPES_VUE = {fonctionnel: "module,fonctionnalite,parcours,action,regle,role,epic,user_story,bug,test,test_plan,test_set,feature,scenario",
     technique: "application,plateforme,version,ecran,composant,locator,keyword,resource,bibliotheque,endpoint,entite,suite,test_robot,jdd,requete"};
@@ -236,7 +240,7 @@
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><span class="carre" style="background:var(--f-${familleDe(n.type).id});width:12px;height:30px"></span>
         <div class="item"><b style="font-size:14px">${esc(n.libelle)}</b><div class="lib"><code>${esc(n.id)}</code></div></div></div>
       <div class="btns" style="margin-bottom:10px"><span class="pill ${n.statut === "validé" ? "ok" : "warn"}">${esc(n.statut)}</span><span class="pill">${esc(n.provenance)}</span>
-        <span class="pill info">confiance ${Math.round(n.confiance * 100)} %</span>${n.plateformes.map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>
+        <span class="pill info" title="Base de l'élément (pas un score calculé)">${esc(baseElement(n))}</span>${n.plateformes.map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>
       <dl class="props"><dt>Source</dt><dd>${esc(n.source)}</dd>${props}</dl>
       <div class="btns" style="margin:12px 0">
         <button class="btn primaire" id="kd-impact">${ico("impact")}Impact</button>

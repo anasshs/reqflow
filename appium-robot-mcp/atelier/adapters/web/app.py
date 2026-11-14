@@ -882,6 +882,12 @@ async def graphe_supp_relation(req: Request):
     return {"ok": True}
 
 
+@app.post("/api/graphes/rejeter")
+async def graphe_rejeter(req: Request):
+    b = await req.json()
+    return _call(espaces.rejeter, b.get("id", ""), b.get("motif", ""))
+
+
 @app.post("/api/graphes/valider")
 async def graphe_valider(req: Request):
     b = await req.json()
@@ -922,7 +928,7 @@ async def patrimoine_synchroniser(req: Request):
 
 
 # --------------------------------------------------------------------------- runs
-CLES_JOB = ("contexte", "campagne", "priorite", "retry")  # métadonnées d'exécution, hors paramètres de run_robot
+CLES_JOB = ("contexte", "campagne", "priorite", "retry", "derogation_revue")  # métadonnées d'exécution, hors paramètres de run_robot
 
 
 def _executer_job(job: dict):
@@ -951,7 +957,10 @@ centre.FILE.executer = _executer_job
 
 def _mettre_en_file(params: dict, priorite: str = "Normal", campagne: str = "", nom: str = "") -> dict:
     retry = bool(params.get("retry"))
+    revue = centre.controle_revue(params.get("target", ""), bool(params.get("dry_run")), str(params.get("derogation_revue") or ""))
     params = {k: v for k, v in params.items() if v not in ("", None, []) and k not in CLES_JOB}
+    if params.get("relancer_echecs") and params.get("output_dir"):
+        params["source_echecs"] = params.pop("output_dir")  # rejeu : nouveau dossier, le run d'origine n'est jamais réécrit
     params["events_url"] = f"http://127.0.0.1:{PORT}/api/events"
     run_id = historique.nouvel_id()
     while any(j["id"] == run_id for j in centre.FILE.attente()) or historique.dossier(run_id).exists():
@@ -962,7 +971,7 @@ def _mettre_en_file(params: dict, priorite: str = "Normal", campagne: str = "", 
     state["run"] = centre.FILE._thread  # compatibilité : « un run est-il actif ? » = la file est-elle servie ?
     emit({"type": "file_execution", "file": centre.FILE.attente()})
     return {"ok": True, "run_id": run_id, "etat": "Running" if (centre.FILE.en_cours or {}).get("id") == run_id else "Queued",
-            "contexte": job["contexte"]}
+            "contexte": job["contexte"], "revue": revue}
 
 
 @app.post("/api/run")
@@ -1057,6 +1066,7 @@ async def bdd_generer(cle: str, req: Request):
     if b.get("ecrire"):
         chemin = b.get("chemin") or g["chemin"]
         _call(outils.write_project_file, chemin, g["contenu"], bool(b.get("ecraser")))
+        _call(studio.entrer_en_revue, chemin, "bdd")  # validation humaine avant exécution
         g["ecrit"] = chemin
     return g
 
@@ -1597,6 +1607,11 @@ async def echecs_regrouper(req: Request):
 async def echecs_jira(req: Request):
     b = await req.json()
     return await asyncio.to_thread(_call, echecs.associer_jira, b.get("id", ""), b.get("cle", ""))
+
+
+@app.get("/api/echecs/ia/historique")
+def echecs_ia_historique(id: str):
+    return _call(echecs.historique_ia, id)
 
 
 @app.post("/api/echecs/ia")

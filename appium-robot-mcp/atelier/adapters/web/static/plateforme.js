@@ -11,6 +11,11 @@ const duree = s => (s === null || s === undefined ? "—" : s < 60 ? `${Number(s
 async function api(url, opt = {}) {
   const r = await fetch(url, {headers: {"Content-Type": "application/json"}, ...opt, body: opt.body !== undefined ? JSON.stringify(opt.body) : undefined});
   const d = await r.json().catch(() => ({}));
+  if (!r.ok && url === "/api/run" && String(d.detail || "").startsWith("Revue requise") && opt.body && !opt.body.derogation_revue) {
+    const j = prompt(d.detail + "\n\nJustification de la dérogation (journalisée), ou Annuler :");
+    if (j && j.trim().length >= 10) return api(url, {...opt, body: {...opt.body, derogation_revue: j.trim()}});
+    throw new Error(j ? "Justification trop courte (10 caractères au moins)." : d.detail);
+  }
   if (!r.ok) throw new Error(d.detail || r.statusText);
   return d;
 }

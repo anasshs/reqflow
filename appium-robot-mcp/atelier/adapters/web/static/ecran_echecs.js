@@ -125,7 +125,15 @@
       $("#iv-ia-res").innerHTML = "<p class='lib'>Analyse en cours…</p>";
       const r = await api("/api/echecs/ia", {method: "POST", body: {id: SEL}}).catch(e => ({disponible: false, raison: e.message}));
       $("#iv-ia-res").innerHTML = r.disponible ? `<p class="lib">${esc(r.avertissement)}</p><div class="ia-msg">${esc(r.reponse)}</div>` : `<p><span class="pill warn">IA indisponible</span> ${esc(r.raison)}</p>`;
+      iaHistorique();
     };
+    const iaHistorique = async () => {
+      const h = await api(`/api/echecs/ia/historique?id=${encodeURIComponent(SEL)}`).catch(() => []);
+      if (h.length && $("#iv-ia-hist")) $("#iv-ia-hist").innerHTML = `<h3 class="lib" style="margin-top:10px">ANALYSES IA PRÉCÉDENTES (${h.length})</h3>${h.map(x => `<details><summary>${esc(x.date.replace("T", " ").slice(0, 16))} · ${esc(x.modele)} · ${esc(x.auteur)}</summary>
+        <div class="ia-msg">${esc(x.reponse)}</div><p class="lib">Contexte envoyé (masqué) :</p><pre class="code-bloc">${esc(JSON.stringify(x.contexte_envoye, null, 1))}</pre></details>`).join("")}`;
+    };
+    if (!$("#iv-ia-hist")) $("#iv-ia-res").insertAdjacentHTML("afterend", '<div id="iv-ia-hist"></div>');
+    iaHistorique();
   }
 
   async function locators(z) {

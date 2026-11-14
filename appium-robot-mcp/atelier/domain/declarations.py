@@ -40,7 +40,7 @@ def charger() -> dict:
     data = yaml.safe_load(f.read_text("utf-8")) if f.exists() else None
     data = data or {}
     for k, d in (("noeuds", {}), ("relations", {}), ("modifications", {}), ("masques", []),
-                 ("relations_masquees", []), ("fusions", {})):
+                 ("relations_masquees", []), ("fusions", {}), ("rejets", {})):
         data.setdefault(k, d)
     return data
 
@@ -93,6 +93,8 @@ def ajouter_noeud(id: str, type: str, libelle: str, description: str = "", propr
         data = charger()
         if id in data["noeuds"]:
             raise FileExistsError(f"Le nœud {id} existe déjà.")
+        if auteur == "ia" and id in data["rejets"]:
+            raise PermissionError(f"Proposition {id} rejetée le {data['rejets'][id]['date'][:10]} : jamais reproposée.")
         n = {"type": type, "libelle": libelle, "description": description, "proprietes": proprietes or {},
              "plateformes": plateformes or [],
              "provenance": "déduit" if auteur == "ia" else "déclaré",
@@ -140,12 +142,41 @@ def supprimer_noeud(id: str, statut_actuel: str, auteur: str = "automaticien"):
     _historiser("suppression_noeud", auteur, id, avant=avant)
 
 
+def rejeter(id: str, motif: str = "") -> dict:
+    """Décision humaine : la proposition est retirée ET mémorisée comme rejetée ; une analyse ultérieure
+    (IA, extraction Jira) ne la repropose jamais. Annulable en la déclarant à nouveau à la main."""
+    from datetime import datetime as _dt
+
+    with _verrou:
+        data = charger()
+        avant = data["noeuds"].get(id) or data["relations"].get(id)
+        if avant is None:
+            raise KeyError(f"Proposition inconnue : {id}")
+        if avant.get("statut") == "validé":
+            raise PermissionError("Élément déjà validé : le supprimer explicitement, pas le rejeter.")
+        data["noeuds"].pop(id, None)
+        data["relations"].pop(id, None)
+        if "|" not in id:
+            data["relations"] = {k: x for k, x in data["relations"].items() if id not in (x["de"], x["vers"])}
+        data["rejets"][id] = {"date": _dt.now().astimezone().isoformat(timespec="seconds"), "motif": motif.strip(),
+                              "libelle": avant.get("libelle") or f"{avant.get('de')} → {avant.get('vers')}"}
+        _sauver(data)
+    _historiser("rejet", "automaticien", id, avant=avant, apres={"motif": motif.strip()})
+    return {"id": id, **data["rejets"][id]}
+
+
+def est_rejete(id: str) -> bool:
+    return id in charger()["rejets"]
+
+
 def ajouter_relation(de: str, vers: str, type: str, auteur: str = "automaticien", source: str = "") -> dict:
     _auteur(auteur)
     verifier_type_relation(type)
     if de == vers:
         raise ValueError("Une relation relie deux nœuds différents.")
     rid = f"{de}|{type}|{vers}"
+    if auteur == "ia" and est_rejete(rid):
+        raise PermissionError(f"Relation {rid} rejetée : jamais reproposée.")
     r = {"de": de, "vers": vers, "type": type, "source": source,
          "provenance": "déduit" if auteur == "ia" else "déclaré",
          "statut": "à valider" if auteur == "ia" else "validé"}

@@ -201,11 +201,27 @@ def revues_scripts() -> dict:
     out = {}
     for f in _inv()["suites"]:
         r = dict(st.get(f) or {"statut": "Generated", "historique": []})
+        r["en_workflow"] = f in st  # entré en revue (généré par l'atelier ou soumis) ; sinon patrimoine existant
         r["modifie_depuis_validation"] = False
         if r["statut"] in ("Approved", "Published") and r.get("empreinte") != _empreinte(f):
             r["statut"], r["modifie_depuis_validation"] = "Technical Review", True
         out[f] = r
     return out
+
+
+def entrer_en_revue(fichier: str, origine: str) -> dict:
+    """Un script généré par l'atelier (Builder, BDD) entre en revue technique à l'état « Generated » :
+    il ne pourra être exécuté (hors dry-run) qu'une fois approuvé, ou par dérogation justifiée."""
+    projet.safe_path(fichier)
+    st = _stock()
+    r = st.setdefault(fichier, {"statut": "Generated", "historique": []})
+    r["statut"] = "Generated"
+    r.pop("empreinte", None)
+    r["historique"].append({"date": _maintenant(), "auteur": _auteur(), "de": "", "vers": "Generated",
+                            "commentaire": f"généré ({origine})"})
+    _ecrire_atomique(_dossier() / "revues_scripts.json", json.dumps(st, ensure_ascii=False, indent=1))
+    _journaliser(f"generation_{origine}", fichier=fichier)
+    return r
 
 
 def controles_script(fichier: str) -> list[dict]:
@@ -456,5 +472,5 @@ def construire_test(nom: str, cle_xray: str, jdd: str, etapes: list[dict], tags:
 def ecrire_test(construit: dict) -> dict:
     """Écrit le test assemblé (jamais d'écrasement) ; il entre en revue technique à l'état « Generated »."""
     projet.ecrire_fichier(construit["fichier"], construit["contenu"], False)
-    _journaliser("generation_builder", fichier=construit["fichier"])
+    entrer_en_revue(construit["fichier"], "builder")
     return {"fichier": construit["fichier"], "revue": "Generated"}

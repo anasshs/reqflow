@@ -295,7 +295,7 @@ class GrapheVue {
           el("title", {}, pa).textContent = `Dernier résultat : ${st}`;
         }
       }
-      el("title", {}, g).textContent = `${n.libelle}\n${n.id}\n${n.provenance} · ${n.statut} · confiance ${n.confiance}`;
+      el("title", {}, g).textContent = `${n.libelle}\n${n.id}\n${n.provenance} · ${n.statut}`;
       g.addEventListener("pointerdown", e => this._debutGlisser(e, n.id));
       g.addEventListener("click", e => { e.stopPropagation(); if (!this._aBouge) this.selectionner(n.id); this._aBouge = false; });
       g.addEventListener("dblclick", e => { e.stopPropagation(); this.opts.onDevelopper?.(n.id); });

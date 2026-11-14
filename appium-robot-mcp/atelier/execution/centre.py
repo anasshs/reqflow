@@ -8,15 +8,18 @@ Ce qui est réel ici :
   environnement, plateforme, commit Git du projet, statut de revue des scripts) et conservé dans
   l'historique : changer de projet ensuite ne le modifie pas ;
 - les campagnes sont stockées dans le projet (executions/campagnes.yaml) ;
-- l'état Xray d'un run vient de son journal de synchronisation (outbox) : Synced / Pending / Partial.
-Non réalisé : runners distants, Device Farm avec réservation, planification, vidéos (voir la roadmap).
+- l'état Xray d'un run vient de son journal de synchronisation (outbox) : Synced / Pending / Partial / Failed ;
+- un script entré en revue ne s'exécute qu'approuvé (dérogation justifiée et journalisée) ;
+- planification : thread interne de l'interface web et webhook.
+Non réalisé : runners distants, Device Farm avec réservation, vidéos (voir la roadmap).
 """
 from __future__ import annotations
 
 import heapq
-import json
-import re
 import itertools
+import json
+import os
+import re
 import platform
 import secrets
 import shutil
@@ -136,6 +139,46 @@ FILE = FileExecution()
 
 
 # =========================================================================== retry historisé
+def politique_revue() -> str:
+    """ATELIER_REVUE_EXECUTION : « bloquante » (défaut) ou « avertissement »."""
+    return "avertissement" if os.environ.get("ATELIER_REVUE_EXECUTION", "").strip().lower() == "avertissement" else "bloquante"
+
+
+def controle_revue(target: str, dry_run: bool = False, derogation: str = "") -> dict:
+    """Validation humaine avant exécution : un script entré en revue (généré par l'atelier, ou modifié depuis
+    son approbation) ne s'exécute qu'à l'état Approved / Published. Le dry-run reste libre. Une dérogation
+    exige une justification (10 caractères au moins) et est journalisée. Le patrimoine existant, jamais
+    entré en revue, n'est pas bloqué."""
+    from atelier.generation import studio
+
+    cible = str(target or "").strip().rstrip("/")
+    revues = studio.revues_scripts()
+    concernes = {f: x for f, x in revues.items() if cible and (f == cible or f.startswith(cible + "/"))}
+    non_valides = sorted(f for f, x in concernes.items() if x.get("en_workflow") and x["statut"] not in ("Approved", "Published"))
+    res = {"politique": politique_revue(), "non_valides": non_valides, "derogation": False}
+    if not non_valides or dry_run:
+        return res
+    detail = ", ".join(f"{f} ({concernes[f]['statut']})" for f in non_valides[:5])
+    if politique_revue() == "avertissement":
+        _journal_derogation(target, non_valides, "politique « avertissement »")
+        return res
+    if len(derogation.strip()) < 10:
+        raise PermissionError(f"Revue requise : script(s) non approuvé(s) : {detail}. Approuver dans Automation Studio › Review, "
+                              "ou lancer avec une dérogation justifiée.")
+    _journal_derogation(target, non_valides, derogation.strip())
+    return {**res, "derogation": True}
+
+
+def _journal_derogation(target: str, fichiers: list[str], justification: str):
+    from atelier.intelligence.strategie import _auteur, _maintenant
+
+    f = projet.PROJECT_DIR / "executions" / "derogations_revue.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"date": _maintenant(), "auteur": _auteur(), "cible": target, "fichiers": fichiers,
+                             "justification": justification}, ensure_ascii=False) + "\n")
+
+
 def executer_avec_retry(run_robot, params: dict, retry: bool = False) -> dict:
     """Un run, puis (si retry et échecs) une seconde tentative des seuls tests en échec.
     Les preuves de chaque tentative sont conservées (tentative-1/, tentative-2/), les résultats sont
@@ -145,6 +188,15 @@ def executer_avec_retry(run_robot, params: dict, retry: bool = False) -> dict:
 
     from atelier.execution.robot import parse_robot_output
 
+    params = dict(params)
+    source = params.pop("source_echecs", "")
+    if source:  # rejeu des échecs d'un autre run : son output.xml est copié, son dossier n'est jamais réécrit
+        out = projet.safe_path(params["output_dir"])
+        out.mkdir(parents=True, exist_ok=True)
+        prec = projet.safe_path(source) / "output.xml"
+        if not prec.exists():
+            raise FileNotFoundError(f"Aucun résultat à rejouer dans {source}.")
+        shutil.copy(prec, out / "output.xml")
     premier = run_robot(**params)
     r1 = premier.get("resultat") or {}
     if not retry or not r1.get("echecs") or premier.get("arrete"):
@@ -157,7 +209,8 @@ def executer_avec_retry(run_robot, params: dict, retry: bool = False) -> dict:
             shutil.copy(out / n, t1 / n)
     if (out / "captures").exists():
         shutil.copytree(out / "captures", t1 / "captures", dirs_exist_ok=True)
-    second = run_robot(**{**params, "relancer_echecs": True})
+    exec_creee = (premier.get("xray") or {}).get("execution")
+    second = run_robot(**{**params, "relancer_echecs": True, **({"xray_ticket": exec_creee} if exec_creee else {})})
     t2.mkdir(exist_ok=True)
     if (out / "output.xml").exists():
         shutil.copy(out / "output.xml", t2 / "output.xml")
@@ -349,7 +402,8 @@ def referentiel() -> list[dict]:
                     "dernier_resultat": r.get("statut", ""), "derniere_fin": r.get("fin", ""),
                     "criticite": (pat.get(cle) or {}).get("criticite", ""), "module": (pat.get(cle) or {}).get("module", ""),
                     "plans": (pat.get(cle) or {}).get("plans", []),
-                    "revue": (revues.get(t["fichier"]) or {}).get("statut", "Generated")})
+                    "revue": (revues.get(t["fichier"]) or {}).get("statut", "Generated"),
+                    "en_workflow": bool((revues.get(t["fichier"]) or {}).get("en_workflow"))})
     return out
 
 
@@ -379,7 +433,9 @@ def verifier(ids: list[str], plateforme: str, environnement: str = "") -> dict:
         c = []
         add = lambda code, ok, msg, bloquant=True: c.append({"code": code, "ok": ok, "bloquant": bloquant, "message": msg})  # noqa: E731
         add("script", True, t["fichier"])
-        add("revue", t["revue"] in ("Approved", "Published"), f"Revue du script : {t['revue']}", bloquant=False)
+        add("revue", t["revue"] in ("Approved", "Published") or not t.get("en_workflow"),
+            f"Revue du script : {t['revue']}" if t.get("en_workflow") else "Patrimoine existant (hors workflow de revue)",
+            bloquant=politique_revue() == "bloquante")
         add("plateforme", not t["plateformes"] or plateforme in t["plateformes"],
             f"Plateformes du test : {', '.join(t['plateformes']) or 'non déterminées'}")
         add("framework", run["plateformes"].get(plateforme, False), f"Runner local {'compatible' if run['plateformes'].get(plateforme) else 'incompatible'} avec {plateforme}")
@@ -424,12 +480,17 @@ def etat_xray(run_id: str) -> dict:
     if not journaux:
         return {"run": run_id, "statut": "Non configuré", "evenements": 0, "restants": 0}
     tot = rest = 0
+    abandons: list[dict] = []
     for j in journaux:
         jj = Journal(j)
         tot += len(jj.evenements())
         rest += len(jj.restants())
-    statut = "Synced" if rest == 0 else "Pending" if rest == tot else "Partial"
-    return {"run": run_id, "statut": statut, "evenements": tot, "restants": rest, "journaux": [str(j.relative_to(projet.PROJECT_DIR)) for j in journaux]}
+        abandons += [{"cle": c, "detail": d.get("detail", "")} for c, d in jj.envoyes().items() if d.get("statut") == "ignore"]
+    statut = ("Failed" if abandons and len(abandons) + rest >= tot else "Partial") if abandons else \
+        "Synced" if rest == 0 else "Pending" if rest == tot else "Partial"
+    return {"run": run_id, "statut": statut, "evenements": tot, "restants": rest, "abandonnes": len(abandons),
+            "erreurs_definitives": [a["detail"] for a in abandons][:5],
+            "journaux": [str(j.relative_to(projet.PROJECT_DIR)) for j in journaux]}
 
 
 def comparer(a: str, b: str) -> dict:

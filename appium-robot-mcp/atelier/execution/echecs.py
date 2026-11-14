@@ -302,8 +302,57 @@ def resultats_retests(eid: str) -> list[dict]:
 
 
 # =========================================================================== IA (à la demande)
+MOTIFS_SENSIBLES = [
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "‹email›"),
+    (re.compile(r"\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){2,7}(?:\s?[A-Z0-9]{1,4})?\b"), "‹iban›"),
+    (re.compile(r"\b(?:\d[ -]?){13,19}\b"), "‹carte›"),
+    (re.compile(r"(?i)\b(bearer|token|password|mot de passe|mdp|secret|pin)\b\s*[:=]?\s*\S+"), r"\1 ‹masqué›"),
+    (re.compile(r"\b\d{6,}\b"), "‹nombre›"),
+]
+
+
+def _valeurs_jdd() -> list[str]:
+    """Toutes les valeurs textuelles des jeux de données du projet (tous environnements)."""
+    import yaml
+
+    vals: set[str] = set()
+
+    def parcourir(x):
+        if isinstance(x, dict):
+            for v in x.values():
+                parcourir(v)
+        elif isinstance(x, list):
+            for v in x:
+                parcourir(v)
+        elif isinstance(x, (str, int, float)) and not isinstance(x, bool) and len(str(x)) >= 3:
+            vals.add(str(x))
+
+    for f in (projet.PROJECT_DIR / "data" / "jdd").glob("*.y*ml") if (projet.PROJECT_DIR / "data" / "jdd").exists() else []:
+        try:
+            parcourir(yaml.safe_load(f.read_text("utf-8")))
+        except Exception:  # noqa: BLE001 - un JDD illisible n'empêche pas l'analyse ; il est simplement ignoré
+            pass
+    return sorted(vals, key=len, reverse=True)
+
+
+def masquer_texte(texte: str, valeurs: list[str] | None = None) -> str:
+    """Masque les valeurs de JDD connues puis les motifs sensibles (email, IBAN, carte, secret, longs nombres)."""
+    t = str(texte or "")
+    for v in valeurs if valeurs is not None else _valeurs_jdd():
+        t = t.replace(v, "‹jdd›")
+    for motif, rempl in MOTIFS_SENSIBLES:
+        t = motif.sub(rempl, t)
+    return t
+
+
+def historique_ia(eid: str) -> list[dict]:
+    f = _dossier() / "ia" / f"{re.sub(r'[^\w.-]', '_', eid)}.jsonl"
+    return [json.loads(x) for x in f.read_text("utf-8").splitlines() if x.strip()][::-1] if f.exists() else []
+
+
 def demander_ia(eid: str, client=None) -> dict:
-    """Analyse IA d'un échec : message, étapes, locator, hypothèses calculées. Aucune donnée de JDD transmise."""
+    """Analyse IA d'un échec : message, étapes, locator, hypothèses calculées. Les valeurs de JDD et les motifs
+    sensibles sont masqués AVANT l'envoi ; le contexte envoyé, le modèle et la réponse sont historisés."""
     from atelier.intelligence import assistant
 
     i = investigation(eid)
@@ -313,8 +362,10 @@ def demander_ia(eid: str, client=None) -> dict:
         if not os.environ.get("ANTHROPIC_API_KEY"):
             return {"disponible": False, "raison": "ANTHROPIC_API_KEY non configurée : diagnostic par règles uniquement."}
         client = assistant._client()
-    ctx = {"test": i["nom"], "cle_xray": i["cle_xray"], "plateforme": i["plateforme"], "message": i["message"][:800],
-           "etapes": [{"nom": x["nom"], "statut": x["statut"], "locator": x.get("locator", ""), "message": x.get("message", "")[:300]} for x in i["detail"]["etapes"]],
+    vals = _valeurs_jdd()
+    ctx = {"test": i["nom"], "cle_xray": i["cle_xray"], "plateforme": i["plateforme"], "message": masquer_texte(i["message"][:800], vals),
+           "etapes": [{"nom": masquer_texte(x["nom"], vals), "statut": x["statut"], "locator": x.get("locator", ""),
+                       "message": masquer_texte(x.get("message", "")[:300], vals)} for x in i["detail"]["etapes"]],
            "locator_etat": i["locator_etat"], "hypotheses_calculees": [{k: h[k] for k in ("categorie", "force", "explication")} for h in i["hypotheses"]],
            "precedent": i["precedent"], "recurrent": i["recurrent"]}
     msg = client.messages.create(model=assistant.MODELE, max_tokens=900, messages=[{"role": "user", "content":
@@ -322,8 +373,15 @@ def demander_ia(eid: str, client=None) -> dict:
         + ". Pour chacune : preuves tirées du contexte uniquement, et ce qu'il faut vérifier. Ne modifie rien, n'invente aucune donnée. Réponds en français.\n\n"
         + json.dumps(ctx, ensure_ascii=False)}])
     texte = "".join(getattr(b, "text", "") for b in msg.content)
+    entree = {"date": _maintenant(), "auteur": _auteur(), "modele": assistant.MODELE, "contexte_envoye": ctx, "reponse": texte,
+              "statut": "Proposée (à valider)"}
+    f = _dossier() / "ia" / f"{re.sub(r'[^\w.-]', '_', eid)}.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entree, ensure_ascii=False) + "\n")
     _journaliser("analyse_ia", echec=eid, modele=assistant.MODELE)
-    return {"disponible": True, "reponse": texte, "modele": assistant.MODELE, "avertissement": "Proposition IA à valider : aucune modification n'est appliquée."}
+    return {"disponible": True, "reponse": texte, "modele": assistant.MODELE, "date": entree["date"],
+            "avertissement": "Proposition IA à valider : aucune modification n'est appliquée. Données masquées avant envoi ; analyse historisée."}
 
 
 # =========================================================================== vue d'ensemble et tendances

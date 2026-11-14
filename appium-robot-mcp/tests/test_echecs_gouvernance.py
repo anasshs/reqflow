@@ -102,3 +102,13 @@ def test_application_intelligence(demo):
     assert "Connexion avec un compte valide" in e["accueil"]["tests"] and e["connexion"]["elements"]
     j = {x["cle"]: x for x in a.jira()}
     assert j["DEMO-300"]["enfants"] and [t["cle"] for t in j["DEMO-312"]["tests"]] == ["DEMO-308"]
+
+
+def test_masquage_avant_ia():
+    from atelier.execution import echecs
+
+    m = echecs.masquer_texte("Text 'jean.dupont@exemple.fr' IBAN FR76 3000 6000 0112 3456 7890 189 carte 4970 1012 3456 7890 "
+                             "password: Azerty123 client 12345678 valeur Martin", ["Martin"])
+    for fuite in ("jean.dupont", "FR76", "4970", "Azerty123", "12345678", "Martin"):
+        assert fuite not in m, (fuite, m)
+    assert "‹jdd›" in m and "‹email›" in m
