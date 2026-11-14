@@ -498,6 +498,11 @@ def doublons_jira(eid: str, projet: str, jira=None) -> list[dict]:
     """Anomalies ouvertes probablement identiques, à examiner AVANT toute création (même test ou même message)."""
     from atelier.integrations.jira import JiraClient
 
+    from atelier.domain import projets
+
+    projet = projet or projets.cle_jira()
+    if not projet:
+        raise ValueError("Projet Jira requis (aucun projet actif avec une clé Jira).")
     jira = jira or JiraClient()
     e = _evenement(eid)
     mots = " ".join(re.findall(r"[A-Za-zÀ-ÿ]{5,}", nettoyer(e["message"]))[:6]).replace('"', "")
@@ -517,6 +522,11 @@ def creer_anomalie_jira(eid: str, projet: str, resume: str = "", description: st
     Appelée uniquement sur action explicite de l'utilisateur, après consultation des doublons."""
     from atelier.integrations.jira import JiraClient
 
+    from atelier.domain import projets
+
+    projet = projet or projets.cle_jira()
+    if not projet:
+        raise ValueError("Projet Jira requis (aucun projet actif avec une clé Jira).")
     jira = jira or JiraClient()
     i = investigation(eid)
     b = i["brouillon_jira"]

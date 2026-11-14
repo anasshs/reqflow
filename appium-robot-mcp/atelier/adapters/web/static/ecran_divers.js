@@ -128,7 +128,7 @@
         : `<p>Aucun instantané (<code>${esc(e.fichier || e.erreur)}</code>).</p>`}
       <p class="lib">Règle de synchronisation : l'instantané n'est remplacé que par une synchronisation ou un import explicites ; les graphes de couverture l'utilisent tel quel.</p></div>
       <div><h3 class="lib">SYNCHRONISER DEPUIS JIRA / XRAY</h3>
-        <div class="champ"><label for="p-projet">Clé du projet</label><input class="in" id="p-projet" placeholder="ex. TAM"></div>
+        <div class="champ"><label for="p-projet">Clé du projet</label><input class="in" id="p-projet" placeholder="ex. TAM" value="${esc(Atelier.ctx.projet_jira || "")}"></div>
         <div class="champ"><label for="p-jql">JQL des tests (optionnel)</label><input class="in" id="p-jql" placeholder="project = TAM AND issuetype = Test"></div>
         <button class="btn primaire" id="p-sync">${ico("rejouer")}Synchroniser</button>
         <p class="lib">Points d'API Jira à vérifier : docs/XRAY_API.md.</p>
@@ -159,18 +159,60 @@
   }
 
   /* ================================================================== Paramètres (section à part) */
-  const SECTIONS = [["connexions", "Connexions"], ["applications", "Applications"], ["configuration", "Configuration"], ["apparence", "Apparence"]];
+  const SECTIONS = [["projets", "Projets"], ["connexions", "Connexions"], ["applications", "Applications"], ["configuration", "Configuration"], ["apparence", "Apparence"]];
   Atelier.enregistrer("parametres", {
     afficher(zone, sous) {
-      const s = SECTIONS.some(x => x[0] === sous) ? sous : "connexions";
+      const s = SECTIONS.some(x => x[0] === sous) ? sous : "projets";
       zone.className = "g-param";
       zone.innerHTML = `<section class="carte"><h2 class="titre-carte">${ico("parametres")}Paramètres</h2><ul class="liste" style="padding:6px">${SECTIONS.map(([id, lib]) =>
         `<li style="cursor:pointer;padding:9px 10px;border-radius:7px;${id === s ? "background:var(--accent-soft);color:var(--accent-ink);font-weight:600" : ""}" data-p="${id}">${lib}</li>`).join("")}</ul></section>
         <section class="carte"><h2 class="titre-carte">${esc(SECTIONS.find(x => x[0] === s)[1])}</h2><div class="corps-carte" id="p-corps">${vide("Chargement…")}</div></section>`;
       $$("[data-p]", zone).forEach(li => li.onclick = () => { location.hash = "parametres/" + li.dataset.p; });
-      ({connexions, applications, configuration, apparence})[s]($("#p-corps"));
+      ({projets, connexions, applications, configuration, apparence})[s]($("#p-corps"));
     },
   });
+
+  async function projets(z, edition = null) {
+    const d = await api("/api/projets");
+    const sec = (p, k) => esc((p?.secrets || {})[k] || "");
+    const form = p => `<div class="grille-2" style="max-width:900px">
+      <div class="champ"><label for="pj-nom">Nom</label><input class="in" id="pj-nom" value="${esc(p?.nom || "")}" placeholder="Banque mobile"></div>
+      <div class="champ"><label for="pj-dos">Dossier du repository de tests</label><input class="in" id="pj-dos" value="${esc(p?.dossier || "")}" placeholder="C:\\Users\\…\\tests-banque"></div>
+      <div class="champ"><label for="pj-xr">Clé du projet Xray</label><input class="in" id="pj-xr" value="${esc(p?.xray_projet || "")}" placeholder="TAM"></div>
+      <div class="champ"><label for="pj-jp">Clé du projet Jira (si différente)</label><input class="in" id="pj-jp" value="${esc(p?.jira_projet || "")}"></div>
+      <div class="champ"><label for="pj-ju">URL Jira</label><input class="in" id="pj-ju" value="${esc(p?.jira_url || "")}" placeholder="https://<site>.atlassian.net"></div>
+      <div class="champ"><label for="pj-je">E-mail du compte Jira</label><input class="in" id="pj-je" value="${esc(p?.jira_email || "")}"></div>
+      <div class="champ"><label for="pj-xu">URL Xray (si région particulière)</label><input class="in" id="pj-xu" value="${esc(p?.xray_url || "")}" placeholder="https://xray.cloud.getxray.app/api/v2"></div>
+      <div class="champ"><label for="pj-env">Environnements (séparés par des virgules)</label><input class="in" id="pj-env" value="${esc((p?.environnements || []).join(", "))}" placeholder="recette, preprod"></div>
+      <div class="champ"><label for="pj-s1">Variable contenant le Client ID Xray</label><input class="in mono" id="pj-s1" value="${sec(p, "XRAY_CLIENT_ID")}" placeholder="XRAY_CLIENT_ID_TAM"></div>
+      <div class="champ"><label for="pj-s2">Variable contenant le Client Secret Xray</label><input class="in mono" id="pj-s2" value="${sec(p, "XRAY_CLIENT_SECRET")}" placeholder="XRAY_CLIENT_SECRET_TAM"></div>
+      <div class="champ"><label for="pj-s3">Variable contenant le jeton API Jira</label><input class="in mono" id="pj-s3" value="${sec(p, "JIRA_API_TOKEN")}" placeholder="JIRA_API_TOKEN_TAM"></div></div>
+      <p class="lib">Secrets : saisir uniquement le <b>nom</b> de la variable d'environnement (jamais sa valeur). Vide = variables globales XRAY_CLIENT_ID, XRAY_CLIENT_SECRET, JIRA_API_TOKEN.</p>
+      <div class="btns"><button class="btn primaire" id="pj-ok">${ico("disque")}Enregistrer</button><button class="btn" id="pj-an">Annuler</button></div>`;
+    z.innerHTML = `<p class="lib">Un projet = un repository de tests et son projet Xray / Jira. Stratégie, conception, exécutions, échecs, gouvernance et Knowledge Graph
+      sont stockés dans le repository : changer de projet change tout le contexte. Liste enregistrée sur ce poste (<code>${esc(d.fichier)}</code>), sans aucun secret.</p>
+      ${d.projets.length ? `<table><tr><th>Projet</th><th>Repository</th><th>Xray / Jira</th><th>Secrets</th><th></th></tr>${d.projets.map(p => `<tr><td><b>${esc(p.nom)}</b>${p.id === d.actif ? ' <span class="pill ok">actif</span>' : ""}</td>
+        <td class="mono" style="font-size:11px">${esc(p.dossier)}${p.dossier_existe ? "" : ' <span class="pill ko">introuvable</span>'}</td><td>${esc(p.xray_projet || "—")}${p.jira_url ? ` · <span class="lib">${esc(p.jira_url)}</span>` : ""}</td>
+        <td>${Object.entries(p.secrets_presents).map(([k, ok]) => `<span class="pill ${ok ? "ok" : "warn"}" title="${esc(p.secrets[k])}">${esc(k.replace("XRAY_", "").replace("JIRA_", "Jira "))}</span>`).join(" ") || "<span class='lib'>globaux</span>"}</td>
+        <td class="btns">${p.id === d.actif ? "" : `<button class="btn petit primaire" data-act="${esc(p.id)}">Activer</button>`}<button class="btn petit" data-mod="${esc(p.id)}">Modifier</button>
+          ${p.id === d.actif ? "" : `<button class="btn petit danger" data-sup="${esc(p.id)}">Retirer</button>`}</td></tr>`).join("")}</table>`
+        : vide("Aucun projet déclaré", `Projet courant : ${Atelier.ctx.projet_chemin || ""} (variable ROBOT_PROJECT_DIR).`)}
+      <h3 class="lib" style="margin-top:16px">${edition ? "MODIFIER LE PROJET" : "AJOUTER UN PROJET"}</h3>${form(edition || (d.projets.length ? null : {dossier: Atelier.ctx.projet_chemin, nom: Atelier.ctx.projet}))}
+      ${d.journal.length ? `<h3 class="lib" style="margin-top:16px">JOURNAL</h3><table class="table-strat"><tr><th>Date</th><th>Auteur</th><th>Opération</th><th>De</th><th>Vers</th></tr>${d.journal.map(j => `<tr><td class="mono">${esc(j.date.replace("T", " ").slice(0, 16))}</td><td>${esc(j.auteur)}</td><td>${esc(j.op)}</td><td>${esc(j.de || "")}</td><td>${esc(j.vers || "")}</td></tr>`).join("")}</table>` : ""}`;
+    $("#pj-ok").onclick = async () => {
+      const b = {id: edition?.id || "", nom: $("#pj-nom").value, dossier: $("#pj-dos").value, xray_projet: $("#pj-xr").value, jira_projet: $("#pj-jp").value,
+        jira_url: $("#pj-ju").value, jira_email: $("#pj-je").value, xray_url: $("#pj-xu").value, environnements: $("#pj-env").value.split(","),
+        secrets: {XRAY_CLIENT_ID: $("#pj-s1").value, XRAY_CLIENT_SECRET: $("#pj-s2").value, JIRA_API_TOKEN: $("#pj-s3").value}};
+      try { await api("/api/projets", {method: "POST", body: b}); toast("Projet enregistré.", "ok"); await Atelier.chargerContexte(); projets(z); } catch (e) { toast(e.message, "ko"); }
+    };
+    $("#pj-an").onclick = () => projets(z);
+    $$("[data-mod]", z).forEach(b => b.onclick = () => projets(z, d.projets.find(p => p.id === b.dataset.mod)));
+    $$("[data-act]", z).forEach(b => b.onclick = async () => {
+      try { await api("/api/projets/activer", {method: "POST", body: {id: b.dataset.act}}); toast("Projet activé.", "ok"); await Atelier.chargerContexte(); projets(z); } catch (e) { toast(e.message, "ko"); } });
+    $$("[data-sup]", z).forEach(b => b.onclick = async () => {
+      if (!confirm("Retirer ce projet de la liste ? Le repository et ses données ne sont pas touchés.")) return;
+      try { await api("/api/projets/supprimer", {method: "POST", body: {id: b.dataset.sup}}); projets(z); } catch (e) { toast(e.message, "ko"); } });
+  }
 
   async function connexions(z, rafraichir = false) {
     const items = await api("/api/sante" + (rafraichir ? "?rafraichir=true" : "")).catch(() => []);

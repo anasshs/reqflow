@@ -343,7 +343,7 @@
       <div class="champ"><label for="l-cible">Suite ou dossier</label><select class="in" id="l-cible">${[...dossiers, ...fichiers].map(d => `<option ${d === cible ? "selected" : ""}>${esc(d)}</option>`).join("")}</select></div>
       <div class="grille-2"><div class="champ"><label for="l-tags">Tags à inclure (séparés par des virgules)</label><input class="in" id="l-tags" placeholder="smoke, TAM-745"></div>
         <div class="champ"><label for="l-plat">Plateforme</label><select class="in" id="l-plat">${["android", "ios", "web"].map(p => `<option ${p === Atelier.plateforme ? "selected" : ""}>${p}</option>`).join("")}</select></div>
-        <div class="champ"><label for="l-xray">Ticket Xray (plan, exécution, US ou projet)</label><input class="in" id="l-xray" placeholder="optionnel"></div>
+        <div class="champ"><label for="l-xray">Ticket Xray (plan, exécution, US ou projet)</label><input class="in" id="l-xray" placeholder="${Atelier.ctx.projet_xray ? `optionnel (projet ${esc(Atelier.ctx.projet_xray)}, ou clé de plan / d'exécution)` : "optionnel"}"></div>
         <div class="champ"><label for="l-jdd">Jeux de données (${esc(Atelier.env || "aucun environnement")})</label><select class="in" id="l-jdd" multiple size="3">${jeux.map(j => `<option>${esc(j.jeu)}</option>`).join("")}</select></div></div>
       <label class="ligne-champ"><span>Dry run</span><input type="checkbox" class="bascule" id="l-dry"></label>
       <p class="lib">Sans sélection, les jeux référencés par la suite (&amp;{JDD_…}) sont injectés. Les prérequis des jeux sont vérifiés avant le run (« bloqué données » sinon). Résultats dans results/runs/&lt;id&gt;/.</p>`,

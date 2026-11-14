@@ -1,0 +1,92 @@
+"""Projets : un repository de tests + son projet Xray / Jira ; bascule sûre, journalisée, sans secret stocké."""
+import json
+import os
+
+import pytest
+
+
+@pytest.fixture
+def env(tmp_path, monkeypatch):
+    from atelier.domain import projet, projets
+
+    a, b = tmp_path / "repo_a", tmp_path / "repo_b"
+    a.mkdir()
+    b.mkdir()
+    monkeypatch.setenv("ATELIER_PROJETS", str(tmp_path / "conf" / "projets.json"))
+    monkeypatch.setattr(projet, "PROJECT_DIR", a.resolve())
+    monkeypatch.setattr(projet, "SNAP_DIR", a / ".mcp_snapshots")
+    for v in projets.VARIABLES + projets.SECRETS + ("ROBOT_PROJECT_DIR", "XRAY_CLIENT_ID_B"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setattr(projets, "_ORIGINE", {**{v: None for v in projets.VARIABLES + projets.SECRETS}, "ROBOT_PROJECT_DIR": None,
+                                              "XRAY_CLIENT_ID": "id-global"})
+    return a, b, tmp_path
+
+
+def test_declaration_sans_secret_et_bascule(env, monkeypatch):
+    from atelier.domain import projet, projets
+
+    a, b, tmp = env
+    projets.enregistrer({"nom": "Banque A", "dossier": str(a), "xray_projet": "tam"})
+    projets.enregistrer({"nom": "Banque B", "dossier": str(b), "xray_projet": "BQB", "jira_url": "https://exemple.atlassian.net",
+                         "jira_email": "qa@exemple.fr", "secrets": {"XRAY_CLIENT_ID": "XRAY_CLIENT_ID_B"}})
+    with pytest.raises(ValueError, match="NOM"):  # une valeur de secret collée par erreur est refusée
+        projets.enregistrer({"nom": "C", "dossier": str(b), "secrets": {"XRAY_CLIENT_SECRET": "a1b2-c3d4.e5/f6"}})
+    with pytest.raises(ValueError, match="déjà déclaré"):
+        projets.enregistrer({"nom": "Doublon", "dossier": str(a)})
+    assert projets.actif_id() == "banque-a" and projets.cle_xray() == "TAM"
+    monkeypatch.setenv("XRAY_CLIENT_ID_B", "id-projet-b")
+    with pytest.raises(PermissionError, match="run"):
+        projets.activer("banque-b", occupe="run RUN-1 en cours")
+    assert projet.PROJECT_DIR == a.resolve()
+    projets.activer("banque-b")
+    assert projet.PROJECT_DIR == b.resolve() and os.environ["ROBOT_PROJECT_DIR"] == str(b.resolve())
+    assert os.environ["JIRA_BASE_URL"] == "https://exemple.atlassian.net" and os.environ["XRAY_CLIENT_ID"] == "id-projet-b"
+    assert projets.cle_xray() == "BQB"
+    projets.activer("banque-a")  # retour : connexions globales d'origine
+    assert os.environ["XRAY_CLIENT_ID"] == "id-global" and "JIRA_BASE_URL" not in os.environ
+    brut = (tmp / "conf" / "projets.json").read_text("utf-8")
+    assert "id-projet-b" not in brut and "XRAY_CLIENT_ID_B" in brut  # nom de variable seulement
+    j = projets.journal()
+    assert [x["op"] for x in j][:2] == ["bascule", "bascule"] and j[0]["vers"] == "banque-a"
+    with pytest.raises(PermissionError):
+        projets.supprimer("banque-a")  # projet actif
+    projets.supprimer("banque-b")
+    assert b.exists()  # le repository n'est jamais touché
+
+
+def test_donnees_separees_par_projet(env):
+    """La stratégie vit dans le repository : deux projets, deux stratégies."""
+    from atelier.domain import projets
+    from atelier.intelligence import strategie
+
+    a, b, _ = env
+    projets.enregistrer({"nom": "A", "dossier": str(a)})
+    projets.enregistrer({"nom": "B", "dossier": str(b)})
+    strategie.creer("Stratégie A", "App A")
+    projets.activer("b")
+    assert strategie.charger() is None
+    strategie.creer("Stratégie B", "App B")
+    projets.activer("a")
+    assert strategie.charger()["infos"]["nom"] == "Stratégie A"
+    assert (a / "strategie" / "strategie.yaml").exists() and (b / "strategie" / "strategie.yaml").exists()
+
+
+def test_cle_par_defaut_publication_et_anomalie(env):
+    from atelier.domain import projets
+    from atelier.execution import echecs
+
+    a, _, _ = env
+    projets.enregistrer({"nom": "A", "dossier": str(a), "xray_projet": "TAM"})
+
+    class FauxJira:
+        def rechercher(self, jql, champs, limite):
+            self.jql = jql
+            return []
+
+    j = FauxJira()
+    import pytest as _p
+    mp = _p.MonkeyPatch()
+    mp.setattr(echecs, "_evenement", lambda eid: {"message": "Element bouton_connexion introuvable apres attente", "cle_xray": "TAM-735"})
+    assert echecs.doublons_jira("E1", "", jira=j) == [] and 'project = "TAM"' in j.jql
+    assert json.loads(json.dumps(projets.lister()))["actif"] == "a"
+    mp.undo()

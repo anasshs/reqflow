@@ -199,7 +199,7 @@
       <p class="lib">Anomalie préparée à partir de l'échec (sévérité suggérée : ${esc(b.severity_suggeree)}). Rechercher d'abord les doublons ; la création n'a lieu que sur confirmation, avec les captures jointes et un lien vers le test Xray.</p>
       <div class="champ"><label for="jr-res">Résumé</label><input class="in" id="jr-res" value="${esc(b.summary)}"></div>
       <div class="champ"><label for="jr-desc">Description (modifiable)</label><textarea class="in" id="jr-desc" rows="8">${esc(texte)}</textarea></div>
-      <div class="btns"><input class="in" id="jr-proj" placeholder="Projet Jira (ex. TAM)" value="${esc((b.xray || "").split("-")[0])}" style="width:150px">
+      <div class="btns"><input class="in" id="jr-proj" placeholder="Projet Jira (ex. TAM)" value="${esc(Atelier.ctx.projet_jira || (b.xray || "").split("-")[0])}" style="width:150px">
         <button class="btn" id="jr-doub">Rechercher les doublons</button><button class="btn primaire" id="jr-creer">Créer l'anomalie dans Jira</button></div><div id="jr-res-doub"></div>
       <div class="btns" style="margin-top:8px"><button class="btn" id="jr-copier">Copier</button>
         <input class="in" id="jr-cle" placeholder="Clé Jira existante (ex. DEMO-42)" value="${esc(i.jira || "")}" style="width:220px"><button class="btn primaire" id="jr-ok">Associer</button></div>

@@ -175,7 +175,7 @@
       <div class="champ"><label for="rc-env">Environnement (JDD)</label><select class="in" id="rc-env"><option value=""></option>${es.map(e => `<option ${e === Atelier.env ? "selected" : ""}>${esc(e)}</option>`).join("")}</select></div>
       <div class="champ"><label for="rc-device">Device (Android / iOS)</label><input class="in" id="rc-device" placeholder="UDID (voir Device Farm)"></div>
       <div class="champ"><label for="rc-prio">Priorité</label><select class="in" id="rc-prio">${["Critical", "High", "Normal", "Low"].map(t => `<option ${t === "Normal" ? "selected" : ""}>${t}</option>`).join("")}</select></div>
-      <div class="champ"><label for="rc-xray">Ticket Xray (plan, exécution, US ou projet)</label><input class="in" id="rc-xray"></div>
+      <div class="champ"><label for="rc-xray">Ticket Xray (plan, exécution, US ou projet)</label><input class="in" id="rc-xray" placeholder="${Atelier.ctx.projet_xray ? `optionnel (projet ${esc(Atelier.ctx.projet_xray)})` : "optionnel"}"></div>
       <div class="champ"><label for="rc-vars">Variables (NOM=valeur, une par ligne ; jamais de secret)</label><textarea class="in" id="rc-vars" rows="3" placeholder="BROWSER=chromium&#10;HEADLESS=True"></textarea></div></div>
       <label class="ligne-champ"><span>Retry des échecs (relance unique, tentatives conservées)</span><input type="checkbox" class="bascule" id="rc-retry"></label>
       <label class="ligne-champ"><span>Dry run</span><input type="checkbox" class="bascule" id="rc-dry"></label>

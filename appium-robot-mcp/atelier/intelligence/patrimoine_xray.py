@@ -134,6 +134,9 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
     Le type Jira d'origine est conservé (type_jira) ; un champ que le schéma n'expose pas reste absent."""
     from atelier.integrations.xray import XrayClient
 
+    from atelier.domain import projets
+
+    projet_cle = projet_cle or projets.cle_xray()
     xray = xray or XrayClient()
     base = charger()
     if base and not jql:

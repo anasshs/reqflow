@@ -393,9 +393,12 @@ def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None) 
     from atelier.generation import bdd
     from atelier.integrations.xray import KEY_RE, XrayClient
 
+    from atelier.domain import projets
+
     m = bdd.charger(cle)
     if not m:
         raise KeyError(f"Scénario BDD inconnu : {cle}")
+    projet_xray = projet_xray or projets.cle_xray()
     local = gherkin_xray(m)
     sync = _publications_xray()
     st = sync.get(cle)

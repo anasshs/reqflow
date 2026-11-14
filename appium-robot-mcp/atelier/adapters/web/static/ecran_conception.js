@@ -51,7 +51,7 @@
             ${v.exigences_sans_test.length ? `<p class="lib">Sans test : ${v.exigences_sans_test.map(esc).join(", ")}</p>` : ""}</section>
           <section class="bloc-strat"><h3>Activités récentes</h3><ul class="liste">${v.activite.map(a => `<li><span class="mono lib">${esc(a.date.slice(5, 16).replace("T", " "))}</span><span class="item">${esc(a.op)} ${esc(a.cle || a.nom || "")} ${a.vers ? "→ " + esc(LIB_REVUE[a.vers] || a.vers) : ""}</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul></section></div></div>`;
     $("#cv-def").onclick = async () => {
-      const projet = v.xray.present ? "" : prompt("Clé du projet Xray (aucun instantané à compléter) :");
+      const projet = v.xray.present || Atelier.ctx.projet_xray ? "" : prompt("Clé du projet Xray (aucun instantané à compléter) :");
       if (projet === null) return;
       try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {projet}});
         toast(`${r.importes} définition(s) importée(s)${r.introuvables.length ? `, ${r.introuvables.length} introuvable(s)` : ""}${r.champs_absents.length ? ` ; champs absents du schéma : ${r.champs_absents.join(", ")}` : ""}.`, r.introuvables.length ? "ko" : "ok");
@@ -110,7 +110,7 @@
       <div class="btns" style="margin-top:12px">${ouvrir}<a class="btn" href="#conception/revue" id="pc-rev">Revue</a>
         <button class="btn" id="pc-graphe">${ico("graphe")}Traçabilité</button></div></div>`;
     $("#pc-x").onclick = () => { p.hidden = true; SEL = null; };
-    if ($("#pc-pub")) $("#pc-pub").onclick = () => publier(c.bdd, c.cle.split("-")[0]);
+    if ($("#pc-pub")) $("#pc-pub").onclick = () => publier(c.bdd, Atelier.ctx.projet_xray || c.cle.split("-")[0]);
     $("#pc-rev").onclick = e => { e.preventDefault(); SEL = c.cle; R = "revue"; history.replaceState(null, "", "#conception/revue"); revue($(".corps-strat"), c.cle); };
     $("#pc-graphe").onclick = () => { location.hash = "graphe/couverture"; };
   }

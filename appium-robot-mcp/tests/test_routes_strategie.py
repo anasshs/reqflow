@@ -106,3 +106,23 @@ def test_routes_integrations_jira_xray(client, monkeypatch):
     assert r.status_code >= 400
     r = client.post("/api/centre/xray/rejouer", json={"run": "inexistant"})
     assert r.status_code in (200, 400, 404)
+
+
+def test_routes_projets_bascule_refusee_si_run_en_file(client, tmp_path, monkeypatch):
+    from atelier.domain import projet
+    from atelier.execution import centre
+
+    autre = tmp_path / "autre_repo"
+    autre.mkdir()
+    courant = str(projet.PROJECT_DIR)
+    assert client.post("/api/projets", json={"nom": "Courant", "dossier": courant, "xray_projet": "DEMO"}).status_code == 200
+    assert client.post("/api/projets", json={"nom": "Autre", "dossier": str(autre)}).status_code == 200
+    ctx = client.get("/api/contexte").json()
+    assert ctx["projet_id"] == "courant" and ctx["projet_xray"] == "DEMO" and len(ctx["projets"]) == 2
+    monkeypatch.setattr(centre.FILE, "attente", lambda: [{"id": "RUN-1"}])
+    r = client.post("/api/projets/activer", json={"id": "autre"})
+    assert r.status_code == 400 and "file" in r.json()["detail"]
+    monkeypatch.setattr(centre.FILE, "attente", lambda: [])
+    assert client.post("/api/projets/activer", json={"id": "autre"}).json()["actif"] == "autre"
+    assert client.post("/api/projets/activer", json={"id": "courant"}).json()["actif"] == "courant"
+    assert [j["op"] for j in client.get("/api/projets").json()["journal"]][:2] == ["bascule", "bascule"]

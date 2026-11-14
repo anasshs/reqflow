@@ -15,6 +15,7 @@ Test Strategy : phases 1, 2, 5 et une partie de la 4 livrées (voir ROADMAP) ; p
 Test Design : couche de conception autour de Xray (voir docs/TEST_DESIGN_ECARTS.md) ; publication du Gherkin (modes B / C) branchée, schéma `createTest` conforme (essai réel à faire).
 Automation Studio et Execution Center : voir docs/AUTOMATION_EXECUTION_ECARTS.md (file d'exécution : atelier/execution/centre.py).
 Application Intelligence, Failure Analysis, Quality Governance : docs/INTELLIGENCE_ECHECS_GOUVERNANCE_ECARTS.md.
+Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).
 Les fichiers racine `server.py`, `app_map.py`, `jdd.py`, `xray_client.py`, `web_backend.py`,
 `xray_live_listener.py`, `cartographie_listener.py` et `web/app.py` ne sont plus que des points

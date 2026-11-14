@@ -17,7 +17,7 @@ Légende : ✅ conforme · 🟡 partiel · ❌ absent · ⛔ dépend d'un servic
 | Quality Governance | — | 4-15 | rôles, synthèse IA | constantes non paramétrées |
 | Application Intelligence | 2.1, 17 | 4-16, 19 | extraction / mapping IA, Journey Builder, paramétrage | |
 
-Transverse : aucune authentification ni rôle (tous les cahiers) ; aucun multi-projets dans une même instance.
+Transverse : aucune authentification ni rôle (tous les cahiers). Multi-projets dans une même instance : livré le 2026-11-14 (sélecteur du header).
 
 ## Violations des règles transverses — toutes corrigées le 2026-11-14
 | # | Constat | Règle | Effort |

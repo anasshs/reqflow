@@ -125,7 +125,7 @@ const Atelier = {
     $("#b-alertes").onclick = () => { location.hash = "graphe/anomalies"; };
     $("header .droite a").innerHTML = ico("ext");
     $("#b-aide").innerHTML = ico("aide");
-    $("#b-aide").onclick = () => modale("Aide", `<p>Le projet actif est celui du header (ROBOT_PROJECT_DIR) : aucun module n'a de second sélecteur de projet.</p>
+    $("#b-aide").onclick = () => modale("Aide", `<p>Le projet actif est celui du header (Paramètres › Projets) : aucun module n'a de second sélecteur de projet. Chaque projet garde ses données dans son repository.</p>
       <p><b>Application Intelligence</b> : Knowledge Graph central (clic : propriétés ; double-clic : dépendances).</p>
       <p><b>Test Strategy</b> : quoi tester et pourquoi. <b>Test Design</b> : exigences, cas Xray, scénarios BDD, revues, baselines.</p>
       <p><b>Automation Studio</b> : comment automatiser (mapping BDD, locators, keywords, page objects, éditeur, revue technique des scripts).</p>
@@ -183,7 +183,8 @@ const Atelier = {
     const xray = !c.xray?.configure ? ["", "Non configuré"] : c.xray.connecte === true ? ["ok", "Connecté"]
       : c.xray.connecte === false ? ["ko", "Erreur"] : ["warn", "Configuré"];
     $("#ctx").innerHTML = `
-      <div><label>Projet</label><span class="val" title="${esc(c.projet_chemin)}">${esc(c.projet || "—")}</span></div>
+      <div><label for="c-projet">Projet</label>${(c.projets || []).length > 1 ? `<select id="c-projet" title="${esc(c.projet_chemin)}">${c.projets.map(p => `<option value="${esc(p.id)}" ${p.id === c.projet_id ? "selected" : ""}>${esc(p.nom)}</option>`).join("")}${c.projet_id ? "" : `<option value="" selected>${esc(c.projet)} (non déclaré)</option>`}</select>`
+        : `<span class="val" title="${esc(c.projet_chemin)}">${esc(c.projet || "—")}${c.projet_xray ? ` · ${esc(c.projet_xray)}` : ""}</span>`}</div>
       <div><label for="c-app">Application</label><select id="c-app">${(c.applications || []).map(a => `<option value="${esc(a.slug)}" ${a.slug === c.application ? "selected" : ""}>${esc(a.nom)}</option>`).join("") || "<option value=''>Aucune (à cartographier)</option>"}</select></div>
       <div><label>Version</label><span class="val">${esc(c.version || "—")}</span></div>
       <div><label for="c-plat">Plateforme</label><span class="ligne">${ico({android: "android", ios: "pomme", web: "globe"}[this.plateforme] || "mobile")}<select id="c-plat">${plats.map(p => `<option value="${p}" ${p === this.plateforme ? "selected" : ""}>${{android: "Android", ios: "iOS", web: "Web"}[p] || esc(p)}</option>`).join("")}</select></span></div>
@@ -193,6 +194,13 @@ const Atelier = {
 `;
     const u = c.utilisateur || "";
     $("#utilisateur").innerHTML = u ? `<span class="avatar" aria-hidden="true">${esc(u.slice(0, 2).toUpperCase())}</span><div><b>${esc(u)}</b><small>Compte du poste</small></div>` : "";
+    if ($("#c-projet")) $("#c-projet").onchange = async e => {
+      const id = e.target.value;
+      if (!id) return;
+      if (!confirm("Changer de projet ? Stratégie, conception, exécutions, échecs et connaissances seront ceux du nouveau repository.")) { e.target.value = c.projet_id; return; }
+      try { await api("/api/projets/activer", {method: "POST", body: {id}}); toast("Projet changé.", "ok"); await this.chargerContexte(); this.ouvrir(); }
+      catch (err) { toast(err.message, "ko"); e.target.value = c.projet_id || ""; }
+    };
     $("#c-app").onchange = async e => {
       if (!e.target.value) return;
       try { await api("/api/apps/choisir", {method: "POST", body: {slug: e.target.value}}); toast("Application active changée.", "ok"); await this.chargerContexte(); this.ouvrir(); }

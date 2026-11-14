@@ -42,6 +42,7 @@ from atelier.adapters.web.securite import SecuriteLocale, jeton_processus  # noq
 from atelier.discovery import carte as amap  # noqa: E402
 from atelier.discovery import carte_outils, espaces, exploration, session  # noqa: E402
 from atelier.domain import declarations, evenements, projet  # noqa: E402
+from atelier.domain import projets  # noqa: E402
 from atelier.execution import jdd  # noqa: E402
 from atelier.execution import centre, echecs, historique  # noqa: E402
 from atelier.discovery import intelligence_app  # noqa: E402
@@ -120,6 +121,41 @@ evenements.abonner(emit, HOOK_TYPES)  # carte et exploration : événements dire
 @app.on_event("startup")
 async def _startup():
     state["loop"] = asyncio.get_running_loop()
+    _call_silencieux(projets.au_demarrage)  # dernier projet actif (sauf ROBOT_PROJECT_DIR imposé)
+
+
+# --------------------------------------------------------------------------- projets (repository + Xray / Jira)
+def _occupation() -> str:
+    """Raison de refuser une bascule de projet : un run en cours ou en file s'exécute dans le projet courant."""
+    if centre.FILE.en_cours is not None:
+        return f"run {centre.FILE.en_cours.get('id', '')} en cours"
+    if centre.FILE.attente():
+        return f"{len(centre.FILE.attente())} run(s) en file d'attente"
+    return ""
+
+
+@app.get("/api/projets")
+def projets_lister():
+    return {**_call(projets.lister), "journal": projets.journal(30)}
+
+
+@app.post("/api/projets")
+async def projets_enregistrer(req: Request):
+    return _call(projets.enregistrer, await req.json())
+
+
+@app.post("/api/projets/supprimer")
+async def projets_supprimer(req: Request):
+    return _call(projets.supprimer, (await req.json()).get("id", ""))
+
+
+@app.post("/api/projets/activer")
+async def projets_activer(req: Request):
+    r = _call(projets.activer, (await req.json()).get("id", ""), _occupation())
+    state["sante_cache"].clear()  # état des connexions à revérifier pour le nouveau projet
+    state["produits"] = []
+    emit({"type": "projet_change", "projet": r["actif"]})
+    return r
 
 
 @app.websocket("/ws")
@@ -931,7 +967,10 @@ async def patrimoine_xray_definitions(req: Request):
 @app.post("/api/patrimoine/synchroniser")
 async def patrimoine_synchroniser(req: Request):
     b = await req.json()
-    return await asyncio.to_thread(_call, patrimoine_xray.synchroniser_jira, b["projet"], b.get("jql", ""))
+    cle = b.get("projet") or projets.cle_jira()
+    if not cle:
+        raise HTTPException(400, "Projet Jira requis (aucun projet actif avec une clé).")
+    return await asyncio.to_thread(_call, patrimoine_xray.synchroniser_jira, cle, b.get("jql", ""))
 
 
 # --------------------------------------------------------------------------- runs
@@ -1150,7 +1189,10 @@ def contexte():
         envs = []
     cache = state["sante_cache"]
     xray = cache.get("xray")
-    return {"projet": projet.PROJECT_DIR.name, "projet_chemin": str(projet.PROJECT_DIR),
+    pa = projets.actif() or {}
+    return {"projet": pa.get("nom") or projet.PROJECT_DIR.name, "projet_chemin": str(projet.PROJECT_DIR),
+            "projet_id": pa.get("id", ""), "projet_xray": pa.get("xray_projet", ""), "projet_jira": pa.get("jira_projet") or pa.get("xray_projet", ""),
+            "projets": [{"id": p["id"], "nom": p["nom"]} for p in projets.lister()["projets"]],
             "applications": [{"slug": a["slug"], "nom": a.get("nom", a["slug"])} for a in amap.apps()],
             "application": cfg.get("slug"), "version": cfg.get("build", ""), "plateformes": cfg.get("plateformes", []),
             "session": session.plateforme(), "flux": state["flux"], "environnements": envs,

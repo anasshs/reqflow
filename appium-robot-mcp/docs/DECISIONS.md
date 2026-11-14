@@ -39,3 +39,18 @@ Une ligne datée par décision d'architecture ou de conception.
 - 2026-11-14 : Test Design ne crée pas de référentiel concurrent : il lit l'instantané Xray, les scénarios BDD et le dépôt, et ne stocke que des métadonnées de conception dans le projet (`conception/revues.json`, `conception/baselines/` en création exclusive, `conception/mapping_xray.yaml`, `conception/journal.jsonl`). Le statut de revue interne est distinct du statut Xray ; les statuts externes ne sont jamais supposés (à configurer). Les modes de synchronisation B / C restent désactivés tant que les mutations Xray ne sont pas vérifiées.
 - 2026-11-14 : `/api/run` ne refuse plus un run concurrent (409) : il le met dans la file à priorités de l'Execution Center, servie par le runner local (capacité 1, déclarée telle quelle). Le contexte (projet, application, version, environnement, plateforme, commit, revue des scripts) est figé à l'entrée dans la file. Le retry est une seconde tentative des seuls échecs, preuves conservées par tentative et résultats fusionnés par `rebot --merge` ; « Recommandé par IA » et le score d'automatisabilité ne sont jamais renseignés sans calcul réel.
 - 2026-11-14 : Failure Analysis classe les échecs par règles déterministes ; la « force » d'une hypothèse est un libellé tiré de la règle, jamais un pourcentage de confiance (les pourcentages du cahier des charges supposeraient un modèle calibré). L'IA n'est appelée qu'à la demande, sans valeurs de JDD. Quality Governance : chaque KPI porte définition, formule, source et date ; un facteur sans donnée est exclu et les pondérations renormalisées ; la release readiness ne vaut jamais autorisation et exige un avis QA tracé.
+
+
+## 2026-11-14 — Plusieurs projets dans une même instance (repository + projet Xray / Jira)
+- Un projet = un repository de tests Robot + une clé de projet Xray / Jira + URL Jira / Xray + environnements.
+  Toutes les données du produit (stratégie, conception, instantané Xray, exécutions, échecs, gouvernance,
+  Knowledge Graph) restent dans le repository : basculer de projet change tout le contexte, rien n'est partagé.
+- La liste est une configuration du poste (`ATELIER_PROJETS`, défaut `~/.atelier-projets.json`), jamais du dépôt.
+  Elle ne contient aucun secret : seulement le NOM de la variable d'environnement qui porte chaque identifiant
+  (ex. `XRAY_CLIENT_ID_TAM`) ; une valeur collée par erreur est refusée.
+- Bascule (`atelier/domain/projets.py`) : refusée si un run est en cours ou en file ; journalisée
+  (`~/.atelier-projets.journal.jsonl`) ; met à jour PROJECT_DIR, ROBOT_PROJECT_DIR (sous-processus Robot) et les
+  variables de connexion du projet (ou les valeurs globales de démarrage). Au démarrage, le dernier projet actif est
+  repris, sauf si ROBOT_PROJECT_DIR est imposé. Le serveur MCP (processus séparé) reste sur ROBOT_PROJECT_DIR.
+- La clé du projet actif préremplit imports, synchronisation Jira, publication BDD et anomalies ; pour les runs elle
+  n'est qu'une indication (un ticket Xray reste un choix explicite : pas de plan / exécution créés par défaut).
