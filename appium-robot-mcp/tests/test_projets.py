@@ -90,3 +90,36 @@ def test_cle_par_defaut_publication_et_anomalie(env):
     assert echecs.doublons_jira("E1", "", jira=j) == [] and 'project = "TAM"' in j.jql
     assert json.loads(json.dumps(projets.lister()))["actif"] == "a"
     mp.undo()
+
+
+def test_secrets_saisis_dans_l_app_memoire_seule(env, monkeypatch):
+    from atelier.domain import projets
+
+    a, b, tmp = env
+    monkeypatch.setattr(projets, "_ORIGINE_ENV", {})
+    monkeypatch.setattr(projets, "_SAISIS", set())
+    for v in ("XRAY_CLIENT_ID_TAM", "XRAY_CLIENT_SECRET_TAM"):
+        monkeypatch.delenv(v, raising=False)  # restaurés (absents) après le test
+    projets.enregistrer({"nom": "A", "dossier": str(a), "xray_projet": "TAM",
+                         "secrets": {"XRAY_CLIENT_ID": "XRAY_CLIENT_ID_TAM", "XRAY_CLIENT_SECRET": "XRAY_CLIENT_SECRET_TAM"}})
+    projets.enregistrer({"nom": "B", "dossier": str(b)})
+    projets.enregistrer_general({"jira_url": "https://exemple.atlassian.net", "jira_email": "qa@exemple.fr"})
+    assert os.environ["JIRA_BASE_URL"] == "https://exemple.atlassian.net"
+    with pytest.raises(ValueError, match="non attendue"):
+        projets.saisir_secret("PATH", "/tmp")  # seules les variables attendues sont modifiables
+    projets.saisir_secret("XRAY_CLIENT_ID_TAM", ' "id-tam-123" ')
+    projets.saisir_secret("XRAY_CLIENT_SECRET_TAM", "secret-tam-456")
+    projets.saisir_secret("JIRA_API_TOKEN", "jeton-jira-789")
+    assert os.environ["XRAY_CLIENT_ID"] == "id-tam-123" and os.environ["JIRA_API_TOKEN"] == "jeton-jira-789"
+    c = projets.connexions()
+    assert all(s["present"] for s in c["secrets"] if s["nom"] in ("XRAY_CLIENT_ID_TAM", "JIRA_API_TOKEN"))
+    projets.activer("b")  # autre projet : Xray global (aucun), Jira général conservé
+    assert os.environ["XRAY_CLIENT_ID"] == "id-global" and os.environ["JIRA_API_TOKEN"] == "jeton-jira-789"
+    assert os.environ["JIRA_BASE_URL"] == "https://exemple.atlassian.net"
+    projets.activer("a")
+    assert os.environ["XRAY_CLIENT_SECRET"] == "secret-tam-456"
+    disque = "".join(f.read_text("utf-8") for f in (tmp / "conf").iterdir())
+    for valeur in ("id-tam-123", "secret-tam-456", "jeton-jira-789"):
+        assert valeur not in disque and valeur not in json.dumps(c)  # ni sur disque, ni dans une réponse
+    projets.effacer_secret("JIRA_API_TOKEN")
+    assert "JIRA_API_TOKEN" not in os.environ

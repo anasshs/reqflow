@@ -23,6 +23,7 @@ from atelier.domain import projet
 VARIABLES = ("JIRA_BASE_URL", "JIRA_EMAIL", "XRAY_BASE_URL", "GITLAB_URL", "GITLAB_PROJET")
 SECRETS = ("XRAY_CLIENT_ID", "XRAY_CLIENT_SECRET", "JIRA_API_TOKEN", "GITLAB_TOKEN")
 _ORIGINE = {v: os.environ.get(v) for v in VARIABLES + SECRETS + ("ROBOT_PROJECT_DIR",)}
+_ORIGINE_ENV = dict(_ORIGINE)  # valeurs réellement fournies par l'environnement au démarrage
 NOM_VARIABLE = re.compile(r"^[A-Z_][A-Z0-9_]{1,80}$")
 CLE_PROJET = re.compile(r"^[A-Z][A-Z0-9_]{0,19}$")
 _verrou = threading.Lock()
@@ -208,8 +209,12 @@ def activer(pid: str, occupe: str = "") -> dict:
 
 def au_demarrage():
     """Sans ROBOT_PROJECT_DIR explicite, reprend le dernier projet actif ; sinon applique les connexions du projet
-    correspondant au dossier imposé (s'il est déclaré)."""
+    correspondant au dossier imposé (s'il est déclaré). Les connexions générales enregistrées complètent l'environnement."""
     d = _charger()
+    for k, var in GENERAUX.items():
+        if not _ORIGINE_ENV.get(var) and (d.get("general") or {}).get(k):
+            _ORIGINE[var] = d["general"][k]
+            os.environ.setdefault(var, d["general"][k])
     if not _ORIGINE.get("ROBOT_PROJECT_DIR") and d["actif"]:
         p = next((x for x in d["projets"] if x["id"] == d["actif"]), None)
         if p and Path(p["dossier"]).is_dir():
@@ -218,6 +223,85 @@ def au_demarrage():
     p = actif()
     if p:
         _appliquer(p)
+
+
+# =========================================================================== connexions générales et secrets saisis
+GENERAUX = {"jira_url": "JIRA_BASE_URL", "jira_email": "JIRA_EMAIL", "xray_url": "XRAY_BASE_URL"}
+_SAISIS: set[str] = set()  # noms des secrets saisis dans l'application pendant cette session (valeurs : environnement du processus)
+
+
+def connexions() -> dict:
+    """Connexions générales (valables pour tout projet qui ne les redéfinit pas) et secrets attendus, avec leur seule
+    présence : aucune valeur de secret n'est jamais renvoyée."""
+    g = _charger().get("general") or {}
+    attendus: dict[str, list[str]] = {n: ["général"] for n in SECRETS}
+    for p in _charger()["projets"]:
+        for cible, src in (p.get("secrets") or {}).items():
+            attendus.setdefault(src, []).append(f"{p['nom']} ({cible})")
+    return {"general": {k: g.get(k, "") for k in GENERAUX},
+            "general_effectif": {k: os.environ.get(v, "") for k, v in GENERAUX.items()},
+            "secrets": [{"nom": n, "usages": u, "present": bool(os.environ.get(n)), "saisi_dans_l_app": n in _SAISIS}
+                        for n, u in sorted(attendus.items())]}
+
+
+def enregistrer_general(g: dict) -> dict:
+    """URL Jira / Xray et e-mail Jira communs à tous les projets (non secrets : enregistrés dans la liste du poste)."""
+    propre = {}
+    for k in GENERAUX:
+        v = str(g.get(k) or "").strip().rstrip("/")
+        if k.endswith("_url") and v and not v.startswith("https://"):
+            raise ValueError(f"{k} : URL https:// attendue.")
+        propre[k] = v
+    with _verrou:
+        d = _charger()
+        d["general"] = propre
+        _sauver(d)
+    for k, var in GENERAUX.items():
+        if not _ORIGINE_ENV.get(var):  # une variable d'environnement posée au démarrage reste prioritaire
+            _ORIGINE[var] = propre[k] or None
+    _reappliquer()
+    _tracer("connexions_generales")
+    return connexions()
+
+
+def saisir_secret(nom: str, valeur: str) -> dict:
+    """Secret saisi dans l'application : gardé en mémoire (environnement du serveur local) jusqu'à son arrêt.
+    Jamais écrit sur disque, jamais journalisé, jamais renvoyé. Seuls les noms attendus sont acceptés."""
+    autorises = {s["nom"] for s in connexions()["secrets"]}
+    if nom not in autorises:
+        raise ValueError(f"{nom} : variable non attendue (secrets généraux ou variables déclarées par un projet).")
+    valeur = str(valeur or "").strip().strip('"').strip("'").strip()
+    if not valeur:
+        raise ValueError("Valeur vide.")
+    os.environ[nom] = valeur
+    if nom in SECRETS:
+        _ORIGINE[nom] = valeur  # secret général : reste le défaut après une bascule de projet
+    _SAISIS.add(nom)
+    _reappliquer()
+    _tracer("secret_saisi", vers=nom)  # le nom seulement
+    return connexions()
+
+
+def effacer_secret(nom: str) -> dict:
+    if nom not in _SAISIS:
+        raise ValueError(f"{nom} n'a pas été saisi dans l'application (variable d'environnement du poste : à retirer hors de l'atelier).")
+    os.environ.pop(nom, None)
+    if nom in SECRETS:
+        _ORIGINE[nom] = _ORIGINE_ENV.get(nom)
+    _SAISIS.discard(nom)
+    _reappliquer()
+    _tracer("secret_efface", de=nom)
+    return connexions()
+
+
+def _reappliquer():
+    p = actif()
+    if p:
+        _appliquer(p)
+    else:
+        for v in VARIABLES + SECRETS:
+            if v in GENERAUX.values() or v in SECRETS:
+                _poser(v, _ORIGINE.get(v))
 
 
 def _tracer(op: str, **d):

@@ -65,3 +65,13 @@ Une ligne datée par décision d'architecture ou de conception.
   (invariant 5), sinon dérogation justifiée écrite dans la MR et journalisée. Description générée : fichiers,
   revues, stabilité, liens Xray. L'atelier ne fusionne jamais ; une MR déjà ouverte pour la branche est réutilisée.
 - Lecture : utilisateur, projet, branche par défaut, MR ouvertes, commits récents ; état dans Paramètres › Connexions.
+
+
+## 2026-11-14 — Connexions générales et secrets saisis dans l'application
+- URL Jira, e-mail Jira, URL Xray : connexions générales (tous les projets), enregistrées dans la liste du poste
+  (non secrètes) ; une variable d'environnement posée au démarrage reste prioritaire ; un projet peut les redéfinir.
+- Secrets (identifiants Xray, jetons Jira / GitLab) : saisissables dans Paramètres › Connexions, gardés en mémoire
+  par le serveur local jusqu'à son arrêt — jamais écrits sur disque, jamais journalisés (le nom seulement), jamais
+  renvoyés par l'API. Seuls les noms attendus (secrets généraux ou variables déclarées par un projet) sont acceptés.
+  Usage durable : variables d'environnement du poste. Un coffre du système (Windows Credential Manager) serait une
+  évolution de la règle « secrets uniquement en variables d'environnement » : à décider explicitement.

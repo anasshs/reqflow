@@ -149,6 +149,37 @@ async def projets_supprimer(req: Request):
     return _call(projets.supprimer, (await req.json()).get("id", ""))
 
 
+@app.get("/api/connexions")
+def connexions_lister():
+    return _call(projets.connexions)
+
+
+@app.post("/api/connexions/general")
+async def connexions_general(req: Request):
+    r = _call(projets.enregistrer_general, await req.json())
+    state["sante_cache"].clear()
+    return r
+
+
+@app.post("/api/connexions/secret")
+async def connexions_secret(req: Request):
+    """Secret saisi dans l'interface : mémoire du serveur local uniquement (ni disque, ni log, jamais renvoyé)."""
+    b = await req.json()
+    try:
+        r = projets.saisir_secret(str(b.get("nom", "")), str(b.get("valeur", "")))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None  # le message ne contient jamais la valeur
+    state["sante_cache"].clear()
+    return r
+
+
+@app.post("/api/connexions/secret/effacer")
+async def connexions_secret_effacer(req: Request):
+    r = _call(projets.effacer_secret, str((await req.json()).get("nom", "")))
+    state["sante_cache"].clear()
+    return r
+
+
 @app.post("/api/projets/activer")
 async def projets_activer(req: Request):
     r = _call(projets.activer, (await req.json()).get("id", ""), _occupation())
