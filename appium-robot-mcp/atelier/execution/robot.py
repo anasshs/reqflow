@@ -54,6 +54,14 @@ def parse_robot_output(output_xml: str = "results/mcp/output.xml") -> dict:
             "skips": getattr(total, "skipped", 0), "tests_en_echec": failures}
 
 
+def option_listener(listener, *args) -> str:
+    """Valeur de --listener. Robot sépare les arguments par « : », ce qui coupe les chemins Windows
+    (« C:\\… ») ; il accepte aussi « ; » comme séparateur : on l'emploie dès qu'un argument contient « : »."""
+    args = [str(a) for a in args]
+    sep = ";" if any(":" in a for a in args) else ":"
+    return sep.join([str(listener), *args])
+
+
 def run_robot(target: str, include_tags: list[str] | None = None,
               exclude_tags: list[str] | None = None, variables: dict | None = None,
               dry_run: bool = False, output_dir: str = "results/mcp",
@@ -119,7 +127,7 @@ def run_robot(target: str, include_tags: list[str] | None = None,
         app = carte.app_courante()
         if not app:
             raise RuntimeError("Aucune application dans la carte : crée-la d'abord.")
-        cmd += ["--listener", f"{LISTENERS / 'cartographie_listener.py'}:{app}"]
+        cmd += ["--listener", option_listener(LISTENERS / "cartographie_listener.py", app)]
     if relancer_echecs:
         prev = out_abs / "output.xml"
         if not prev.exists():
@@ -152,7 +160,7 @@ def run_robot(target: str, include_tags: list[str] | None = None,
         cfg_path = out_abs / "xray_run_config.json"
         cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), "utf-8")
         listener = LISTENERS / "xray_live_listener.py"
-        cmd += ["--listener", f"{listener}:{cfg_path}"]
+        cmd += ["--listener", option_listener(listener, cfg_path)]
     elif xray_ticket and not dry_run and xray_mode == "listener_projet":
         tpl = os.environ.get("ROBOT_XRAY_LISTENER", "")
         if not tpl:

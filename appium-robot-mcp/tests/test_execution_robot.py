@@ -81,3 +81,11 @@ def test_listener_suivi_en_direct(suite):
     fins = {e["nom"]: e for e in recus if e["type"] == "test_fin"}
     assert fins["Virement En Echec"]["statut"] == "FAIL"
     assert fins["Virement En Echec"]["message"] == "Solde insuffisant"
+
+
+def test_option_listener_chemins_windows():
+    """Robot coupe les arguments de listener sur « : » : un chemin C:\\… doit passer avec « ; »."""
+    from atelier.execution.robot import option_listener
+
+    assert option_listener("l.py", "/tmp/config.json") == "l.py:/tmp/config.json"
+    assert option_listener(r"C:\a\l.py", r"C:\r\xray_run_config.json") == r"C:\a\l.py;C:\r\xray_run_config.json"
