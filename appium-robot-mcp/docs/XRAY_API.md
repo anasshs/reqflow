@@ -89,4 +89,8 @@ puis une Test Execution existants.
   (statut final, puis heures et commentaire, puis preuves) ; le faux serveur des tests reproduit cette règle.
 - Un refus métier GraphQL n'est plus réessayé (inutile) : erreur journalisée, événement conservé pour `xray-sync`.
 - Sous Windows, l'argument du listener (chemin `C:\…`) était coupé par Robot : séparateur « ; » utilisé.
-- Restent à confirmer au prochain essai : commentaire, capture jointe (`addEvidenceToTestRun`), statuts personnalisés.
+- Après correction et `xray-sync` : test run **FAILED**, heures, commentaire et capture jointe **confirmés** dans Xray.
+- `output.xml`, `log.html`, `report.html` n'existent qu'après la fin de Robot (donc après le listener) : ils sont
+  désormais zippés (`robot-resultats.zip`) et joints aux test runs en fin de run, via le journal (rejouable).
+  `XRAY_ARTEFACTS` = `tous` (défaut) | `echecs` | `aucun` ; `XRAY_ARTEFACTS_MAX_MO` (défaut 10) plafonne l'archive.
+- Restent à confirmer : taille maximale acceptée par `addEvidenceToTestRun`, statuts personnalisés (`getStatuses`).

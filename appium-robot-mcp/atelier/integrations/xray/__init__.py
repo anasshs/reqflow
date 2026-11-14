@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import os
 import re
 from datetime import datetime
@@ -176,7 +177,7 @@ class XrayClient:
         ev = []
         for f in files:
             with open(f, "rb") as fh:
-                ev.append({"filename": os.path.basename(f), "mimeType": "image/png",
+                ev.append({"filename": os.path.basename(f), "mimeType": mimetypes.guess_type(f)[0] or "application/octet-stream",
                            "data": base64.b64encode(fh.read()).decode()})
         q = ('mutation($id: String!, $ev: [AttachmentDataInput]!) { addEvidenceToTestRun(id: $id, '
              'evidence: $ev) { addedEvidence warnings } }')

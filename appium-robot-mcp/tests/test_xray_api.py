@@ -83,3 +83,22 @@ def test_identifiants_nettoyes_des_guillemets(monkeypatch):
     monkeypatch.setenv("XRAY_CLIENT_SECRET", "'def'\n")
     c = XrayClient()
     assert (c.cid, c.secret) == ("abc", "def")
+
+
+def test_resultats_robot_joints_apres_le_run(projet, xray, monkeypatch):
+    """output.xml, log.html, report.html (n'existant qu'après Robot) sont joints en zip aux test runs."""
+    import zipfile
+
+    import server
+
+    (projet / "tests").mkdir()
+    (projet / "tests" / "v.robot").write_text(SUITE, "utf-8")
+    bilan = server.run_robot("tests/v.robot", xray_ticket="DEMO")
+    art = bilan["xray"]["artefacts"]
+    assert art["envoye"] and art["test_runs"] == ["DEMO-1", "DEMO-2"], art
+    assert all("robot-resultats.zip" in p for p in xray.preuves.values())
+    z = projet / "results" / "mcp" / "robot-resultats.zip"
+    assert sorted(zipfile.ZipFile(z).namelist()) == ["log.html", "output.xml", "report.html"]
+    monkeypatch.setenv("XRAY_ARTEFACTS", "echecs")
+    bilan = server.run_robot("tests/v.robot", xray_ticket="DEMO")
+    assert bilan["xray"]["artefacts"]["test_runs"] == ["DEMO-2"]

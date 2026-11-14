@@ -200,6 +200,13 @@ def run_robot(target: str, include_tags: list[str] | None = None,
         bilan["resultat"] = parse_robot_output(str(output.relative_to(projet.PROJECT_DIR)))
     if report_path.exists():
         bilan["xray"] = json.loads(report_path.read_text("utf-8"))
+        if live_xray and bilan["xray"].get("execution"):
+            try:  # log.html / report.html n'existent qu'après la fin de Robot : envoi ici, via le journal
+                from atelier.execution.journal_xray import envoyer_artefacts
+
+                bilan["xray"]["artefacts"] = envoyer_artefacts(cfg["outbox_dir"], out_abs, bilan["xray"])
+            except Exception as e:  # noqa: BLE001 - invariant : jamais d'échec du run à cause de Xray
+                bilan["xray"]["artefacts"] = {"envoye": False, "erreur": str(e)[:300]}
     if jdd_info:
         bilan["jdd"] = jdd_info
     evenements.publier({"type": "run_bilan", "bilan": bilan})
