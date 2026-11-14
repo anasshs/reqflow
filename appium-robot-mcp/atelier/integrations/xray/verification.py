@@ -34,10 +34,27 @@ TYPES_ENTREE = {"AttachmentDataInput": ["filename", "mimeType", "data"]}
 _TYPE = "type { kind name ofType { kind name ofType { kind name ofType { kind name } } } }"
 INTROSPECTION = (
     "query { __schema { "
-    f"queryType {{ fields {{ name args {{ name defaultValue {_TYPE} }} }} }} "
+    f"queryType {{ fields {{ name {_TYPE} args {{ name defaultValue {_TYPE} }} }} }} "
     f"mutationType {{ fields {{ name args {{ name defaultValue {_TYPE} }} }} }} }} "
     "attachment: __type(name: \"AttachmentDataInput\") { inputFields { name } } }"
 )
+
+
+def _texte_type(t: dict | None) -> str:
+    """Type GraphQL lisible : String!, [Status], …"""
+    if not t:
+        return "?"
+    if t.get("kind") == "NON_NULL":
+        return _texte_type(t.get("ofType")) + "!"
+    if t.get("kind") == "LIST":
+        return f"[{_texte_type(t.get('ofType'))}]"
+    return t.get("name") or "?"
+
+
+def _nom_type(t: dict | None) -> str:
+    while t and not t.get("name"):
+        t = t.get("ofType")
+    return (t or {}).get("name") or ""
 
 
 def _obligatoire(arg: dict) -> bool:
@@ -66,15 +83,28 @@ def comparer(schema: dict) -> dict:
         connus = {f["name"] for f in attach or []}
         types.append({"nom": nom, "present": attach is not None, "inconnus": [a for a in attendus if a not in connus]})
     statuts = sorted(n for n in champs["requete"] if "status" in n.lower())
+    signatures = {n: {"arguments": [f"{x['name']}: {_texte_type(x.get('type'))}" for x in champs["requete"][n].get("args") or []],
+                      "retour": _texte_type(champs["requete"][n].get("type")), "type_retour": _nom_type(champs["requete"][n].get("type"))}
+                  for n in statuts}
     ok = all(x["present"] and not x["inconnus"] and not x["manquants"] for x in lignes) \
         and all(t["present"] and not t["inconnus"] for t in types)
-    return {"ok": ok, "appels": lignes, "types": types, "requetes_statuts": statuts}
+    return {"ok": ok, "appels": lignes, "types": types, "requetes_statuts": statuts, "signatures_statuts": signatures}
 
 
 def verifier(client=None) -> dict:
     from atelier.integrations.xray import XrayClient
 
-    return comparer((client or XrayClient()).gql(INTROSPECTION))
+    client = client or XrayClient()
+    res = comparer(client.gql(INTROSPECTION))
+    # champs des types renvoyés par les requêtes de statuts : pour lire les statuts réels sans rien supposer
+    for sig in res["signatures_statuts"].values():
+        if sig["type_retour"]:
+            try:
+                t = client.gql(f'query {{ __type(name: "{sig["type_retour"]}") {{ fields {{ name {_TYPE} }} }} }}')
+                sig["champs_retour"] = [f"{f['name']}: {_texte_type(f.get('type'))}" for f in (t.get("__type") or {}).get("fields") or []]
+            except Exception as e:  # noqa: BLE001 - un échec ici ne doit pas masquer le résultat principal
+                sig["champs_retour"] = [f"(non lu : {e})"]
+    return res
 
 
 def rapport_markdown(res: dict, base: str) -> str:
@@ -91,4 +121,8 @@ def rapport_markdown(res: dict, base: str) -> str:
                    f"{', '.join(t['inconnus']) or '—'} | — |")
     out += ["", "Requêtes du schéma liées aux statuts : "
             + (", ".join(f"`{n}`" for n in res["requetes_statuts"]) or "aucune"), ""]
+    for n, sig in (res.get("signatures_statuts") or {}).items():
+        out.append(f"- `{n}({', '.join(sig['arguments'])})` → `{sig['retour']}`"
+                   + (f" ; champs : {', '.join(sig.get('champs_retour') or [])}" if sig.get("champs_retour") else ""))
+    out.append("")
     return "\n".join(out)

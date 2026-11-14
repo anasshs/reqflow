@@ -45,7 +45,7 @@ les outils MCP existants. Cocher les cases au fil de l'eau ; noter les décision
 aucun doublon ; test avec Xray totalement indisponible → run terminé, journal complet, rejeu OK.
 
 ### 1.4 Vérification de l'API Xray
-- [ ] *(outillé, non fait : documentation inaccessible depuis l'environnement de développement — `python -m atelier xray-verifier` à lancer sur un poste connecté, voir docs/XRAY_API.md)* Vérifier chaque appel listé dans CLAUDE.md (documentation officielle ou introspection
+- [x] *(2026-11-14 : schéma conforme par introspection, docs/XRAY_API_resultat.md ; essai réel d'écriture restant)* Vérifier chaque appel listé dans CLAUDE.md (documentation officielle ou introspection
       GraphQL) ; corriger les noms et arguments ; documenter dans `docs/XRAY_API.md`.
 - [ ] *(en partie : noms configurables `XRAY_STATUTS`, agrégation sur les statuts Robot ; lecture depuis Xray après vérification)* Préciser la gestion des statuts personnalisés (statuts de test run configurables par
       projet) : lire la liste des statuts disponibles plutôt que la supposer.
