@@ -123,6 +123,7 @@ evenements.abonner(emit, HOOK_TYPES)  # carte et exploration : événements dire
 async def _startup():
     state["loop"] = asyncio.get_running_loop()
     _call_silencieux(projets.au_demarrage)  # dernier projet actif (sauf ROBOT_PROJECT_DIR imposé)
+    threading.Thread(target=_call_silencieux, args=(_verifier_connexions, True, 0), daemon=True).start()  # page Connexions prête
 
 
 # --------------------------------------------------------------------------- projets (repository + Xray / Jira)
@@ -185,6 +186,7 @@ async def connexions_secret_effacer(req: Request):
 async def projets_activer(req: Request):
     r = _call(projets.activer, (await req.json()).get("id", ""), _occupation())
     state["sante_cache"].clear()  # état des connexions à revérifier pour le nouveau projet
+    threading.Thread(target=_call_silencieux, args=(_verifier_connexions, True, 0), daemon=True).start()
     state["produits"] = []
     emit({"type": "projet_change", "projet": r["actif"]})
     return r
@@ -290,6 +292,68 @@ def _http_ok(url: str, timeout: float = 3) -> bool:
         return False
 
 
+_pool_sante = None
+DELAI_SANTE = 8  # secondes par contrôle : au-delà, la page s'affiche et le résultat arrive au rafraîchissement suivant
+
+
+def _controles() -> dict:
+    """Contrôles de connexion (fonctions sans argument → (ok, détail)), exécutés en parallèle."""
+    def appium():
+        return _http_ok(session.APPIUM_URL.rstrip("/") + "/status"), session.APPIUM_URL
+
+    def device():
+        d = outils.list_devices()
+        n = len(d["android"]) + len(d["ios_simulateurs"]) + len(d["ios_physiques"])
+        return n > 0, f"{len(d['android'])} Android, {len(d['ios_simulateurs']) + len(d['ios_physiques'])} iOS"
+
+    def xray():
+        from atelier.integrations.xray import XrayClient
+        XrayClient().token()
+        return True, "connecté"
+
+    def jira():
+        from atelier.integrations.jira import JiraClient
+        return True, JiraClient().myself().get("displayName", "connecté")
+
+    def gitlab():
+        from atelier.integrations.gitlab import GitLabClient
+        u = GitLabClient().utilisateur()
+        return True, f"{u.get('login')} · {os.environ.get('GITLAB_PROJET', '')}"
+    return {"appium": appium, "device": device, "xray": xray, "jira": jira, "gitlab": gitlab}
+
+
+def _verifier_connexions(forcer: bool = False, attendre: float | None = None) -> dict:
+    """Lance les contrôles (au plus toutes les 10 min, sauf forcer) en parallèle et attend au plus « attendre »
+    secondes : un contrôle plus lent est marqué « en cours » et met le cache à jour quand il se termine."""
+    global _pool_sante
+    import concurrent.futures
+
+    cache = state["sante_cache"]
+    if forcer or time.time() - cache.get("t", 0) > 600 or "futures" not in cache:
+        if _pool_sante is None:
+            _pool_sante = concurrent.futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="sante")
+        cache["t"] = time.time()
+        for cle in _controles():
+            cache.pop(cle, None)  # pas d'ancien résultat présenté comme actuel
+        futures = {}
+        for cle, fn in _controles().items():
+            def tache(cle=cle, fn=fn, gen=cache["t"]):
+                try:
+                    r = fn()
+                except Exception as e:  # noqa: BLE001
+                    r = (False, str(e)[:160])
+                if state["sante_cache"].get("t") == gen:  # pas de résultat périmé après une nouvelle vérification
+                    state["sante_cache"][cle] = r
+                return r
+            futures[cle] = _pool_sante.submit(tache)
+        cache["futures"] = futures
+    en_cours = [f for f in cache["futures"].values() if not f.done()]
+    attendre = DELAI_SANTE if attendre is None else attendre
+    if en_cours and attendre > 0:
+        concurrent.futures.wait(en_cours, timeout=attendre)
+    return cache
+
+
 def _sante_items() -> list[dict]:
     items = []
 
@@ -297,13 +361,17 @@ def _sante_items() -> list[dict]:
         items.append({"cle": cle, "nom": nom, "ok": ok, "detail": detail,
                       "solution": "" if ok else solution, "optionnel": optionnel})
 
-    appium = _http_ok(session.APPIUM_URL.rstrip("/") + "/status")
-    item("appium", "Appium", appium, session.APPIUM_URL,
-         "Lance « appium » dans un terminal (mobile uniquement).", optionnel=True)
-    devs = outils.list_devices()
-    nb_mobile = len(devs["android"]) + len(devs["ios_simulateurs"]) + len(devs["ios_physiques"])
-    item("device", "Device mobile", nb_mobile > 0,
-         f"{len(devs['android'])} Android, {len(devs['ios_simulateurs']) + len(devs['ios_physiques'])} iOS",
+    cache = _verifier_connexions()
+    attente = (None, f"pas de réponse en {DELAI_SANTE} s : vérification toujours en cours (réseau, proxy ou certificat ?)")
+
+    def res(cle):
+        r = cache.get(cle)
+        return r if r else attente
+
+    ok, detail = res("appium")
+    item("appium", "Appium", ok, detail, "Lance « appium » dans un terminal (mobile uniquement).", optionnel=True)
+    ok, detail = res("device")
+    item("device", "Device mobile", ok, detail,
          "Démarre un émulateur Android ou le Simulateur iOS, ou branche un téléphone (débogage USB).",
          optionnel=True)
     try:
@@ -313,34 +381,11 @@ def _sante_items() -> list[dict]:
         pw = False
     item("web", "Navigateur web", pw, "Playwright installé" if pw else "",
          "pip install playwright puis « playwright install chromium ».", optionnel=True)
-
-    cache = state["sante_cache"]
-    if time.time() - cache.get("t", 0) > 600:  # appels réseau : au plus toutes les 10 min
-        cache.clear()
-        cache["t"] = time.time()
-        try:
-            from atelier.integrations.xray import XrayClient
-            XrayClient().token()
-            cache["xray"] = (True, "connecté")
-        except Exception as e:
-            cache["xray"] = (False, str(e)[:120])
-        try:
-            from atelier.integrations.jira import JiraClient
-            me = JiraClient().myself()
-            cache["jira"] = (True, me.get("displayName", "connecté"))
-        except Exception as e:
-            cache["jira"] = (False, str(e)[:120])
-        try:
-            from atelier.integrations.gitlab import GitLabClient
-            u = GitLabClient().utilisateur()
-            cache["gitlab"] = (True, f"{u.get('login')} · {os.environ.get('GITLAB_PROJET', '')}")
-        except Exception as e:
-            cache["gitlab"] = (False, str(e)[:120])
-    item("xray", "Xray", *cache["xray"],
+    item("xray", "Xray", *res("xray"),
          "Renseigne XRAY_CLIENT_ID / XRAY_CLIENT_SECRET (et XRAY_CA_BUNDLE derrière le proxy).")
-    item("jira", "Jira", *cache["jira"],
+    item("jira", "Jira", *res("jira"),
          "Renseigne JIRA_BASE_URL, JIRA_EMAIL et JIRA_API_TOKEN.", optionnel=True)
-    item("gitlab", "GitLab", *cache.get("gitlab", (False, "non vérifié")),
+    item("gitlab", "GitLab", *res("gitlab"),
          "URL et projet GitLab dans Paramètres › Projets ; jeton d'accès personnel (portées api, write_repository) "
          "dans GITLAB_TOKEN ou la variable du projet ; GITLAB_CA_BUNDLE pour un certificat interne.", optionnel=True)
     envs_db = sorted({k.split("_")[1].lower() for k in os.environ if re.match(r"DB_[A-Z0-9]+_HOST$", k)})
@@ -358,7 +403,7 @@ def _sante_items() -> list[dict]:
 @app.get("/api/sante")
 async def sante(rafraichir: bool = False):
     if rafraichir:
-        state["sante_cache"].clear()
+        await asyncio.to_thread(_verifier_connexions, True, 0)
     return await asyncio.to_thread(_sante_items)
 
 

@@ -264,14 +264,29 @@
       try { await api("/api/projets/supprimer", {method: "POST", body: {id: b.dataset.sup}}); projets(z); } catch (e) { toast(e.message, "ko"); } });
   }
 
+  /* état des connexions : affiché dès qu'il arrive ; un service encore en vérification est revérifié seul */
+  const ligneSante = i => `<tr><td><b>${esc(i.nom)}</b>${i.optionnel ? ' <span class="pill">optionnel</span>' : ""}</td>
+    <td>${i.ok ? '<span class="pill ok">OK</span>' : i.ok === null ? '<span class="pill info">vérification…</span>' : `<span class="pill ${i.optionnel ? "warn" : "ko"}">à régler</span>`}</td>
+    <td class="lib">${esc(i.detail)}</td><td>${i.ok === null ? "" : esc(i.solution)}</td></tr>`;
+
+  async function etatConnexions(z, rafraichir, essai = 0) {
+    const t = $("#cx-sante", z);
+    if (!t) return;
+    const items = await api("/api/sante" + (rafraichir ? "?rafraichir=true" : "")).catch(e => [{nom: "Vérification", ok: false, detail: e.message, solution: ""}]);
+    if (!$("#cx-sante", z)) return;
+    t.innerHTML = items.map(ligneSante).join("");
+    if (rafraichir) Atelier.chargerContexte();  // l'état Xray du header suit le dernier test
+    if (items.some(i => i.ok === null) && essai < 15) setTimeout(() => etatConnexions(z, false, essai + 1), 4000);
+  }
+
   async function connexions(z, rafraichir = false) {
-    const [items, cx] = await Promise.all([api("/api/sante" + (rafraichir ? "?rafraichir=true" : "")).catch(() => []), api("/api/connexions").catch(() => null)]);
+    const cx = await api("/api/connexions").catch(() => null);
     z.innerHTML = `<div class="btns" style="margin-bottom:10px"><button class="btn" id="p-rafr">${ico("rejouer")}Tester les connexions</button>
       <span class="lib">Projet actif : <b>${esc(Atelier.ctx.projet || "")}</b>${Atelier.ctx.projet_xray ? ` · Xray ${esc(Atelier.ctx.projet_xray)}` : ""}</span></div>
-      <table><tr><th>Connexion</th><th>État</th><th>Détail</th><th>Pour corriger</th></tr>${items.map(i => `<tr><td><b>${esc(i.nom)}</b>${i.optionnel ? ' <span class="pill">optionnel</span>' : ""}</td>
-        <td>${i.ok ? '<span class="pill ok">OK</span>' : `<span class="pill ${i.optionnel ? "warn" : "ko"}">à régler</span>`}</td><td class="lib">${esc(i.detail)}</td><td>${esc(i.solution)}</td></tr>`).join("")}
-        <tr><td><b>Assistant IA (Claude)</b> <span class="pill">optionnel</span></td><td>${Atelier.ctx.agent_integre ? '<span class="pill ok">OK</span>' : '<span class="pill warn">à régler</span>'}</td>
-        <td class="lib">${Atelier.ctx.agent_integre ? "clé présente" : "ANTHROPIC_API_KEY absente"}</td><td>${Atelier.ctx.agent_integre ? "" : "Renseigner ANTHROPIC_API_KEY (sinon : contrôles sans IA uniquement)."}</td></tr></table>
+      <table><thead><tr><th>Connexion</th><th>État</th><th>Détail</th><th>Pour corriger</th></tr></thead>
+        <tbody id="cx-sante"><tr><td colspan="4" class="lib">Vérification des connexions (8 s au plus par service)…</td></tr></tbody>
+        <tbody><tr><td><b>Assistant IA (Claude)</b> <span class="pill">optionnel</span></td><td>${Atelier.ctx.agent_integre ? '<span class="pill ok">OK</span>' : '<span class="pill warn">à régler</span>'}</td>
+        <td class="lib">${Atelier.ctx.agent_integre ? "clé présente" : "ANTHROPIC_API_KEY absente"}</td><td>${Atelier.ctx.agent_integre ? "" : "Renseigner ANTHROPIC_API_KEY (sinon : contrôles sans IA uniquement)."}</td></tr></tbody></table>
       ${cx ? `<h3 class="lib" style="margin-top:18px">CONNEXIONS GÉNÉRALES (tous les projets, sauf redéfinition dans le projet)</h3>
       <div class="grille-2" style="max-width:900px"><div class="champ"><label for="cg-ju">URL Jira</label><input class="in" id="cg-ju" value="${esc(cx.general.jira_url)}" placeholder="${esc(cx.general_effectif.jira_url || "https://<site>.atlassian.net")}"></div>
         <div class="champ"><label for="cg-je">E-mail du compte Jira</label><input class="in" id="cg-je" value="${esc(cx.general.jira_email)}" placeholder="${esc(cx.general_effectif.jira_email || "")}"></div>
@@ -286,8 +301,8 @@
         <td>${s.present ? '<span class="pill ok">présente</span>' : '<span class="pill warn">absente</span>'}${s.dans_le_coffre ? ' <span class="pill info">coffre</span>' : s.saisi_dans_l_app ? ' <span class="pill">session</span>' : s.environnement_poste ? ' <span class="pill">variable du poste</span>' : ""}</td>
         <td class="btns"><input class="in" type="password" autocomplete="new-password" data-sec="${esc(s.nom)}" placeholder="valeur" style="width:220px">
           <button class="btn petit" data-sec-ok="${esc(s.nom)}">Enregistrer</button>${s.saisi_dans_l_app || s.dans_le_coffre ? `<button class="btn petit danger" data-sec-x="${esc(s.nom)}">Effacer</button>` : ""}</td></tr>`).join("")}</table>` : ""}`;
-    $("#p-rafr").onclick = async () => { await connexions(z, true); Atelier.chargerContexte(); };
-    if (rafraichir) Atelier.chargerContexte();  // l'état Xray du header suit le dernier test
+    $("#p-rafr").onclick = () => connexions(z, true);
+    etatConnexions(z, rafraichir);
     if ($("#cg-ok")) $("#cg-ok").onclick = async () => {
       try { await api("/api/connexions/general", {method: "POST", body: {jira_url: $("#cg-ju").value, jira_email: $("#cg-je").value, xray_url: $("#cg-xu").value}});
         toast("Connexions générales enregistrées.", "ok"); connexions(z, true); } catch (e) { toast(e.message, "ko"); }

@@ -177,7 +177,7 @@
       case "_etat_c": { const c = E.criteres.find(c => c.id === x.id); return c ? `<span class="pill ${PILL_ETAT[c.etat]}">${esc(c.etat)}</span>` + (x.verification === "manuelle" && !x.validation ? ` <button class="btn petit" data-valider="${x.id}">Valider</button>` : "") : ""; }
       case "_niveau": return `<span class="pill ${PILL_RISQUE[x.niveau]}">${esc(x.niveau)} (${x.score})</span>`;
       case "_jdd_ok": return !x.jdd ? "" : JEUX === null ? "…" : JEUX.includes(x.jdd) ? `<span class="pill ok">JDD présent</span>` : `<span class="pill ko">JDD absent (${esc(Atelier.env || "aucun env.")})</span>`;
-      case "_connexion": { const s = (SANTE || []).find(i => i.nom.toLowerCase().includes(x.nom.toLowerCase().split(" ")[0])); return SANTE === null ? "…" : s ? `<span class="pill ${s.ok ? "ok" : "ko"}" title="${esc(s.detail)}">${s.ok ? "connecté" : "à régler"}</span>` : '<span class="lib">non vérifiable ici</span>'; }
+      case "_connexion": { const s = (SANTE || []).find(i => i.nom.toLowerCase().includes(x.nom.toLowerCase().split(" ")[0])); return SANTE === null ? "…" : s ? `<span class="pill ${s.ok ? "ok" : s.ok === null ? "info" : "ko"}" title="${esc(s.detail)}">${s.ok ? "connecté" : s.ok === null ? "vérification…" : "à régler"}</span>` : '<span class="lib">non vérifiable ici</span>'; }
     }
     const c = schema(rub).champs.find(c => c.nom === col);
     const v = x[col];
