@@ -917,9 +917,9 @@ def graphes_referentiel():
 
 @app.get("/api/graphes/connaissance")
 async def graphe_connaissance(types: str = "", categories: str = "", plateforme: str = "", recherche: str = "",
-                              centre: str = "", profondeur: int = 1):
+                              centre: str = "", profondeur: int = 1, patrimoine: str = "lie"):
     return await asyncio.to_thread(_call, espaces.vue_connaissance, _liste(types), _liste(categories), plateforme,
-                                   recherche, centre, profondeur)
+                                   recherche, centre, profondeur, patrimoine)
 
 
 @app.get("/api/graphes/couverture")

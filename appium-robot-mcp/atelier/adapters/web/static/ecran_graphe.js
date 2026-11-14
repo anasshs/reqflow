@@ -40,6 +40,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
             <button id="kg-zm">${ico("zoomm")}Zoom arrière</button>
             <button id="kg-mini">${ico("graphe")}Afficher / masquer la mini-carte</button>
             <hr><label>Statut <select class="in" id="kg-statut" aria-label="Filtrer par statut"><option value="">Tous</option><option value="validé">Validé</option><option value="à valider">À valider</option></select></label>
+            <label><input type="checkbox" id="kg-patrimoine"> Tout le patrimoine Jira / Xray</label>
             <hr><button id="kg-ex">${ico("export")}Exporter (JSON / SVG)</button>
           </div>
           <div class="zone-graphe" id="kg-zone"></div>
@@ -77,6 +78,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       $("#kg-tout").onclick = () => { if (!S.params.centre) return G?.ajuster(); delete S.params.centre; S.auto = false; charger(); };
       $("#kg-recherche").oninput = e => { clearTimeout(t); t = setTimeout(() => { S.params.recherche = e.target.value; charger(); }, 300); };
       $("#kg-statut").onchange = e => { S.statut = e.target.value; dessiner(); };
+      $("#kg-patrimoine").onchange = e => { if (e.target.checked) S.params.patrimoine = "tout"; else delete S.params.patrimoine; charger(); };
       $("#kg-zp").onclick = () => G?.zoom(1.25);
       $("#kg-zm").onclick = () => G?.zoom(0.8);
       $("#kg-aj").onclick = () => G?.ajuster();
@@ -98,10 +100,6 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       desabo = [Atelier.on("carte_change", () => charger(true)), Atelier.on("theme", () => G?.rafraichirTheme())];
       options();
       const demarrage = async () => {
-        if (S.vue === "connaissance" && !sous) {  // comme la maquette : centré sur le test du scénario BDD en cours
-          const l = await api("/api/bdd").catch(() => []);
-          if (l.length) { S.params.centre = "test:" + l[0].cle; S.params.profondeur = 2; S.auto = true; }
-        }
         await charger();
         if (sous === "anomalies") anomalies();
       };
@@ -201,7 +199,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     for (const n of S.data?.noeuds || []) { const f = familleDe(n.type).id; comptes[f] = (comptes[f] || 0) + 1; }
     $("#kg-legende").innerHTML = `<ul class="liste legende-types">${FAMILLES_GRAPHE.map(f => `<li data-cat="${f.id}" class="${S.famillesMasquees.has(f.id) ? "inactif" : ""}"
       title="Afficher / masquer : ${esc(f.types.join(", "))}"><span class="carre" style="background:var(--f-${f.id})"></span>${f.nom}<span class="compte">${comptes[f.id] || 0}</span></li>`).join("")}</ul>
+      ${S.data?.patrimoine_masque ? `<p class="lib">${S.data.patrimoine_masque} ticket(s) Jira / Xray sans lien avec l'application masqué(s) : <button class="lien" id="kg-patri-tout">tout afficher</button> (ou rechercher une clé).</p>` : ""}
       ${S.data?.tronque ? `<p class="lib">Affichage limité à ${S.data.noeuds.length} éléments sur ${S.data.total} : filtrer.</p>` : ""}`;
+    if ($("#kg-patri-tout")) $("#kg-patri-tout").onclick = () => { S.params.patrimoine = "tout"; if ($("#kg-patrimoine")) $("#kg-patrimoine").checked = true; charger(); };
     $$("#kg-legende [data-cat]").forEach(li => li.onclick = () => {
       const c = li.dataset.cat;
       S.famillesMasquees.has(c) ? S.famillesMasquees.delete(c) : S.famillesMasquees.add(c);

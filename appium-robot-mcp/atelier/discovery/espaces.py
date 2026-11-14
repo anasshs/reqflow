@@ -31,14 +31,50 @@ def referentiel() -> dict:
 
 
 # =========================================================================== vues
+PATRIMOINE = ("epic", "user_story", "bug", "test", "test_plan", "test_execution")
+EXIGENCES = ("epic", "user_story", "bug")
+
+
+def patrimoine_lie(g) -> set[str]:
+    """Nœuds à montrer quand on ne veut que la connaissance de l'application : tout ce qui n'est pas du patrimoine
+    Jira / Xray, plus les tickets rattachés à l'application — tests Xray reliés à un élément de l'application (test
+    Robot qui porte la clé, écran, endpoint…), exigences testées par ces tests ou reliées directement à l'application
+    (lien confirmé, x-jira OpenAPI), et leurs epics parents. Plans, exécutions et le reste du backlog sont masqués."""
+    voisins: dict[str, set[str]] = {}
+    for r in g.relations.values():
+        voisins.setdefault(r.de, set()).add(r.vers)
+        voisins.setdefault(r.vers, set()).add(r.de)
+    app = {i for i, n in g.noeuds.items() if n.type not in PATRIMOINE and n.type != "module"}
+    tests = {i for i, n in g.noeuds.items() if n.type == "test" and voisins.get(i, set()) & app}
+    exig = {i for i, n in g.noeuds.items() if n.type in EXIGENCES and voisins.get(i, set()) & (app | tests)}
+
+    def parents(ids):
+        return {r.de for r in g.relations.values() if r.type == "contient" and r.vers in ids and g.noeuds[r.de].type in EXIGENCES}
+
+    nouveaux = parents(exig) - exig
+    while nouveaux:  # remontée des epics parents, sans redescendre vers leurs autres US
+        exig |= nouveaux
+        nouveaux = parents(nouveaux) - exig
+    garde = app | tests | exig
+    modules = {i for i, n in g.noeuds.items() if n.type == "module" and voisins.get(i, set()) & garde}
+    return garde | modules
+
+
 def vue_connaissance(types: list[str] | None = None, categories: list[str] | None = None, plateforme: str = "",
-                     recherche: str = "", centre: str = "", profondeur: int = 1) -> dict:
+                     recherche: str = "", centre: str = "", profondeur: int = 1, patrimoine: str = "lie") -> dict:
+    """patrimoine « lie » (défaut) : la connaissance de l'application et les seuls tickets Jira / Xray qui s'y
+    rattachent ; « tout » : toute la copie locale Jira / Xray. Un centre ou une recherche montrent toujours tout."""
     g = _graphe()
+    masques = 0
     if centre:
         if centre not in g.noeuds:
             raise KeyError(f"Élément inconnu : {centre}")
         g = g.voisinage([centre], max(1, min(profondeur, 4)))
-    return _limiter(g.filtrer(types, categories, plateforme, recherche))
+    elif patrimoine != "tout" and not recherche.strip():
+        garde = patrimoine_lie(g)
+        masques = sum(1 for i, n in g.noeuds.items() if i not in garde and n.type in PATRIMOINE + ("module",))
+        g = g.sous_graphe(garde)
+    return {**_limiter(g.filtrer(types, categories, plateforme, recherche)), "patrimoine_masque": masques}
 
 
 def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = "") -> dict:
