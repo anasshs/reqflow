@@ -190,3 +190,15 @@ def test_import_definitions_xray(demo):
     assert t["DEMO-302"]["editeur"] == "etapes" and t["DEMO-302"]["etapes"][0]["resultat"] == "Refus" and t["DEMO-302"]["dossier"] == "/"
     assert "définitions Xray importées" in t["DEMO-301"]["synchronisation"]
     assert patrimoine_xray.charger()["tests"][0]["cle"]  # instantané toujours valide
+
+
+def test_import_refuse_dans_le_depot_de_l_outil_et_projet_different(demo, monkeypatch):
+    from atelier.domain import projet
+    from atelier.intelligence import patrimoine_xray
+
+    x = FauxSchemaXray()
+    with pytest.raises(ValueError, match="projet DEMO, pas TAM"):
+        patrimoine_xray.completer_depuis_xray("TAM", xray=x._client)
+    monkeypatch.setattr(projet, "PROJECT_DIR", projet.RACINE_OUTIL / "demo" / "banque_connexion")
+    with pytest.raises(PermissionError, match="dépôt de l'atelier"):
+        patrimoine_xray.completer_depuis_xray("DEMO", xray=x._client)

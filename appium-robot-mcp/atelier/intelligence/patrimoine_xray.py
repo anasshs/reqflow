@@ -84,6 +84,7 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
     Lien test -> exigence : liens d'issue dont le type contient « test » (lien « Test » de Xray)."""
     from atelier.integrations.jira import JiraClient
 
+    proteger_depot_outil()
     jira = jira or JiraClient()
     if not jira.enabled:
         raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")
@@ -127,6 +128,15 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
 CHAMPS_DEFINITION = ("type", "type_genre", "issueId", "etapes", "gherkin", "definition", "dossier", "preconditions")
 
 
+def proteger_depot_outil():
+    """Aucune donnée client dans le dépôt de l'outil : un import réel vers un dossier situé dans le dépôt de
+    l'atelier (ex. le projet de démonstration) est refusé."""
+    if projet.PROJECT_DIR == projet.RACINE_OUTIL or projet.RACINE_OUTIL in projet.PROJECT_DIR.parents:
+        raise PermissionError(f"Le projet actif ({projet.PROJECT_DIR}) est dans le dépôt de l'atelier (démonstration) : "
+                              "aucune donnée Xray / Jira réelle n'y est importée. Choisir le repository de tests réel "
+                              "(Paramètres › Projets, ou ROBOT_PROJECT_DIR).")
+
+
 def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dict:
     """Mode A (import) réel : complète l'instantané avec les définitions Xray de chaque test (type Xray Manual /
     Cucumber / Generic, étapes, Gherkin, définition, dossier du Test Repository, préconditions, issueId).
@@ -136,9 +146,13 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
 
     from atelier.domain import projets
 
-    projet_cle = projet_cle or projets.cle_xray()
-    xray = xray or XrayClient()
+    proteger_depot_outil()
+    projet_cle = (projet_cle or projets.cle_xray()).upper()
     base = charger()
+    if base and projet_cle and base.get("projet") and base["projet"].upper() != projet_cle and not jql:
+        raise ValueError(f"L'instantané de ce repository est celui du projet {base['projet']}, pas {projet_cle} : "
+                         f"vérifier le projet actif (ROBOT_PROJECT_DIR = {projet.PROJECT_DIR}).")
+    xray = xray or XrayClient()
     if base and not jql:
         d = xray.definitions_tests(cles=[t["cle"] for t in base["tests"]])
     else:
@@ -146,6 +160,8 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
             raise ValueError("Projet ou JQL requis (aucun instantané à compléter).")
         d = xray.definitions_tests(jql=jql or f'project = "{projet_cle}"')
     defs = {t["cle"]: t for t in d["tests"] if t.get("cle")}
+    if base and not jql and not defs:  # rien trouvé : l'instantané n'est pas modifié
+        raise ValueError(f"Aucun des {len(base['tests'])} tests de l'instantané n'existe dans Xray : instantané inchangé.")
     if base and not jql:
         data, introuvables = base, []
         for t in data["tests"]:
