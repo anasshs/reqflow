@@ -118,7 +118,7 @@ Moteur `atelier/generation/conception.py`, écran « Test Design » (13 rubrique
       équivalent supposé, test du mapping sur l'instantané ; modes A (import), B / C (publication du Gherkin Cucumber, conflits).
 - [x] Scénarios BDD, JDD, suites, traçabilité, réutilisables : écrans existants réutilisés ou vues en lecture.
 - [ ] Règles de test ; éditeur d'étapes manuelles ; génération IA de cas depuis une exigence ; import Excel / CSV.
-- [x] Modes B / C pour le Gherkin, conflits détectés, historique (createTest / updateGherkinTestDefinition à confirmer par xray-verifier).
+- [x] Modes B / C pour le Gherkin, conflits détectés, historique (createTest / updateGherkinTestDefinition conformes au schéma, essai réel à faire).
 - [ ] Arborescence du Test Repository, Test Sets, publication des tests Manual / Generic.
 
 ### Automation Studio et Execution Center (cahiers des charges du 2026-11-14) — docs/AUTOMATION_EXECUTION_ECARTS.md
