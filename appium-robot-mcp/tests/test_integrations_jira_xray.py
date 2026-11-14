@@ -165,8 +165,10 @@ class FauxSchemaXray:
                 return {"__type": {"fields": [{"name": n, "args": [{"name": "limit", "defaultValue": None, "type": {"kind": "NON_NULL"}}] if n == "preconditions" else []}
                                               for n in ("issueId", "jira", "testType", "steps", "gherkin", "folder", "preconditions")]}}
             if nom == "Query":
-                return {"__type": {"fields": [{"name": "getTests", "args": [{"name": n, "defaultValue": None, "type": {"kind": "SCALAR"}} for n in ("jql", "limit", "start")]}]}}
+                return {"__type": {"fields": [{"name": "getTests", "args": [{"name": n, "defaultValue": None, "type": {"kind": "NON_NULL" if n == "limit" else "SCALAR"}}
+                                                                            for n in ("jql", "limit", "start")]}]}}
         assert "unstructured" not in q  # champ absent du schéma : jamais demandé
+        assert "$l: Int!" in q and "$s: Int)" in q  # comme Xray Cloud : limit obligatoire, start facultatif
         res = [{"issueId": "10", "jira": {"key": "DEMO-301", "summary": "Connexion valide"}, "testType": {"name": "Cucumber", "kind": "Gherkin"},
                 "gherkin": "Given x", "folder": {"path": "/Connexion"}, "preconditions": {"results": [{"jira": {"key": "DEMO-PC1", "summary": "Compte actif"}}]}},
                {"issueId": "11", "jira": {"key": "DEMO-302", "summary": "Mot de passe faux"}, "testType": {"name": "Manual", "kind": "Steps"},

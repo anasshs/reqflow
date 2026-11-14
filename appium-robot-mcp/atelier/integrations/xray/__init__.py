@@ -138,8 +138,10 @@ class XrayClient:
         sel, absents = self.selection_definitions()
         args = self._type_champs("Query").get("getTests", {}).get("args", {})
         pagine = "start" in args
-        q = f"query($jql: String, $l: Int, $s: Int) {{ getTests(jql: $jql, limit: $l{', start: $s' if pagine else ''}) {{ total results {{ {sel} }} }} }}" \
-            if pagine else f"query($jql: String, $l: Int) {{ getTests(jql: $jql, limit: $l) {{ total results {{ {sel} }} }} }}"
+        # types des variables = ceux du schéma (limit est « Int! » sur Xray Cloud, constaté le 2026-11-14)
+        t = lambda n: "Int!" if args.get(n) else "Int"  # noqa: E731
+        q = (f"query($jql: String, $l: {t('limit')}{', $s: ' + t('start') if pagine else ''}) "
+             f"{{ getTests(jql: $jql, limit: $l{', start: $s' if pagine else ''}) {{ total results {{ {sel} }} }} }}")
         brut: list[dict] = []
         if cles:
             cles = list(dict.fromkeys(cles))
