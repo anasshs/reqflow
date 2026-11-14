@@ -168,6 +168,59 @@ class XrayClient:
                                      "tests_total": tests.get("total")})
         return out
 
+    def executions(self, projet: str, limite: int = 200) -> dict:
+        """Test Executions du projet, les plus récentes d'abord : clé, résumé, statut Jira, environnements, tests et
+        statut de chaque test run (lecture seule). Requête et champs choisis par introspection (getTestExecutions,
+        TestExecution.tests / testRuns / testEnvironments, TestRun.status / test / finishedOn) : un champ absent du
+        schéma est signalé, jamais supposé. Plus de 100 tests ou runs dans une exécution : signalé (tests_total)."""
+        requete = self._type_champs("Query")
+        out = {"executions": [], "absents": []}
+        if "getTestExecutions" not in requete:
+            out["absents"].append("getTestExecutions")
+            return out
+        champs = self._type_champs("TestExecution")
+        sel = ['issueId', 'jira(fields: ["key", "summary", "status", "created"])']
+        if "testEnvironments" in champs:
+            sel.append("testEnvironments")
+        else:
+            out["absents"].append("TestExecution.testEnvironments")
+        if "tests" in champs:
+            sel.append(("tests(limit: 100) " if "limit" in champs["tests"]["args"] else "tests ") + '{ total results { jira(fields: ["key"]) } }')
+        else:
+            out["absents"].append("TestExecution.tests")
+        if "testRuns" in champs:
+            run = self._type_champs("TestRun")
+            sel_run = [x for x, c in (("status { name }", "status"), ('test { jira(fields: ["key"]) }', "test"), ("finishedOn", "finishedOn")) if c in run]
+            out["absents"] += [f"TestRun.{c}" for c in ("status", "test", "finishedOn") if c not in run]
+            if "status" in run and "test" in run:
+                sel.append(("testRuns(limit: 100) " if "limit" in champs["testRuns"]["args"] else "testRuns ") + "{ total results { " + " ".join(sel_run) + " } }")
+        else:
+            out["absents"].append("TestExecution.testRuns")
+        t = "Int!" if requete["getTestExecutions"]["args"].get("limit") else "Int"
+        pagine = "start" in requete["getTestExecutions"]["args"]
+        q = (f"query($jql: String, $l: {t}{', $s: Int' if pagine else ''}) {{ getTestExecutions(jql: $jql, limit: $l{', start: $s' if pagine else ''}) "
+             f"{{ total results {{ {' '.join(sel)} }} }} }}")
+        debut, brut = 0, []
+        while len(brut) < limite:
+            page = self.gql(q, {"jql": f'project = "{projet}" ORDER BY created DESC', "l": min(100, limite), **({"s": debut} if pagine else {})})["getTestExecutions"]
+            brut += page["results"]
+            debut += 100
+            if not pagine or not page["results"] or debut >= (page.get("total") or 0):
+                break
+        for x in brut[:limite]:
+            j = x.get("jira") or {}
+            tests = x.get("tests") or {}
+            runs = {}
+            for r in (x.get("testRuns") or {}).get("results") or []:
+                cle = ((r.get("test") or {}).get("jira") or {}).get("key")
+                if cle:
+                    runs[cle] = {"statut": (r.get("status") or {}).get("name", ""), "fin": r.get("finishedOn") or ""}
+            out["executions"].append({"cle": j.get("key"), "resume": j.get("summary") or "", "statut": (j.get("status") or {}).get("name", ""),
+                                      "cree": j.get("created") or "", "issueId": x.get("issueId"), "environnements": x.get("testEnvironments") or [],
+                                      "tests": [(t_.get("jira") or {}).get("key") for t_ in tests.get("results") or []] or sorted(runs),
+                                      "tests_total": tests.get("total") or (x.get("testRuns") or {}).get("total"), "runs": runs})
+        return out
+
     def definitions_tests(self, cles: list[str] | None = None, jql: str = "", limite: int = 2000) -> dict:
         """Définitions Xray (type, étapes, Gherkin, définition Generic, dossier, préconditions) des tests donnés
         (par lots de 100 clés) ou d'un JQL (pages de 100). Lecture seule."""

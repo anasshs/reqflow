@@ -122,21 +122,39 @@
 
   /* ------------------------------------------------------------------ 3 sélection + contrôle préalable */
   async function selection(z) {
-    const [ref, es] = await Promise.all([api("/api/centre/referentiel"), envs()]);
+    const [ref, es, ex] = await Promise.all([api("/api/centre/referentiel"), envs(), api("/api/centre/executions-xray").catch(() => ({executions: [], import: {}}))]);
     const opts = k => [...new Set(ref.flatMap(t => [].concat(t[k] || [])).filter(Boolean))];
-    const filtre = t => ["module", "criticite", "dernier_resultat", "revue"].every(k => !F[k] || t[k] === F[k]) && (!F.plateforme || t.plateformes.includes(F.plateforme)) && (!F.plan || t.plans.includes(F.plan));
+    const exe = ex.executions.find(e => e.cle === F.exec);
+    const filtre = t => ["module", "criticite", "dernier_resultat", "revue", "statut_xray"].every(k => !F[k] || t[k] === F[k]) && (!F.plateforme || t.plateformes.includes(F.plateforme))
+      && (!F.plan || t.plans.includes(F.plan)) && (!F.exec || (t.executions || []).includes(F.exec));
+    const echecXray = st => /FAIL|ABORT|BLOCK/i.test(st || "");
+    const pillXray = st => st ? `<span class="pill ${/PASS/i.test(st) ? "ok" : echecXray(st) ? "ko" : ""}">${esc(st)}</span>` : "—";
+    const imp = ex.import || {};
     const sel = (k, lib, vals) => `<div class="champ"><label>${lib}</label><select class="in" data-f="${k}"><option value="">Tous</option>${vals.map(v => `<option ${F[k] === v ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>`;
     const choisis = ref.filter(t => SEL.has(t.id));
     z.innerHTML = `${entete("Test Selection")}<div class="corps-carte"><div style="display:grid;grid-template-columns:190px minmax(0,1fr) 300px;gap:12px">
       <div>${sel("module", "Module", opts("module"))}${sel("plateforme", "Plateforme", opts("plateformes"))}${sel("criticite", "Criticité", opts("criticite"))}
         ${sel("dernier_resultat", "Dernier résultat", opts("dernier_resultat"))}${sel("revue", "Revue du script", opts("revue"))}${sel("plan", "Test Plan Xray", opts("plans"))}
-        <button class="btn" id="se-echecs" style="width:100%">Sélectionner les échecs</button></div>
-      <div><table class="table-strat"><tr><th></th><th>Clé Xray</th><th>Test</th><th>Plateforme</th><th>Revue</th><th>Dernier résultat</th><th>Criticité</th></tr>
+        <div class="champ"><label for="se-exec">Test Execution Xray</label><select class="in" id="se-exec"><option value="">Toutes</option>${ex.executions.map(e => `<option value="${esc(e.cle)}" ${F.exec === e.cle ? "selected" : ""}>${esc(e.cle)} ${esc(e.resume).slice(0, 40)}</option>`).join("")}</select></div>
+        ${sel("statut_xray", "Dernier statut Xray", opts("statut_xray"))}
+        <button class="btn" id="se-echecs" style="width:100%">Sélectionner les échecs (local)</button>
+        <button class="btn" id="se-actu" style="width:100%;margin-top:6px">Actualiser depuis Xray</button>
+        <p class="lib" style="font-size:12px">${imp.date ? `Exécutions Xray : ${imp.nombre} (les plus récentes), lues le ${esc(imp.date.slice(0, 16).replace("T", " "))}` : imp.erreur ? `<span class="warn-t">Exécutions Xray : ${esc(imp.erreur)}</span>` : "Exécutions Xray pas encore importées."}</p></div>
+      <div>${exe ? `<section class="bloc-strat" style="margin-bottom:8px"><h3><span class="cle-xray">${esc(exe.cle)}</span> ${esc(exe.resume)} <span class="pill">${esc(exe.statut)}</span></h3>
+          <p class="lib">${exe.tests_total} test(s)${exe.tests_total > exe.tests ? ` (${exe.tests} lus : au-delà de 100, ouvrir l'exécution dans Xray)` : ""}${exe.environnements.length ? " · environnements " + esc(exe.environnements.join(", ")) : ""} ·
+            <b>${exe.automatises.length}</b> automatisé(s) · <b>${exe.non_automatises.length}</b> non automatisé(s) · <b>${exe.echecs.length}</b> en échec dans Xray</p>
+          <div class="btns"><button class="btn petit primaire" id="se-x-tous" ${exe.automatises.length ? "" : "disabled"}>Sélectionner les ${exe.automatises.length} automatisé(s)</button>
+            <button class="btn petit" id="se-x-ech" ${exe.echecs.filter(k => exe.automatises.includes(k)).length ? "" : "disabled"}>Rejouer les échecs Xray (${exe.echecs.filter(k => exe.automatises.includes(k)).length})</button></div>
+          ${exe.non_automatises.length ? `<details><summary class="lib">Non automatisés (aucun script Robot ne porte la clé)</summary><p class="lib">${exe.non_automatises.map(k => `<span class="cle-xray">${esc(k)}</span> ${pillXray(exe.statuts[k])}`).join(" · ")}</p></details>` : ""}</section>` : ""}
+        <table class="table-strat"><tr><th></th><th>Clé Xray</th><th>Test</th><th>Plateforme</th><th>Revue</th><th>Dernier résultat</th><th>Statut Xray</th><th>Criticité</th></tr>
         ${ref.filter(filtre).map(t => `<tr><td><input type="checkbox" data-t="${esc(t.id)}" ${SEL.has(t.id) ? "checked" : ""}></td><td class="cle-xray">${esc(t.cle_xray || "—")}</td><td>${esc(t.nom)}<div class="lib">${esc(t.fichier)}</div></td>
-          <td>${esc(t.plateformes.join(", "))}</td><td>${esc(t.revue)}</td><td>${t.dernier_resultat ? `<span class="pill ${t.dernier_resultat === "PASS" ? "ok" : "ko"}">${esc(t.dernier_resultat)}</span>` : "—"}</td><td>${esc(t.criticite)}</td></tr>`).join("")}</table></div>
+          <td>${esc(t.plateformes.join(", "))}</td><td>${esc(t.revue)}</td><td>${t.dernier_resultat ? `<span class="pill ${t.dernier_resultat === "PASS" ? "ok" : "ko"}">${esc(t.dernier_resultat)}</span>` : "—"}</td>
+          <td>${pillXray(exe ? exe.statuts[t.cle_xray] : t.statut_xray)}${!exe && t.execution_xray ? `<div class="lib">${esc(t.execution_xray)}</div>` : ""}</td><td>${esc(t.criticite)}</td></tr>`).join("")}</table></div>
       <div class="bloc-strat"><h3>Sélection (${choisis.length})</h3><ul class="liste">${choisis.map(t => `<li><span class="item">${esc(t.cle_xray || t.nom)}</span><button class="icone" data-retirer="${esc(t.id)}">${ico("x")}</button></li>`).join("") || "<li class='lib'>Aucun test.</li>"}</ul>
         <div class="champ"><label for="se-p">Plateforme</label><select class="in" id="se-p">${["web", "android", "ios", "api"].map(p => `<option ${p === Atelier.plateforme ? "selected" : ""}>${p}</option>`).join("")}</select></div>
         <div class="champ"><label for="se-e">Environnement</label><select class="in" id="se-e"><option value=""></option>${es.map(e => `<option ${e === Atelier.env ? "selected" : ""}>${esc(e)}</option>`).join("")}</select></div>
+        <div class="champ"><label for="se-xr">Publier les résultats dans Xray</label><select class="in" id="se-xr"><option value="">Nouvelle exécution${Atelier.ctx.projet_xray ? " (projet " + esc(Atelier.ctx.projet_xray) + ")" : ""}</option>
+          ${ex.executions.map(e => `<option value="${esc(e.cle)}" ${F.exec === e.cle ? "selected" : ""}>Mettre à jour ${esc(e.cle)}</option>`).join("")}</select></div>
         <div class="champ"><label for="se-pr">Priorité</label><select class="in" id="se-pr">${["Critical", "High", "Normal", "Low"].map(t => `<option ${t === "Normal" ? "selected" : ""}>${t}</option>`).join("")}</select></div>
         <div class="btns"><button class="btn" id="se-v" ${choisis.length ? "" : "disabled"}>Contrôle préalable</button><button class="btn primaire" id="se-l" ${choisis.length ? "" : "disabled"}>${ico("play")}Lancer</button></div>
         <div id="se-res"></div></div></div></div>`;
@@ -144,6 +162,13 @@
     $$("[data-t]", z).forEach(c => c.onchange = () => { c.checked ? SEL.add(c.dataset.t) : SEL.delete(c.dataset.t); selection(z); });
     $$("[data-retirer]", z).forEach(b => b.onclick = () => { SEL.delete(b.dataset.retirer); selection(z); });
     $("#se-echecs").onclick = () => { ref.filter(t => t.dernier_resultat === "FAIL").forEach(t => SEL.add(t.id)); selection(z); };
+    $("#se-exec").onchange = e => { F.exec = e.target.value; selection(z); };
+    $("#se-actu").onclick = async () => { const b = $("#se-actu"); b.disabled = true; b.textContent = "Lecture des exécutions Xray…";
+      try { const r = await api("/api/centre/executions-xray/actualiser", {method: "POST", body: {}}); toast(`${r.nombre} exécution(s) Xray lue(s).${r.absents?.length ? " Non exposé par le schéma : " + r.absents.join(", ") : ""}`, "ok"); selection(z); }
+      catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Actualiser depuis Xray"; } };
+    const choisirCles = cles => { const c = new Set(cles); ref.filter(t => c.has(t.cle_xray)).forEach(t => SEL.add(t.id)); selection(z); };
+    if ($("#se-x-tous")) $("#se-x-tous").onclick = () => choisirCles(exe.automatises);
+    if ($("#se-x-ech")) $("#se-x-ech").onclick = () => choisirCles(exe.echecs);
     const verifier = async () => {
       const v = await api("/api/centre/verifier", {method: "POST", body: {tests: [...SEL], plateforme: $("#se-p").value, environnement: $("#se-e").value}});
       $("#se-res").innerHTML = `<p><span class="pill ok">${v.executables} exécutable(s)</span> <span class="pill ${v.bloques ? "ko" : ""}">${v.bloques} bloqué(s)</span></p>
@@ -159,7 +184,7 @@
       if (sansCle.length) return toast("Tests sans clé Xray : sélection individuelle impossible (tag requis).", "ko");
       if (v.bloques && !confirm(`${v.bloques} test(s) bloqué(s) seront exclus. Lancer les ${ok.length} autres ?`)) return;
       const r = await lancer({target: "tests", include_tags: [...new Set(ok.map(t => t.cle_xray))], variables: {PLATFORM: $("#se-p").value},
-        jdd_env: $("#se-e").value, priorite: $("#se-pr").value});
+        jdd_env: $("#se-e").value, priorite: $("#se-pr").value, ...($("#se-xr").value ? {xray_ticket: $("#se-xr").value} : {})});
       if (r) { SEL.clear(); location.hash = "centre/file"; }
     };
   }

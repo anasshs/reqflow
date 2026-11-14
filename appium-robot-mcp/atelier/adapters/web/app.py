@@ -764,6 +764,18 @@ async def apps_creer(req: Request):
     return cfg
 
 
+@app.get("/api/centre/executions-xray")
+async def centre_executions_xray():
+    return await asyncio.to_thread(_call, centre.executions_xray)
+
+
+@app.post("/api/centre/executions-xray/actualiser")
+async def centre_executions_actualiser():
+    from atelier.intelligence import patrimoine_xray
+
+    return await asyncio.to_thread(_call, patrimoine_xray.importer_executions)
+
+
 @app.get("/api/conception/repository")
 def conception_repository():
     """Dossiers du Test Repository Xray et applications du projet qui s'y rattachent."""

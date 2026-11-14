@@ -401,10 +401,35 @@ def referentiel() -> list[dict]:
                     "plateformes": t.get("plateformes", []), "jdd": t.get("jdd", []),
                     "dernier_resultat": r.get("statut", ""), "derniere_fin": r.get("fin", ""),
                     "criticite": (pat.get(cle) or {}).get("criticite", ""), "module": (pat.get(cle) or {}).get("module", ""),
-                    "plans": (pat.get(cle) or {}).get("plans", []),
+                    "plans": (pat.get(cle) or {}).get("plans", []), "executions": (pat.get(cle) or {}).get("executions", []),
+                    "statut_xray": ((pat.get(cle) or {}).get("statut_xray") or {}).get("statut", ""),
+                    "execution_xray": ((pat.get(cle) or {}).get("statut_xray") or {}).get("execution", ""),
                     "revue": (revues.get(t["fichier"]) or {}).get("statut", "Generated"),
                     "en_workflow": bool((revues.get(t["fichier"]) or {}).get("en_workflow"))})
     return out
+
+
+ECHECS_XRAY = ("FAIL", "ABORT", "BLOCK")
+
+
+def executions_xray() -> dict:
+    """Test Executions Xray de la copie locale, rapprochées du dépôt : tests automatisés (un script Robot porte la clé)
+    ou non, échecs ; pour sélectionner, rejouer les échecs ou publier dans une exécution existante."""
+    from atelier.execution.depot_robot import lire_depot
+    from atelier.intelligence import patrimoine_xray
+
+    pat = patrimoine_xray.charger() or {}
+    automatises = {c for t in lire_depot()["tests"].values() for c in t.get("cles_xray") or []}
+    out = []
+    for e in pat.get("executions") or []:
+        tests = e.get("tests") or []
+        runs = e.get("runs") or {}
+        out.append({"cle": e["cle"], "resume": e.get("resume", ""), "statut": e.get("statut", ""), "cree": e.get("cree", ""),
+                    "environnements": e.get("environnements") or [], "tests": len(tests), "tests_total": e.get("tests_total") or len(tests),
+                    "automatises": sorted(k for k in tests if k in automatises), "non_automatises": sorted(k for k in tests if k not in automatises),
+                    "echecs": sorted(k for k, r in runs.items() if any(x in (r.get("statut") or "").upper() for x in ECHECS_XRAY)),
+                    "statuts": {k: r.get("statut", "") for k, r in runs.items()}})
+    return {"executions": out, "import": pat.get("executions_xray") or {}}
 
 
 def verifier(ids: list[str], plateforme: str, environnement: str = "") -> dict:

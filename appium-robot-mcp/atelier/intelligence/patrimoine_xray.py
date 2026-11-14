@@ -251,8 +251,54 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
         data["definitions_xray"]["organisation"] = {"plans": len(data["plans"]), "test_sets": len(data["test_sets"]), "absents": org["absents"]}
     except Exception as e:  # noqa: BLE001
         data["definitions_xray"]["organisation"] = {"erreur": str(e)[:300]}
+    try:  # Test Executions : best effort, n'empêche jamais l'import des définitions
+        _fusionner_executions(data, xray.executions(projet_cle or data.get("projet") or "", limite_executions()))
+    except Exception as e:  # noqa: BLE001
+        data["executions_xray"] = {"erreur": str(e)[:300]}
     etat_ = enregistrer(data, (source + " + Xray (définitions)") if source else f"Xray : {jql or 'project = ' + projet_cle}")
     return {**etat_, **data["definitions_xray"]}
+
+
+def limite_executions() -> int:
+    """Nombre de Test Executions importées (les plus récentes), XRAY_EXECUTIONS_LIMITE (défaut 200)."""
+    try:
+        return max(1, int(os.environ.get("XRAY_EXECUTIONS_LIMITE", "200")))
+    except ValueError:
+        return 200
+
+
+def _fusionner_executions(data: dict, r: dict):
+    """Exécutions dans l'instantané ; sur chaque test : ses exécutions et son dernier statut Xray (exécution la
+    plus récente qui le contient avec un statut)."""
+    execs = r["executions"]
+    data["executions"] = [{k: e[k] for k in ("cle", "resume", "statut", "cree", "environnements", "tests", "tests_total", "runs")} for e in execs]
+    par_test: dict = {}
+    for e in execs:  # du plus récent au plus ancien
+        for k in e["tests"]:
+            par_test.setdefault(k, []).append(e["cle"])
+    for t in data["tests"]:
+        t["executions"] = par_test.get(t["cle"], [])
+        dernier = next(((e["cle"], e["runs"][t["cle"]]) for e in execs if t["cle"] in e["runs"] and e["runs"][t["cle"]].get("statut")), None)
+        t["statut_xray"] = {"execution": dernier[0], **dernier[1]} if dernier else None
+    data["executions_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "nombre": len(execs),
+                               "absents": r.get("absents", []), "limite": limite_executions()}
+
+
+def importer_executions(projet_cle: str = "", xray=None) -> dict:
+    """Actualise seulement les Test Executions de la copie locale (plus rapide que l'import des définitions)."""
+    from atelier.domain import projets
+    from atelier.integrations.xray import XrayClient
+
+    proteger_depot_outil()
+    data = charger()
+    if not data:
+        raise ValueError("Aucune copie locale Xray : synchroniser Jira ou importer les définitions d'abord.")
+    projet_cle = (projet_cle or projets.cle_xray() or data.get("projet") or "").upper()
+    if not projet_cle:
+        raise ValueError("Projet Xray inconnu (Paramètres › Projets).")
+    _fusionner_executions(data, (xray or XrayClient()).executions(projet_cle, limite_executions()))
+    enregistrer(data, data.get("source") or f"Xray : project = {projet_cle}")
+    return data["executions_xray"]
 
 
 def dossiers_repository() -> dict:
