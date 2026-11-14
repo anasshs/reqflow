@@ -92,6 +92,14 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
     jql = jql_tests or f'project = "{projet_cle}" AND issuetype = "{type_test}"'
     champs = ["summary", "issuetype", "labels", "status", "components", "priority", "issuelinks", "parent"]
     issues = jira.rechercher(jql, champs, limite)
+    if not issues:  # rien trouvé : diagnostic, et l'instantané existant n'est jamais écrasé par un résultat vide
+        types = sorted({(i["fields"].get("issuetype") or {}).get("name", "?")
+                        for i in jira.rechercher(f'project = "{projet_cle}"', ["issuetype"], 200)})
+        raise ValueError(f"Aucun ticket pour « {jql} » (instantané inchangé). "
+                         + (f"Types de tickets présents dans {projet_cle} : {', '.join(types)}. Si les tests Xray ont un autre nom de type, "
+                            f"le préciser dans XRAY_TEST_ISSUE_TYPE ou dans le JQL. Autre voie : Test Design › « Importer les définitions Xray », "
+                            "qui interroge directement Xray." if types else
+                            f"Aucun ticket visible dans {projet_cle} avec ce compte Jira : vérifier l'e-mail, le jeton et les droits « Parcourir les projets »."))
     tests, ids_exigences = [], set()
     for i in issues:
         f = i["fields"]
@@ -149,20 +157,25 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
     proteger_depot_outil()
     projet_cle = (projet_cle or projets.cle_xray()).upper()
     base = charger()
+    if base and not base.get("tests"):
+        base = {**base, "tests": []}
     if base and projet_cle and base.get("projet") and base["projet"].upper() != projet_cle and not jql:
         raise ValueError(f"L'instantané de ce repository est celui du projet {base['projet']}, pas {projet_cle} : "
                          f"vérifier le projet actif (ROBOT_PROJECT_DIR = {projet.PROJECT_DIR}).")
     xray = xray or XrayClient()
-    if base and not jql:
+    completer = bool(base and base["tests"] and not jql)  # compléter les tests connus, sinon lister ceux du projet dans Xray
+    if completer:
         d = xray.definitions_tests(cles=[t["cle"] for t in base["tests"]])
     else:
         if not (jql or projet_cle):
             raise ValueError("Projet ou JQL requis (aucun instantané à compléter).")
         d = xray.definitions_tests(jql=jql or f'project = "{projet_cle}"')
     defs = {t["cle"]: t for t in d["tests"] if t.get("cle")}
-    if base and not jql and not defs:  # rien trouvé : l'instantané n'est pas modifié
+    if not defs:  # rien trouvé : l'instantané n'est pas modifié
+        if not completer:
+            raise ValueError(f"Aucun test Xray pour « {jql or 'project = ' + projet_cle} » : instantané inchangé.")
         raise ValueError(f"Aucun des {len(base['tests'])} tests de l'instantané n'existe dans Xray : instantané inchangé.")
-    if base and not jql:
+    if completer:
         data, introuvables = base, []
         for t in data["tests"]:
             x = defs.get(t["cle"])
@@ -176,7 +189,7 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
         data = {**(base or {}), "projet": projet_cle or (base or {}).get("projet"), "tests": list(defs.values())}
         data.setdefault("exigences", [])
         introuvables = []
-    source = (data.get("source") or "").split(" + Xray")[0]
+    source = (data.get("source") or "").split(" + Xray")[0] if completer else ""
     data["date"] = None
     data["definitions_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "importes": len(defs),
                                 "introuvables": introuvables, "champs_absents": d["champs_absents"]}

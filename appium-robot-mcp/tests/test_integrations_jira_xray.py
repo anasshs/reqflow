@@ -202,3 +202,26 @@ def test_import_refuse_dans_le_depot_de_l_outil_et_projet_different(demo, monkey
     monkeypatch.setattr(projet, "PROJECT_DIR", projet.RACINE_OUTIL / "demo" / "banque_connexion")
     with pytest.raises(PermissionError, match="dépôt de l'atelier"):
         patrimoine_xray.completer_depuis_xray("DEMO", xray=x._client)
+
+
+def test_synchro_vide_diagnostic_et_import_depuis_xray(tmp_path, monkeypatch):
+    from atelier.domain import projet
+    from atelier.intelligence import patrimoine_xray
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+
+    class JiraTypesFrancais:
+        enabled = True
+
+        def rechercher(self, jql, champs, limite):
+            return [] if "issuetype" in jql else [{"key": "TAM-1", "fields": {"issuetype": {"name": "Cas de test"}}}]
+
+    patrimoine_xray.enregistrer({"projet": "TAM", "tests": [], "exigences": []}, "Jira : vide")
+    with pytest.raises(ValueError, match="Cas de test"):
+        patrimoine_xray.synchroniser_jira("TAM", jira=JiraTypesFrancais())
+    assert patrimoine_xray.charger()["source"] == "Jira : vide"  # jamais écrasé par un résultat vide
+    x = FauxSchemaXray()
+    r = patrimoine_xray.completer_depuis_xray("TAM", xray=x._client)
+    jqls = [v.get("jql") for q, v in x.requetes if v and "jql" in v]
+    assert jqls and all(j == 'project = "TAM"' for j in jqls)  # instantané vide : tests du projet, jamais « tous »
+    assert r["importes"] == 2 and r["nb_tests"] == 2 and r["source"].startswith("Xray")

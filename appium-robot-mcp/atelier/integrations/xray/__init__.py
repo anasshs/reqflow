@@ -143,6 +143,10 @@ class XrayClient:
         q = (f"query($jql: String, $l: {t('limit')}{', $s: ' + t('start') if pagine else ''}) "
              f"{{ getTests(jql: $jql, limit: $l{', start: $s' if pagine else ''}) {{ total results {{ {sel} }} }} }}")
         brut: list[dict] = []
+        if cles is not None and not cles:
+            return {"tests": [], "champs_absents": absents, "pagination": pagine}
+        if not jql and not cles:
+            raise ValueError("Clés de tests ou JQL requis (jamais tous les tests de tous les projets).")
         if cles:
             cles = list(dict.fromkeys(cles))
             for i in range(0, len(cles), 100):
