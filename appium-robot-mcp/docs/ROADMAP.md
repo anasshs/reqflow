@@ -75,8 +75,21 @@ Demandé le 2026-11-14, en parallèle de la roadmap par phases. Page `/plateform
 - [ ] Comparer deux versions (graphe par build) ; tests similaires ; lot / plan d'automatisation (avec la phase 3).
 - [ ] Modifier le code / un locator depuis le Studio avec validation et dry run ; MR GitLab (phase 7).
 
+### Interface aux maquettes (demande du 2026-11-14)
+- [x] Nouvelle interface `/plateforme` : thèmes sombre et clair, en-tête de contexte réel (projet, application, version,
+      plateforme, environnement, Xray, session), onglets Dashboard, Knowledge Graph, Construction BDD, Éditeur de test,
+      Exécution, Rapports, et Paramètres en section à part.
+- [x] Construction BDD : graphe d'étapes et branches synchronisé avec `bdd/<clé>.feature`, propriétés d'étape (écran,
+      locator, JDD, API, assertion, validation), contrôles sans IA, relecture IA, génération Robot réutilisant le socle.
+- [x] Éditeur de test : explorateur, onglets, coloration Robot, enregistrement historisé, lint (syntaxe + conventions),
+      robocop si installé, dry run / exécution, propriétés Xray / JDD / requêtes, dépendances et impact, réutilisation,
+      aperçu mobile, captures. Commit / MR : phase 7.
+- [x] Exécution : un dossier par run, historique, suivi en direct, KPI, étapes et logs d'un test, arrêt, relance des échecs.
+- [ ] Paramètres › Connexions : détail des flux (sens, fréquence, proxy, certificats) — prochaine étape demandée.
+- [ ] Écran de référence (carte) à côté de l'écran réel pour une étape en échec ; agents / planification / file d'attente.
+
 ### Deuxième phase (§13)
-- [ ] Journey Graph. - [ ] BDD Scenario Graph (synchronisé avec le .feature). - [ ] Failure Diagnosis Graph.
+- [ ] Journey Graph. - [x] BDD Scenario Graph (synchronisé avec le .feature). - [ ] Failure Diagnosis Graph.
 - [ ] Automation Health Graph (nécessite l'historique des exécutions).
 
 ---

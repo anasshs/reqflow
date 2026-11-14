@@ -37,7 +37,26 @@ Le code vit dans le paquet `atelier/` : moteurs (`discovery`, `generation`, `exe
 restent les points d'entrée : les configurations existantes n'ont pas à changer.
 Tests : `pytest -q` (aucun service réel appelé).
 
-## Espaces de travail (graphes) — http://127.0.0.1:8765/plateforme
+## Interface « AI Test Platform » — http://127.0.0.1:8765/plateforme
+
+Thèmes sombre et clair (bouton en haut à droite). En-tête : projet, application, version, plateforme,
+environnement, état Xray et session, tous lus dans les sources. Onglets :
+
+- **Dashboard** : couverture, exigences, taux de réussite, tendance et derniers runs, anomalies.
+- **Knowledge Graph** : graphe de connaissances (vue en grappes autour d'un élément), couverture Xray, flux
+  d'automatisation, analyse d'impact (détails ci-dessous).
+- **Construction BDD** : scénario en graphe d'étapes et de branches, synchronisé avec `bdd/<clé>.feature` ;
+  liens écran / locator / JDD / API ; contrôles (assertion manquante, donnée littérale…) ; relecture IA ;
+  génération de la suite Robot en réutilisant les keywords du socle.
+- **Éditeur de test** : explorateur, édition avec coloration, enregistrement historisé, lint, robocop, dry run,
+  exécution, propriétés Xray / JDD, dépendances et autres tests impactés, aperçu mobile, captures.
+- **Exécution** : historique des runs (`results/runs/<id>/`), suivi en direct, étapes et logs d'un test,
+  arrêt, relance des échecs.
+- **Rapports** : couverture, candidats, patrimoine Xray (import / synchronisation), historique, exports.
+- **Paramètres** (section à part) : état des connexions et comment les régler, applications, configuration,
+  apparence.
+
+### Espaces de travail (graphes)
 
 Spécification : `docs/ESPACES_DE_TRAVAIL.md`. MVP livré :
 

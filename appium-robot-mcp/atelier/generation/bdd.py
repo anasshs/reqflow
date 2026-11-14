@@ -34,7 +34,9 @@ MOTS = {
 MOTS_EN = {"given": "Given", "when": "When", "then": "Then", "and": "And", "but": "But"}
 MOTS_FR = {"given": "Étant donné", "when": "Quand", "then": "Alors", "and": "Et", "but": "Mais"}
 TYPES_SCENARIO = ("principal", "alternatif", "negatif")
-LITTERAL = re.compile(r"\d[\d\s.,]*\d|\b\d+\b|\"[^\"]+\"|'[^']+'")
+# Données littérales : nombres et texte entre guillemets doubles ou « ». Les apostrophes du français
+# (« d'erreur », « s'affiche ») ne sont pas des délimiteurs.
+LITTERAL = re.compile(r"\d[\d\s.,]*\d|\b\d+\b|\"[^\"]+\"|«[^»]+»")
 _RE_ETAPE = re.compile(r"^\s*(" + "|".join(sorted((re.escape(m) for m in MOTS), key=len, reverse=True))
                        + r")\s+(.*)$", re.IGNORECASE)
 

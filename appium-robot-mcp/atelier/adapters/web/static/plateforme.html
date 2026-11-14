@@ -3,33 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Test Engineering Platform</title>
+<title>AI Test Platform</title>
+<meta name="description" content="AI Test Engineering Platform — espaces de travail de l'automaticien">
 <link rel="icon" href="data:,">
+<script>
+  /* thème avant le premier rendu (évite le flash) : choix mémorisé, sinon préférence du système */
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("atelier-theme"); } catch (e) { /* stockage indisponible */ }
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
 <link rel="stylesheet" href="/static/plateforme.css">
 </head>
 <body>
-<nav id="nav" aria-label="Espaces de travail"></nav>
-<main class="espace" id="espace">
-  <div class="entete"><h1 id="titre">Dashboard</h1><p id="sous-titre"></p></div>
-  <div class="outils" id="outils"></div>
-  <div class="corps" id="corps">
-    <div class="zone-graphe" id="zone"></div>
-    <aside id="panneau" aria-live="polite"></aside>
+<header class="entete">
+  <div class="logo">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 29 27H3Z" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M16 12 22.5 24h-13Z" fill="var(--violet)" opacity=".85"/></svg>
+    <div><b>AI Test Platform</b><small>AI Test Engineering Platform</small></div>
   </div>
-  <div class="ia" id="barre-ia" hidden>
-    <strong>Assistant IA</strong>
-    <button class="btn" data-ia="expliquer">Expliquer le graphe</button>
-    <button class="btn" data-ia="resumer">Résumer les dépendances</button>
-    <button class="btn" data-ia="anomalies">Anomalies</button>
-    <button class="btn" data-ia="lacunes">Lacunes</button>
-    <button class="btn" data-ia="impacts">Impacts</button>
-    <button class="btn" data-ia="ameliorations">Améliorations</button>
-    <button class="btn" data-ia="manquants">Éléments manquants</button>
-    <input id="ia-question" placeholder="Question sur le graphe ou l'élément sélectionné…" aria-label="Question à l'assistant">
-    <button class="btn primaire" id="ia-envoyer">Demander</button>
+  <div class="ctx" id="ctx" aria-label="Contexte de travail"></div>
+  <div class="droite">
+    <button class="icone" id="b-alertes" title="Anomalies et propositions à valider" aria-label="Anomalies"></button>
+    <button class="icone" id="b-theme" title="Basculer le thème clair / sombre" aria-label="Basculer le thème"></button>
+    <a class="icone" href="/" title="Interface classique (connexion device, agent intégré)" aria-label="Interface classique"></a>
   </div>
-</main>
+</header>
+<nav class="onglets" id="onglets" aria-label="Espaces"></nav>
+<main id="ecran"></main>
 <script src="/static/graphe.js"></script>
 <script src="/static/plateforme.js"></script>
+<script src="/static/ecran_graphe.js"></script>
+<script src="/static/ecran_bdd.js"></script>
+<script src="/static/ecran_editeur.js"></script>
+<script src="/static/ecran_execution.js"></script>
+<script src="/static/ecran_divers.js"></script>
+<script>Atelier.demarrer();</script>
 </body>
 </html>

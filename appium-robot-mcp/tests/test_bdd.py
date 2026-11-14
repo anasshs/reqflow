@@ -131,3 +131,12 @@ def test_generation_robot_reutilise_le_socle(depot):
 
     bilan = server.run_robot(g["chemin"], dry_run=True)
     assert bilan["code_retour"] == 0, bilan["console_fin"]
+
+
+@pytest.mark.parametrize("texte,litteral", [
+    ("un message d'erreur s'affiche", False), ("je saisis 1 500 MAD", True), ('je saisis "Jean"', True),
+    ("je choisis « Compte courant »", True), ("l'opération est refusée", False)])
+def test_donnee_litterale_et_apostrophes(texte, litteral):
+    from atelier.generation import bdd
+
+    assert bool(bdd.LITTERAL.search(texte)) is litteral

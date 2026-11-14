@@ -4,10 +4,13 @@
    (voisins mis en évidence), double-clic = développer, mini-carte, légende, export SVG. */
 "use strict";
 
-const COULEURS = {
-  APPLICATION: "#5b6cd9", FONCTIONNEL: "#1f9d8b", TECHNIQUE: "#d9822b", JIRA: "#3d7fd9",
-  XRAY: "#8e5bd9", BDD: "#2f9e44", AUTOMATION: "#c2410c",
-};
+const CATEGORIES_G = ["APPLICATION", "FONCTIONNEL", "TECHNIQUE", "JIRA", "XRAY", "BDD", "AUTOMATION"];
+const TITRES_GRAPPES = {APPLICATION: "APPLICATION", FONCTIONNEL: "PARCOURS & ÉCRANS", TECHNIQUE: "LOCATORS & COMPOSANTS",
+  JIRA: "EXIGENCES (JIRA)", XRAY: "TESTS & PLANS (XRAY)", BDD: "SCÉNARIOS BDD", AUTOMATION: "AUTOMATISATION & DONNÉES"};
+/* couleur d'une catégorie : variable CSS du thème courant (sombre ou clair) */
+const couleurVar = cat => `var(--c-${String(cat).toLowerCase()})`;
+const couleurCalc = cat => getComputedStyle(document.documentElement).getPropertyValue(`--c-${String(cat).toLowerCase()}`).trim() || "#888";
+const COULEURS = Object.fromEntries(CATEGORIES_G.map(c => [c, couleurVar(c)]));
 const SVGNS = "http://www.w3.org/2000/svg";
 const el = (tag, attrs = {}, parent) => {
   const e = document.createElementNS(SVGNS, tag);
@@ -30,6 +33,7 @@ class GrapheVue {
       markerHeight: 7, orient: "auto-start-reverse"}, defs);
     el("path", {d: "M0,0 L10,5 L0,10 z", class: "gv-fleche"}, m);
     this.racine = el("g", {}, this.svg);
+    this.gGrappes = el("g", {}, this.racine);
     this.gLiens = el("g", {}, this.racine);
     this.gNoeuds = el("g", {}, this.racine);
     this.mini = document.createElement("canvas");
@@ -44,7 +48,8 @@ class GrapheVue {
   }
 
   /* ------------------------------------------------------------------ données */
-  afficher(data, mode = "forces", rangs = null) {
+  afficher(data, mode = "forces", rangs = null, centre = null) {
+    this.centre = centre;
     this.data = data;
     this.mode = mode;
     this.noeuds = data.noeuds;
@@ -54,7 +59,9 @@ class GrapheVue {
     for (const r of this.liens) { this.voisins.get(r.de).add(r.vers); this.voisins.get(r.vers).add(r.de); }
     const anciens = this.pos;
     this.pos = new Map();
+    this._grappes = [];
     if (mode === "couches") this._couches(rangs || {});
+    else if (mode === "grappes" && centre && this.parId.has(centre)) this._grappesAutour(centre);
     else this._forces();
     for (const [id, p] of anciens) if (this.pos.has(id) && this._garder) this.pos.set(id, p);
     this._garder = false;
@@ -90,6 +97,31 @@ class GrapheVue {
     ordre.forEach((r, i) => {
       const ligne = parRang.get(r);
       ligne.forEach((n, j) => this.pos.set(n.id, {x: (j - (ligne.length - 1) / 2) * L, y: i * H}));
+    });
+  }
+
+  _grappesAutour(centre) {
+    /* élément central, puis une grappe titrée par catégorie disposée en couronne (maquette Knowledge Graph) */
+    this.pos.set(centre, {x: 0, y: 0});
+    const groupes = new Map();
+    for (const n of this.noeuds) {
+      if (n.id === centre) continue;
+      if (!groupes.has(n.categorie)) groupes.set(n.categorie, []);
+      groupes.get(n.categorie).push(n);
+    }
+    const cats = [...groupes.keys()].sort((a, b) => CATEGORIES_G.indexOf(a) - CATEGORIES_G.indexOf(b));
+    const L = 176, H = 52, marge = 26;
+    const tailles = cats.map(c => { const n = groupes.get(c).length, col = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(n / 2))));
+      return {col, lig: Math.ceil(n / col)}; });
+    const plusGrand = Math.max(...tailles.map(t => Math.max(t.col * L, t.lig * H)), 200);
+    const R = Math.max(300, plusGrand * 0.85 + 140 + cats.length * 18);
+    cats.forEach((cat, i) => {
+      const a = -Math.PI / 2 + (i / cats.length) * 2 * Math.PI, {col, lig} = tailles[i];
+      const w = col * L, h = lig * H, cx = Math.cos(a) * R * 1.25, cy = Math.sin(a) * R;
+      groupes.get(cat).sort((x, y) => x.type.localeCompare(y.type) || x.libelle.localeCompare(y.libelle)).forEach((n, j) => {
+        this.pos.set(n.id, {x: cx - w / 2 + (j % col) * L + L / 2, y: cy - h / 2 + Math.floor(j / col) * H + H / 2 + 10});
+      });
+      this._grappes.push({cat, x: cx - w / 2 - marge / 2, y: cy - h / 2 - marge + 4, w: w + marge, h: h + marge + 8});
     });
   }
 
@@ -133,6 +165,12 @@ class GrapheVue {
   _dessiner() {
     this.gLiens.replaceChildren();
     this.gNoeuds.replaceChildren();
+    this.gGrappes.replaceChildren();
+    for (const gr of this._grappes || []) {
+      const g = el("g", {class: "gv-grappe", style: `--gc:${couleurVar(gr.cat)}`}, this.gGrappes);
+      el("rect", {x: gr.x, y: gr.y, width: gr.w, height: gr.h, rx: 12}, g);
+      el("text", {x: gr.x + 12, y: gr.y + 16}, g).textContent = TITRES_GRAPPES[gr.cat] || gr.cat;
+    }
     this.elLiens = new Map();
     this.elNoeuds = new Map();
     for (const r of this.liens) {
@@ -146,14 +184,14 @@ class GrapheVue {
       this.elLiens.set(r.id, {g, ligne, t, r});
     }
     for (const n of this.noeuds) {
-      const g = el("g", {class: "gv-noeud", tabindex: 0, role: "button", "data-id": n.id,
+      const g = el("g", {class: "gv-noeud" + (n.id === this.centre ? " gv-centre" : ""), tabindex: 0, role: "button", "data-id": n.id,
         "aria-label": `${n.type} ${n.libelle}`}, this.gNoeuds);
       const coul = COULEURS[n.categorie] || "#888";
       const anomalie = n.proprietes?.non_defini || n.proprietes?.dernier_statut === "FAIL";
       el("rect", {x: -78, y: -20, width: 156, height: 40, rx: 8, class: "gv-boite" +
         (n.statut === "à valider" ? " gv-a-valider" : "") + (anomalie ? " gv-anomalie" : ""),
         style: `--c:${coul}`}, g);
-      el("rect", {x: -78, y: -20, width: 6, height: 40, rx: 3, fill: coul}, g);
+      el("rect", {x: -78, y: -20, width: 6, height: 40, rx: 3, style: `fill:${coul}`}, g);
       const t1 = el("text", {x: -66, y: -4, class: "gv-type"}, g);
       t1.textContent = n.type.replace("_", " ") + (n.plateformes?.length ? " · " + n.plateformes.join("/") : "");
       const t2 = el("text", {x: -66, y: 12, class: "gv-libelle"}, g);
@@ -211,17 +249,18 @@ class GrapheVue {
     this._miniT = {b, s, ox: (W - b.w * s) / 2, oy: (H - b.h * s) / 2};
     for (const n of this.noeuds) {
       const p = this.pos.get(n.id);
-      ctx.fillStyle = COULEURS[n.categorie] || "#888";
+      ctx.fillStyle = couleurCalc(n.categorie);
       ctx.fillRect(this._miniT.ox + (p.x - b.x) * s - 2, this._miniT.oy + (p.y - b.y) * s - 1.5, 4, 3);
     }
     const r = this.svg.getBoundingClientRect();
     const vx = (-this.vue.x / this.vue.k - b.x) * s + this._miniT.ox, vy = (-this.vue.y / this.vue.k - b.y) * s + this._miniT.oy;
-    ctx.strokeStyle = getComputedStyle(this.c).getPropertyValue("--texte") || "#333";
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#3B82F6";
     ctx.strokeRect(vx, vy, (r.width / this.vue.k) * s, (r.height / this.vue.k) * s);
   }
 
   _bornes() {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const g of this._grappes || []) { x0 = Math.min(x0, g.x); y0 = Math.min(y0, g.y); x1 = Math.max(x1, g.x + g.w); y1 = Math.max(y1, g.y + g.h); }
     for (const p of this.pos.values()) { x0 = Math.min(x0, p.x - 80); y0 = Math.min(y0, p.y - 22); x1 = Math.max(x1, p.x + 80); y1 = Math.max(y1, p.y + 22); }
     return {x: x0, y: y0, w: x1 - x0, h: y1 - y0};
   }
@@ -267,6 +306,8 @@ class GrapheVue {
     const s = new Set(ids);
     for (const [nid, g] of this.elNoeuds) g.classList.toggle("gv-impact", s.has(nid));
   }
+
+  rafraichirTheme() { this._mini(); }
 
   exporterSVG() {
     const clone = this.svg.cloneNode(true);
