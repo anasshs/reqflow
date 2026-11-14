@@ -108,6 +108,18 @@ Moteur `atelier/intelligence/strategie.py`, écran « Test Strategy » (14 rubri
 - [ ] Recommandations IA du plan d'automatisation (explicables, à valider) ; multi-projets dans une même interface.
 - [ ] Le périmètre n'alimente pas encore le Knowledge Graph (nœuds déclarés) ni les recommandations IA.
 
+### Test Design (cahier des charges du 2026-11-14) — écart détaillé : docs/TEST_DESIGN_ECARTS.md
+Moteur `atelier/generation/conception.py`, écran « Test Design » (13 rubriques). Xray reste le référentiel officiel.
+- [x] Vue d'ensemble (KPI réels), exigences avec tests associés, cas de test Xray (type → éditeur, mode, revue, synchronisation).
+- [x] Revue & validation interne (Draft → In Review → Changes Requested → Approved → Ready for Automation), séparée du statut
+      Xray, contrôles (exigence, BDD, JDD, doublons), historique des décisions, réviseur.
+- [x] Baselines immuables et comparaison (dont tests impactés par une exigence modifiée).
+- [x] Xray Mapping : objets, champs (sens, actif, obligatoire, transformation, champs personnalisés), statuts sans
+      équivalent supposé, test du mapping sur l'instantané ; mode A (import) seul disponible.
+- [x] Scénarios BDD, JDD, suites, traçabilité, réutilisables : écrans existants réutilisés ou vues en lecture.
+- [ ] Règles de test ; éditeur d'étapes manuelles ; génération IA de cas depuis une exigence ; import Excel / CSV.
+- [ ] Modes B / C, conflits, arborescence du Test Repository, Test Sets (bloqués par la vérification 1.4 de l'API Xray).
+
 ### Deuxième phase (§13)
 - [ ] Journey Graph. - [x] BDD Scenario Graph (synchronisé avec le .feature). - [ ] Failure Diagnosis Graph.
 - [ ] Automation Health Graph (nécessite l'historique des exécutions).

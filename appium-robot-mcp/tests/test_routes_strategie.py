@@ -54,3 +54,15 @@ def test_cycle_complet(client):
     assert client.get("/api/strategie/comparer", params={"a": "1"}).json()["rubriques"] == {}
     assert client.post("/api/strategie/restaurer", json={"version": 1}).status_code == 200
     assert any(j["op"] == "restauration" for j in client.get("/api/strategie/journal").json())
+
+
+def test_routes_test_design(client):
+    assert client.get("/api/conception/vue").json()["kpi"]["cas_xray"] == 9
+    assert len(client.get("/api/conception/cas").json()) == 9
+    assert client.post("/api/conception/revue/DEMO-301", json={"action": "approuver"}).status_code == 400
+    assert client.post("/api/conception/revue/DEMO-301", json={"action": "soumettre"}).json()["statut"] == "In Review"
+    assert client.post("/api/conception/baselines", json={"nom": "B1"}).status_code == 200
+    assert client.post("/api/conception/baselines", json={"nom": "B1"}).status_code == 400  # immuable
+    assert client.get("/api/conception/baselines/comparer", params={"a": "B1"}).json()["tests_impactes"] == []
+    assert client.post("/api/conception/mapping", json={"mode": "B (bidirectionnel)"}).status_code == 400
+    assert client.get("/api/conception/mapping/tester").json()["tests_analyses"] == 9

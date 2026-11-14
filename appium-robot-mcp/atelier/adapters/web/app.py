@@ -45,7 +45,7 @@ from atelier.domain import declarations, evenements, projet  # noqa: E402
 from atelier.execution import jdd  # noqa: E402
 from atelier.execution import historique  # noqa: E402
 from atelier.execution import robot as robot_moteur  # noqa: E402
-from atelier.generation import bdd, editeur  # noqa: E402
+from atelier.generation import bdd, conception, editeur  # noqa: E402
 from atelier.intelligence import strategie  # noqa: E402
 from atelier.generation import locators as gen_locators  # noqa: E402
 from atelier.intelligence import assistant  # noqa: E402
@@ -1266,6 +1266,69 @@ async def strategie_restaurer(req: Request):
 @app.get("/api/strategie/journal")
 def strategie_journal():
     return _call(strategie.journal)
+
+
+# --------------------------------------------------------------------------- Test Design (couche de conception autour de Xray)
+@app.get("/api/conception/vue")
+async def conception_vue():
+    return await asyncio.to_thread(_call, conception.vue_ensemble)
+
+
+@app.get("/api/conception/cas")
+async def conception_cas():
+    return await asyncio.to_thread(_call, conception.cas_de_test)
+
+
+@app.get("/api/conception/exigences")
+async def conception_exigences():
+    return await asyncio.to_thread(_call, conception.exigences)
+
+
+@app.get("/api/conception/revue/{cle}")
+async def conception_revue(cle: str):
+    return await asyncio.to_thread(_call, conception.revue, cle)
+
+
+@app.post("/api/conception/revue/{cle}")
+async def conception_revue_action(cle: str, req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, conception.transition_revue, cle, b.get("action", ""), b.get("commentaire", ""), b.get("reviseur", ""))
+
+
+@app.get("/api/conception/baselines")
+def conception_baselines():
+    return _call(conception.baselines)
+
+
+@app.post("/api/conception/baselines")
+async def conception_creer_baseline(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, conception.creer_baseline, b.get("nom", ""), b.get("description", ""))
+
+
+@app.get("/api/conception/baselines/comparer")
+async def conception_comparer(a: str, b: str = "courant"):
+    return await asyncio.to_thread(_call, conception.comparer_baselines, a, b)
+
+
+@app.get("/api/conception/mapping")
+def conception_mapping():
+    return _call(conception.mapping)
+
+
+@app.post("/api/conception/mapping")
+async def conception_enregistrer_mapping(req: Request):
+    return await asyncio.to_thread(_call, conception.enregistrer_mapping, await req.json())
+
+
+@app.get("/api/conception/mapping/tester")
+async def conception_tester_mapping():
+    return await asyncio.to_thread(_call, conception.tester_mapping)
+
+
+@app.get("/api/conception/journal")
+def conception_journal():
+    return _call(conception.journal)
 
 
 def main():
