@@ -46,7 +46,7 @@ premier run réel sur un projet de recette Xray reste nécessaire (voir « Essai
 | `addTestsToTestPlan(issueId: String!, testIssueIds: [String])` → `addedTests warning` | préparation | idem | noms et arguments conformes (introspection 2026-11-14) ; reste : sémantique à l'essai réel |
 | `addTestsToTestExecution(issueId: String!, testIssueIds: [String])` → `addedTests warning` | préparation | idem | noms et arguments conformes (introspection 2026-11-14) ; reste : sémantique à l'essai réel |
 | `updateTestRunStatus(id: String!, status: String!)` (sans sélection) | début / fin de test | renvoie-t-il un scalaire (sinon il faut une sélection) ; valeurs de statut acceptées (statuts personnalisés) | noms et arguments conformes (introspection 2026-11-14) ; reste : sémantique à l'essai réel |
-| `updateTestRun(id: String!, startedOn: String, finishedOn: String, comment: String)` → `warnings` | début / fin de test, qualification | `startedOn` / `finishedOn` / `comment` acceptés par CETTE mutation (ou mutations dédiées) ; format de date attendu (le client envoie ISO 8601 avec fuseau) | noms et arguments conformes (introspection 2026-11-14) ; reste : sémantique à l'essai réel |
+| `updateTestRun(id: String!, startedOn: String, finishedOn: String, comment: String)` → `warnings` | début / fin de test, qualification | `startedOn` / `finishedOn` / `comment` acceptés par CETTE mutation (ou mutations dédiées) ; format de date attendu (le client envoie ISO 8601 avec fuseau) | noms et arguments conformes ; **essai réel 2026-11-14 : `finishedOn` refusé tant que le statut n'est pas final** (« Cannot set finishedOn because test run status is not final ») → le client envoie désormais le statut final avant les heures et le commentaire |
 | `addEvidenceToTestRun(id: String!, evidence: [AttachmentDataInput]!)` → `addedEvidence warnings` ; `AttachmentDataInput { filename mimeType data }` (base64) | fin de test en échec | noms des champs, taille maximale d'une preuve | noms et arguments conformes (introspection 2026-11-14) ; reste : sémantique à l'essai réel |
 
 ## REST
@@ -80,3 +80,13 @@ Sur un projet de recette Xray, avec une suite de 2 tests tagués : `run_robot(..
 puis contrôler dans Xray : plan et exécution créés, test runs EXECUTING puis statut final,
 heures de début / fin, commentaire et capture sur l'échec ; recommencer avec un Test Plan,
 puis une Test Execution existants.
+
+
+## Essai réel du 2026-11-14 (projet de recette, 1 test, 1 exécution existante)
+- Résolution du ticket (Test / Test Execution), ajout du test à l'exécution, lecture du test run : **OK**.
+- Erreur de transport (HTTP 502) absorbée par le nouvel essai automatique : **OK**.
+- `updateTestRun(finishedOn…)` avant `updateTestRunStatus(final)` : **refusé par Xray** → ordre corrigé
+  (statut final, puis heures et commentaire, puis preuves) ; le faux serveur des tests reproduit cette règle.
+- Un refus métier GraphQL n'est plus réessayé (inutile) : erreur journalisée, événement conservé pour `xray-sync`.
+- Sous Windows, l'argument du listener (chemin `C:\…`) était coupé par Robot : séparateur « ; » utilisé.
+- Restent à confirmer au prochain essai : commentaire, capture jointe (`addEvidenceToTestRun`), statuts personnalisés.

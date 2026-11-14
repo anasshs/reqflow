@@ -199,3 +199,24 @@ def test_xray_injoignable_jamais_pris_pour_introuvable(xray):
         XrayClient().test_ids(["DEMO-1"])
     xray.indisponible = False
     assert XrayClient().test_ids(["DEMO-1", "DEMO-404"]) == {"DEMO-1": "1001"}
+
+
+def test_refus_metier_xray_non_reessaye_et_rejouable(tmp_path):
+    """Un refus GraphQL (règle métier Xray) ne se résout pas en réessayant : pas de backoff, événement conservé."""
+    from atelier.execution.journal_xray import Journal, Synchroniseur
+    from atelier.integrations.xray import ErreurGraphQL
+
+    class Refus:
+        appels = 0
+
+        def set_status(self, *a):
+            Refus.appels += 1
+            raise ErreurGraphQL("Xray GraphQL : refus de test")
+
+    j = Journal(tmp_path)
+    j.sauver_etat({"prepare": True, "exec_key": "DEMO-9", "runs": {"DEMO-1": "run-1"}})
+    j.ajouter("r1", "test_fin", "t1", cle_xray="DEMO-1", statut="FAILED", fin="2026-11-14T10:00:00+01:00")
+    attentes = []
+    bilan = Synchroniseur(tmp_path, xray=Refus(), sommeil=attentes.append, journaliser=lambda *a, **k: None).envoyer_tout()
+    assert Refus.appels == 1 and attentes == []
+    assert bilan["restants"] == 1 and len(j.restants()) == 1

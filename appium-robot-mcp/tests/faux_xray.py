@@ -75,7 +75,10 @@ class FauxXray:
                 return 200, {"data": self.schema}
             op = next(o for o in OPERATIONS if o in q)
             self.appels.append(op)
-            return 200, {"data": {op: self._repondre(op, v)}}
+            try:
+                return 200, {"data": {op: self._repondre(op, v)}}
+            except RefusXray as e:  # erreur métier GraphQL, comme le vrai Xray
+                return 200, {"data": {op: None}, "errors": [{"message": str(e)}]}
 
     def _cles(self, v) -> list[str]:
         return re.findall(r"[A-Z][A-Z0-9_]+-\d+", v.get("jql", ""))
@@ -113,6 +116,9 @@ class FauxXray:
             self.statuts.setdefault(v["id"], []).append(v["s"])
             return None
         if op == "updateTestRun":
+            # règle constatée sur Xray Cloud (essai réel du 2026-11-14) : finishedOn exige un statut final
+            if "finishedOn" in v and (self.statuts.get(v["id"]) or ["TODO"])[-1] in ("TODO", "EXECUTING"):
+                raise RefusXray("Cannot set finishedOn because test run status is not final.")
             self.maj_runs[v["id"]] = {k: v[k] for k in v if k != "id"}
             return {"warnings": []}
         if op == "addEvidenceToTestRun":
@@ -124,6 +130,10 @@ class FauxXray:
         tid = self.tests[cle]
         runs = [r for (e, t), r in self.runs.items() if t == tid]
         return self.statuts.get(runs[-1], [None])[-1] if runs else None
+
+
+class RefusXray(Exception):
+    """Refus métier renvoyé dans « errors » d'une réponse GraphQL 200."""
 
 
 def schema_conforme() -> dict:

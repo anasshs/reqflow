@@ -21,6 +21,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from atelier.integrations.xray import ErreurGraphQL
+
 OUTBOX = "xray_outbox.jsonl"
 ENVOYES = "xray_outbox.envoyes"
 ETAT = "xray_outbox.etat.json"
@@ -177,6 +179,9 @@ class Synchroniseur:
                 return self._traiter(ev)
             except ErreurDefinitive:
                 raise
+            except ErreurGraphQL as e:  # refus métier de Xray : réessayer ne change rien
+                self.journaliser("erreur", f"Xray refuse ({ev['type']}) : {e} — non rejoué automatiquement, à corriger puis rejouer")
+                raise
             except Exception as e:
                 if essai == self.essais_max or self.arret.is_set():
                     self.journaliser("erreur", f"Xray injoignable ({ev['type']}) : {e} — à rejouer")
@@ -204,8 +209,10 @@ class Synchroniseur:
             self.xray.update_run(run_id, started=d["debut"])
             self.xray.set_status(run_id, statuts_xray()["EXECUTING"])
         elif ev["type"] == "test_fin":
-            self.xray.update_run(run_id, started=d.get("debut"), finished=d["fin"], comment=d.get("commentaire"))
+            # Xray Cloud refuse finishedOn tant que le statut n'est pas final (constaté à l'essai réel) :
+            # statut final d'abord, puis heures et commentaire, puis preuves.
             self.xray.set_status(run_id, d["statut"])
+            self.xray.update_run(run_id, started=d.get("debut"), finished=d["fin"], comment=d.get("commentaire"))
             captures = [c for c in d.get("captures") or [] if Path(c).exists()]
             if captures:
                 self.xray.add_evidence(run_id, captures)
