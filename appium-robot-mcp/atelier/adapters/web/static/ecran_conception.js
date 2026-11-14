@@ -28,6 +28,42 @@
     },
   });
 
+  /* Recherche dans une liste : clé(s) de ticket exactes (TAM-735, plusieurs séparées par espace / virgule) ou texte libre.
+     Entrée sur un résultat unique : ouvre sa ligne (panneau). La saisie est conservée par écran. */
+  const RECH = {};
+  const RE_CLE = /^[A-Z][A-Z0-9_]*-\d+$/;
+  function recherche(z, ecran) {
+    const table = $(".table-strat", z);
+    if (!table) return;
+    const barre = document.createElement("div");
+    barre.className = "btns";
+    barre.style.marginBottom = "8px";
+    barre.innerHTML = `<input class="in" type="search" data-rech placeholder="Rechercher : clé (TAM-735), plusieurs clés, ou texte…" style="max-width:420px" value="${esc(RECH[ecran] || "")}" aria-label="Rechercher dans la liste">
+      <span class="lib" data-rech-n></span>`;
+    table.parentNode.insertBefore(barre, table);
+    const lignes = [...table.querySelectorAll("tr")].filter(tr => !tr.querySelector("th"));
+    const champ = $("[data-rech]", barre);
+    const appliquer = () => {
+      const q = (RECH[ecran] = champ.value.trim());
+      const termes = q.toUpperCase().split(/[\s,;]+/).filter(Boolean);
+      const parCles = termes.length && termes.every(t => RE_CLE.test(t));
+      const cellules = tr => [...tr.cells].map(c => c.textContent.toUpperCase());
+      const exacte = (tr, k) => cellules(tr).some(c => new RegExp(`(^|[^A-Z0-9_-])${k}(?![0-9])`).test(c));
+      const debut = (tr, k) => cellules(tr).some(c => new RegExp(`(^|[^A-Z0-9_-])${k}`).test(c));  // clé en cours de saisie
+      let test = tr => !termes.length || (parCles ? termes.some(k => exacte(tr, k)) : termes.every(k => cellules(tr).join(" ").includes(k)));
+      let partielle = false;
+      if (parCles && !lignes.some(test)) { test = tr => termes.some(k => debut(tr, k)); partielle = true; }
+      let n = 0;
+      lignes.forEach(tr => { const ok = test(tr); tr.hidden = !ok; n += ok; });
+      $("[data-rech-n]", barre).textContent = termes.length ? `${n} / ${lignes.length} ligne(s)${partielle ? " · correspondance partielle" : ""}` : `${lignes.length} ligne(s)`;
+      return lignes.filter(tr => !tr.hidden);
+    };
+    champ.oninput = appliquer;
+    champ.onkeydown = e => { if (e.key === "Enter") { const v = appliquer(); if (v.length === 1 && v[0].classList.contains("cliquable")) v[0].click(); } };
+    appliquer();
+    if (RECH[ecran]) champ.focus();
+  }
+
   const entete = (t, a = "") => `<h2 class="titre-carte">${esc(t)}<span class="actions-titre">${a}</span></h2>`;
   const pillRevue = s => `<span class="pill ${PILL_REVUE[s] || ""}">${esc(LIB_REVUE[s] || s)}</span>`;
   const barres = (titre, d) => { const max = Math.max(1, ...Object.values(d)); return `<section class="bloc-strat"><h3>${esc(titre)}</h3>${Object.entries(d).map(([k, v]) =>
@@ -70,6 +106,7 @@
           <td>${e.sans_test ? '<span class="pill ko">aucun test</span>' : e.tests.map(t => `<span class="pill cle-xray" title="Ouvrir le test Xray ${esc(t)} dans Jira">${esc(t)}</span>`).join(" ")}</td></tr>`).join("")}</table>`
         : vide("Aucune exigence", `<a href="#rapports/patrimoine">Importer l'instantané Xray ou synchroniser Jira.</a>`)}
       <p class="lib" style="margin-top:10px">Génération IA de cas de test depuis une exigence : à venir (les propositions devront être validées avant création dans Xray).</p></div>`;
+    recherche(z, "exigences");
   }
 
   /* ------------------------------------------------------------------ 03 cas de test */
@@ -81,13 +118,14 @@
     z.innerHTML = `${entete("Cas de test (Xray)", `${sel("type", "Tous types", opts("type"))}${sel("module", "Tous modules", opts("module"))}${sel("revue", "Toutes revues", Object.keys(LIB_REVUE), LIB_REVUE)}`)}
       <div class="corps-carte">${l.length ? `<table class="table-strat"><tr><th>Clé Xray</th><th>Résumé</th><th>Type Xray</th><th>Module</th><th>Priorité</th><th>Exigences</th><th>Statut Xray</th><th>Mode</th><th>Revue interne</th><th>Synchronisation</th></tr>
         ${l.filter(filtre).map(c => `<tr class="cliquable ${SEL === c.cle ? "sel" : ""}" data-cle="${esc(c.cle)}"><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume)}</td><td>${esc(c.type)}</td><td>${esc(c.module)}</td>
-          <td>${esc(c.priorite)}</td><td>${esc(c.exigences.join(", "))}</td><td>${esc(c.statut_xray)}</td>
+          <td>${esc(c.priorite)}</td><td>${c.exigences.map(k => `<span class="cle-xray">${esc(k)}</span>`).join(", ")}</td><td>${esc(c.statut_xray)}</td>
           <td>${c.automatise ? `<span class="pill ok">automatisé</span>${c.dernier_resultat ? ` <span class="pill ${c.dernier_resultat === "PASS" ? "ok" : "ko"}">${esc(c.dernier_resultat)}</span>` : ""}` : '<span class="pill">manuel</span>'}</td>
           <td>${pillRevue(c.revue)}</td><td class="lib" title="${esc(c.synchronisation)}">${esc(c.synchronisation.split(" (")[0])}</td></tr>`).join("")}</table>`
         : vide("Aucun cas de test", `<a href="#rapports/patrimoine">Importer le repository Xray.</a>`)}
-        <p class="lib" style="margin-top:10px">Création et modification dans Xray : indisponibles tant que les mutations Xray ne sont pas vérifiées (docs/XRAY_API.md). Aucun test n'est converti d'un type à un autre sans validation.</p></div>`;
+        <p class="lib" style="margin-top:10px">Publication dans Xray : tests Cucumber depuis le panneau d'un cas (« Publier dans Xray »), tests issus des US depuis « US à couvrir ». Aucun test n'est converti d'un type à un autre sans validation.</p></div>`;
     $$("[data-f]", z).forEach(s => s.onchange = () => { F[s.dataset.f] = s.value; cas(z); });
     $$("tr[data-cle]", z).forEach(tr => tr.onclick = () => panneauCas(l.find(c => c.cle === tr.dataset.cle)));
+    recherche(z, "cas");
   }
 
   function panneauCas(c) {
@@ -183,6 +221,7 @@
     if ($("#us-bil")) $("#us-bil").onclick = () => bilanSprint(espSel, idSel);
     $("#us-rep").onclick = async () => { try { const r = await api("/api/testabilite/reponses", {method: "POST", body: {}}); toast(`${r.nouvelles} réponse(s) nouvelle(s).`, "ok"); us(z); } catch (e) { toast(e.message, "ko"); } };
     $$("[data-us]", z).forEach(tr => tr.onclick = () => panneauUS(tr.dataset.us, z));
+    recherche(z, "us");
   }
 
   async function bilanSprint(espace, sprint) {
@@ -363,6 +402,7 @@
       <table class="table-strat"><tr><th>Clé</th><th>Résumé</th><th>Type</th><th>Statut Xray</th><th>Revue interne</th></tr>${l.map(c => `<tr class="cliquable ${cle === c.cle ? "sel" : ""}" data-cle="${esc(c.cle)}">
         <td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume)}</td><td>${esc(c.type)}</td><td>${esc(c.statut_xray)}</td><td>${pillRevue(c.revue)}</td></tr>`).join("")}</table></div>`;
     $$("tr[data-cle]", z).forEach(tr => tr.onclick = () => panneauRevue(tr.dataset.cle));
+    recherche(z, "revue");
     if (cle) panneauRevue(cle);
   }
 
