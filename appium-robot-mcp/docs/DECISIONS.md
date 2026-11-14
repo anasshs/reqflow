@@ -94,3 +94,9 @@ Une ligne datée par décision d'architecture ou de conception.
   OpenAI (prévu par l'entreprise), Claude sur autorisation. Les règles explicables fonctionnent seules.
 - Toute écriture externe (commentaire Jira, test Xray, lien) est explicite et historisée ; les propositions d'IA ne
   sont jamais appliquées sans validation ; détails et points à vérifier : docs/TESTABILITE_US.md.
+
+
+## 2026-11-14 — La stratégie se rejoue à chaque sprint
+- Décision de l'utilisateur : le backlog du sprint (construit par le PO) est le cœur de la stratégie de test.
+  Portée par défaut d'un espace : le sprint actif ; périmètre figé au démarrage (photo immuable, création exclusive)
+  et bilan de fin de sprint (couverture, US ajoutées / retirées en cours de sprint). Détails : docs/TESTABILITE_US.md.

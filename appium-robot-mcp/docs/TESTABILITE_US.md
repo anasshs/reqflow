@@ -8,6 +8,23 @@ comprise, clarifiée puis couverte par au moins un test du projet Xray cible.
 - Moteur : `atelier/intelligence/testabilite_us.py` ; IA : `atelier/intelligence/fournisseur_ia.py`.
 - Données (dans le repository du projet) : `testabilite/espaces.yaml`, `testabilite/us.json`, `testabilite/journal.jsonl`.
 
+## Par sprint : le backlog du sprint est le périmètre de test
+Les équipes sont agiles : au démarrage de chaque sprint, le backlog construit par le PO dit ce qui va être développé,
+donc ce qui doit être testé. Portée par espace :
+- **sprint actif** (défaut) : tout le backlog du sprint en cours, quel que soit le statut des US ;
+- **sprint actif + sprint suivant** : préparer les questions et les cas pendant le planning ;
+- **statuts** : ancien mode, sans sprint.
+
+Rituels proposés :
+1. **Planning / démarrage** : « Détecter le backlog du sprint », puis « Figer le périmètre du sprint » (photo immuable).
+2. **Pendant le sprint** : analyse, questions aux squads, réponses, cas de test, publication dans Xray ; une nouvelle
+   détection signale les US ajoutées et retire l'étiquette du sprint aux US sorties du backlog (historisé).
+3. **Revue / fin de sprint** : « Bilan du sprint » : couverture du backlog, US non couvertes, en attente de réponse,
+   tests créés, US ajoutées ou retirées depuis le gel.
+
+Sprints lus par l'API Jira Software (`/rest/agile/1.0/board?projectKeyOrId=`, `/board/{id}/sprint`), tableaux Scrum ;
+si cette API est inaccessible, repli sur le JQL `sprint in openSprints()` (sans nom de sprint) et avertissement à l'écran.
+
 ## Cycle d'une US
 `Détectée → Analysée → Questions envoyées → Réponses reçues → Cas proposés → Couverte`
 (`Couverte (existant)` si des tests sont déjà liés ; `Non testable` avec justification ; alerte si l'US change dans Jira).

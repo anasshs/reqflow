@@ -1,4 +1,9 @@
-"""Testabilité des User Stories : politique actionnable de la stratégie de test.
+"""Testabilité des User Stories : politique actionnable de la stratégie de test, rejouée à chaque sprint.
+
+Le backlog du sprint (construit par le PO) est le périmètre de test de l'itération : par défaut, chaque espace suit
+son sprint actif (option : aussi le sprint suivant, pour préparer pendant le planning). Au démarrage, le périmètre
+du sprint peut être figé (photo immuable) ; le bilan compare ensuite le sprint à cette photo (US ajoutées / retirées
+en cours de sprint) et mesure la couverture obtenue.
 
 Pour chaque espace Jira activé (projet d'une squad rattaché au projet Xray du projet actif), chaque US qui entre dans
 le périmètre suit un cycle tracé :
@@ -27,6 +32,7 @@ from atelier.domain import projet
 STATUTS = ["Détectée", "Analysée", "Questions envoyées", "Réponses reçues", "Cas proposés", "Couverte",
            "Couverte (existant)", "Non testable"]
 TYPES_TEST = ("Manual", "Cucumber")
+PORTEES = {"sprint": "sprint actif", "sprint_et_suivant": "sprint actif + sprint suivant", "statuts": "statuts (sans sprint)"}
 MARQUEUR = "[Atelier QA] Questions de testabilité"
 
 # --------------------------------------------------------------------------- règles d'analyse (explicables)
@@ -92,7 +98,8 @@ def enregistrer_espace(e: dict) -> list[dict]:
               "statuts": [s.strip() for s in (e.get("statuts") or []) if str(s).strip()],
               "jql_complement": str(e.get("jql_complement") or "").strip(),
               "projet_xray": (str(e.get("projet_xray") or "").strip().upper() or projets.cle_xray()),
-              "type_test": type_test, "min_tests": max(1, int(e.get("min_tests") or 1))}
+              "type_test": type_test, "min_tests": max(1, int(e.get("min_tests") or 1)),
+              "portee": e.get("portee") if e.get("portee") in PORTEES else "sprint"}
     if not propre["projet_xray"]:
         raise ValueError("Projet Xray cible requis (ou un projet actif avec une clé Xray).")
     l = [x for x in espaces() if x["projet_jira"] != cle] + [propre]
@@ -108,11 +115,15 @@ def supprimer_espace(cle: str) -> list[dict]:
     return l
 
 
-def jql_espace(e: dict) -> str:
+def jql_espace(e: dict, sprint: str | int | None = None) -> str:
+    """Sprint donné : tout le backlog du sprint (quel que soit le statut) ; sinon filtre par statuts."""
     parts = [f'project = "{e["projet_jira"]}"']
     if e.get("types_issue"):
         parts.append("issuetype in (" + ", ".join(f'"{t}"' for t in e["types_issue"]) + ")")
-    parts.append("status in (" + ", ".join(f'"{s}"' for s in e["statuts"]) + ")" if e.get("statuts") else "statusCategory != Done")
+    if sprint is not None:
+        parts.append(f"sprint = {int(sprint)}" if str(sprint).isdigit() else f"sprint in {sprint}")
+    else:
+        parts.append("status in (" + ", ".join(f'"{s}"' for s in e["statuts"]) + ")" if e.get("statuts") else "statusCategory != Done")
     if e.get("jql_complement"):
         parts.append(f"({e['jql_complement']})")
     return " AND ".join(parts) + " ORDER BY created DESC"
@@ -140,8 +151,49 @@ def _changer(u: dict, statut: str, detail: str = ""):
     u["statut"] = statut
 
 
-def detecter(jira=None, limite: int = 500) -> dict:
-    """Lecture seule dans Jira : US des espaces actifs, description, critères, tests déjà liés (liens de type « test »)."""
+def sprints(espace: str = "", jira=None) -> dict:
+    """Sprints (actifs, futurs, fermés récents) des tableaux Scrum de chaque espace ; {projet: [sprints]}."""
+    from atelier.integrations.jira import JiraClient
+
+    jira = jira or JiraClient()
+    out = {}
+    for e in [x for x in espaces() if x.get("actif") and (not espace or x["projet_jira"] == espace)]:
+        vus, l = set(), []
+        try:
+            for t in [b for b in jira.tableaux(e["projet_jira"]) if (b.get("type") or "scrum") == "scrum"]:
+                for s in jira.sprints(t["id"]):
+                    if s["id"] not in vus:
+                        vus.add(s["id"])
+                        l.append(s)
+        except Exception as ex:  # noqa: BLE001 - API agile indisponible : portée par JQL openSprints()
+            out[e["projet_jira"]] = {"erreur": str(ex)[:200], "sprints": []}
+            continue
+        ordre = {"active": 0, "future": 1, "closed": 2}
+        l.sort(key=lambda s: (ordre.get(s["etat"], 3), s["debut"] or "9999") if s["etat"] != "closed" else (2, "".join(chr(255 - ord(c)) for c in (s["fin"] or ""))))
+        out[e["projet_jira"]] = {"sprints": [s for s in l if s["etat"] != "closed"] + [s for s in l if s["etat"] == "closed"][:3]}
+    return out
+
+
+def _cibles(e: dict, jira, sprint: str = "") -> list[tuple[str, dict | None]]:
+    """Requêtes de détection d'un espace : une par sprint visé (avec le sprint), ou par statuts."""
+    if e.get("portee", "sprint") == "statuts" and not sprint:
+        return [(jql_espace(e), None)]
+    sp = sprints(e["projet_jira"], jira).get(e["projet_jira"], {})
+    l = sp.get("sprints") or []
+    if sprint:
+        choisis = [s for s in l if str(s["id"]) == str(sprint)] or [{"id": int(sprint), "nom": f"sprint {sprint}", "etat": ""}]
+    else:
+        actifs = [s for s in l if s["etat"] == "active"]
+        suivants = [s for s in l if s["etat"] == "future"][:1] if e.get("portee") == "sprint_et_suivant" else []
+        choisis = actifs + suivants
+    if not choisis:
+        return [(jql_espace(e, "openSprints()"), None)] if sp.get("erreur") else []
+    return [(jql_espace(e, s["id"]), s) for s in choisis]
+
+
+def detecter(jira=None, limite: int = 500, sprint: str = "") -> dict:
+    """Lecture seule dans Jira : backlog du (des) sprint(s) visé(s) de chaque espace actif (ou US par statuts), avec
+    description, critères et tests déjà liés. Une US sortie d'un sprint perd l'étiquette de ce sprint (tracé)."""
     from atelier.integrations.jira import JiraClient, adf_vers_texte
 
     jira = jira or JiraClient()
@@ -150,44 +202,116 @@ def detecter(jira=None, limite: int = 500) -> dict:
     champ_crit = os.environ.get("JIRA_CHAMP_CRITERES", "").strip()
     champs = ["summary", "description", "status", "issuelinks", "issuetype", "assignee", "updated"] + ([champ_crit] if champ_crit else [])
     d = _us()
-    bilan = {"espaces": 0, "us": 0, "nouvelles": 0, "deja_couvertes": 0}
+    bilan = {"espaces": 0, "us": 0, "nouvelles": 0, "deja_couvertes": 0, "sprints": [], "retirees": 0}
     for e in [x for x in espaces() if x.get("actif")]:
         bilan["espaces"] += 1
-        for i in jira.rechercher(jql_espace(e), champs, limite):
-            f = i.get("fields") or {}
-            liens = [l.get("outwardIssue") or l.get("inwardIssue") or {} for l in f.get("issuelinks") or []
-                     if "test" in ((l.get("type") or {}).get("name") or "").lower()]
-            tests_lies = sorted({x.get("key") for x in liens if x.get("key")})
-            crit = f.get(champ_crit) if champ_crit else None
-            u = d.get(i["key"])
-            base = {"cle": i["key"], "espace": e["projet_jira"], "resume": f.get("summary") or "",
-                    "description": adf_vers_texte(f.get("description")), "criteres_jira": adf_vers_texte(crit) if crit else "",
-                    "statut_jira": (f.get("status") or {}).get("name", ""), "assigne": ((f.get("assignee") or {}).get("displayName") or ""),
-                    "maj_jira": f.get("updated", ""), "tests_lies": tests_lies}
-            if u is None:
-                u = {**base, "statut": "", "historique": [], "constats": [], "questions": {}, "cas": []}
-                _changer(u, "Couverte (existant)" if len(tests_lies) >= e["min_tests"] else "Détectée",
-                         f"{len(tests_lies)} test(s) déjà lié(s)" if tests_lies else "")
-                bilan["nouvelles"] += 1
-            else:
-                modifiee = u.get("maj_jira") and base["maj_jira"] != u.get("maj_jira")
-                u.update(base)
-                if modifiee and u["statut"] not in ("Détectée", "Non testable"):
-                    u.setdefault("alertes", []).append({"date": _maintenant(), "message": "US modifiée dans Jira depuis l'analyse : à revoir."})
-                if len(tests_lies) >= e["min_tests"] and u["statut"] in ("Détectée", "Analysée"):
-                    _changer(u, "Couverte (existant)", f"{len(tests_lies)} test(s) lié(s) dans Jira")
-            bilan["deja_couvertes"] += u["statut"].startswith("Couverte")
-            bilan["us"] += 1
-            d[i["key"]] = u
+        for jql, sp in _cibles(e, jira, sprint):
+            if sp:
+                bilan["sprints"].append(f"{e['projet_jira']} · {sp['nom']}")
+            trouvees = set()
+            for i in jira.rechercher(jql, champs, limite):
+                trouvees.add(i["key"])
+                _integrer(d, i, e, sp, champ_crit, adf_vers_texte, bilan)
+            if sp:  # US qui ne sont plus dans le backlog de ce sprint
+                for u in d.values():
+                    if u["espace"] == e["projet_jira"] and str(sp["id"]) in (u.get("sprints") or {}) and u["cle"] not in trouvees:
+                        u["sprints"].pop(str(sp["id"]))
+                        u.setdefault("historique", []).append({"date": _maintenant(), "auteur": _auteur(), "de": u["statut"], "vers": u["statut"],
+                                                               "detail": f"retirée du sprint {sp['nom']}"})
+                        bilan["retirees"] += 1
     _sauver_us(d)
-    _journaliser("detection", **{k: v for k, v in bilan.items()})
-    return {**bilan, "file": file()}
+    _journaliser("detection", **{k: (", ".join(v) if isinstance(v, list) else v) for k, v in bilan.items()})
+    return {**bilan, "file": file(sprint=sprint)}
 
 
-def file(espace: str = "", statut: str = "") -> list[dict]:
+def _integrer(d: dict, i: dict, e: dict, sp: dict | None, champ_crit: str, adf_vers_texte, bilan: dict):
+    """Fusionne une US lue dans Jira dans l'état local (création, mise à jour, couverture existante, sprint)."""
+    f = i.get("fields") or {}
+    liens = [l.get("outwardIssue") or l.get("inwardIssue") or {} for l in f.get("issuelinks") or []
+             if "test" in ((l.get("type") or {}).get("name") or "").lower()]
+    tests_lies = sorted({x.get("key") for x in liens if x.get("key")})
+    crit = f.get(champ_crit) if champ_crit else None
+    u = d.get(i["key"])
+    base = {"cle": i["key"], "espace": e["projet_jira"], "resume": f.get("summary") or "",
+            "description": adf_vers_texte(f.get("description")), "criteres_jira": adf_vers_texte(crit) if crit else "",
+            "statut_jira": (f.get("status") or {}).get("name", ""), "assigne": ((f.get("assignee") or {}).get("displayName") or ""),
+            "maj_jira": f.get("updated", ""), "tests_lies": tests_lies}
+    if u is None:
+        u = {**base, "statut": "", "historique": [], "constats": [], "questions": {}, "cas": []}
+        _changer(u, "Couverte (existant)" if len(tests_lies) >= e["min_tests"] else "Détectée",
+                 f"{len(tests_lies)} test(s) déjà lié(s)" if tests_lies else "")
+        bilan["nouvelles"] += 1
+    else:
+        modifiee = u.get("maj_jira") and base["maj_jira"] != u.get("maj_jira")
+        u.update(base)
+        if modifiee and u["statut"] not in ("Détectée", "Non testable"):
+            u.setdefault("alertes", []).append({"date": _maintenant(), "message": "US modifiée dans Jira depuis l'analyse : à revoir."})
+        if len(tests_lies) >= e["min_tests"] and u["statut"] in ("Détectée", "Analysée"):
+            _changer(u, "Couverte (existant)", f"{len(tests_lies)} test(s) lié(s) dans Jira")
+    if sp:
+        u.setdefault("sprints", {})[str(sp["id"])] = {"nom": sp["nom"], "etat": sp.get("etat", "")}
+    bilan["deja_couvertes"] += u["statut"].startswith("Couverte")
+    bilan["us"] += 1
+    d[i["key"]] = u
+
+
+def _dans(u: dict, sprint: str) -> bool:
+    return not sprint or str(sprint) in (u.get("sprints") or {})
+
+
+def file(espace: str = "", statut: str = "", sprint: str = "") -> list[dict]:
     return [{k: u.get(k) for k in ("cle", "espace", "resume", "statut", "statut_jira", "assigne", "tests_lies")}
-            | {"constats": len(u.get("constats") or []), "cas": len(u.get("cas") or []), "alertes": len(u.get("alertes") or [])}
-            for u in _us().values() if (not espace or u["espace"] == espace) and (not statut or u["statut"] == statut)]
+            | {"constats": len(u.get("constats") or []), "cas": len(u.get("cas") or []), "alertes": len(u.get("alertes") or []),
+               "sprints": [s["nom"] for s in (u.get("sprints") or {}).values()]}
+            for u in _us().values() if (not espace or u["espace"] == espace) and (not statut or u["statut"] == statut) and _dans(u, sprint)]
+
+
+# =========================================================================== périmètre figé et bilan de sprint
+def _fichier_sprint(espace: str, sprint: str):
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,19}", espace or "") or not str(sprint).isdigit():
+        raise ValueError("Espace et identifiant de sprint attendus.")
+    return _d() / "sprints" / f"{espace}-{int(sprint)}.json"
+
+
+def figer_sprint(espace: str, sprint: str) -> dict:
+    """Photo immuable du backlog du sprint au démarrage (création exclusive : jamais réécrite)."""
+    us_ = [u for u in _us().values() if u["espace"] == espace and _dans(u, sprint)]
+    if not us_:
+        raise ValueError("Aucune US connue pour ce sprint : lancer d'abord la détection du sprint.")
+    f = _fichier_sprint(espace, sprint)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    nom = next(iter(u["sprints"][str(sprint)]["nom"] for u in us_))
+    photo = {"espace": espace, "sprint": str(sprint), "nom": nom, "date": _maintenant(), "auteur": _auteur(),
+             "us": {u["cle"]: {"resume": u["resume"], "statut": u["statut"], "tests": len(u.get("tests_lies") or [])} for u in us_}}
+    try:
+        with f.open("x", encoding="utf-8") as fh:
+            fh.write(json.dumps(photo, ensure_ascii=False, indent=1))
+    except FileExistsError:
+        raise FileExistsError(f"Périmètre du sprint {nom} déjà figé (photo immuable).") from None
+    _journaliser("sprint_fige", espace=espace, sprint=str(sprint), us=len(us_))
+    return bilan_sprint(espace, sprint)
+
+
+def bilan_sprint(espace: str, sprint: str) -> dict:
+    """Couverture du backlog du sprint et écart avec le périmètre figé (US ajoutées / retirées en cours de sprint)."""
+    from collections import Counter
+
+    f = _fichier_sprint(espace, sprint)
+    photo = json.loads(f.read_text("utf-8")) if f.exists() else None
+    us_ = {u["cle"]: u for u in _us().values() if u["espace"] == espace and _dans(u, sprint)}
+    st = Counter(u["statut"] for u in us_.values())
+    tot = len(us_)
+    couvertes = sum(u["statut"].startswith("Couverte") for u in us_.values())
+    nom = photo["nom"] if photo else next((u["sprints"][str(sprint)]["nom"] for u in us_.values()), f"sprint {sprint}")
+    return {"espace": espace, "sprint": str(sprint), "nom": nom, "us": tot, "par_statut": dict(st),
+            "couvertes": couvertes, "taux_couverture": round(100 * couvertes / tot, 1) if tot else None,
+            "analysees": sum(u["statut"] not in ("Détectée",) for u in us_.values()),
+            "en_attente_reponse": st.get("Questions envoyées", 0), "non_testables": st.get("Non testable", 0),
+            "tests_crees": sum(1 for u in us_.values() for c in u.get("cas") or [] if c["statut"] == "Publié"),
+            "non_couvertes": sorted(k for k, u in us_.items() if not u["statut"].startswith("Couverte") and u["statut"] != "Non testable"),
+            "fige": {"date": photo["date"], "auteur": photo["auteur"], "us": len(photo["us"])} if photo else None,
+            "ajoutees": sorted(set(us_) - set(photo["us"])) if photo else [],
+            "retirees": sorted(set(photo["us"]) - set(us_)) if photo else []}
 
 
 def detail(cle: str) -> dict:
@@ -196,10 +320,10 @@ def detail(cle: str) -> dict:
     return {**u, "politique": e, "journal": journal(cle, 50)}
 
 
-def indicateurs() -> dict:
+def indicateurs(sprint: str = "") -> dict:
     from collections import Counter
 
-    d = _us().values()
+    d = [u for u in _us().values() if _dans(u, sprint)]
     par_espace: dict = {}
     for u in d:
         par_espace.setdefault(u["espace"], Counter())[u["statut"]] += 1

@@ -999,10 +999,33 @@ async def patrimoine_importer(req: Request):
 
 # --------------------------------------------------------------------------- Testabilité des US (stratégie actionnable)
 @app.get("/api/testabilite/espaces")
-def testabilite_espaces():
+def testabilite_espaces(sprint: str = ""):
     from atelier.intelligence import fournisseur_ia, testabilite_us
 
-    return {"espaces": _call(testabilite_us.espaces), "ia": fournisseur_ia.etat(), "indicateurs": _call(testabilite_us.indicateurs)}
+    return {"espaces": _call(testabilite_us.espaces), "ia": fournisseur_ia.etat(), "indicateurs": _call(testabilite_us.indicateurs, sprint),
+            "portees": testabilite_us.PORTEES}
+
+
+@app.get("/api/testabilite/sprints")
+async def testabilite_sprints():
+    from atelier.intelligence import testabilite_us
+
+    return await asyncio.to_thread(_call, testabilite_us.sprints)
+
+
+@app.post("/api/testabilite/sprints/figer")
+async def testabilite_figer(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    b = await req.json()
+    return _call(testabilite_us.figer_sprint, b.get("espace", ""), str(b.get("sprint", "")))
+
+
+@app.get("/api/testabilite/sprints/bilan")
+def testabilite_bilan(espace: str, sprint: str):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.bilan_sprint, espace, sprint)
 
 
 @app.post("/api/testabilite/espaces")
@@ -1020,10 +1043,11 @@ async def testabilite_supprimer_espace(req: Request):
 
 
 @app.post("/api/testabilite/detecter")
-async def testabilite_detecter():
+async def testabilite_detecter(req: Request):
     from atelier.intelligence import testabilite_us
 
-    return await asyncio.to_thread(_call, testabilite_us.detecter)
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, testabilite_us.detecter, None, 500, str(b.get("sprint") or ""))
 
 
 @app.post("/api/testabilite/reponses")
@@ -1034,10 +1058,10 @@ async def testabilite_reponses(req: Request):
 
 
 @app.get("/api/testabilite/file")
-def testabilite_file(espace: str = "", statut: str = ""):
+def testabilite_file(espace: str = "", statut: str = "", sprint: str = ""):
     from atelier.intelligence import testabilite_us
 
-    return _call(testabilite_us.file, espace, statut)
+    return _call(testabilite_us.file, espace, statut, sprint)
 
 
 @app.get("/api/testabilite/us/{cle}")

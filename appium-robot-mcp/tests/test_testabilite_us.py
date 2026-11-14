@@ -53,7 +53,7 @@ def t(tmp_path, monkeypatch):
 
     monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
     monkeypatch.setenv("IA_FOURNISSEUR", "aucun")
-    testabilite_us.enregistrer_espace({"projet_jira": "sq1", "nom": "Squad Cartes", "statuts": ["Ready"], "projet_xray": "TAM"})
+    testabilite_us.enregistrer_espace({"projet_jira": "sq1", "nom": "Squad Cartes", "statuts": ["Ready"], "projet_xray": "TAM", "portee": "statuts"})
     return testabilite_us
 
 
@@ -137,3 +137,47 @@ def test_non_testable_justifie(t):
     with pytest.raises(ValueError):
         t.non_testable("SQ1-10", "non")
     assert t.non_testable("SQ1-10", "US purement technique, couverte par les tests unitaires")["statut"] == "Non testable"
+
+
+class FauxJiraAgile(FauxJira):
+    """Tableau Scrum avec un sprint actif (12) et un sprint futur (13) ; le backlog du sprint 12 évolue."""
+
+    def __init__(self):
+        super().__init__()
+        self.backlog = {12: ["SQ1-10", "SQ1-11"], 13: ["SQ1-11"]}
+
+    def tableaux(self, projet):
+        return [{"id": 7, "nom": "Tableau SQ1", "type": "scrum"}]
+
+    def sprints(self, tableau, etats="active,future,closed"):
+        return [{"id": 13, "nom": "Sprint 13", "etat": "future", "debut": "", "fin": "", "objectif": "", "tableau": 7},
+                {"id": 12, "nom": "Sprint 12", "etat": "active", "debut": "2026-11-10", "fin": "2026-11-24", "objectif": "Cartes", "tableau": 7}]
+
+    def rechercher(self, jql, champs, limite):
+        self.jql = jql
+        num = int(jql.split("sprint = ")[1].split()[0])
+        return [u for u in self.us if u["key"] in self.backlog[num]]
+
+
+def test_sprint_backlog_fige_et_bilan(t):
+    j = FauxJiraAgile()
+    t.enregistrer_espace({"projet_jira": "SQ1", "projet_xray": "TAM"})  # portée par défaut : sprint actif
+    r = t.detecter(jira=j)
+    assert "sprint = 12" in j.jql and "status" not in j.jql and r["sprints"] == ["SQ1 · Sprint 12"] and r["us"] == 2
+    assert {u["cle"] for u in t.file(sprint="12")} == {"SQ1-10", "SQ1-11"} and t.file(sprint="13") == []
+    b = t.figer_sprint("SQ1", "12")
+    assert b["fige"]["us"] == 2 and b["taux_couverture"] == 50.0 and b["non_couvertes"] == ["SQ1-10"]
+    with pytest.raises(FileExistsError):
+        t.figer_sprint("SQ1", "12")  # photo immuable
+    # en cours de sprint, le PO retire SQ1-10 et ajoute SQ1-12
+    j.us.append({"key": "SQ1-12", "fields": {"summary": "Opposition sur carte", "status": {"name": "To Do"}, "issuetype": {"name": "Story"},
+                                             "updated": "2026-11-15T10:00:00.000+0000", "description": None}})
+    j.backlog[12] = ["SQ1-11", "SQ1-12"]
+    r = t.detecter(jira=j, sprint="12")
+    assert r["retirees"] == 1 and "retirée du sprint Sprint 12" in t.detail("SQ1-10")["historique"][-1]["detail"]
+    b = t.bilan_sprint("SQ1", "12")
+    assert b["ajoutees"] == ["SQ1-12"] and b["retirees"] == ["SQ1-10"] and b["us"] == 2
+    # portée « sprint actif + suivant » : préparation pendant le planning
+    t.enregistrer_espace({"projet_jira": "SQ1", "projet_xray": "TAM", "portee": "sprint_et_suivant"})
+    assert t.detecter(jira=j)["sprints"] == ["SQ1 · Sprint 12", "SQ1 · Sprint 13"]
+    assert t.indicateurs("12")["us"] == 2

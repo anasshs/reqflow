@@ -91,12 +91,14 @@
 
   /* ------------------------------------------------------------------ 01 vue d'ensemble */
   function vue(z) {
-    setTimeout(() => api("/api/testabilite/espaces").then(c => {
+    setTimeout(() => Promise.all([api("/api/testabilite/espaces"), api("/api/testabilite/sprints").catch(() => ({}))]).then(([c, sp]) => {
       const b = $("#v-us");
       if (!b) return;
       const k = c.indicateurs;
       b.querySelector("p").innerHTML = c.espaces.length
-        ? `Espaces Jira suivis : <b>${c.espaces.map(e => esc(e.projet_jira)).join(", ")}</b> → tests dans ${esc([...new Set(c.espaces.map(e => e.projet_xray))].join(", "))}.
+        ? `Espaces Jira suivis : <b>${c.espaces.map(e => { const a = ((sp[e.projet_jira] || {}).sprints || []).find(s => s.etat === "active");
+             return esc(e.projet_jira) + (a ? ` (${esc(a.nom)} en cours)` : ""); }).join(", ")}</b> → tests dans ${esc([...new Set(c.espaces.map(e => e.projet_xray))].join(", "))}.
+           Le backlog de chaque sprint est le périmètre de test de l'itération.
            ${k.us} US suivies, ${k.couvertes} couvertes${k.taux_couverture === null ? "" : ` (${String(k.taux_couverture).replace(".", ",")} %)`}, ${k.en_attente_reponse} en attente de réponse, ${k.non_testables} non testable(s). IA : ${esc(c.ia.fournisseur)}.`
         : "Aucun espace Jira activé : chaque US des squads choisies devra être clarifiée puis couverte par des tests Xray. <a href='#conception/us'>Configurer</a>.";
     }).catch(() => {}), 0);

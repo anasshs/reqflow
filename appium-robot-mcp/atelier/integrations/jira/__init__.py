@@ -85,6 +85,24 @@ class JiraClient:
         r = json.loads(http("POST", f"{self.base}/rest/api/3/issue", json.dumps(body).encode(), self._h()))
         return r["key"]
 
+    # ------------------------------------------------------------ Jira Software (agile) : tableaux et sprints
+    def tableaux(self, projet: str) -> list[dict]:
+        """Tableaux du projet (GET /rest/agile/1.0/board?projectKeyOrId=) ; seuls les tableaux Scrum ont des sprints."""
+        r = self.get(f"/rest/agile/1.0/board?projectKeyOrId={projet}&maxResults=50")
+        return [{"id": b.get("id"), "nom": b.get("name"), "type": b.get("type")} for b in (r or {}).get("values") or []]
+
+    def sprints(self, tableau: int, etats: str = "active,future,closed") -> list[dict]:
+        """Sprints d'un tableau (GET /rest/agile/1.0/board/{id}/sprint?state=), toutes pages."""
+        out, debut = [], 0
+        while True:
+            r = self.get(f"/rest/agile/1.0/board/{tableau}/sprint?state={etats}&startAt={debut}&maxResults=50") or {}
+            for s in r.get("values") or []:
+                out.append({"id": s.get("id"), "nom": s.get("name"), "etat": s.get("state"), "debut": s.get("startDate", ""),
+                            "fin": s.get("endDate", ""), "objectif": s.get("goal", ""), "tableau": tableau})
+            debut += len(r.get("values") or [])
+            if r.get("isLast", True) or not r.get("values"):
+                return out
+
     def commenter(self, key: str, texte: str) -> dict:
         """Commentaire (texte simple, une ligne = un paragraphe ; « - » en tête = puce). POST /rest/api/3/issue/{key}/comment."""
         if not self.enabled:

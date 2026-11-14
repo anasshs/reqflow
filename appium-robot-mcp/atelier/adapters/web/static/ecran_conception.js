@@ -135,39 +135,71 @@
   const ST_US = {"Détectée": "", "Analysée": "info", "Questions envoyées": "warn", "Réponses reçues": "violet", "Cas proposés": "info",
     "Couverte": "ok", "Couverte (existant)": "ok", "Non testable": "ko"};
   const GRAV = {haute: "ko", moyenne: "warn", basse: ""};
+  let SPRINT = "", SPRINTS = null;  // sprint choisi ("" = toutes les US suivies) ; sprints lus dans Jira (une fois)
   async function us(z) {
-    const [cfg, l] = await Promise.all([api("/api/testabilite/espaces"), api("/api/testabilite/file")]);
+    if (SPRINTS === null) SPRINTS = await api("/api/testabilite/sprints").catch(() => ({}));
+    const options = Object.entries(SPRINTS).flatMap(([esp, v]) => (v.sprints || []).map(s => ({esp, ...s})));
+    if (!SPRINT) { const actif = options.find(s => s.etat === "active"); if (actif) SPRINT = `${actif.esp}|${actif.id}`; }
+    const choix = SPRINT === "-" ? "" : SPRINT;  // « - » : toutes les US, choix explicite (pas de sélection automatique)
+    const [espSel, idSel] = choix ? choix.split("|") : ["", ""];
+    const [cfg, l] = await Promise.all([api("/api/testabilite/espaces?sprint=" + idSel), api(`/api/testabilite/file?sprint=${idSel}&espace=${espSel}`)]);
     const ind = cfg.indicateurs;
+    const ETAT = {active: "actif", future: "à venir", closed: "fermé"};
     z.innerHTML = `${entete("US à couvrir", `<button class="btn" id="us-cfg">Politique (espaces Jira)</button><button class="btn" id="us-rep">Relever les réponses</button>
-        <button class="btn primaire" id="us-det">${ico("rejouer")}Détecter les US</button>`)}<div class="corps-carte">
+        <button class="btn primaire" id="us-det">${ico("rejouer")}Détecter ${idSel ? "le backlog du sprint" : "les US"}</button>`)}<div class="corps-carte">
+      <div class="btns" style="margin-bottom:8px"><label class="lib" for="us-sp">Sprint</label><select class="in" id="us-sp" style="width:auto">
+        <option value="">Toutes les US suivies</option>${options.map(s => `<option value="${esc(s.esp)}|${s.id}" ${SPRINT === `${s.esp}|${s.id}` ? "selected" : ""}>${esc(s.esp)} · ${esc(s.nom)} (${ETAT[s.etat] || s.etat})</option>`).join("")}</select>
+        ${idSel ? `<button class="btn" id="us-fig">Figer le périmètre du sprint</button><button class="btn" id="us-bil">Bilan du sprint</button>` : ""}
+        ${Object.entries(SPRINTS).filter(([, v]) => v.erreur).map(([e, v]) => `<span class="pill warn" title="${esc(v.erreur)}">${esc(e)} : sprints non lus (API agile)</span>`).join("")}</div>
       <p class="lib">Chaque US d'un espace activé doit être comprise, clarifiée puis couverte par au moins un test Xray. Rien n'est écrit dans Jira ni Xray
         sans action explicite. IA : <b>${esc(cfg.ia.fournisseur)}</b> — ${esc(cfg.ia.detail)}.</p>
       <div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin:10px 0">${[[ind.us, "US suivies"], [ind.couvertes, "couvertes"],
         [ind.taux_couverture === null ? "—" : String(ind.taux_couverture).replace(".", ",") + " %", "taux de couverture"], [ind.en_attente_reponse, "en attente de réponse"],
         [ind.non_testables, "non testables"]].map(([v, t]) => `<div class="kpi"><div class="v">${v ?? "—"}</div><div class="l">${t}</div></div>`).join("")}</div>
       ${!cfg.espaces.length ? vide("Aucun espace activé", "« Politique (espaces Jira) » : choisir les projets Jira des squads à suivre.")
-        : l.length ? `<table class="table-strat"><tr><th>US</th><th>Espace</th><th>Résumé</th><th>Statut Jira</th><th>Testabilité</th><th>Constats</th><th>Cas</th><th>Tests liés</th></tr>
+        : l.length ? `<table class="table-strat"><tr><th>US</th><th>Espace</th><th>Sprint</th><th>Résumé</th><th>Statut Jira</th><th>Testabilité</th><th>Constats</th><th>Cas</th><th>Tests liés</th></tr>
           ${l.map(x => `<tr class="cliquable" data-us="${esc(x.cle)}"><td class="cle-xray">${esc(x.cle)}${x.alertes ? ' <span class="pill warn" title="modifiée dans Jira">!</span>' : ""}</td><td>${esc(x.espace)}</td>
+            <td class="lib">${esc((x.sprints || []).join(", ") || "—")}</td>
             <td>${esc(x.resume)}</td><td class="lib">${esc(x.statut_jira)}</td><td><span class="pill ${ST_US[x.statut] || ""}">${esc(x.statut)}</span></td><td>${x.constats}</td><td>${x.cas}</td>
             <td class="mono">${esc((x.tests_lies || []).join(", ") || "—")}</td></tr>`).join("")}</table>`
         : vide("Aucune US détectée", "« Détecter les US » interroge Jira (lecture seule).")}</div>`;
     $("#us-cfg").onclick = () => politiqueUS(cfg);
-    $("#us-det").onclick = async () => { try { const r = await api("/api/testabilite/detecter", {method: "POST", body: {}}); toast(`${r.us} US (${r.nouvelles} nouvelles).`, "ok"); us(z); } catch (e) { toast(e.message, "ko"); } };
+    $("#us-det").onclick = async () => { try { const r = await api("/api/testabilite/detecter", {method: "POST", body: {sprint: idSel}});
+      toast(`${r.us} US (${r.nouvelles} nouvelles${r.retirees ? `, ${r.retirees} retirée(s) du sprint` : ""})${r.sprints.length ? " · " + r.sprints.join(", ") : ""}.`, "ok"); us(z); } catch (e) { toast(e.message, "ko"); } };
+    $("#us-sp").onchange = e => { SPRINT = e.target.value || "-"; us(z); };
+    if ($("#us-fig")) $("#us-fig").onclick = async () => {
+      if (!confirm("Figer le périmètre du sprint (photo immuable du backlog, base du bilan de fin de sprint) ?")) return;
+      try { await api("/api/testabilite/sprints/figer", {method: "POST", body: {espace: espSel, sprint: idSel}}); toast("Périmètre du sprint figé.", "ok"); bilanSprint(espSel, idSel); } catch (e) { toast(e.message, "ko"); }
+    };
+    if ($("#us-bil")) $("#us-bil").onclick = () => bilanSprint(espSel, idSel);
     $("#us-rep").onclick = async () => { try { const r = await api("/api/testabilite/reponses", {method: "POST", body: {}}); toast(`${r.nouvelles} réponse(s) nouvelle(s).`, "ok"); us(z); } catch (e) { toast(e.message, "ko"); } };
     $$("[data-us]", z).forEach(tr => tr.onclick = () => panneauUS(tr.dataset.us, z));
   }
 
+  async function bilanSprint(espace, sprint) {
+    const b = await api(`/api/testabilite/sprints/bilan?espace=${encodeURIComponent(espace)}&sprint=${encodeURIComponent(sprint)}`);
+    const liste = l => l.length ? `<span class="mono">${l.map(esc).join(", ")}</span>` : "<span class='lib'>aucune</span>";
+    modale(`Bilan · ${b.espace} · ${b.nom}`, `<div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">${[[b.us, "US du backlog"], [b.couvertes, "couvertes"],
+      [b.taux_couverture === null ? "—" : String(b.taux_couverture).replace(".", ",") + " %", "couverture"], [b.en_attente_reponse, "en attente de réponse"], [b.tests_crees, "tests créés"]]
+      .map(([v, t]) => `<div class="kpi"><div class="v">${v ?? "—"}</div><div class="l">${t}</div></div>`).join("")}</div>
+      <dl class="props" style="margin-top:10px"><dt>Périmètre figé</dt><dd>${b.fige ? `le ${esc(b.fige.date.replace("T", " ").slice(0, 16))} par ${esc(b.fige.auteur)} (${b.fige.us} US)` : "non figé : pas de comparaison possible"}</dd>
+        <dt>Ajoutées en cours de sprint</dt><dd>${liste(b.ajoutees)}</dd><dt>Retirées en cours de sprint</dt><dd>${liste(b.retirees)}</dd>
+        <dt>Non couvertes</dt><dd>${liste(b.non_couvertes)}</dd><dt>Non testables</dt><dd>${b.non_testables}</dd>
+        <dt>Par statut</dt><dd>${Object.entries(b.par_statut).map(([k, v]) => `<span class="pill ${ST_US[k] || ""}">${esc(k)} · ${v}</span>`).join(" ")}</dd></dl>`);
+  }
+
   function politiqueUS(cfg) {
     const ligne = e => `<tr><td><b>${esc(e.projet_jira)}</b> ${e.actif ? '<span class="pill ok">actif</span>' : '<span class="pill">inactif</span>'}</td><td>${esc(e.nom)}</td>
-      <td>${esc((e.types_issue || []).join(", "))}</td><td>${esc((e.statuts || []).join(", ") || "non terminées")}</td><td>${esc(e.projet_xray)}</td><td>${esc(e.type_test)} · ${e.min_tests} min.</td>
+      <td>${esc((e.types_issue || []).join(", "))}</td><td>${esc(cfg.portees[e.portee || "sprint"] || e.portee)}${e.portee === "statuts" ? ` : ${esc((e.statuts || []).join(", ") || "non terminées")}` : ""}</td><td>${esc(e.projet_xray)}</td><td>${esc(e.type_test)} · ${e.min_tests} min.</td>
       <td><button class="btn petit danger" data-sup="${esc(e.projet_jira)}">Retirer</button></td></tr>`;
     const m = modale("Politique de testabilité des US", `<p class="lib">Espaces Jira (projets des squads) dont chaque US doit être couverte par des tests du projet Xray cible.</p>
-      ${cfg.espaces.length ? `<table><tr><th>Projet Jira</th><th>Nom</th><th>Types</th><th>Statuts déclencheurs</th><th>Xray</th><th>Tests</th><th></th></tr>${cfg.espaces.map(ligne).join("")}</table>` : ""}
+      ${cfg.espaces.length ? `<table><tr><th>Projet Jira</th><th>Nom</th><th>Types</th><th>Portée</th><th>Xray</th><th>Tests</th><th></th></tr>${cfg.espaces.map(ligne).join("")}</table>` : ""}
       <h3 class="lib" style="margin-top:12px">AJOUTER / MODIFIER UN ESPACE</h3><div class="grille-2">
         <div class="champ"><label for="es-pj">Projet Jira de la squad</label><input class="in" id="es-pj" placeholder="SQUAD1"></div>
         <div class="champ"><label for="es-nom">Nom</label><input class="in" id="es-nom" placeholder="Squad Cartes"></div>
         <div class="champ"><label for="es-ty">Types de ticket (virgules)</label><input class="in" id="es-ty" value="Story"></div>
-        <div class="champ"><label for="es-st">Statuts déclencheurs (virgules ; vide = non terminées)</label><input class="in" id="es-st" placeholder="Ready, To Do"></div>
+        <div class="champ"><label for="es-po">Portée (le backlog du sprint est le périmètre de test)</label><select class="in" id="es-po">${Object.entries(cfg.portees).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
+        <div class="champ"><label for="es-st">Statuts (portée « statuts » seulement ; vide = non terminées)</label><input class="in" id="es-st" placeholder="Ready, To Do"></div>
         <div class="champ"><label for="es-x">Projet Xray cible</label><input class="in" id="es-x" value="${esc(Atelier.ctx.projet_xray || "")}"></div>
         <div class="champ"><label for="es-tt">Type de test créé</label><select class="in" id="es-tt"><option>Manual</option><option>Cucumber</option></select></div>
         <div class="champ"><label for="es-min">Tests minimum par US</label><input class="in" type="number" min="1" id="es-min" value="1"></div>
@@ -176,8 +208,8 @@
     const liste = v => v.split(",").map(x => x.trim()).filter(Boolean);
     $("#es-ok", m.el).onclick = async () => {
       try { await api("/api/testabilite/espaces", {method: "POST", body: {projet_jira: $("#es-pj", m.el).value, nom: $("#es-nom", m.el).value, types_issue: liste($("#es-ty", m.el).value),
-          statuts: liste($("#es-st", m.el).value), projet_xray: $("#es-x", m.el).value, type_test: $("#es-tt", m.el).value, min_tests: +$("#es-min", m.el).value, jql_complement: $("#es-jql", m.el).value, actif: true}});
-        m.fermer(); toast("Espace enregistré.", "ok"); location.hash = "conception/us"; Atelier.ouvrir(); } catch (e) { toast(e.message, "ko"); }
+          statuts: liste($("#es-st", m.el).value), portee: $("#es-po", m.el).value, projet_xray: $("#es-x", m.el).value, type_test: $("#es-tt", m.el).value, min_tests: +$("#es-min", m.el).value, jql_complement: $("#es-jql", m.el).value, actif: true}});
+        m.fermer(); SPRINTS = null; toast("Espace enregistré.", "ok"); location.hash = "conception/us"; Atelier.ouvrir(); } catch (e) { toast(e.message, "ko"); }
     };
     $$("[data-sup]", m.el).forEach(b => b.onclick = async () => { await api("/api/testabilite/espaces/supprimer", {method: "POST", body: {projet_jira: b.dataset.sup}}); m.fermer(); Atelier.ouvrir(); });
   }
