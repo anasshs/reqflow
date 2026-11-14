@@ -25,6 +25,11 @@ def test_classement_et_politique(app):
     assert c.classer(_el("bouton_virement", "Nouveau virement"))["classe"] == "sensitive"
     assert c.classer(_el("champ_montant", "Montant", "champ"))["classe"] == "controlled"
     assert c.classer(_el("lien_comptes", "Mes comptes", "lien"))["classe"] == "safe"
+    # un menu ou un lien vers un sujet sensible reste de la navigation ; l'action sur ce sujet est sensible
+    assert c.classer(_el("lien_virements", "Virements", "lien"))["classe"] == "safe"
+    assert c.classer(_el("lien_beneficiaires", "Mes bénéficiaires", "lien"))["classe"] == "safe"
+    assert c.classer(_el("bouton_ajout", "Ajouter un bénéficiaire"))["classe"] == "sensitive"
+    assert c.classer(_el("champ_montant_virement", "Montant du virement", "champ"))["classe"] == "controlled"
     # exploration / suggestion : safe uniquement
     assert not c.autorise(_el("champ_montant", "Montant", "champ"), "exploration")["autorise"]
     # guidé, environnement non déclaré : safe + controlled ; sensible refusée
@@ -104,7 +109,7 @@ def test_suggestions_safe_et_ia_bornee(app, monkeypatch):
     from atelier.intelligence import fournisseur_ia
 
     e0 = app.observer([_el("lien_comptes", "Mes comptes", "lien"), _el("lien_aide", "Aide", "lien")], "web", "https://recette.exemple.fr/")
-    els = [_el("lien_comptes", "Mes comptes", "lien"), _el("lien_aide", "Aide", "lien"), _el("bouton_virement", "Virement"),
+    els = [_el("lien_comptes", "Mes comptes", "lien"), _el("lien_aide", "Aide", "lien"), _el("bouton_virement", "Nouveau virement"),
            _el("bouton_deconnexion", "Se déconnecter"), _el("champ_iban", "IBAN FR7612345678901234567890123", "champ")]
     monkeypatch.setattr(fournisseur_ia, "configure", lambda: False)
     r = assistance.suggerer(els, e0, "web")

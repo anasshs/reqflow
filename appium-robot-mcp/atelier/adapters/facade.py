@@ -497,6 +497,18 @@ def discovery_proposer(nature: str, libelle: str, ecran: str = "", description: 
 
 
 @outil
+def discovery_parcours_vers_bdd(ecrans: list | None = None, parcours: str = "", titre: str = "") -> dict:
+    """Crée dans Test Design un brouillon de scénario BDD depuis la carte : soit une suite ordonnée d'écrans
+    (identifiants ou noms), soit un parcours du Knowledge Graph (ex. « parcours:virement_interne »). Étapes reliées
+    aux écrans et locators connus, données par le jeu de données, actions sensibles signalées. À relire et valider
+    dans l'atelier avant l'automatisation."""
+    from atelier.generation import parcours_bdd
+
+    r = parcours_bdd.brouillon(ecrans=ecrans or None, parcours=parcours, titre=titre)
+    return {k: r[k] for k in ("cle", "titre", "gherkin", "locators", "donnees", "avertissements")}
+
+
+@outil
 def discovery_terminer() -> dict:
     """Termine la session Discovery en cours : résultats (nouveaux écrans, transitions, comportements, endpoints,
     actions refusées) et propositions en attente de validation."""

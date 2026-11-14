@@ -280,8 +280,9 @@
       $("#df-corps", F).innerHTML = `<h3>Session ${esc(s.id)} terminée</h3>
         <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">${[[r.nouveaux_ecrans, "nouveaux écrans"], [r.nouvelles_transitions, "nouvelles transitions"], [r.ecrans_visites, "écrans visités"],
           [r.comportements ?? 0, "comportements"], [(r.endpoints || []).length, "endpoints"], [r.refus ?? 0, "actions refusées"]].map(([v, l]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("")}</div>
-        <div class="btns"><a class="btn primaire" href="#discovery/resultats">Voir les résultats</a><a class="btn" href="#discovery/validation">Nommer les écrans</a><button class="btn" id="df-encore">Nouvelle Discovery</button></div>`;
+        <div class="btns"><a class="btn primaire" href="#discovery/resultats">Voir les résultats</a><a class="btn" href="#discovery/validation">Nommer les écrans</a><button class="btn" id="df-bdd">Créer le test BDD de ce parcours</button><button class="btn" id="df-encore">Nouvelle Discovery</button></div>`;
       $("#df-encore", F).onclick = choisir;
+      $("#df-bdd", F).onclick = () => window.DiscoveryVersBdd ? window.DiscoveryVersBdd({session: s.id}) : toast("Ouvrir l'onglet Discovery.", "ko");
     } catch (e) { toast(e.message, "ko"); }
   }
 

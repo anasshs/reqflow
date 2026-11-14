@@ -1382,6 +1382,29 @@ async def discovery_decider(req: Request):
     return r
 
 
+@app.post("/api/discovery/parcours-bdd")
+async def discovery_parcours_bdd(req: Request):
+    """Brouillon de scénario BDD (Test Design) depuis un chemin d'écrans, un parcours du KG ou une session."""
+    from atelier.generation import parcours_bdd
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, parcours_bdd.brouillon, b.get("ecrans") or None, b.get("parcours", ""), b.get("session", ""),
+                                b.get("titre", ""), b.get("plateforme", ""))
+    emit({"type": "bdd_change", "cle": r["cle"]})
+    return r
+
+
+@app.get("/api/discovery/parcours")
+def discovery_parcours():
+    """Parcours du Knowledge Graph (nœuds « parcours ») et leurs écrans."""
+    from atelier.discovery import connaissance
+
+    g = _call(connaissance.construire)
+    return [{"id": n.id, "libelle": n.libelle, "statut": n.statut, "source": n.source,
+             "ecrans": [r.vers.split(":", 1)[1] for r in g.sortants(n.id) if r.type == "contient" and r.vers.startswith("ecran:")]}
+            for n in g.noeuds.values() if n.type == "parcours"]
+
+
 @app.get("/api/discovery/comparer")
 def discovery_comparer(a: str, b: str):
     return _call(sessions_discovery.comparer, a, b)

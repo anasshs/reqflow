@@ -55,6 +55,12 @@ propositions à valider. Règle Cursor : `cursor_rules_discovery.mdc`.
 | `discovery_ecran_courant` | écran, éléments avec classe et autorisation, textes affichés, actions à essayer, pistes |
 | `discovery_proposer` | nom d'écran + module, fonctionnalité, parcours, règle, action, rôle, entité, lien vers une exigence |
 | `discovery_terminer` | résultats de la session et propositions en attente |
+| `discovery_parcours_vers_bdd` | brouillon de scénario BDD (Test Design) depuis une suite d'écrans ou un parcours du KG |
+
+**Du parcours au test** (atelier/generation/parcours_bdd.py) : depuis un chemin (Navigation Explorer), un parcours du
+Knowledge Graph ou une session (Discovery Results, fin de session dans la fenêtre), brouillon Gherkin français
+relié aux écrans et locators de la carte, champs renseignés « avec le jeu de données » (aucune donnée littérale),
+actions sensibles signalées (tag action_sensible). Étapes non validées : chaîne habituelle ensuite.
 
 - Pendant une session en cours, `tap` et `type_text` du MCP passent par le classement : interdites et
   sensibles refusées à l'agent (la confirmation d'une action sensible est humaine), contrôlées selon
@@ -71,7 +77,7 @@ propositions à valider. Règle Cursor : `cursor_rules_discovery.mdc`.
 |---|---|---|---|
 | Safe | lien, bouton de navigation | oui | oui |
 | Controlled | champ, case à cocher | jamais | selon l'environnement (défaut : oui) |
-| Sensitive | virement, bénéficiaire, plafond, élément marqué sensible | jamais | seulement si l'environnement l'autorise ET après confirmation |
+| Sensitive | action sur un sujet sensible (« Nouveau virement », « Ajouter un bénéficiaire »), élément marqué sensible ; un menu « Virements » reste Safe | jamais | seulement si l'environnement l'autorise ET après confirmation |
 | Forbidden | liste rouge, actions interdites de la session | jamais | jamais, sur aucun environnement |
 
 ## Reste à faire

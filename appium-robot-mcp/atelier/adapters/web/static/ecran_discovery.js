@@ -144,13 +144,22 @@
       <dl class="props"><dt>Écran de départ</dt><dd>${esc((n.noms || {})[n.depart] || "—")}</dd><dt>Impasses (aucune sortie)</dt><dd>${liste(n.impasses)}</dd><dt>Isolés (aucune entrée)</dt><dd>${liste(n.isoles)}</dd></dl>
       <div class="btns" style="margin:10px 0"><label class="lib" for="nv-v">Chemin le plus fiable vers</label><select class="in" id="nv-v" style="width:auto">${Object.entries(n.noms || {}).map(([i, nom]) => `<option value="${esc(i)}">${esc(nom)}</option>`).join("")}</select>
         <button class="btn" id="nv-go">Calculer</button><span id="nv-res" class="lib"></span></div>
+      <h3 class="lib">PARCOURS DU KNOWLEDGE GRAPH → TESTS</h3><div id="nv-parcours" class="lib">…</div>
       ${n.transitions.length ? `<table class="table-strat"><tr><th>De</th><th>Action</th><th>Vers</th><th>Plateforme</th><th>Fiabilité</th><th>Essais</th><th>Source</th></tr>
         ${n.transitions.map(t => `<tr><td>${esc(t.de_nom)}</td><td>${esc(t.label || t.type)}</td><td>${esc(t.vers_nom)}</td><td>${esc(t.plateforme)}</td>
           <td><span class="pill ${t.interdite ? "ko" : t.fiabilite >= 0.8 ? "ok" : "warn"}">${t.interdite ? "interdite" : Math.round(t.fiabilite * 100) + " %"}</span></td><td>${t.essais}</td><td class="lib">${esc(t.source || "")}</td></tr>`).join("")}</table>`
         : vide("Aucune transition", "Les transitions sont enregistrées pendant les sessions (navigation, exploration, tests cartographiés).")}</div>`;
     $("#nv-go").onclick = async () => { try { const c = await api("/api/discovery/chemin?vers=" + encodeURIComponent($("#nv-v").value));
-      $("#nv-res").textContent = !c.trouve ? "aucun chemin connu" : !c.etapes.length ? "c'est l'écran de départ" : c.etapes.map(e => (n.noms[e.de] || e.de) + " → " + (e.action?.libelle || e.action?.cle || e.action?.type)).join(" · ") + " → " + (n.noms[c.vers] || c.vers); }
+      $("#nv-res").innerHTML = !c.trouve ? "aucun chemin connu" : !c.etapes.length ? "c'est l'écran de départ" : esc(c.etapes.map(e => (n.noms[e.de] || e.de) + " → " + (e.action?.libelle || e.action?.cle || e.action?.type)).join(" · ") + " → " + (n.noms[c.vers] || c.vers))
+        + ` <button class="btn petit primaire" id="nv-bdd">Créer le brouillon BDD de ce chemin</button>`;
+      if ($("#nv-bdd")) $("#nv-bdd").onclick = () => versBdd({ecrans: [c.depuis, c.vers]}); }
       catch (e) { toast(e.message, "ko"); } };
+    api("/api/discovery/parcours").then(l => { const zp = $("#nv-parcours"); if (!zp) return;
+      zp.innerHTML = l.length ? `<table class="table-strat"><tr><th>Parcours</th><th>Écrans</th><th>Statut</th><th>Source</th><th></th></tr>${l.map(p => `<tr><td><b>${esc(p.libelle)}</b></td><td class="lib">${esc(p.ecrans.join(" · "))}</td>
+        <td><span class="pill ${p.statut === "validé" ? "ok" : "warn"}">${esc(p.statut)}</span></td><td class="lib">${esc(p.source)}</td>
+        <td><button class="btn petit" data-pbdd="${esc(p.id)}" ${p.ecrans.length > 1 ? "" : "disabled"}>Créer le brouillon BDD</button></td></tr>`).join("")}</table>`
+        : "<p class='lib'>Aucun parcours dans le Knowledge Graph : Cursor / Claude les proposent pendant la Discovery (discovery_proposer, nature parcours).</p>";
+      $$("[data-pbdd]", zp).forEach(b => b.onclick = () => versBdd({parcours: b.dataset.pbdd})); }).catch(() => {});
     recherche(z);
   }
 
@@ -234,9 +243,11 @@
       ${r ? `${kpis([[r.ecrans_visites, "écrans visités"], [r.nouveaux_ecrans, "nouveaux écrans"], [r.ecrans_modifies, "écrans modifiés"], [r.composants_ajoutes, "composants ajoutés"], [r.nouvelles_transitions, "nouvelles transitions"], [r.actions, "actions"], [r.comportements ?? 0, "comportements"], [(r.endpoints || []).length, "endpoints observés"]])}
         <div class="grille-2"><section class="bloc-strat"><h3>Nouveaux écrans</h3><ul class="liste">${r.nouveaux.map(e => `<li><button class="lien item" data-e="${esc(e.id)}">${esc(e.nom)}</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul></section>
           <section class="bloc-strat"><h3>Écrans modifiés</h3><ul class="liste">${r.modifies.map(e => `<li><button class="lien item" data-e="${esc(e.id)}">${esc(e.nom)}</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul></section></div>
+        <div class="btns" style="margin:8px 0"><button class="btn primaire" id="rs-bdd">Du parcours de la session au test (brouillon BDD)</button></div>
         <p class="lib">Annotations : ${r.annotations} · étapes sensibles : ${r.sensibles}. Les éléments découverts arrivent dans le Knowledge Graph avec leur provenance ; les noms et rapprochements se valident dans <a href="#discovery/validation">Discovery Validation</a>.</p>`
         : vide("Session pas encore démarrée")}</div>`;
     $("#rs-s").onchange = e => { SESSION = e.target.value; resultats(z); };
+    if ($("#rs-bdd")) $("#rs-bdd").onclick = () => versBdd({session: SESSION, titre: s.config.perimetre || ""});
     $$("[data-e]", z).forEach(b => b.onclick = () => { ECRAN = b.dataset.e; location.hash = "discovery/composants"; });
   }
 
@@ -290,9 +301,9 @@
       <h3 class="lib">CLASSEMENT DES ACTIONS</h3>
       <dl class="props"><dt>${pillClasse("safe")}</dt><dd>Navigation (bouton, lien, onglet) : seule classe touchée par l'exploration autonome et les suggestions.</dd>
         <dt>${pillClasse("controlled")}</dt><dd>Saisie ou sélection (champ, case) : jamais en exploration ; depuis le Studio selon l'environnement.</dd>
-        <dt>${pillClasse("sensitive")}</dt><dd>Action métier à conséquence (motifs ci-dessous, ou élément classé sensible) : uniquement sur un environnement qui l'autorise, après confirmation.</dd>
+        <dt>${pillClasse("sensitive")}</dt><dd>Action métier à conséquence : un sujet sensible (motifs ci-dessous) avec un verbe d'action (effectuer, confirmer, ajouter, supprimer, modifier, nouveau…), ou élément classé sensible. Uniquement sur un environnement qui l'autorise, après confirmation. Un menu ou un lien vers le sujet (« Virements ») reste de la navigation.</dd>
         <dt>${pillClasse("forbidden")}</dt><dd>Liste rouge : jamais exécutée par l'atelier, sur aucun environnement.</dd></dl>
-      <div class="champ"><label for="dp-sens">Motifs sensibles (expressions régulières, une par ligne)</label><textarea class="in mono" id="dp-sens" rows="5">${esc((cl?.sensibles || []).join("\n"))}</textarea></div>
+      <div class="champ"><label for="dp-sens">Sujets sensibles (expressions régulières, une par ligne) : sensibles seulement avec un verbe d'action</label><textarea class="in mono" id="dp-sens" rows="5">${esc((cl?.sensibles || []).join("\n"))}</textarea></div>
       <h3 class="lib">ACTIONS AUTORISÉES PAR ENVIRONNEMENT (depuis le Studio)</h3>
       <p class="lib">Environnement non déclaré : ${(cl?.politique_defaut || []).map(pillClasse).join(" ")}.</p>
       <table class="table-strat" id="dp-envs"><tr><th>Environnement</th><th>Safe</th><th>Controlled</th><th>Sensitive</th><th>Forbidden</th></tr>${envs.map(ligneEnv).join("")}</table>
@@ -315,6 +326,23 @@
     };
     $("#dp-ok").onclick = async () => { try { await api("/api/apps/maj", {method: "POST", body: {slug: app.slug, liste_rouge: $("#dp-rouge").value.split("\n")}}); toast("Liste rouge enregistrée.", "ok"); } catch (e) { toast(e.message, "ko"); } };
   }
+
+  /* du parcours découvert au brouillon de scénario BDD (Test Design) */
+  async function versBdd(source) {
+    const titre = prompt("Titre du scénario (vide = généré depuis les écrans) :", source.titre || "");
+    if (titre === null) return;
+    try {
+      const r = await api("/api/discovery/parcours-bdd", {method: "POST", body: {...source, titre}});
+      const m = modale(`Brouillon BDD ${r.cle}`, `<p>${r.etapes} étape(s) · locators connus ${r.locators.connus}, manquants ${r.locators.manquants} · données du jeu : ${esc(r.donnees.join(", ") || "aucune")}</p>
+        ${r.avertissements.length ? `<ul class="liste">${r.avertissements.map(a => `<li class="warn-t">${esc(a)}</li>`).join("")}</ul>` : ""}
+        <pre class="mono" style="white-space:pre-wrap;font-size:12px">${esc(r.gherkin)}</pre>
+        <p class="lib">Étapes à relire et valider dans Test Design ; ensuite : jeu de données, génération Robot, 3 exécutions stables et revue, merge request, publication Xray.</p>`,
+        `<a class="btn primaire" href="#bdd/${encodeURIComponent(r.cle)}">Ouvrir dans Test Design</a>`);
+      const lien = m.el.querySelector('a[href^="#bdd/"]');
+      if (lien) lien.onclick = () => m.fermer();
+    } catch (e) { toast(e.message, "ko"); }
+  }
+  window.DiscoveryVersBdd = versBdd;
 
   /* recherche simple dans la table de l'écran */
   function recherche(z) {

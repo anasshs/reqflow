@@ -1,8 +1,10 @@
 """Classement des actions de l'application (cahier Discovery : Safe / Controlled / Sensitive / Forbidden).
 
 - **forbidden** (interdite)  : liste rouge de l'application ; jamais exécutée par l'atelier, en aucun mode ;
-- **sensitive** (sensible)   : action métier à conséquence (virement, paiement, bénéficiaire, plafond…) ou marquée
-  sensible pendant une session ; exécutée seulement sur un environnement qui l'autorise ET après confirmation
+- **sensitive** (sensible)   : action métier à conséquence, c.-à-d. un sujet sensible (virement, paiement,
+  bénéficiaire, plafond…) ET un verbe d'action (effectuer, confirmer, ajouter, supprimer, modifier, nouveau…), ou
+  élément marqué sensible pendant une session. Un menu, un onglet ou un lien qui ne fait que naviguer vers le sujet
+  (« Virements », « Mes bénéficiaires ») reste de la navigation ; exécutée seulement sur un environnement qui l'autorise ET après confirmation
   explicite ; jamais par l'exploration autonome ni sur suggestion de l'IA ;
 - **controlled** (contrôlée) : saisie ou sélection (champ, case à cocher) : faite à la main, jamais par l'exploration ;
 - **safe** (sûre)            : navigation (bouton, lien, onglet, élément de liste) : seule classe que l'exploration
@@ -23,6 +25,11 @@ SENSIBLES_DEFAUT = [
     r"mot de passe", r"code secret", r"\botp\b", r"cl[ée] de s[ée]curit", r"ajouter un", r"modifier",
 ]
 CONTROLES = ("champ", "case")
+# verbes (et marques) d'action : sans l'un d'eux, un sujet sensible n'est qu'une destination de navigation
+VERBES_ACTION = re.compile(
+    r"effectu|confirm|valid|envoy|\bpa(y|i)(e|er|ez)\b|r[eè]gl(er|ez)\b|ajout|supprim|modifi|enregistr|souscri|sign|transf[eé]r|[eé]met|"
+    r"oppos|bloqu|d[ée]bloqu|r[ée]sili|accept|command|recharg|initi|programm|nouveau|nouvelle|cr[ée]er|activer|d[ée]sactiver|"
+    r"changer|r[ée]initialis|annuler|retirer|verser|ordonn", re.I)
 # classes autorisées en guidé (action déclenchée depuis le Studio) quand l'environnement n'est pas déclaré
 POLITIQUE_DEFAUT = ["safe", "controlled"]
 CONTEXTES = ("exploration", "suggestion", "guidee")
@@ -92,10 +99,13 @@ def classer(element: dict, app: str | None = None, r: dict | None = None) -> dic
     if manuel:
         return {"classe": manuel, "raison": "classement manuel"}
     motif = next((m for m in r["sensibles"] if re.search(m, txt, re.I)), None)
-    if motif:
-        return {"classe": "sensitive", "raison": f"motif sensible « {motif} »"}
+    verbe = VERBES_ACTION.search(txt)
+    if motif and verbe:
+        return {"classe": "sensitive", "raison": f"action « {verbe.group(0)} » sur un sujet sensible (« {motif} »)"}
     if element.get("type") in CONTROLES:
         return {"classe": "controlled", "raison": "saisie ou sélection"}
+    if motif:
+        return {"classe": "safe", "raison": f"navigation vers un sujet sensible (« {motif} »), sans action"}
     return {"classe": "safe", "raison": "navigation"}
 
 
