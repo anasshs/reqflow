@@ -604,9 +604,11 @@ async function choisirTest(cle) {
   $("#t-titre").textContent = cle; $("#t-apercu").innerHTML = `<p class="muted">Lecture du test dans Xray…</p>`;
   let t; try { t = await api("/api/xray/test/" + cle); } catch (e) { $("#t-apercu").innerHTML = `<p>${esc(e.message)}</p>`; return; }
   S.testChoisi = t; renderTests();
-  const scen = t.gherkin || (t.etapes || []).map((s, i) => `${i + 1}. ${s.action}${s.data ? " — " + s.data : ""}${s.result ? " → " + s.result : ""}`).join("\n") || t.generique || "Aucune étape décrite.";
+  const scen = t.scenario || t.gherkin || (t.etapes || []).map((s, i) => `${i + 1}. ${s.action}${s.data ? " — " + s.data : ""}${s.result ? " → " + s.result : ""}`).join("\n") || t.generique
+    || `Aucune étape trouvée : ni Gherkin / étapes / définition dans Xray (type ${t.type || "?"}), ni scénario dans Construction BDD, ni Given / When / Then dans la description Jira.`;
   const envs = (await api("/api/jdd").catch(() => ({environnements: []}))).environnements;
-  $("#t-apercu").innerHTML = `<b>${esc(t.resume)}</b><pre class="code">${esc(scen)}</pre>
+  $("#t-apercu").innerHTML = `<b>${esc(t.resume)}</b> <span class="small muted">${esc(t.type || "")}${t.source_scenario ? " · scénario : " + esc(t.source_scenario) : ""}</span>
+    ${t.avertissement ? `<p class="small" style="color:var(--warn,#b45309)">${esc(t.avertissement)}</p>` : ""}<pre class="code">${esc(scen)}</pre>
     <div class="row"><div><label for="c-plat">Plateforme</label><select id="c-plat">${Object.entries(PLAT).map(([k, v]) => `<option value="${k}" ${k === S.plat ? "selected" : ""}>${v}</option>`).join("")}</select></div>
       <div><label for="c-env">Données</label><select id="c-env"><option value="">aucune</option>${envs.map(e => `<option>${esc(e)}</option>`).join("")}</select></div></div>
     <label for="c-jeu">Jeu de données</label><select id="c-jeu"><option value="">—</option></select>

@@ -357,3 +357,37 @@ def test_application_par_champ_personnalise_du_mapping(tmp_path, monkeypatch):
     assert [t["cle"] for t in px.charger_vue()["tests"]] == ["TAM-1", "TAM-2"]
     f = px.filtre_application()
     assert f["champ"] == "personnalise" and f["champ_jira"] == "customfield_10050" and f["valeurs"] == ["mobile"]
+
+
+
+def test_scenario_de_construire_toutes_sources(demo, monkeypatch):
+    """Construire : Gherkin Xray, sinon scénario BDD de l'atelier, sinon étapes, définition, description Jira ;
+    Xray injoignable : copie locale, avec avertissement."""
+    from atelier.intelligence import patrimoine
+
+    class X:
+        reponse = []
+
+        def __init__(self):
+            pass
+
+        def gql(self, q, v):
+            if isinstance(X.reponse, Exception):
+                raise X.reponse
+            return {"getTests": {"results": X.reponse}}
+
+    monkeypatch.setattr(patrimoine, "XrayClient", X)
+    adf = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Given un client\nWhen il se connecte\nThen il voit l'accueil"}]}]}
+    X.reponse = [{"testType": {"name": "Manual"}, "steps": [], "gherkin": None, "jira": {"key": "DEMO-301", "summary": "s", "description": adf}}]
+    t = patrimoine.xray_get_test("demo-301")
+    assert t["source_scenario"] == "Construction BDD de l'atelier" and "Given" in t["scenario"]  # DEMO-301 a un scénario dans bdd/
+    X.reponse = [{"testType": {"name": "Manual"}, "steps": [], "gherkin": None, "jira": {"key": "DEMO-999", "summary": "s", "description": adf}}]
+    t = patrimoine.xray_get_test("DEMO-999")
+    assert t["source_scenario"] == "description Jira (Given / When / Then)" and "il se connecte" in t["scenario"]
+    X.reponse = [{"testType": {"name": "Cucumber"}, "gherkin": "Given x\nThen y", "jira": {"key": "DEMO-301"}}]
+    assert patrimoine.xray_get_test("DEMO-301")["source_scenario"] == "Xray (test Cucumber)"
+    X.reponse = RuntimeError("HTTP 502")
+    t = patrimoine.xray_get_test("DEMO-301")
+    assert "copie locale" in t["avertissement"] and t["scenario"]
+    with pytest.raises(KeyError):
+        patrimoine.xray_get_test("DEMO-404")
