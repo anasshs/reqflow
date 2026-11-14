@@ -1273,6 +1273,23 @@ async def discovery_correlation_gitlab(req: Request):
     return await asyncio.to_thread(_call, correlation.commits_gitlab, (await req.json()).get("fichiers") or [])
 
 
+@app.get("/api/discovery/propositions")
+def discovery_propositions(session: str = ""):
+    from atelier.discovery import apprentissage
+
+    return _call(apprentissage.propositions, session)
+
+
+@app.post("/api/discovery/propositions/decider")
+async def discovery_decider(req: Request):
+    from atelier.discovery import apprentissage
+
+    b = await req.json()
+    r = _call(apprentissage.decider, b.get("id", ""), bool(b.get("valider")), b.get("motif", ""))
+    emit({"type": "carte_change"})
+    return r
+
+
 @app.get("/api/discovery/comparer")
 def discovery_comparer(a: str, b: str):
     return _call(sessions_discovery.comparer, a, b)

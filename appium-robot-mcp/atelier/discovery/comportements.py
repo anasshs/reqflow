@@ -60,11 +60,17 @@ def proposer_regles(comportements: list[dict], ecran: str = "") -> list[str]:
         try:
             declarations.ajouter_noeud(rid, "regle", c["detail"][:120],
                                        description=f"Message observé pendant une session Discovery après « {c.get('action') or 'action'} ».",
-                                       proprietes={"origine": "discovery", "ecran": ecran, "action": c.get("action", "")},
+                                       proprietes={"origine": "discovery", "ecran": ecran, "action": c.get("action", ""),
+                                                   "source_libelle": "observé pendant la Discovery"},
                                        auteur="ia")
             crees.append(rid)
         except (FileExistsError, PermissionError):
-            pass
+            continue
+        if ecran:
+            try:
+                declarations.ajouter_relation(f"ecran:{ecran}", rid, "contient", auteur="ia", source="observé pendant la Discovery")
+            except (PermissionError, ValueError):
+                pass
     return crees
 
 

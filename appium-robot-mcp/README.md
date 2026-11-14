@@ -254,6 +254,9 @@ Pas besoin de clé API Claude dans ce mode.
    (déjà dans `cursor_mcp.example.json`).
 3. Copier `cursor_rules_automatisation.mdc` dans `.cursor/rules/` du projet de tests : Cursor
    y trouve les conventions et la méthode.
+   Pour découvrir une application avec Cursor, copier aussi `cursor_rules_discovery.mdc` : Cursor démarre une
+   session Discovery (`discovery_demarrer`), explore avec `discovery_ecran_courant`, dépose ce qu'il comprend
+   avec `discovery_proposer` (à valider dans l'atelier) et termine avec `discovery_terminer`.
 4. Dans Cursor : « Automatise ATTIJARI-200 sur Android avec le jeu VIREMENT_STANDARD (recette). »
 
 Ce que tu vois dans la page pendant que Cursor travaille :

@@ -44,6 +44,27 @@ contrats OpenAPI, déclarations. **Jira et Xray ne sont jamais interrogés en di
 synchroniser Jira / importer les définitions Xray ; chaque ligne porte son action de mise à jour,
 et le bouton **Lancer une Discovery** ouvre le Studio.
 
+## Discovery piloté par Cursor / Claude (MCP)
+
+L'atelier observe la mécanique (écrans, transitions, locators, réseau) ; l'agent apporte le sens, toujours en
+propositions à valider. Règle Cursor : `cursor_rules_discovery.mdc`.
+
+| Outil MCP | Rôle |
+|---|---|
+| `discovery_demarrer` | session Discovery sur la plateforme de la session ouverte |
+| `discovery_ecran_courant` | écran, éléments avec classe et autorisation, textes affichés, actions à essayer, pistes |
+| `discovery_proposer` | nom d'écran + module, fonctionnalité, parcours, règle, action, rôle, entité, lien vers une exigence |
+| `discovery_terminer` | résultats de la session et propositions en attente |
+
+- Pendant une session en cours, `tap` et `type_text` du MCP passent par le classement : interdites et
+  sensibles refusées à l'agent (la confirmation d'une action sensible est humaine), contrôlées selon
+  l'environnement ; les comportements observés sont enregistrés. Hors session : comportement historique
+  (construction de tests), signatures inchangées.
+- Knowledge Graph : chaque proposition porte sa provenance (« Cursor (MCP) · session DS-… ») ; les règles
+  observées sont reliées à leur écran ; chaque locator porte la classe de son action ; les noms d'écran
+  proposés sont visibles sur l'écran. Validation / rejet dans la fenêtre Discovery ou Discovery › Validation ;
+  un rejet est définitif (jamais reproposé).
+
 ## Classement des actions (atelier/discovery/classement.py)
 
 | Classe | Exemple | Exploration autonome / suggestions | Depuis le Studio |

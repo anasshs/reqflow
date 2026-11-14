@@ -231,7 +231,7 @@ def appliquer(g: Graphe, data: dict | None = None) -> Graphe:
         g.noeud(id, n["type"], n["libelle"], proprietes={**(n.get("proprietes") or {}),
                                                          "description": n.get("description", "")},
                 plateformes=n.get("plateformes") or [], provenance=n.get("provenance", "déclaré"),
-                source="déclaration", statut=n.get("statut", "validé"),
+                source=(n.get("proprietes") or {}).get("source_libelle") or "déclaration", statut=n.get("statut", "validé"),
                 confiance=1.0 if n.get("provenance") != "déduit" else 0.5)
     for id, champs in data["modifications"].items():
         n = g.noeuds.get(id)

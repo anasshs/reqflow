@@ -68,6 +68,12 @@ def _depuis_carte(g: Graphe):
     if cfg.get("build"):
         g.noeud(f"version:{cfg['build']}", "version", f"Build {cfg['build']}", source="carte")
         g.relier(app.id, f"version:{cfg['build']}", "contient", source="carte")
+    try:
+        from atelier.discovery import classement
+
+        regles_cl = classement.regles()
+    except Exception:  # noqa: BLE001
+        classement, regles_cl = None, None
     par_id = {}
     for e in ecrans:
         eid = _id_ecran(e)
@@ -75,7 +81,8 @@ def _depuis_carte(g: Graphe):
         plats = sorted((e.get("plateformes") or {}).keys())
         n = g.noeud(eid, "ecran", e.get("nom") or e.get("titre") or e["id"], source="carte", plateformes=plats,
                     proprietes={"id_carte": e["id"], "titre": e.get("titre", ""), "a_revoir": e.get("a_revoir", False),
-                                "etats": len(e.get("etats", []))},
+                                "etats": len(e.get("etats", [])),
+                                "noms_proposes": [f"{p['nom']} ({p.get('source', '')})" for p in e.get("propositions_nom") or []]},
                     confiance=1.0 if e.get("nom") else 0.8)
         if e.get("module"):
             g.noeud(f"module:{e['module']}", "module", e["module"], source="carte")
@@ -84,13 +91,16 @@ def _depuis_carte(g: Graphe):
         else:
             g.relier(app.id, n.id, "contient", source="carte")
         for cle, el in (e.get("elements") or {}).items():
+            classe = classement.classer({"key": cle, "type": el.get("type"), "libelle": el.get("libelle", "")}, r=regles_cl)["classe"] \
+                if classement else ""
             for plat, locs in (el.get("locators") or {}).items():
                 if not locs:
                     continue
                 lid = f"locator:{e.get('nom') or e['id']}.{cle}@{plat}"
                 g.noeud(lid, "locator", cle, source="carte", plateformes=[plat],
                         proprietes={"valeur": locs[0], "secours": locs[1:], "plateforme": plat,
-                                    "fiabilite": carte.robustesse(locs[0]), "libelle_ecran": el.get("libelle", "")})
+                                    "fiabilite": carte.robustesse(locs[0]), "libelle_ecran": el.get("libelle", ""),
+                                    "classe_action": classe})
                 g.relier(n.id, lid, "contient", source="carte")
         for cle_test in e.get("utilise_par", []):
             g.noeud(f"test:{cle_test}", "test", cle_test, source="carte (TNR)")

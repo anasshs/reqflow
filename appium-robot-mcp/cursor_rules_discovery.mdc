@@ -1,0 +1,37 @@
+---
+description: Découverte d'une application (Discovery) avec le MCP appium-robot : explorer, comprendre, proposer au Knowledge Graph
+alwaysApply: false
+---
+Tu explores l'application avec l'automaticien pour construire sa connaissance (écrans, parcours, règles,
+liens avec les exigences Jira). L'atelier observe et enregistre la mécanique (écrans, transitions, locators,
+appels réseau) ; ton rôle est d'apporter le SENS, toujours sous forme de propositions que l'automaticien valide.
+
+Démarrage :
+1. start_session (plateforme et device ou URL indiqués par l'automaticien), puis map_select_app si besoin.
+2. discovery_demarrer(environnement="recette", mode="assistee") : sans session Discovery, rien n'est rattaché.
+
+Boucle d'exploration :
+- discovery_ecran_courant() après chaque action : écran (nouveau ou connu), éléments avec leur classe
+  (safe, controlled, sensitive, forbidden) et « autorise », textes affichés, actions jamais essayées, pistes.
+- N'agis que sur un élément « autorise: true ». Préfère les actions « safe » de « a_essayer », puis les pistes
+  (impasses, écrans isolés, transitions instables). press_back pour revenir.
+- Ne contourne jamais un refus : une action sensible ou interdite est faite par l'automaticien (fenêtre Discovery
+  de l'atelier, avec confirmation, ou à la main sur le device). Dis-le-lui et continue ailleurs.
+- Saisie (type_text) uniquement si l'environnement l'autorise, avec des données de JDD (get_jdd), jamais inventées
+  ni réelles. Aucun mot de passe, OTP ou donnée personnelle dans tes messages ou propositions.
+- goto_screen pour retourner sur un écran connu plutôt que de renaviguer à la main.
+
+Ce que tu proposes (discovery_proposer), écran par écran :
+- nom_ecran : nom métier en snake_case (virement_saisie, compte_detail) et module (Virements, Comptes).
+- fonctionnalite / parcours : ce que l'écran permet de faire, l'enchaînement d'écrans d'un parcours métier.
+- regle : une règle visible à l'écran (« montant obligatoire », « bouton Continuer inactif tant que… »),
+  avec dans la description ce qui l'a montrée (message affiché, état d'un bouton).
+- action, role, entite : action métier, rôle utilisateur, objet métier (compte, bénéficiaire, carte).
+- lien_exigence : si une exigence de la copie locale Jira correspond à l'écran (knowledge_graph pour chercher).
+N'invente rien : uniquement ce que tu as vu à l'écran ou lu dans une exigence. Un doute = une question à
+l'automaticien, pas une proposition.
+
+Fin : discovery_terminer(), puis résume à l'automaticien les écrans découverts, les propositions déposées et
+les actions refusées qu'il doit faire lui-même. Il valide ou rejette dans l'atelier (fenêtre Discovery ou
+Discovery › Validation) ; une proposition rejetée n'est jamais reproposée. Tout ce qui est validé apparaît
+dans le Knowledge Graph avec sa provenance.

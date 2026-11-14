@@ -166,6 +166,7 @@
         <label class="lib"><input type="checkbox" id="df-auto" checked> direct</label></div>
       <div class="df-split"><div class="df-ecran" id="df-ecran"><span class="lib" style="padding:16px">Chargement de l'écran…</span></div>
         <div class="df-cote"><div id="df-el"><p class="lib">Toucher l'image : l'élément est identifié, classé (Safe, Controlled, Sensitive, Forbidden) puis exécuté s'il est autorisé.</p></div>
+          <div><h4>APPRIS PENDANT LA SESSION (à valider)</h4><div id="df-prop" class="lib">…</div></div>
           <div><h4>SUGGESTIONS</h4><div id="df-sug" class="lib">…</div></div>
           <div><h4>DERNIERS ÉVÉNEMENTS</h4><ul class="df-tl" id="df-tl"></ul></div></div></div>`;
     const act = a => api(`/api/discovery/sessions/${SESSION}/${a}`, {method: "POST", body: {}}).then(enDirect).catch(e => toast(e.message, "ko"));
@@ -180,7 +181,10 @@
     image();
     evenements(s.timeline);
     suggestions(c);
-    minuteur = setInterval(() => { if (!F || !document.body.contains(F)) { clearInterval(minuteur); return; } if ($("#df-auto", F)?.checked && !F.classList.contains("reduite")) { image(); evenements(); } }, 2000);
+    propositions();
+    let tour = 0;
+    minuteur = setInterval(() => { if (!F || !document.body.contains(F)) { clearInterval(minuteur); return; }
+      if ($("#df-auto", F)?.checked && !F.classList.contains("reduite")) { image(); evenements(); if (++tour % 3 === 0) propositions(); } }, 2000);
   }
 
   function image() {
@@ -226,6 +230,20 @@
         ${(r.comportements || []).map(c => `<p><span class="pill warn">${esc(c.type.replace("_", " "))}</span> ${esc(c.detail)}</p>`).join("")}`;
       image(); evenements(); suggestions();
     } catch (e) { toast(e.message, "ko"); }
+  }
+
+  /* ce que l'agent (Cursor / Claude via le MCP) ou l'observation a appris : valider ou rejeter sans quitter la fenêtre */
+  async function propositions() {
+    const z = $("#df-prop", F);
+    if (!z) return;
+    const l = await api("/api/discovery/propositions?session=" + encodeURIComponent(SESSION)).catch(() => []);
+    z.innerHTML = l.slice(0, 12).map(p => `<div style="border-bottom:1px solid var(--line);padding:4px 0"><span class="pill">${esc(p.type)}</span> ${esc(p.libelle)}
+      <br><span class="lib">${esc(p.source || "")}</span><span class="btns" style="float:right"><button class="btn petit" data-ok="${esc(p.id)}">Valider</button><button class="btn petit" data-ko="${esc(p.id)}">Rejeter</button></span></div>`).join("")
+      || "Rien pour l'instant. Cursor / Claude déposent ici ce qu'ils comprennent (discovery_proposer) ; les messages observés deviennent des règles.";
+    $$("[data-ok],[data-ko]", z).forEach(b => b.onclick = async () => {
+      try { await api("/api/discovery/propositions/decider", {method: "POST", body: {id: b.dataset.ok || b.dataset.ko, valider: !!b.dataset.ok}}); propositions(); }
+      catch (e) { toast(e.message, "ko"); }
+    });
   }
 
   let CFG = null;

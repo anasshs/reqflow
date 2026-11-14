@@ -242,15 +242,24 @@
 
   /* ------------------------------------------------------------------ 10 validation */
   async function validation(z) {
-    const [v, g] = await Promise.all([api("/api/intelligence/validation").catch(() => []), api("/api/carte/graphe")]);
+    const [v, g, props] = await Promise.all([api("/api/intelligence/validation").catch(() => []), api("/api/carte/graphe"), api("/api/discovery/propositions").catch(() => [])]);
+    const nomPropose = id => props.find(p => p.objet === "nom_ecran" && p.ecran === id);
     const anommer = g.nodes.filter(n => !n.nom);
     z.innerHTML = `${entete("Discovery Validation")}<div class="corps-carte">
       <h3 class="lib">ÉCRANS À NOMMER (${anommer.length})</h3>${anommer.length ? `<table class="table-strat"><tr><th>Écran proposé</th><th>Nom métier</th><th>Module</th><th></th></tr>${anommer.map(n => `<tr>
-        <td>${esc(n.titre || n.id)}</td><td><input class="in" data-nom="${esc(n.id)}" placeholder="virement_saisie"></td><td><input class="in" data-mod="${esc(n.id)}" placeholder="Virements"></td>
+        <td>${esc(n.titre || n.id)}</td><td><input class="in" data-nom="${esc(n.id)}" placeholder="virement_saisie" value="${esc((nomPropose(n.id)?.libelle || "").split(" → ")[1]?.split(" (")[0] || "")}">${nomPropose(n.id) ? `<br><span class="lib">proposé par ${esc(nomPropose(n.id).source)}</span>` : ""}</td><td><input class="in" data-mod="${esc(n.id)}" placeholder="Virements"></td>
         <td><button class="btn petit primaire" data-ok="${esc(n.id)}">Valider</button></td></tr>`).join("")}</table>` : "<p class='lib'>Aucun.</p>"}
+      <h3 class="lib" style="margin-top:12px">APPRIS PAR LA DISCOVERY (${props.length})</h3>
+      ${props.length ? `<table class="table-strat"><tr><th>Nature</th><th>Proposition</th><th>Source</th><th></th></tr>${props.map(p => `<tr><td><span class="pill">${esc(p.type)}</span></td><td>${esc(p.libelle)}</td>
+        <td class="lib">${esc(p.source || "")}</td><td class="btns"><button class="btn petit primaire" data-pok="${esc(p.id)}">Valider</button><button class="btn petit" data-pko="${esc(p.id)}">Rejeter</button></td></tr>`).join("")}</table>`
+        : "<p class='lib'>Aucune : Cursor / Claude déposent leurs propositions avec l'outil MCP discovery_proposer.</p>"}
       <h3 class="lib" style="margin-top:12px">PROPOSITIONS DU KNOWLEDGE GRAPH (${v.length})</h3>
       <p class="lib">Éléments et relations déduits (exploration, IA, extraction) : valider ou rejeter (définitif), dans <a href="#intelligence/validation">Application Intelligence › Knowledge Validation</a>.</p>
       ${v.length ? `<ul class="liste">${v.slice(0, 15).map(x => `<li><span class="pill">${esc(x.objet)}</span><span class="item">${esc(x.libelle)}</span><span class="lib">${esc(x.provenance)}</span></li>`).join("")}</ul>` : ""}</div>`;
+    $$("[data-pok],[data-pko]", z).forEach(b => b.onclick = async () => {
+      try { await api("/api/discovery/propositions/decider", {method: "POST", body: {id: b.dataset.pok || b.dataset.pko, valider: !!b.dataset.pok}}); toast(b.dataset.pok ? "Validé." : "Rejeté (jamais reproposé).", "ok"); validation(z); }
+      catch (e) { toast(e.message, "ko"); }
+    });
     $$("[data-ok]", z).forEach(b => b.onclick = async () => {
       const id = b.dataset.ok, nom = $(`[data-nom="${id}"]`, z).value.trim();
       if (!nom) { toast("Nom obligatoire.", "ko"); return; }

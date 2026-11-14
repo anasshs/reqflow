@@ -101,13 +101,17 @@ def check_locator(locator: str) -> dict:
 def tap(locator: str, timeout: float = 10) -> str:
     """Touche / clique un élément. Mobile : locator AppiumLibrary (id=..., accessibility_id=...,
     xpath=...). Web : sélecteur Browser library (data-testid=..., id=..., css=..., text="...")."""
-    return actions.tap(locator, timeout)
+    from atelier.discovery import apprentissage
+
+    return apprentissage.action_mcp("tap", locator, lambda: actions.tap(locator, timeout))
 
 
 @outil
 def type_text(locator: str, text: str, clear: bool = True, hide_keyboard: bool = True) -> str:
     """Saisit du texte dans un champ (mobile ou web)."""
-    return actions.type_text(locator, text, clear, hide_keyboard)
+    from atelier.discovery import apprentissage
+
+    return apprentissage.action_mcp("type_text", locator, lambda: actions.type_text(locator, text, clear, hide_keyboard))
 
 
 @outil
@@ -456,6 +460,54 @@ def testabilite_deposer_proposition(cle: str, constats: list, cas: list) -> dict
 
     r = testabilite_us.deposer_proposition(cle, constats or [], cas or [], "Cursor (MCP)")
     return {"cle": cle, "statut": r["statut"], "constats": len(r["constats"]), "cas": len(r["cas"])}
+
+
+@outil
+def discovery_demarrer(environnement: str = "", mode: str = "assistee", perimetre: str = "") -> dict:
+    """Démarre une session Discovery sur l'application de la carte et la plateforme de la session ouverte
+    (start_session d'abord). Pendant la session, tap et type_text sont classés (Safe / Controlled / Sensitive /
+    Forbidden) : les actions interdites et sensibles sont refusées, la saisie dépend de l'environnement."""
+    from atelier.discovery import session, sessions_discovery
+
+    s = sessions_discovery.creer({"plateforme": session.plateforme() or "", "environnement": environnement, "mode": mode,
+                                  "perimetre": perimetre, "device": "agent MCP"})
+    return {k: v for k, v in sessions_discovery.demarrer(s["id"]).items() if k in ("id", "statut", "config")}
+
+
+@outil
+def discovery_ecran_courant() -> dict:
+    """Écran courant pour explorer : écran de la carte (nouveau ou non, noms déjà proposés), éléments avec leur classe
+    et l'autorisation dans la session, textes affichés (messages), actions sûres jamais essayées, pistes de la carte
+    (impasses, écrans isolés, transitions instables). À appeler après chaque action."""
+    from atelier.discovery import apprentissage
+
+    return apprentissage.ecran_courant()
+
+
+@outil
+def discovery_proposer(nature: str, libelle: str, ecran: str = "", description: str = "", module: str = "",
+                       exigence: str = "") -> dict:
+    """Dépose ce que tu as compris dans le Knowledge Graph, comme proposition à valider par l'automaticien.
+    nature : nom_ecran (libelle = nom métier, module), fonctionnalite, parcours, regle, action, role, entite
+    (reliés à l'écran), lien_exigence (exigence = clé Jira de la copie locale, l'exigence impacte l'écran).
+    N'invente rien : uniquement ce qui est observé à l'écran ou écrit dans une exigence."""
+    from atelier.discovery import apprentissage
+
+    return apprentissage.proposer(nature, libelle, ecran, description, module, exigence, "cursor")
+
+
+@outil
+def discovery_terminer() -> dict:
+    """Termine la session Discovery en cours : résultats (nouveaux écrans, transitions, comportements, endpoints,
+    actions refusées) et propositions en attente de validation."""
+    from atelier.discovery import apprentissage, sessions_discovery
+
+    s = sessions_discovery.active()
+    if not s:
+        raise RuntimeError("Aucune session Discovery en cours.")
+    fin = sessions_discovery.arreter(s["id"])
+    r = {k: v for k, v in (fin.get("resultats") or {}).items() if k not in ("nouveaux", "modifies")}
+    return {"id": fin["id"], "resultats": r, "propositions_a_valider": len(apprentissage.propositions(fin["id"]))}
 
 
 __all__ = [f.__name__ for f in OUTILS]
