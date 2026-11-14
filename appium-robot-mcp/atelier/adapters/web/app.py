@@ -1990,7 +1990,8 @@ async def intelligence_section(section: str):
 
 
 def main():
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
+    # arrêt (Ctrl+C) : les requêtes en cours ont 3 s pour finir, puis sont interrompues (pas de second Ctrl+C)
+    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning", timeout_graceful_shutdown=3)
 
 
 if __name__ == "__main__":
