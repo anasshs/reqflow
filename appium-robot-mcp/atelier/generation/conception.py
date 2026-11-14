@@ -71,7 +71,7 @@ def _sources() -> dict:
     from atelier.generation import bdd
     from atelier.intelligence import patrimoine_xray
 
-    pat = patrimoine_xray.charger() or {"tests": [], "exigences": [], "plans": []}
+    pat = patrimoine_xray.charger_vue() or {"tests": [], "exigences": [], "plans": []}
     g = connaissance.construire()
     return {"pat": pat, "etat_xray": patrimoine_xray.etat(), "bdd": {b["cle"]: b for b in bdd.lister()}, "g": g}
 
@@ -154,7 +154,7 @@ def controles_revue(cle: str) -> list[dict]:
     from atelier.generation import bdd
     from atelier.intelligence import couverture, patrimoine_xray
 
-    pat = patrimoine_xray.charger() or {"tests": []}
+    pat = patrimoine_xray.charger_vue() or {"tests": []}
     t = next((x for x in pat["tests"] if x["cle"] == cle), None)
     if not t:
         raise KeyError(f"Cas de test {cle} absent de l'instantané Xray.")
@@ -332,7 +332,7 @@ def tester_mapping() -> dict:
     """Champs mappés présents / absents dans l'instantané Xray ; statuts internes sans équivalent."""
     from atelier.intelligence import patrimoine_xray
 
-    pat = patrimoine_xray.charger() or {"tests": []}
+    pat = patrimoine_xray.charger_vue() or {"tests": []}
     presents = {k for t in pat["tests"] for k, v in t.items() if v not in (None, "", [])}
     m = mapping()
     champs = [{**c, "dans_instantane": bool(c.get("cle_instantane")) and c["cle_instantane"] in presents} for c in m["champs"] if c.get("actif")]

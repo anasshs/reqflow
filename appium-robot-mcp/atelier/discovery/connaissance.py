@@ -34,7 +34,7 @@ def construire(avec_declarations: bool = True, inventaire: dict | None = None) -
     inv = inventaire if inventaire is not None else depot_robot.lire_depot()
     _depuis_depot(g, inv)
     _depuis_jdd(g)
-    _depuis_patrimoine(g, patrimoine_xray.charger())
+    _depuis_patrimoine(g, patrimoine_xray.charger_vue())
     _depuis_openapi(g)
     _resultats(g, derniers_resultats())
     if avec_declarations:

@@ -119,7 +119,7 @@ class XrayClient:
 
     def selection_definitions(self) -> tuple[str, list[str]]:
         """Sélection GraphQL des champs de définition réellement présents sur le type Test, et liste des absents."""
-        test, absents, sel = self._type_champs("Test"), [], ["issueId", 'jira(fields: ["key", "summary"])']
+        test, absents, sel = self._type_champs("Test"), [], ["issueId", 'jira(fields: ["key", "summary", "components", "labels"])']
         voulus = {"testType": "testType { name kind }", "gherkin": "gherkin", "unstructured": "unstructured",
                   "folder": "folder { path }", "steps": "steps { action data result }",
                   "preconditions": 'preconditions(limit: 20) { results { issueId jira(fields: ["key", "summary"]) } }'}
@@ -379,6 +379,10 @@ def _definition(x: dict) -> dict:
     """Résultat getTests -> champs de l'instantané. Un champ absent de la réponse reste absent."""
     j = x.get("jira") or {}
     out = {"cle": j.get("key"), "resume": j.get("summary"), "issueId": x.get("issueId")}
+    if j.get("components"):
+        out["composants"] = [c.get("name") if isinstance(c, dict) else str(c) for c in j["components"]]
+    if j.get("labels"):
+        out["libelles"] = list(j["labels"])
     if x.get("testType"):
         out["type"] = x["testType"].get("name")
         out["type_genre"] = x["testType"].get("kind")

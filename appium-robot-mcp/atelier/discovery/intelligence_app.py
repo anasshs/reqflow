@@ -35,7 +35,7 @@ def vue_ensemble() -> dict:
     g = _g()
     types = Counter(n.type for n in g.noeuds.values())
     app, ecrans, trans = _ecrans_carte()
-    pat = patrimoine_xray.charger() or {"tests": [], "exigences": []}
+    pat = patrimoine_xray.charger_vue() or {"tests": [], "exigences": []}
     tests_par_exig: dict = {}
     for t in pat["tests"]:
         for e in t.get("exigences") or []:
@@ -64,7 +64,7 @@ def jira() -> list[dict]:
     """Tickets Jira de l'instantané avec leur hiérarchie et leurs tests Xray (traçabilité bidirectionnelle)."""
     from atelier.intelligence import patrimoine_xray
 
-    pat = patrimoine_xray.charger() or {"tests": [], "exigences": []}
+    pat = patrimoine_xray.charger_vue() or {"tests": [], "exigences": []}
     g = _g()
     enfants: dict = {}
     for e in pat["exigences"]:
@@ -130,7 +130,7 @@ def changements() -> list[dict]:
     for l in studio.locators():
         if l["etat"] in ("Obsolete", "Missing"):
             out.append({"source": "Application vs dépôt", "nature": f"Locator {l['etat']}", "element": f"{l['ecran']}.{l['cle']}", "impact": f"{l['utilisations']} keyword(s)"})
-    pat = patrimoine_xray.charger()
+    pat = patrimoine_xray.charger_vue()
     if pat:
         ind = couverture.indicateurs(_g(), pat)
         for c in ind.get("cles_robot_inconnues_de_xray", []):
@@ -184,7 +184,7 @@ def analyser_jira(proposer: bool = True) -> list[dict]:
     from atelier.domain import declarations
     from atelier.intelligence import patrimoine_xray
 
-    pat = patrimoine_xray.charger() or {"exigences": []}
+    pat = patrimoine_xray.charger_vue() or {"exigences": []}
     decl = declarations.charger()
     existants = set(decl["noeuds"]) | set(decl["rejets"])  # une proposition rejetée n'est jamais recréée
     out = []

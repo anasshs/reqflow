@@ -298,3 +298,31 @@ def test_organisation_xray_plans_sets_dossiers(tmp_path, monkeypatch):
     assert {d["chemin"] for d in o["dossiers"]} == {"/Connexion", "/"}
     t = {x["cle"]: x for x in patrimoine_xray.charger()["tests"]}
     assert t["DEMO-301"]["plans"] == ["TAM-P1"] and t["DEMO-301"]["test_sets"] == ["TAM-S1"]
+
+
+
+def test_vue_filtree_par_application(tmp_path, monkeypatch):
+    """Plusieurs applications dans un projet Xray : chaque écran ne voit que les tests de l'application active ;
+    l'instantané complet n'est jamais modifié."""
+    from atelier.discovery import carte
+    from atelier.domain import projet
+    from atelier.intelligence import patrimoine_xray as px
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+    px.enregistrer({"projet": "TAM", "tests": [
+        {"cle": "TAM-1", "composants": ["App Mobile"], "exigences": ["TAM-10"], "plans": ["TAM-P"]},
+        {"cle": "TAM-2", "composants": ["Back-office"], "exigences": ["TAM-11"]},
+        {"cle": "TAM-3", "module": "App Mobile", "libelles": ["web"]}],
+        "exigences": [{"cle": "TAM-10", "type": "user_story", "parent": "TAM-EP"}, {"cle": "TAM-11", "type": "user_story"},
+                      {"cle": "TAM-12", "type": "user_story", "composants": ["App Mobile"]}, {"cle": "TAM-EP", "type": "epic"}],
+        "plans": [{"cle": "TAM-P", "tests": ["TAM-1", "TAM-2"]}]}, "essai")
+    assert px.charger_vue()["tests"].__len__() == 3  # aucune application : tout le projet
+    a = carte.creer_app("Banque Mobile", ["android"], projet_xray="TAM", tests_xray={"composant": "app mobile"})
+    v = px.charger_vue()
+    assert [t["cle"] for t in v["tests"]] == ["TAM-1", "TAM-3"]  # composant, ou module en repli
+    assert {e["cle"] for e in v["exigences"]} == {"TAM-10", "TAM-12", "TAM-EP"}  # liées, propres à l'app, epic parent
+    assert v["plans"] == [{"cle": "TAM-P", "tests": ["TAM-1"], "tests_total": 1}]
+    assert v["filtre_application"]["tests"] == 2 and v["filtre_application"]["tests_projet"] == 3
+    assert len(px.charger()["tests"]) == 3  # instantané complet intact
+    carte.maj_app(a["slug"], tests_xray={"libelle": "WEB"})
+    assert [t["cle"] for t in px.charger_vue()["tests"]] == ["TAM-3"]

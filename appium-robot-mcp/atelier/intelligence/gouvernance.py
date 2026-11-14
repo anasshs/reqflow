@@ -82,7 +82,7 @@ def _sources() -> dict:
     from atelier.intelligence import patrimoine_xray
 
     p = parametres()
-    pat = patrimoine_xray.charger() or {"tests": [], "exigences": [], "plans": []}
+    pat = patrimoine_xray.charger_vue() or {"tests": [], "exigences": [], "plans": []}
     g = connaissance.construire()
     auto = {t["cle"] for t in pat["tests"] if (n := g.noeuds.get(f"test:{t['cle']}")) and n.proprietes.get("automatise")}
     runs = [r for r in historique.lister(p["seuils"]["fenetre_runs"]) if not r["dry_run"] and r.get("passes") is not None]

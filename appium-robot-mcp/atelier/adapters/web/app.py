@@ -1335,6 +1335,17 @@ def resultats_captures(dossier: str = "results", limite: int = 12):
 
 
 # --------------------------------------------------------------------------- contexte (en-tête)
+def _filtre_app_ctx() -> dict:
+    try:
+        f = patrimoine_xray.filtre_application()
+        if not (f.get("composant") or f.get("libelle")):
+            return {}
+        v = patrimoine_xray.charger_vue() or {}
+        return {**f, **(v.get("filtre_application") or {})}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 @app.get("/api/contexte")
 def contexte():
     from atelier.execution import jdd as jdd_mod
@@ -1351,7 +1362,7 @@ def contexte():
     xray = cache.get("xray")
     pa = projets.actif() or {}
     return {"projet": pa.get("nom") or projet.PROJECT_DIR.name, "projet_chemin": str(projet.PROJECT_DIR),
-            "projet_id": pa.get("id", ""), "projet_xray": pa.get("xray_projet", ""), "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"), "projet_jira": pa.get("jira_projet") or pa.get("xray_projet", ""),
+            "projet_id": pa.get("id", ""), "projet_xray": pa.get("xray_projet", ""), "filtre_application": _filtre_app_ctx(), "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"), "projet_jira": pa.get("jira_projet") or pa.get("xray_projet", ""),
             "projets": [{"id": p["id"], "nom": p["nom"]} for p in projets.lister()["projets"]],
             "applications": [{"slug": a["slug"], "nom": a.get("nom", a["slug"])} for a in amap.apps()],
             "application": cfg.get("slug"), "version": cfg.get("build", ""), "plateformes": cfg.get("plateformes", []),

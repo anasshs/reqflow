@@ -139,7 +139,7 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
         exig = sorted({x["key"] for x in liees if x and not _objet_xray(x)})
         ids_exigences |= set(exig)
         tests.append({"cle": i["key"], "resume": f.get("summary"), "type": (f.get("issuetype") or {}).get("name"),
-                      "module": _module(f), "libelles": f.get("labels") or [],
+                      "module": _module(f), "libelles": f.get("labels") or [], "composants": _composants(f),
                       "statut": (f.get("status") or {}).get("name"),
                       "criticite": (f.get("priority") or {}).get("name"), "exigences": exig})
     exigences, epics = [], set()
@@ -150,7 +150,7 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
             f = i["fields"]
             parent = (f.get("parent") or {}).get("key")
             exigences.append({"cle": i["key"], "type": _type_exigence(f), "type_jira": (f.get("issuetype") or {}).get("name"),
-                              "resume": f.get("summary"),
+                              "resume": f.get("summary"), "composants": _composants(f), "libelles": f.get("labels") or [],
                               "parent": parent, "module": _module(f), "statut": (f.get("status") or {}).get("name"),
                               **_description_et_criteres(f, champ_criteres)})
             if parent:
@@ -219,6 +219,9 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
             if t.get("type") and t.get("type") != x.get("type"):
                 t["type_jira"] = t["type"]
             t.update({k: x[k] for k in CHAMPS_DEFINITION if k in x})
+            for k in ("composants", "libelles"):
+                if not t.get(k) and x.get(k):
+                    t[k] = x[k]
     else:
         data = {**(base or {}), "projet": projet_cle or (base or {}).get("projet"), "tests": list(defs.values())}
         data.setdefault("exigences", [])
@@ -248,7 +251,7 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
 
 def organisation() -> dict:
     """Suites de test côté Xray : dossiers du Test Repository (depuis les définitions), Test Plans et Test Sets."""
-    pat = charger() or {"tests": [], "plans": [], "executions": []}
+    pat = charger_vue() or {"tests": [], "plans": [], "executions": []}
     dossiers: dict = {}
     for t in pat["tests"]:
         if t.get("dossier") is not None:
@@ -297,6 +300,63 @@ def _module(f: dict) -> str | None:
     if comps:
         return comps[0].get("name")
     return next((lb.split(":", 1)[1] for lb in f.get("labels") or [] if lb.lower().startswith("module:")), None)
+
+
+def _composants(f: dict) -> list[str]:
+    return [c.get("name") for c in f.get("components") or [] if c.get("name")]
+
+
+# =========================================================================== vue par application
+def filtre_application() -> dict:
+    """Règle de l'application active : {app, composant, libelle} (vide = tout le projet)."""
+    from atelier.discovery import carte
+
+    try:
+        a = carte.config_app() if carte.app_courante() else {}
+    except Exception:  # noqa: BLE001 - carte illisible : aucune restriction
+        a = {}
+    return {"app": a.get("nom", ""), **{k: v for k, v in (a.get("tests_xray") or {}).items() if v}}
+
+
+def appliquer_filtre(pat: dict | None, f: dict) -> dict | None:
+    """Tests de l'application (composant ou libellé Jira), leurs exigences et epics parents, plans / sets restreints.
+    Sans règle : instantané inchangé. Le module (premier composant) sert de repli si les composants sont absents."""
+    comp, lib = (f.get("composant") or "").strip().lower(), (f.get("libelle") or "").strip().lower()
+    if not pat or not (comp or lib):
+        return pat
+
+    def concerne(x: dict) -> bool:
+        comps = [c.lower() for c in (x.get("composants") or ([x["module"]] if x.get("module") else []))]
+        libs = [l.lower() for l in x.get("libelles") or []]
+        return bool((comp and comp in comps) or (lib and lib in libs))
+
+    tests = [t for t in pat["tests"] if concerne(t)]
+    cles = {t["cle"] for t in tests}
+    liees = {e for t in tests for e in t.get("exigences") or []}
+    exig = [e for e in pat.get("exigences") or [] if e["cle"] in liees or concerne(e)]
+    parents = {e.get("parent") for e in exig} - {e["cle"] for e in exig}
+    exig += [e for e in pat.get("exigences") or [] if e["cle"] in parents]
+
+    def restreindre(conteneurs):
+        out = []
+        for c in conteneurs or []:
+            if isinstance(c.get("tests"), list):
+                garde = [k for k in c["tests"] if k in cles]
+                if garde:
+                    out.append({**c, "tests": garde, "tests_total": len(garde)})
+            elif any(c["cle"] in (t.get("plans") or []) for t in tests):
+                out.append(c)
+        return out
+
+    return {**pat, "tests": tests, "exigences": exig, "plans": restreindre(pat.get("plans")),
+            "test_sets": restreindre(pat.get("test_sets")),
+            "filtre_application": {**f, "tests": len(tests), "tests_projet": len(pat["tests"])}}
+
+
+def charger_vue() -> dict | None:
+    """Instantané vu par les écrans (lecture seule) : restreint à l'application active si elle a une règle.
+    Les écritures (synchronisation, import des définitions) utilisent toujours charger() : tout le projet."""
+    return appliquer_filtre(charger(), filtre_application())
 
 
 def _type_exigence(f: dict) -> str:

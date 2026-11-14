@@ -169,7 +169,7 @@ def mesures() -> dict:
 
     out = {k: {"id": k, "libelle": v[0], "unite": v[1], "definition": v[2], "valeur": None, "detail": ""}
            for k, v in INDICATEURS.items()}
-    pat = patrimoine_xray.charger()
+    pat = patrimoine_xray.charger_vue()
     g = None
     if pat:
         g = _graphe()
@@ -573,7 +573,7 @@ def importer_perimetre() -> dict:
     """Modules et exigences depuis l'instantané Xray / Jira (identifiants externes conservés, sans doublon)."""
     from atelier.intelligence import patrimoine_xray
 
-    pat = patrimoine_xray.charger()
+    pat = patrimoine_xray.charger_vue()
     if not pat:
         raise FileNotFoundError("Aucun instantané Xray : l'importer d'abord (Rapports › Patrimoine Xray).")
     s = _exiger()
@@ -611,7 +611,7 @@ def plan_automatisation() -> list[dict]:
     """Candidats calculés (couverture.candidats) + décision humaine enregistrée dans la stratégie."""
     from atelier.intelligence import couverture, patrimoine_xray
 
-    pat = patrimoine_xray.charger()
+    pat = patrimoine_xray.charger_vue()
     if not pat:
         return []
     s = charger() or {"plan_automatisation": {}}
@@ -759,7 +759,7 @@ def synthese(s: dict, m: dict) -> dict:
                   "couverte : au moins un test et tous automatisés ; partielle : au moins un test, dont des manuels ; non couverte : aucun test."}
     from atelier.intelligence import patrimoine_xray
 
-    pat = patrimoine_xray.charger()
+    pat = patrimoine_xray.charger_vue()
     if pat and pat.get("exigences"):
         g = _graphe()
         auto = {t["cle"] for t in pat["tests"] if (n := g.noeuds.get(f"test:{t['cle']}")) and n.proprietes.get("automatise")}

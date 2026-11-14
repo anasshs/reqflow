@@ -45,7 +45,7 @@ def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = ""
     from atelier.intelligence import couverture, patrimoine_xray
 
     g = _graphe()
-    pat = patrimoine_xray.charger()
+    pat = patrimoine_xray.charger_vue()
     v = couverture.vue(g, module, afficher).filtrer(recherche=recherche)
     return {**_limiter(v), "indicateurs": couverture.indicateurs(g, pat), "instantane": patrimoine_xray.etat(),
             "modules": sorted({n.libelle for n in g.noeuds.values() if n.type == "module"})}
@@ -54,7 +54,7 @@ def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = ""
 def candidats(module: str = "") -> list[dict]:
     from atelier.intelligence import couverture, patrimoine_xray
 
-    return couverture.candidats(_graphe(), patrimoine_xray.charger(), module)
+    return couverture.candidats(_graphe(), patrimoine_xray.charger_vue(), module)
 
 
 def vue_flux(cible: str = "") -> dict:
@@ -183,7 +183,7 @@ def _vue_graphe(nom: str, cible: str = "", module: str = "") -> Graphe:
 def anomalies(nom: str = "connaissance", module: str = "") -> list[dict]:
     from atelier.intelligence import assistant, patrimoine_xray
 
-    return assistant.anomalies(_vue_graphe(nom, module=module), patrimoine_xray.charger())
+    return assistant.anomalies(_vue_graphe(nom, module=module), patrimoine_xray.charger_vue())
 
 
 def demander_ia(nom: str, intention: str, selection: str = "", question: str = "", cible: str = "",
@@ -191,4 +191,4 @@ def demander_ia(nom: str, intention: str, selection: str = "", question: str = "
     from atelier.intelligence import assistant, patrimoine_xray
 
     return assistant.demander(_vue_graphe(nom, cible, module), nom, intention, selection, question,
-                              patrimoine_xray.charger())
+                              patrimoine_xray.charger_vue())
