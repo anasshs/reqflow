@@ -46,6 +46,7 @@ from atelier.execution import jdd  # noqa: E402
 from atelier.execution import historique  # noqa: E402
 from atelier.execution import robot as robot_moteur  # noqa: E402
 from atelier.generation import bdd, editeur  # noqa: E402
+from atelier.intelligence import strategie  # noqa: E402
 from atelier.generation import locators as gen_locators  # noqa: E402
 from atelier.intelligence import assistant  # noqa: E402
 from atelier.intelligence import patrimoine_xray  # noqa: E402
@@ -1169,6 +1170,102 @@ async def resultats_capturer():
 @app.get("/api/run/dernier")
 def dernier_run():
     return {"params": state["dernier_run"], "bilan": state["dernier_bilan"]}
+
+
+# --------------------------------------------------------------------------- Test Strategy
+@app.get("/api/strategie")
+async def strategie_etat():
+    """Stratégie, schéma des rubriques, complétude, contrôles et indicateurs calculés (une seule source)."""
+    return await asyncio.to_thread(_call, strategie.etat)
+
+
+@app.post("/api/strategie/creer")
+async def strategie_creer(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.creer, b.get("nom", ""), b.get("application", ""),
+                                   b.get("version_application", ""), b.get("responsable", ""))
+
+
+@app.post("/api/strategie/infos")
+async def strategie_infos(req: Request):
+    return await asyncio.to_thread(_call, strategie.modifier_infos, await req.json())
+
+
+@app.post("/api/strategie/elements")
+async def strategie_element(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.enregistrer_element, b.get("rubrique", ""), b.get("element") or {})
+
+
+@app.post("/api/strategie/elements/supprimer")
+async def strategie_supprimer(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.supprimer_element, b.get("rubrique", ""), b.get("id", ""))
+
+
+@app.post("/api/strategie/transition")
+async def strategie_transition(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.transition, b.get("action", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/strategie/commentaires")
+async def strategie_commenter(req: Request):
+    return await asyncio.to_thread(_call, strategie.commenter, (await req.json()).get("texte", ""))
+
+
+@app.post("/api/strategie/criteres/valider")
+async def strategie_valider_critere(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.valider_critere, b.get("id", ""), b.get("preuve", ""))
+
+
+@app.get("/api/strategie/criteres/entree")
+async def strategie_criteres_entree():
+    """Critères d'entrée obligatoires non satisfaits (avertissement avant le lancement d'un run)."""
+    return await asyncio.to_thread(_call, strategie.criteres_entree_non_satisfaits)
+
+
+@app.post("/api/strategie/environnements/verifier")
+async def strategie_verifier_env(req: Request):
+    return await asyncio.to_thread(_call, strategie.verifier_environnement, (await req.json()).get("id", ""))
+
+
+@app.post("/api/strategie/perimetre/importer")
+async def strategie_importer_perimetre():
+    return await asyncio.to_thread(_call, strategie.importer_perimetre)
+
+
+@app.get("/api/strategie/plan-automatisation")
+async def strategie_plan():
+    return await asyncio.to_thread(_call, strategie.plan_automatisation)
+
+
+@app.post("/api/strategie/plan-automatisation")
+async def strategie_decider(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.decider_candidat, b.get("cle", ""), b.get("statut", ""),
+                                   b.get("framework", ""), b.get("effort", ""), b.get("commentaire", ""))
+
+
+@app.get("/api/strategie/versions/{n}")
+def strategie_version(n: int):
+    return _call(strategie.version, n)
+
+
+@app.get("/api/strategie/comparer")
+def strategie_comparer(a: str, b: str = "courante"):
+    return _call(strategie.comparer, a, b)
+
+
+@app.post("/api/strategie/restaurer")
+async def strategie_restaurer(req: Request):
+    return await asyncio.to_thread(_call, strategie.restaurer, int((await req.json()).get("version", 0)))
+
+
+@app.get("/api/strategie/journal")
+def strategie_journal():
+    return _call(strategie.journal)
 
 
 def main():

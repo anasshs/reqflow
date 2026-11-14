@@ -86,7 +86,27 @@ Demandé le 2026-11-14, en parallèle de la roadmap par phases. Page `/plateform
       aperçu mobile, captures. Commit / MR : phase 7.
 - [x] Exécution : un dossier par run, historique, suivi en direct, KPI, étapes et logs d'un test, arrêt, relance des échecs.
 - [ ] Paramètres › Connexions : détail des flux (sens, fréquence, proxy, certificats) — prochaine étape demandée.
-- [ ] Écran de référence (carte) à côté de l'écran réel pour une étape en échec ; agents / planification / file d'attente.
+- [x] Écran de référence (carte) à côté de l'écran réel pour une étape en échec (locator résolu depuis le dépôt).
+- [ ] Agents / planification / file d'attente.
+- [x] Projet de démonstration `demo/banque_connexion/` : module Connexion d'une application web fictive, 7 tests réellement
+      exécutés (dont un échec réel dû à une anomalie volontaire), carte observée, patrimoine Xray fictif, stratégie d'exemple.
+
+### Test Strategy (cahier des charges du 2026-11-14)
+Moteur `atelier/intelligence/strategie.py`, écran « Test Strategy » (14 rubriques, menu latéral, complétude).
+- [x] Phase 1 Socle : stratégie par projet (RG01), versions, vue d'ensemble (A à G), objectifs mesurés, périmètre
+      hiérarchique avec import Xray / Jira (identifiants externes conservés, sans doublon).
+- [x] Phase 2 Configuration : types, niveaux (pyramide), environnements (vérification de disponibilité, accès = référence
+      au secret), critères d'entrée / sortie (automatiques mesurés ou manuels avec preuve), risques (criticité calculée,
+      matrice), données de test (présence du JDD), outils (état des connexions des Paramètres).
+- [x] Phase 4 Intelligence (partie) : couverture et traçabilité depuis le Knowledge Graph ; plan d'automatisation depuis
+      les candidats calculés, décisions humaines journalisées (« Recommandé par IA » réservé à une analyse IA réelle).
+- [x] Phase 5 Gouvernance : workflow Draft → In Review → Approved → Published → Archived, contrôles bloquants, version publiée
+      immuable (RG03, RG12), comparaison, restauration, journal d'audit, export PDF (impression du navigateur), carte
+      Dashboard, avertissement des critères d'entrée au lancement d'un run.
+- [ ] Phase 3 Intégrations : connecter / synchroniser Jira, Xray, GitLab depuis la stratégie (dépend de la vérification 1.4).
+- [ ] Rôles et droits (QA Manager, Test Lead…) : nécessite une authentification, absente de l'interface locale.
+- [ ] Recommandations IA du plan d'automatisation (explicables, à valider) ; multi-projets dans une même interface.
+- [ ] Le périmètre n'alimente pas encore le Knowledge Graph (nœuds déclarés) ni les recommandations IA.
 
 ### Deuxième phase (§13)
 - [ ] Journey Graph. - [x] BDD Scenario Graph (synchronisé avec le .feature). - [ ] Failure Diagnosis Graph.

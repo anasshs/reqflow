@@ -14,8 +14,9 @@
     async afficher(zone) {
       zone.className = "g-dash";
       zone.innerHTML = `<section class="carte s12"><div class="corps-carte">${vide("Chargement…")}</div></section>`;
-      const [cv, an, runs, bdd, dev] = await Promise.all([api("/api/graphes/couverture").catch(() => null), api("/api/graphes/anomalies").catch(() => []),
-        api("/api/executions").catch(() => []), api("/api/bdd").catch(() => []), api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []}))]);
+      const [cv, an, runs, bdd, dev, strat] = await Promise.all([api("/api/graphes/couverture").catch(() => null), api("/api/graphes/anomalies").catch(() => []),
+        api("/api/executions").catch(() => []), api("/api/bdd").catch(() => []), api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []})),
+        api("/api/strategie").catch(() => null)]);
       const ind = cv?.indicateurs, g = ind?.disponible ? ind.global : null;
       const reels = runs.filter(r => !r.dry_run && r.passes !== null && r.passes !== undefined);
       const enCours = runs.filter(r => r.statut === "en cours").length;
@@ -56,6 +57,15 @@
               <td class="mono">${d === null ? "—" : new Date(d * 1000).toISOString().slice(14, 19)}</td><td>${xrayStatut(r)}</td>
               <td>${r.statut === "échec" ? `<span class="ko-t">${ico("aide")}</span>` : r.statut === "réussi" ? `<span class="ok-t">${ico("check")}</span>` : ""}</td></tr>`; }).join("")}</table>`
             : vide("Aucun run", "Les exécutions lancées depuis l'atelier apparaissent ici.")}</div></section>
+        ${strat?.existe ? (() => { const y = strat.synthese, PE = {"atteint": "ok", "en cours": "info", "non atteint": "ko", "non mesurable": ""};
+          return `<section class="carte s12"><h2 class="titre-carte">Stratégie de test · ${esc(strat.strategie.infos.nom)} <span class="pill">${esc(strat.libelles_statut[strat.strategie.statut])} v${strat.strategie.version}</span>
+            <span class="actions-titre"><a class="btn" href="#strategie">Test Strategy ${ico("ext")}</a></span></h2><div class="corps-carte" style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+            <table><tr><th>Objectif</th><th>Indicateur</th><th>Cible</th><th>Actuel</th><th>État</th></tr>${y.objectifs.liste.map(o => `<tr><td>${esc(o.nom)}</td>
+              <td class="lib">${esc(strat.indicateurs_disponibles[o.indicateur] || "")}</td><td>${esc(o.comparateur || ">=")} ${esc(o.cible)}</td>
+              <td>${o.valeur ?? "—"}</td><td><span class="pill ${PE[o.etat]}">${esc(o.etat)}</span></td></tr>`).join("") || "<tr><td colspan='5' class='lib'>Aucun objectif.</td></tr>"}</table>
+            <div><div class="lib" style="margin-bottom:6px">Risques ouverts</div><div class="btns"><span class="pill ko">${y.risques.critique} critique(s)</span><span class="pill warn">${y.risques["élevé"]} élevé(s)</span>
+              <span class="pill info">${y.risques.moyen} moyen(s)</span><span class="pill">${y.risques.faible} faible(s)</span></div>
+              <div class="lib" style="margin:10px 0 6px">Critères d'entrée</div>${strat.criteres.filter(c => c.type === "entrée").map(c => `<div><span class="pill ${c.etat === "satisfait" ? "ok" : c.etat === "à valider" ? "warn" : "ko"}">${esc(c.etat)}</span> ${esc(c.description)}</div>`).join("") || "<span class='lib'>Aucun.</span>"}</div></div></section>`; })() : ""}
         <section class="carte s8"><h2 class="titre-carte">Couverture par module</h2><div class="corps-carte">${ind?.disponible
           ? `<table><tr><th>Module</th><th>Tests</th><th>Automatisés</th><th>Manuels</th><th style="width:40%">Couverture automatisée</th></tr>${ind.modules.map(m => `<tr><td>${esc(m.module)}</td><td>${m.tests}</td>
             <td>${m.automatises}</td><td>${m.manuels}</td><td><div style="display:flex;gap:10px;align-items:center"><div class="barre" style="flex:1"><i style="width:${(m.couverture_automatisee || 0) * 100}%"></i></div>${pct(m.couverture_automatisee)}</div></td></tr>`).join("")}</table>

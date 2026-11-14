@@ -1,0 +1,140 @@
+"""Module Test Strategy : édition, contrôles, indicateurs réels, workflow, versions immuables."""
+import shutil
+from pathlib import Path
+
+import pytest
+
+from tests.conftest import pointer_projet
+
+DEMO = Path(__file__).resolve().parents[1] / "demo" / "banque_connexion"
+
+
+@pytest.fixture
+def st(tmp_path, monkeypatch):
+    d = tmp_path / "demo"
+    shutil.copytree(DEMO, d, ignore=shutil.ignore_patterns("results", "connaissance", "strategie"))
+    pointer_projet(d, monkeypatch)
+    from atelier.intelligence import strategie
+
+    return strategie
+
+
+def _remplir(st):
+    """Stratégie minimale publiable."""
+    st.creer("Stratégie Connexion", "Banque Démo Web", "1.0.0", "qa")
+    e = st.etat()
+    st.enregistrer_element("objectifs", {"nom": "Automatiser la régression", "indicateur": "couverture_automatisee",
+                                         "comparateur": ">=", "cible": 80})
+    st.enregistrer_element("criteres", {"description": "Couverture fonctionnelle", "type": "entrée", "obligatoire": True,
+                                        "verification": "automatique", "indicateur": "couverture_fonctionnelle", "seuil": 70})
+    st.enregistrer_element("criteres", {"description": "Rapport validé", "type": "sortie", "obligatoire": True,
+                                        "verification": "manuelle"})
+    return e
+
+
+def test_creation_obligatoire_et_unique(st):
+    with pytest.raises(FileNotFoundError):
+        st.enregistrer_element("objectifs", {"nom": "x"})
+    with pytest.raises(ValueError):
+        st.creer("", "app")
+    st.creer("S", "App")
+    with pytest.raises(FileExistsError):
+        st.creer("S", "App")
+    assert st.etat()["strategie"]["statut"] == "Draft"
+
+
+def test_objectif_mesure_depuis_les_sources_reelles(st):
+    _remplir(st)
+    e = st.etat()
+    o = e["synthese"]["objectifs"]["liste"][0]
+    # 7 tests sur 9 du patrimoine sont automatisés (tags du dépôt) : 77,8 %, cible 80 % non atteinte
+    assert o["valeur"] == pytest.approx(77.8) and o["etat"] == "en cours"
+    # 4 exigences sur 5 ont un test (l'épopée DEMO-300 n'en a pas directement)
+    assert e["mesures"]["couverture_fonctionnelle"]["valeur"] == 80.0
+    assert e["mesures"]["taux_reussite"]["valeur"] is None  # aucun run : rien n'est inventé
+
+
+def test_controles_et_niveau_de_risque(st):
+    _remplir(st)
+    st.enregistrer_element("risques", {"nom": "Service tiers indisponible", "probabilite": "4", "impact": "3"})
+    e = st.etat()
+    r = e["strategie"]["rubriques"]["risques"][0]
+    assert (r["score"], r["niveau"]) == (12, "critique")
+    assert any("sans plan de mitigation" in c["message"] for c in e["controles"] if c["gravite"] == "erreur")
+    assert e["publiable"] is False
+    with pytest.raises(ValueError):
+        st.enregistrer_element("objectifs", {"nom": "sans cible", "indicateur": "taux_reussite"})
+    with pytest.raises(ValueError, match="référence"):
+        st.enregistrer_element("environnements", {"nom": "TEST", "type": "TEST", "acces": "MotDePasse123"})
+
+
+def test_lien_casse_apres_suppression(st):
+    _remplir(st)
+    e = st.enregistrer_element("perimetre", {"nom": "Connexion", "niveau": "module"})
+    mid = e["strategie"]["rubriques"]["perimetre"][0]["id"]
+    st.enregistrer_element("risques", {"nom": "Données", "probabilite": "1", "impact": "1", "elements": [mid]})
+    e = st.supprimer_element("perimetre", mid)
+    assert any("Lien cassé" in c["message"] for c in e["controles"])
+
+
+def test_workflow_publication_et_versions_immuables(st):
+    _remplir(st)
+    with pytest.raises(ValueError):
+        st.transition("publier")
+    st.transition("soumettre")
+    with pytest.raises(ValueError):
+        st.transition("demander_modifications")  # commentaire obligatoire
+    st.transition("approuver", "ok")
+    e = st.transition("publier", "première")
+    assert e["strategie"]["statut"] == "Published" and e["versions"][0]["statut"] == "Published"
+    v1 = st.version(1)
+    # RG12 : modifier une version publiée ouvre la version 2 (brouillon), la v1 reste intacte
+    e = st.enregistrer_element("objectifs", {"nom": "Stabilité", "indicateur": "taux_instables", "comparateur": "<=", "cible": 5})
+    assert e["strategie"]["version"] == 2 and e["strategie"]["statut"] == "Draft"
+    assert st.version(1) == v1 and len(v1["rubriques"]["objectifs"]) == 1
+    d = st.comparer(1, "courante")
+    assert d["rubriques"]["objectifs"]["ajoutes"] == ["Stabilité"]
+    st.transition("soumettre"); st.transition("approuver"); e = st.transition("publier")
+    statuts = {v["version"]: v["statut"] for v in e["versions"]}
+    assert statuts == {1: "Archived", 2: "Published"}  # RG03 : une seule version publiée
+    e = st.restaurer(1)
+    assert e["strategie"]["version"] == 3 and len(e["strategie"]["rubriques"]["objectifs"]) == 1
+    ops = [j["op"] for j in st.journal()]
+    assert {"publier", "nouvelle_version", "restauration"} <= set(ops)
+
+
+def test_critere_manuel_et_automatique(st):
+    _remplir(st)
+    e = st.etat()
+    auto, manuel = sorted(e["criteres"], key=lambda c: c["verification"])
+    assert auto["etat"] == "satisfait"  # couverture fonctionnelle 80 % >= 70
+    assert manuel["etat"] == "à valider"
+    with pytest.raises(ValueError):
+        st.valider_critere(auto["id"], "preuve")  # RG10 : un critère mesuré ne se valide pas à la main
+    e = st.valider_critere(manuel["id"], "Rapport relu en comité")
+    assert [c for c in e["criteres"] if c["id"] == manuel["id"]][0]["etat"] == "satisfait"
+    assert st.criteres_entree_non_satisfaits() == []
+
+
+def test_import_perimetre_sans_doublon(st):
+    _remplir(st)
+    e = st.importer_perimetre()
+    e = st.importer_perimetre()
+    p = e["strategie"]["rubriques"]["perimetre"]
+    assert sum(1 for x in p if x["niveau"] == "module") == 1
+    ex = [x for x in p if x["niveau"] == "exigence"]
+    assert len(ex) == 5 and all(x["parent"] for x in ex)
+    assert next(x for x in ex if x["jira"] == ["DEMO-311"])["xray"] == ["DEMO-304", "DEMO-306"]
+
+
+def test_plan_automatisation_decision_humaine(st):
+    _remplir(st)
+    plan = {c["cle"]: c for c in st.plan_automatisation()}
+    assert plan["DEMO-301"]["statut_plan"] == "Automatisé"
+    assert plan["DEMO-308"]["statut_plan"] == "À analyser" and plan["DEMO-308"]["score"] is None
+    with pytest.raises(ValueError):
+        st.decider_candidat("DEMO-308", "Recommandé par IA")
+    with pytest.raises(ValueError):
+        st.decider_candidat("DEMO-308", "Rejeté")
+    st.decider_candidat("DEMO-308", "Approuvé", "Robot + Playwright", "2 j")
+    assert {c["cle"]: c for c in st.plan_automatisation()}["DEMO-308"]["statut_plan"] == "Approuvé"

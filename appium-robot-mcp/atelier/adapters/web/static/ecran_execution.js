@@ -348,6 +348,11 @@
       <label class="ligne-champ"><span>Dry run</span><input type="checkbox" class="bascule" id="l-dry"></label>
       <p class="lib">Sans sélection, les jeux référencés par la suite (&amp;{JDD_…}) sont injectés. Les prérequis des jeux sont vérifiés avant le run (« bloqué données » sinon). Résultats dans results/runs/&lt;id&gt;/.</p>`,
       `<button class="btn primaire" id="l-ok">${ico("play")}Lancer</button>`);
+    api("/api/strategie/criteres/entree").then(l => {  // Test Strategy : critères d'entrée obligatoires non satisfaits
+      if (l.length) $(".corps-carte", m.el).insertAdjacentHTML("afterbegin", `<div class="echec" style="margin-bottom:10px"><b>Critères d'entrée de la stratégie non satisfaits</b>
+        <ul>${l.map(c => `<li>${esc(c.description)} — ${esc(c.etat)}${c.valeur !== null && c.valeur !== undefined ? ` (actuel ${esc(c.valeur)} ; seuil ${esc(c.comparateur || ">=")} ${esc(c.seuil)})` : ""}</li>`).join("")}</ul>
+        <span class="lib">Avertissement : le lancement reste possible (décision du responsable).</span> <a href="#strategie/criteres">Voir les critères</a></div>`);
+    }).catch(() => {});
     $("#l-ok", m.el).onclick = async () => {
       const jdd = [...$("#l-jdd", m.el).selectedOptions].map(o => o.value);
       const corps = {target: $("#l-cible", m.el).value, include_tags: $("#l-tags", m.el).value.split(",").map(x => x.trim()).filter(Boolean),
