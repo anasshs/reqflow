@@ -218,4 +218,5 @@ def _enrichir(e: dict, references: dict, definitions: dict, valeurs: dict | None
     e["type_locator"] = prefixe.replace("//", "xpath") if loc else ""
     e["strategie"] = ("id (attribut HTML)" if prefixe == "id" and plateforme == "web" else STRATEGIES.get(prefixe, "")) if loc else ""
     e["ecran_reference"] = references.get(loc)
-    e["definition"] = definitions.get(normaliser(e["nom"]))
+    from atelier.execution.depot_robot import cle_appel
+    e["definition"] = definitions.get(normaliser(e["nom"])) or definitions.get(cle_appel(e["nom"]))

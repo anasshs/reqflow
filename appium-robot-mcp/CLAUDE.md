@@ -13,6 +13,7 @@ Test Strategy : phases 1, 2, 5 et une partie de la 4 livrées (voir ROADMAP) ; p
 `demo/banque_connexion/` (application web fictive, exécutions réelles).
 Test Design : couche de conception autour de Xray (voir docs/TEST_DESIGN_ECARTS.md) ; écriture vers Xray bloquée par 1.4.
 Automation Studio et Execution Center : voir docs/AUTOMATION_EXECUTION_ECARTS.md (file d'exécution : atelier/execution/centre.py).
+Application Intelligence, Failure Analysis, Quality Governance : docs/INTELLIGENCE_ECHECS_GOUVERNANCE_ECARTS.md.
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).
 Les fichiers racine `server.py`, `app_map.py`, `jdd.py`, `xray_client.py`, `web_backend.py`,
 `xray_live_listener.py`, `cartographie_listener.py` et `web/app.py` ne sont plus que des points

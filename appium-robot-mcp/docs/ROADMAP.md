@@ -130,6 +130,15 @@ Moteur `atelier/generation/conception.py`, écran « Test Design » (13 rubrique
 - [ ] Runners distants et parallélisme, réservation de devices, planification (cron, webhook, CI), notifications.
 - [ ] Builder à palette d'actions, Git en écriture (branche, MR), Failure Analysis (qualification des échecs).
 
+### Application Intelligence, Failure Analysis, Quality Governance (2026-11-14) — docs/INTELLIGENCE_ECHECS_GOUVERNANCE_ECARTS.md
+- [x] Navigation des 8 modules ; vues Fonctionnel / Technique du graphe central ; explorateur d'écrans ; Jira (instantané) ;
+      changements entre sources ; file de validation.
+- [x] Failure Analysis : collecte automatique, hypothèses par règles explicables, investigation (attendu / obtenu),
+      regroupement réversible, tests impactés, décisions, retest via la file, brouillon Jira, IA à la demande.
+- [x] Quality Governance : KPI documentés et historisés, couvertures, efficacité, santé, stabilité, risques,
+      release readiness avec avis QA, recommandations suivies, rapports PDF / CSV, paramètres.
+- [ ] Import Jira complet (descriptions, critères) et extraction IA ; création Jira ; versions du graphe ; propositions de code.
+
 ### Deuxième phase (§13)
 - [ ] Journey Graph. - [x] BDD Scenario Graph (synchronisé avec le .feature). - [ ] Failure Diagnosis Graph.
 - [ ] Automation Health Graph (nécessite l'historique des exécutions).

@@ -86,11 +86,11 @@ const vide = (titre, texte = "") => `<div class="vide"><b>${esc(titre)}</b>${tex
 /* ======================================================================== application */
 const Atelier = {
   ctx: {}, ecrans: {}, ecranCourant: null, ws: null, abonnes: new Map(), plateforme: "", env: "",
-  ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["graphe", "Application Intelligence", "graphe"], ["strategie", "Test Strategy", "cible"],
+  ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["intelligence", "Application Intelligence", "graphe"], ["strategie", "Test Strategy", "cible"],
     ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["centre", "Execution Center", "execution"],
-    ["rapports", "Rapports", "rapports"]],
+    ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]],
   /* écrans de travail rattachés à un module (l'onglet du module reste actif) */
-  PARENT: {bdd: "conception", editeur: "studio", execution: "centre"},
+  PARENT: {bdd: "conception", editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance"},
 
   enregistrer(id, ecran) { this.ecrans[id] = ecran; },
 

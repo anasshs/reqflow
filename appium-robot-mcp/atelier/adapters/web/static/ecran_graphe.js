@@ -1,7 +1,9 @@
 /* Knowledge Graph : Application Knowledge Graph, Coverage Graph, Automation Flow Graph, Impact Analysis. */
 "use strict";
 (() => {
-  const VUES = [["connaissance", "Graphe de connaissances"], ["parcours", "Parcours utilisateur"], ["bdd", "Construction BDD"],
+  const TYPES_VUE = {fonctionnel: "module,fonctionnalite,parcours,action,regle,role,epic,user_story,bug,test,test_plan,test_set,feature,scenario",
+    technique: "application,plateforme,version,ecran,composant,locator,keyword,resource,bibliotheque,endpoint,entite,suite,test_robot,jdd,requete"};
+  const VUES = [["connaissance", "Graphe de connaissances"], ["fonctionnel", "Fonctionnel"], ["technique", "Technique"], ["parcours", "Parcours utilisateur"], ["bdd", "Construction BDD"],
     ["couverture", "Couverture"], ["flux", "Flux"], ["impact", "Impact"]];
   const RANGS = {
     couverture: {module: 0, epic: 1, user_story: 2, bug: 2, test_plan: 3, test: 4, test_execution: 5, test_robot: 5},
@@ -108,7 +110,7 @@
   /* ------------------------------------------------------------------ options par vue */
   function options() {
     const o = $("#kg-options");
-    if (S.vue === "connaissance" || S.vue === "impact" || S.vue === "parcours") {
+    if (["connaissance", "impact", "parcours", "fonctionnel", "technique"].includes(S.vue)) {
       o.innerHTML = "";
     } else if (S.vue === "couverture") {
       o.innerHTML = `<select class="in" id="kg-module" style="width:auto" aria-label="Module"><option value="">Tous les modules</option></select>
@@ -124,9 +126,10 @@
   /* ------------------------------------------------------------------ chargement */
   async function charger(garder = false) {
     const url = {connaissance: "/api/graphes/connaissance", impact: "/api/graphes/connaissance", couverture: "/api/graphes/couverture",
-      flux: "/api/graphes/flux", parcours: "/api/graphes/connaissance"}[S.vue];
+      flux: "/api/graphes/flux", parcours: "/api/graphes/connaissance", fonctionnel: "/api/graphes/connaissance", technique: "/api/graphes/connaissance"}[S.vue];
     const q = new URLSearchParams(Object.entries(S.params).filter(([, v]) => v));
     if (S.vue === "parcours" && !S.params.centre) q.set("types", "application,module,ecran");
+    if (TYPES_VUE[S.vue] && !S.params.centre) q.set("types", TYPES_VUE[S.vue]);
     try { S.data = await api(url + "?" + q); }
     catch (e) {
       if (S.params.centre && S.auto) { delete S.params.centre; S.auto = false; return charger(garder); }  // centre automatique absent du graphe

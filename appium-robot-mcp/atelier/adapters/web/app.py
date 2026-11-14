@@ -43,10 +43,11 @@ from atelier.discovery import carte as amap  # noqa: E402
 from atelier.discovery import carte_outils, espaces, exploration, session  # noqa: E402
 from atelier.domain import declarations, evenements, projet  # noqa: E402
 from atelier.execution import jdd  # noqa: E402
-from atelier.execution import centre, historique  # noqa: E402
+from atelier.execution import centre, echecs, historique  # noqa: E402
+from atelier.discovery import intelligence_app  # noqa: E402
 from atelier.execution import robot as robot_moteur  # noqa: E402
 from atelier.generation import bdd, conception, editeur, studio  # noqa: E402
-from atelier.intelligence import strategie  # noqa: E402
+from atelier.intelligence import gouvernance, strategie  # noqa: E402
 from atelier.generation import locators as gen_locators  # noqa: E402
 from atelier.intelligence import assistant  # noqa: E402
 from atelier.intelligence import patrimoine_xray  # noqa: E402
@@ -1509,6 +1510,129 @@ async def studio_enregistrer_espace(req: Request):
 @app.get("/api/studio/journal")
 def studio_journal():
     return _call(studio.journal)
+
+
+# --------------------------------------------------------------------------- Failure Analysis
+@app.get("/api/echecs/vue")
+async def echecs_vue():
+    return await asyncio.to_thread(_call, echecs.vue_ensemble)
+
+
+@app.get("/api/echecs")
+async def echecs_liste():
+    return await asyncio.to_thread(_call, echecs.collecter)
+
+
+@app.get("/api/echecs/investigation")
+async def echecs_investigation(id: str):
+    return await asyncio.to_thread(_call, echecs.investigation, id)
+
+
+@app.post("/api/echecs/decision")
+async def echecs_decision(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.decider, b.get("id", ""), b.get("decision", ""), b.get("categorie", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/echecs/regrouper")
+async def echecs_regrouper(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.regrouper, b.get("id", ""), b.get("groupe", ""))
+
+
+@app.post("/api/echecs/jira")
+async def echecs_jira(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.associer_jira, b.get("id", ""), b.get("cle", ""))
+
+
+@app.post("/api/echecs/ia")
+async def echecs_ia(req: Request):
+    return await asyncio.to_thread(_call, echecs.demander_ia, (await req.json()).get("id", ""))
+
+
+@app.post("/api/echecs/retest")
+async def echecs_retest(req: Request):
+    """Relance via la file de l'Execution Center ; l'ancien résultat n'est jamais écrasé."""
+    b = await req.json()
+    e = _call(echecs._evenement, b.get("id", ""))
+    if not e["cle_xray"] and not b.get("tags"):
+        raise HTTPException(400, "Test sans clé Xray : relancer la suite depuis l'Execution Center.")
+    tags = b.get("tags") or [e["cle_xray"]]
+    params = {"target": e["test_id"].split("::")[0] if "::" in e["test_id"] else "tests", "include_tags": tags,
+              "variables": {"PLATFORM": e["plateforme"] or "web"}, "jdd_env": e["environnement"]}
+    if not params["target"].endswith(".robot"):
+        params["target"] = "tests"
+    r = await asyncio.to_thread(_call, _mettre_en_file, params, "High", "", f"Retest {e['cle_xray'] or e['nom']}")
+    _call(echecs.noter_retest, e["id"], r["run_id"])
+    return r
+
+
+@app.get("/api/echecs/retests")
+async def echecs_retests(id: str):
+    return await asyncio.to_thread(_call, echecs.resultats_retests, id)
+
+
+@app.get("/api/echecs/journal")
+def echecs_journal():
+    return _call(echecs.journal)
+
+
+# --------------------------------------------------------------------------- Quality Governance
+@app.get("/api/gouvernance/vue")
+async def gouvernance_vue():
+    return await asyncio.to_thread(_call, gouvernance.vue_ensemble)
+
+
+@app.get("/api/gouvernance/{section}")
+async def gouvernance_section(section: str):
+    fn = {"couverture": gouvernance.couverture_fonctionnelle, "automatisation": gouvernance.couverture_automatisation,
+          "efficacite": gouvernance.efficacite, "sante": gouvernance.sante_automatisation, "stabilite": gouvernance.stabilite,
+          "risques": gouvernance.risques, "tendances": gouvernance.tendances, "recommandations": gouvernance.recommandations,
+          "releases": lambda: {"evaluations": gouvernance.releases(), "validations": gouvernance.validations_release()},
+          "parametres": gouvernance.parametres, "kpis": gouvernance.kpis}.get(section)
+    if not fn:
+        raise HTTPException(404, "Section inconnue.")
+    return await asyncio.to_thread(_call, fn)
+
+
+@app.post("/api/gouvernance/releases")
+async def gouvernance_evaluer(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, gouvernance.evaluer_release, b.get("version", ""), b.get("campagne", ""), b.get("environnement", ""), b.get("commit", ""))
+
+
+@app.post("/api/gouvernance/releases/valider")
+async def gouvernance_valider(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, gouvernance.valider_release, b.get("id", ""), b.get("decision", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/gouvernance/recommandations")
+async def gouvernance_suivre(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, gouvernance.suivre_recommandation, b.get("id", ""), b.get("statut", ""), b.get("responsable", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/gouvernance/instantane")
+async def gouvernance_instantane():
+    return await asyncio.to_thread(_call, gouvernance.instantane, True)
+
+
+@app.post("/api/gouvernance/parametres")
+async def gouvernance_parametres(req: Request):
+    return await asyncio.to_thread(_call, gouvernance.enregistrer_parametres, await req.json())
+
+
+# --------------------------------------------------------------------------- Application Intelligence
+@app.get("/api/intelligence/{section}")
+async def intelligence_section(section: str):
+    fn = {"vue": intelligence_app.vue_ensemble, "jira": intelligence_app.jira, "ecrans": intelligence_app.ecrans,
+          "regles": lambda: intelligence_app.noeuds(["regle"]), "parcours": lambda: intelligence_app.noeuds(["parcours", "action"]),
+          "api": intelligence_app.api_endpoints, "changements": intelligence_app.changements, "validation": intelligence_app.validation}.get(section)
+    if not fn:
+        raise HTTPException(404, "Section inconnue.")
+    return await asyncio.to_thread(_call, fn)
 
 
 def main():
