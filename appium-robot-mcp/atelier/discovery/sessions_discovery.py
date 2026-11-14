@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from datetime import datetime
 
 from atelier.domain import evenements, projet
@@ -125,7 +126,7 @@ def demarrer(sid: str) -> dict:
             s["photo_debut"] = photo()
             s["debut"] = _maintenant()
         s["statut"] = "En cours"
-        s["periodes"].append({"debut": _maintenant()})
+        s["periodes"].append({"debut": _maintenant(), "t0": time.time()})
         _ecrire(s)
     _evenement(sid, {"type": "demarrage" if len(s["periodes"]) == 1 else "reprise"})
     return s
@@ -136,7 +137,7 @@ def pause(sid: str) -> dict:
     if s["statut"] != "En cours":
         raise ValueError("Seule une session en cours peut être mise en pause.")
     s["statut"] = "En pause"
-    s["periodes"][-1]["fin"] = _maintenant()
+    s["periodes"][-1].update(fin=_maintenant(), t1=time.time())
     _ecrire(s)
     _evenement(sid, {"type": "pause"})
     return s
@@ -147,21 +148,27 @@ def arreter(sid: str) -> dict:
     if s["statut"] == "Terminée":
         return s
     if s["periodes"] and "fin" not in s["periodes"][-1]:
-        s["periodes"][-1]["fin"] = _maintenant()
+        s["periodes"][-1].update(fin=_maintenant(), t1=time.time())
     s["statut"] = "Terminée"
     s["fin"] = _maintenant()
     s["photo_fin"] = photo()
+    s["reseau"] = _reseau_session(s)
     s["resultats"] = _resultats(s)
     _ecrire(s)
     _evenement(sid, {"type": "arret", "detail": f"{s['resultats']['nouveaux_ecrans']} nouvel(aux) écran(s)"})
     return s
 
 
-def annoter(sid: str, texte: str, sensible: bool = False, ecran: str = "") -> dict:
-    """Annotation de l'étape courante ; « sensible » : étape à ne jamais rejouer ni explorer automatiquement."""
+def annoter(sid: str, texte: str, sensible: bool = False, ecran: str = "", cle: str = "") -> dict:
+    """Annotation de l'étape courante ; « sensible » : étape à ne jamais rejouer ni explorer automatiquement
+    (avec la clé d'un élément : l'élément est classé « sensitive » pour l'application)."""
     if not texte.strip():
         raise ValueError("Texte de l'annotation obligatoire.")
     s = _lire(sid)
+    if sensible and cle.strip():
+        from atelier.discovery import classement
+
+        classement.marquer(cle.strip(), "sensitive", s["config"]["app"])
     s["sensibles" if sensible else "annotations"] = s.get("sensibles" if sensible else "annotations", 0) + 1
     _ecrire(s)
     _evenement(sid, {"type": "sensible" if sensible else "annotation", "detail": texte.strip()[:500], "ecran": ecran})
@@ -229,7 +236,10 @@ def _resultats(s: dict) -> dict:
                       if (b["ecrans"][k]["elements"], b["ecrans"][k]["etats"], b["ecrans"][k]["changements"])
                       != (a["ecrans"][k]["elements"], a["ecrans"][k]["etats"], a["ecrans"][k]["changements"]))
     tl = timeline(s["id"])
-    return {"nouveaux_ecrans": len(nouveaux), "ecrans_modifies": len(modifies), "ecrans_visites": len({e.get("ecran") for e in tl if e.get("ecran")}),
+    reseau = s.get("reseau") or {}
+    return {"comportements": sum(e["type"] == "comportement" for e in tl), "refus": sum(e["type"] == "refus" for e in tl),
+            "endpoints": reseau.get("endpoints", []), "endpoints_proposes": reseau.get("proposes", []),
+            "nouveaux_ecrans": len(nouveaux), "ecrans_modifies": len(modifies), "ecrans_visites": len({e.get("ecran") for e in tl if e.get("ecran")}),
             "nouvelles_transitions": len(set(b["transitions"]) - set(a["transitions"])), "actions": sum(e["type"] == "action" for e in tl),
             "composants_ajoutes": sum(b["ecrans"][k]["elements"] - a["ecrans"].get(k, {"elements": 0})["elements"] for k in b["ecrans"]),
             "nouveaux": [{"id": k, "nom": b["ecrans"][k]["nom"]} for k in nouveaux], "modifies": [{"id": k, "nom": b["ecrans"][k]["nom"]} for k in modifies],
@@ -311,3 +321,71 @@ def chemin(vers: str, depuis: str = "", plateforme: str = "") -> dict:
     plateforme = plateforme or ((carte.config_app().get("plateformes") or ["web"])[0])
     c = carte.chemin(depuis, vers, plateforme)
     return {"depuis": depuis, "vers": vers, "plateforme": plateforme, "etapes": c or [], "trouve": c is not None}
+
+
+# =========================================================================== actions depuis le Studio
+def _reseau_session(s: dict) -> dict:
+    """Appels réseau (web) observés pendant les périodes actives de la session, rapprochés du Knowledge Graph ;
+    les endpoints non documentés sont proposés (à valider)."""
+    from atelier.discovery import comportements
+
+    if s["config"]["plateforme"] != "web":
+        return {"endpoints": [], "proposes": [], "note": "mobile : observation réseau par proxy de test, non branchée"}
+    journal = [x for x in comportements.journal_reseau(min((p.get("t0", 0) for p in s["periodes"]), default=0))
+               if any(p.get("t0", 0) <= x["t"] <= p.get("t1", time.time()) for p in s["periodes"])]
+    eps = comportements.rapprocher(comportements.endpoints(journal))
+    try:
+        proposes = comportements.proposer_endpoints([e for e in eps if not e["connu"]])
+    except Exception:  # noqa: BLE001 - la proposition au graphe ne bloque pas l'arrêt de la session
+        proposes = []
+    return {"endpoints": eps, "proposes": proposes}
+
+
+def _interdite_session(s: dict, element: dict) -> str:
+    txt = f"{element.get('key') or ''} {element.get('libelle') or ''}".lower()
+    return next((a for a in s["config"].get("actions_interdites") or [] if a.lower() in txt), "")
+
+
+def agir(action: str, locator: str = "", element: dict | None = None, confirme: bool = False) -> dict:
+    """Action déclenchée depuis le Studio sur le device / navigateur : classée puis autorisée (ou refusée) selon
+    l'environnement de la session ; la transition est enregistrée dans la carte, les comportements observés
+    (messages, éléments apparus / disparus) vont dans la timeline et deviennent des règles proposées."""
+    from atelier.discovery import actions, classement, comportements, session
+    from atelier.discovery.observation import observer
+
+    s = active()
+    if not s or s["statut"] != "En cours":
+        raise PermissionError("Démarrer (ou reprendre) une session Discovery avant d'agir depuis le Studio.")
+    if action not in ("tap", "press_back"):
+        raise ValueError("Actions du Studio : tap, press_back (la saisie se fait à la main sur le device).")
+    if not session.plateforme():
+        raise RuntimeError("Aucun device ni navigateur connecté : « Connecter » dans le Studio.")
+    avant = comportements.etat_ecran()
+    ecran_avant = (observer([e for e in avant if e.get("key")]) or {}).get("id")
+    el = dict(element or {})
+    if action == "tap":
+        if not locator:
+            raise ValueError("Locator obligatoire.")
+        el = next((e for e in avant if locator in (e.get("locators") or [])), None) or el
+        interdite = _interdite_session(s, el)
+        verdict = {"classe": "forbidden", "raison": f"action interdite pour la session (« {interdite} »)", "autorise": False,
+                   "motif": "Action interdite par la configuration de la session."} if interdite else \
+            classement.autorise(el, "guidee", s["config"].get("environnement", ""), confirme, s["config"]["app"])
+    else:
+        verdict = {"classe": "safe", "raison": "retour", "autorise": True, "motif": ""}
+    libelle = el.get("libelle") or el.get("key") or locator or "retour"
+    if not verdict["autorise"]:
+        if not verdict.get("confirmation"):
+            _evenement(s["id"], {"type": "refus", "detail": f"{libelle} : {verdict['motif']}"})
+        return {**verdict, "execute": False}
+    actions.tap(locator) if action == "tap" else actions.press_back()
+    apres = comportements.etat_ecran()
+    obs = observer([e for e in apres if e.get("key")])
+    comps = comportements.comparer(avant, apres, libelle)
+    if (obs or {}).get("id") != ecran_avant:  # changement d'écran : c'est une transition, seuls les messages comptent
+        comps = [c for c in comps if c["type"] == "message"]
+    for c in comps[:20]:
+        _evenement(s["id"], {"type": "comportement", "detail": f"{c['type'].replace('_', ' ')} : {c['detail']}",
+                             "ecran": (obs or {}).get("id")})
+    regles = comportements.proposer_regles(comps, (obs or {}).get("nom") or (obs or {}).get("id", ""))
+    return {**verdict, "execute": True, "ecran": obs, "comportements": comps, "regles_proposees": regles}

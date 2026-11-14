@@ -10,8 +10,11 @@ l'appeler depuis n'importe quel thread.
 """
 from __future__ import annotations
 
+import collections
 import concurrent.futures
 import os
+import time
+import urllib.parse
 import re
 import unicodedata
 
@@ -100,6 +103,7 @@ class WebBackend:
     def __init__(self):
         self._ex = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="playwright")
         self.pw = self.browser = self.page = None
+        self.reseau = collections.deque(maxlen=2000)  # appels XHR / fetch observés (sans corps, sans en-têtes)
 
     def _run(self, fn, *args, **kwargs):
         return self._ex.submit(fn, *args, **kwargs).result()
@@ -132,9 +136,38 @@ class WebBackend:
         ctx = self.browser.new_context(viewport={"width": width, "height": height},
                                        ignore_https_errors=os.environ.get("WEB_IGNORE_HTTPS") == "1")
         self.page = ctx.new_page()
+        self.page.on("response", self._noter_reponse)
         if url:
             self.page.goto(url, wait_until="domcontentloaded")
         return {"url": self.page.url, "titre": self.page.title()}
+
+    def _noter_reponse(self, r):
+        """Appel réseau de l'application (XHR / fetch) : méthode, chemin, noms des paramètres, statut. Les valeurs
+        des paramètres, les corps et les en-têtes (jetons, cookies) ne sont jamais conservés."""
+        try:
+            req = r.request
+            if req.resource_type not in ("xhr", "fetch"):
+                return
+            u = urllib.parse.urlsplit(req.url)
+            self.reseau.append({"t": time.time(), "methode": req.method, "hote": u.netloc, "chemin": u.path or "/",
+                                "parametres": sorted({k for k, _ in urllib.parse.parse_qsl(u.query, keep_blank_values=True)}),
+                                "statut": r.status, "type": req.resource_type})
+        except Exception:  # noqa: BLE001 - l'observation ne gêne jamais la navigation
+            pass
+
+    def textes(self, max_textes: int = 200) -> list[str]:
+        """Textes visibles « feuilles » de la page (messages d'erreur, confirmations…), hors empreinte d'écran."""
+        js = """(max) => { const out = [];
+          for (const el of document.querySelectorAll('p,span,div,li,small,label,strong,em,[role=alert],[aria-live]')) {
+            if (out.length >= max) break;
+            if ([...el.children].some(c => (c.innerText || '').trim())) continue;
+            const t = (el.innerText || '').trim(), r = el.getBoundingClientRect();
+            if (t && t.length <= 300 && r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden') out.push(t);
+          } return [...new Set(out)]; }"""
+        return self._run(lambda: self._page().evaluate(js, int(max_textes)))
+
+    def journal_reseau(self, depuis: float = 0) -> list[dict]:
+        return [dict(x) for x in list(self.reseau) if x["t"] >= depuis]
 
     def stop(self):
         def _stop():

@@ -15,16 +15,17 @@ Test : `tests/test_discovery_sessions.py`.
 |---|---|---|
 | 1. Overview | livré | KPI fonctionnels, techniques, qualité de la connaissance (carte + KG), actions rapides |
 | 2. Sessions | livré | création (application, build, plateforme, environnement, device, mode, profondeur, écrans max, périmètre, actions interdites), liste, statuts Préparée / En cours / En pause / Terminée |
-| 3. Studio | partiel | Start / Pause / Resume / Stop, annotation, étape sensible, timeline en direct (bus d'événements : carte, navigation, exploration, runs) ; écran du device en direct : écran classique `/` (pas encore intégré dans le Studio) |
+| 3. Studio | livré | Start / Pause / Resume / Stop, annotation, étape sensible, timeline en direct ; **écran du device / navigateur intégré** (connexion, image en direct, clic → élément identifié, classé et autorisé ou refusé, Toucher, Retour, classer un élément) ; suggestions |
 | 4. Screen Inventory | livré | écrans de la carte : module, plateformes, composants, sans locator stable, états, modifiés, couverts |
 | 5. Component Inspector | livré (lecture) | locators par plateforme, secours, fiabilité Stable / Reliable / Fragile / Missing ; édition : écran en direct et Automation Studio › Locators |
 | 6. Navigation Explorer | livré | transitions avec fiabilité, impasses, écrans isolés, transitions instables, chemin le plus fiable (Dijkstra) |
-| 7. Behavioral Intelligence | à venir (phase 5) | messages d'erreur, validations, règles comportementales proposées |
-| 8. API Observation | partiel | endpoints du KG (OpenAPI, déclarations) ; interception réseau en session à venir |
+| 7. Behavioral Intelligence | livré | après chaque action du Studio : messages apparus, éléments apparus / disparus (même écran) ; chaque message devient une règle proposée (à valider) |
+| 8. API Observation | livré (web) | appels XHR / fetch observés (méthode, chemin normalisé, noms des paramètres, statut ; jamais de valeurs, corps ni en-têtes), rapprochés des contrats OpenAPI ; non documentés proposés au KG. Mobile : proxy de test à brancher |
 | 9. Results | livré | nouveaux écrans, écrans modifiés, composants ajoutés, transitions, actions, annotations, étapes sensibles |
 | 10. Validation | livré | écrans à nommer (nom métier + module), propositions du KG (validation complète dans Application Intelligence) |
 | 11. History | livré | historique des sessions, comparaison de deux sessions (écrans ajoutés / retirés, transitions ajoutées) |
-| 12. Settings | partiel | liste rouge de l'application ; classement Safe / Controlled / Sensitive / Forbidden par environnement à venir |
+| 12. Settings | livré | classement des actions (motifs sensibles, classes autorisées par environnement, classements manuels), liste rouge |
+| Correlation Jira / Xray / GitLab | livré | par écran : exigences Jira, tests Xray, tests Robot, fichiers du dépôt (liens du KG) ; exigences proposées par mots communs, à confirmer ; derniers commits GitLab à la demande |
 
 ## Les 4 modes
 
@@ -33,7 +34,7 @@ Test : `tests/test_discovery_sessions.py`.
 | Guided Discovery | livré : la navigation (écran en direct, MCP, listener) alimente la carte et la timeline |
 | Test-Based Discovery | livré : run Robot avec cartographie lancé depuis le Studio |
 | Autonomous Discovery | livré : exploration existante (aucune saisie, liste rouge, liens externes ignorés) lancée depuis le Studio avec les limites de la session |
-| AI Assisted Discovery | à venir (phase 4) : suggestions de prochaines actions par le fournisseur IA configuré |
+| AI Assisted Discovery | livré : suggestions explicables (actions sûres jamais essayées, pistes de la carte) ; avec IA_FOURNISSEUR interne / anthropic, le modèle ordonne et justifie les candidates (textes masqués, clés inventées ignorées, rien n'est exécuté sans clic) |
 
 ## Knowledge Graph : sources
 
@@ -43,10 +44,17 @@ contrats OpenAPI, déclarations. **Jira et Xray ne sont jamais interrogés en di
 synchroniser Jira / importer les définitions Xray ; chaque ligne porte son action de mise à jour,
 et le bouton **Lancer une Discovery** ouvre le Studio.
 
-## Reste à faire (par ordre)
+## Classement des actions (atelier/discovery/classement.py)
 
-1. Écran du device / navigateur intégré dans le Studio (aujourd'hui : écran classique `/`).
-2. Mode assisté par IA (suggestions, branches non explorées), propositions soumises à validation.
-3. Classement des actions par environnement (Safe / Controlled / Sensitive / Forbidden).
-4. Observation comportementale et réseau (proxy de test, masquage des tokens et données personnelles).
-5. Corrélation automatique avec Jira, Xray et GitLab (écran ↔ exigence ↔ test ↔ fichier).
+| Classe | Exemple | Exploration autonome / suggestions | Depuis le Studio |
+|---|---|---|---|
+| Safe | lien, bouton de navigation | oui | oui |
+| Controlled | champ, case à cocher | jamais | selon l'environnement (défaut : oui) |
+| Sensitive | virement, bénéficiaire, plafond, élément marqué sensible | jamais | seulement si l'environnement l'autorise ET après confirmation |
+| Forbidden | liste rouge, actions interdites de la session | jamais | jamais, sur aucun environnement |
+
+## Reste à faire
+
+1. Observation réseau mobile (proxy de test, certificat de l'entreprise, masquage).
+2. Saisie assistée depuis le Studio (aujourd'hui : à la main sur le device), avec les JDD et le classement.
+3. Corrélation avec les fichiers de l'application elle-même (dépôt applicatif GitLab), en plus du dépôt de tests.

@@ -1170,12 +1170,99 @@ async def discovery_action(sid: str, action: str, req: Request):
     b = await req.json() if (await req.body()) else {}
     actions = {"demarrer": lambda: sessions_discovery.demarrer(sid), "pause": lambda: sessions_discovery.pause(sid),
                "arreter": lambda: sessions_discovery.arreter(sid),
-               "annoter": lambda: sessions_discovery.annoter(sid, b.get("texte", ""), bool(b.get("sensible")), b.get("ecran", ""))}
+               "annoter": lambda: sessions_discovery.annoter(sid, b.get("texte", ""), bool(b.get("sensible")), b.get("ecran", ""),
+                                                             b.get("cle", ""))}
     if action not in actions:
         raise HTTPException(404, f"Action inconnue : {action}")
     r = await asyncio.to_thread(_call, actions[action])
     emit({"type": "discovery", "session": sid, "statut": r.get("statut")})
     return r
+
+
+@app.post("/api/discovery/agir")
+async def discovery_agir(req: Request):
+    """Action depuis le Studio (tap / retour), classée et autorisée selon l'environnement de la session."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, sessions_discovery.agir, b.get("action", "tap"), b.get("locator", ""),
+                                b.get("element") or {}, bool(b.get("confirme")))
+    emit({"type": "discovery", "agir": r.get("execute")})
+    return r
+
+
+@app.post("/api/discovery/classer")
+async def discovery_classer(req: Request):
+    from atelier.discovery import classement
+
+    b = await req.json()
+    s = sessions_discovery.active()
+    el = b.get("element") or {}
+    return {**_call(classement.classer, el), "autorisation": _call(classement.autorise, el, "guidee",
+                                                                   (s or {}).get("config", {}).get("environnement", ""))}
+
+
+@app.get("/api/discovery/classement")
+def discovery_classement():
+    from atelier.discovery import classement
+
+    return {**_call(classement.regles), "classes": classement.CLASSES, "politique_defaut": classement.POLITIQUE_DEFAUT}
+
+
+@app.post("/api/discovery/classement")
+async def discovery_classement_maj(req: Request):
+    from atelier.discovery import classement
+
+    b = await req.json()
+    if "cle" in b:
+        return _call(classement.marquer, b["cle"], b.get("classe", "auto"))
+    return _call(classement.maj_regles, b.get("sensibles"), b.get("environnements"))
+
+
+@app.get("/api/discovery/suggestions")
+async def discovery_suggestions(ia: int = 1):
+    from atelier.discovery import assistance
+
+    return await asyncio.to_thread(_call, assistance.suggerer_courant, bool(ia))
+
+
+@app.get("/api/discovery/reseau")
+def discovery_reseau():
+    """Appels réseau observés depuis le début de la session en cours (web), rapprochés du Knowledge Graph."""
+    from atelier.discovery import comportements
+
+    s = sessions_discovery.active()
+    t0 = min((p.get("t0", 0) for p in (s or {}).get("periodes", [])), default=0) if s else time.time()
+    return {"session": (s or {}).get("id"), "endpoints": _call(lambda: comportements.rapprocher(comportements.endpoints(comportements.journal_reseau(t0))))}
+
+
+@app.get("/api/discovery/correlation")
+async def discovery_correlation():
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.synthese)
+
+
+@app.get("/api/discovery/correlation/{eid}")
+async def discovery_correlation_ecran(eid: str):
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.ecran, eid)
+
+
+@app.post("/api/discovery/correlation/confirmer")
+async def discovery_correlation_confirmer(req: Request):
+    from atelier.discovery import correlation
+
+    b = await req.json()
+    r = _call(correlation.confirmer, b["ecran"], b["cle"])
+    emit({"type": "graphe_change"})
+    return r
+
+
+@app.post("/api/discovery/correlation/gitlab")
+async def discovery_correlation_gitlab(req: Request):
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.commits_gitlab, (await req.json()).get("fichiers") or [])
 
 
 @app.get("/api/discovery/comparer")

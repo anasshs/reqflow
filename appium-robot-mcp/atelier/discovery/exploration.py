@@ -2,7 +2,7 @@
 le plus fiable, explorer automatiquement l'application.
 
 Invariants (testés) : l'exploration ne saisit jamais de texte, ne coche jamais de case, ne touche
-aucune action de la liste rouge et ignore les liens externes.
+aucune action de la liste rouge ni aucune action classée sensible (classement.py) et ignore les liens externes.
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import threading
 import time
 from urllib.parse import urlparse
 
-from atelier.discovery import actions, carte, session
+from atelier.discovery import actions, carte, classement, session
 from atelier.discovery.observation import attendre_stable, carte_active, observer
 from atelier.domain import evenements
 
@@ -107,7 +107,8 @@ def explorer(max_ecrans: int = 25, profondeur: int = 3, duree_max_s: int = 900) 
     depart = observer(attendre_stable())
     hote = urlparse(session.webb().info()["url"]).netloc if session.is_web() else ""
     file, vus = [(depart["id"], 0)], {depart["id"]}
-    bilan = {"ecrans_visites": 1, "nouveaux": 0, "transitions": 0, "ignores_liste_rouge": 0, "journal": []}
+    bilan = {"ecrans_visites": 1, "nouveaux": 0, "transitions": 0, "ignores_liste_rouge": 0, "ignores_non_surs": 0, "journal": []}
+    regles = classement.regles()
     try:
         while file and not EXPLO["stop"].is_set() and time.time() - t0 < duree_max_s and len(vus) <= max_ecrans:
             eid, prof = file.pop(0)
@@ -122,8 +123,12 @@ def explorer(max_ecrans: int = 25, profondeur: int = 3, duree_max_s: int = 900) 
             for el in session.current_elements(150):
                 if el.get("type") not in ("bouton", "lien", "element", "liste"):
                     continue
-                if m.interdit(el):
+                c = classement.classer(el, r=regles)["classe"]
+                if c == "forbidden":
                     bilan["ignores_liste_rouge"] += 1
+                    continue
+                if c != "safe":  # sensible ou contrôlée : jamais en exploration autonome
+                    bilan["ignores_non_surs"] += 1
                     continue
                 if el["key"] not in deja and el["locators"][0] not in deja:
                     candidats.append(el)
