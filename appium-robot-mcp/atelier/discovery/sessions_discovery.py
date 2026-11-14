@@ -1,0 +1,313 @@
+"""Application Discovery : sessions de découverte (cahier « Application Discovery — Discovery Studio »).
+
+Une session encadre une période d'observation de l'application (guidée, assistée, autonome ou par les tests) :
+configuration figée (application, build, plateforme, environnement, device, langue, mode, limites, actions
+interdites), timeline des événements observés (écrans, transitions, actions, exploration, annotations, étapes
+sensibles) et résultats calculés par différence entre la carte au démarrage et à l'arrêt : une session n'enrichit
+que ce qu'elle découvre, sans dupliquer ce qui était déjà connu.
+
+La carte de l'application (atelier/discovery/carte) reste la mémoire des écrans et transitions ; le Knowledge Graph
+la lit : aucun second graphe. Stockage : <projet>/discovery/sessions/<id>.json et <id>.jsonl (timeline).
+"""
+from __future__ import annotations
+
+import json
+import os
+import threading
+from datetime import datetime
+
+from atelier.domain import evenements, projet
+
+MODES = {"guidee": "Guided Discovery", "assistee": "AI Assisted Discovery", "autonome": "Autonomous Discovery",
+         "tests": "Test-Based Discovery"}
+STATUTS = ("Préparée", "En cours", "En pause", "Terminée")
+TYPES_SUIVIS = {"carte_change", "navigation", "exploration", "session", "outil", "ecran_change", "run_lance", "run_bilan"}
+_verrou = threading.Lock()
+
+
+def _d():
+    return projet.PROJECT_DIR / "discovery" / "sessions"
+
+
+def _maintenant() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _auteur() -> str:
+    return os.environ.get("USERNAME") or os.environ.get("USER") or "automaticien"
+
+
+def _lire(sid: str) -> dict:
+    f = _d() / f"{sid}.json"
+    if not f.exists() or "/" in sid or ".." in sid:
+        raise KeyError(f"Session inconnue : {sid}")
+    return json.loads(f.read_text("utf-8"))
+
+
+def _ecrire(s: dict):
+    _d().mkdir(parents=True, exist_ok=True)
+    f = _d() / f"{s['id']}.json"
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(json.dumps(s, ensure_ascii=False, indent=1), "utf-8")
+    os.replace(tmp, f)
+
+
+def _evenement(sid: str, ev: dict):
+    _d().mkdir(parents=True, exist_ok=True)
+    with (_d() / f"{sid}.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"date": _maintenant(), **ev}, ensure_ascii=False, default=str) + "\n")
+
+
+# =========================================================================== photo de la carte
+def photo() -> dict:
+    """État de la carte de l'application active : écrans (empreinte, éléments, états), transitions."""
+    from atelier.discovery import carte
+
+    if not carte.app_courante():
+        return {"app": None, "ecrans": {}, "transitions": []}
+    ecr = {}
+    for e in carte.ecrans():
+        ecr[e["id"]] = {"nom": e.get("nom") or e.get("titre") or e["id"], "elements": len(e.get("elements") or {}),
+                        "etats": len(e.get("etats") or []), "changements": len(e.get("changements") or []),
+                        "plateformes": sorted((e.get("plateformes") or {}).keys())}
+    return {"app": carte.app_courante(), "ecrans": ecr, "transitions": sorted(t["id"] for t in carte.transitions())}
+
+
+# =========================================================================== cycle de vie
+def creer(config: dict) -> dict:
+    from atelier.discovery import carte
+
+    app = config.get("app") or carte.app_courante()
+    if not app:
+        raise ValueError("Aucune application : la déclarer d'abord (Paramètres › Applications).")
+    cfg_app = carte.config_app(app)
+    plateforme = config.get("plateforme") or (cfg_app.get("plateformes") or ["web"])[0]
+    if plateforme not in (cfg_app.get("plateformes") or []):
+        raise ValueError(f"Plateforme {plateforme} non déclarée pour {cfg_app.get('nom')}.")
+    mode = config.get("mode") or "guidee"
+    if mode not in MODES:
+        raise ValueError(f"Mode : {', '.join(MODES)}.")
+    entier = lambda k, d: max(1, int(config.get(k) or d))  # noqa: E731
+    sid = f"DS-{datetime.now():%Y%m%d-%H%M%S}"
+    while (_d() / f"{sid}.json").exists():
+        sid += "b"
+    s = {"id": sid, "statut": "Préparée", "cree": _maintenant(), "auteur": _auteur(),
+         "config": {"app": app, "app_nom": cfg_app.get("nom", app), "build": config.get("build") or cfg_app.get("build", ""),
+                    "plateforme": plateforme, "environnement": config.get("environnement", ""),
+                    "device": config.get("device", ""), "langue": config.get("langue") or cfg_app.get("langue", "fr"),
+                    "mode": mode, "point_depart": config.get("point_depart", ""), "profondeur": entier("profondeur", 3),
+                    "max_ecrans": entier("max_ecrans", 30), "perimetre": config.get("perimetre", ""),
+                    "actions_interdites": [a.strip() for a in config.get("actions_interdites") or [] if str(a).strip()]},
+         "periodes": [], "annotations": 0, "sensibles": 0}
+    _ecrire(s)
+    _evenement(sid, {"type": "session_creee", "detail": MODES[mode]})
+    return s
+
+
+def active() -> dict | None:
+    d = _d()
+    for f in sorted(d.glob("DS-*.json"), reverse=True) if d.exists() else []:
+        s = json.loads(f.read_text("utf-8"))
+        if s["statut"] in ("En cours", "En pause"):
+            return s
+    return None
+
+
+def demarrer(sid: str) -> dict:
+    with _verrou:
+        s = _lire(sid)
+        a = active()
+        if a and a["id"] != sid:
+            raise PermissionError(f"Session {a['id']} déjà en cours : la terminer d'abord.")
+        if s["statut"] == "Terminée":
+            raise ValueError("Session terminée : en créer une nouvelle (les sessions s'enrichissent les unes les autres).")
+        if s["statut"] == "Préparée":
+            s["photo_debut"] = photo()
+            s["debut"] = _maintenant()
+        s["statut"] = "En cours"
+        s["periodes"].append({"debut": _maintenant()})
+        _ecrire(s)
+    _evenement(sid, {"type": "demarrage" if len(s["periodes"]) == 1 else "reprise"})
+    return s
+
+
+def pause(sid: str) -> dict:
+    s = _lire(sid)
+    if s["statut"] != "En cours":
+        raise ValueError("Seule une session en cours peut être mise en pause.")
+    s["statut"] = "En pause"
+    s["periodes"][-1]["fin"] = _maintenant()
+    _ecrire(s)
+    _evenement(sid, {"type": "pause"})
+    return s
+
+
+def arreter(sid: str) -> dict:
+    s = _lire(sid)
+    if s["statut"] == "Terminée":
+        return s
+    if s["periodes"] and "fin" not in s["periodes"][-1]:
+        s["periodes"][-1]["fin"] = _maintenant()
+    s["statut"] = "Terminée"
+    s["fin"] = _maintenant()
+    s["photo_fin"] = photo()
+    s["resultats"] = _resultats(s)
+    _ecrire(s)
+    _evenement(sid, {"type": "arret", "detail": f"{s['resultats']['nouveaux_ecrans']} nouvel(aux) écran(s)"})
+    return s
+
+
+def annoter(sid: str, texte: str, sensible: bool = False, ecran: str = "") -> dict:
+    """Annotation de l'étape courante ; « sensible » : étape à ne jamais rejouer ni explorer automatiquement."""
+    if not texte.strip():
+        raise ValueError("Texte de l'annotation obligatoire.")
+    s = _lire(sid)
+    s["sensibles" if sensible else "annotations"] = s.get("sensibles" if sensible else "annotations", 0) + 1
+    _ecrire(s)
+    _evenement(sid, {"type": "sensible" if sensible else "annotation", "detail": texte.strip()[:500], "ecran": ecran})
+    return s
+
+
+def timeline(sid: str, limite: int = 500) -> list[dict]:
+    _lire(sid)
+    f = _d() / f"{sid}.jsonl"
+    return [json.loads(x) for x in f.read_text("utf-8").splitlines() if x.strip()][-limite:] if f.exists() else []
+
+
+def lister() -> list[dict]:
+    d = _d()
+    out = []
+    for f in sorted(d.glob("DS-*.json"), reverse=True) if d.exists() else []:
+        s = json.loads(f.read_text("utf-8"))
+        out.append({k: s.get(k) for k in ("id", "statut", "cree", "debut", "fin", "auteur", "config", "resultats", "annotations", "sensibles")})
+    return out
+
+
+# =========================================================================== observation (bus d'événements)
+def observer_evenement(ev: dict):
+    """Ajoute à la timeline de la session en cours les événements d'observation (sans effet hors session)."""
+    if ev.get("type") not in TYPES_SUIVIS:
+        return
+    try:
+        s = active()
+    except Exception:  # noqa: BLE001 - jamais d'erreur côté observation
+        return
+    if not s or s["statut"] != "En cours":
+        return
+    t = ev.get("type")
+    ecran = ev.get("ecran") or {}
+    entree = {"type": t}
+    if t == "carte_change" and isinstance(ecran, dict) and ecran:
+        entree.update({"type": "ecran", "ecran": ecran.get("id"), "detail": ("nouvel écran : " if ecran.get("nouveau") else "écran reconnu : ")
+                       + (ecran.get("nom") or ecran.get("titre") or ecran.get("id", "")), "nouveau": bool(ecran.get("nouveau"))})
+    elif t == "carte_change" and ev.get("transition"):
+        de, vers = ev["transition"][:2]
+        entree.update({"type": "transition", "de": de, "vers": vers, "detail": f"{de} → {vers}"})
+    elif t == "navigation":
+        entree.update({"type": "transition", "de": ev.get("de"), "vers": ev.get("vers"), "detail": f"{ev.get('de')} → {ev.get('vers')}"})
+    elif t == "exploration":
+        entree["detail"] = ev.get("message") or ("fin de l'exploration" if ev.get("fin") else "")
+    elif t == "outil":
+        entree.update({"type": "action", "detail": f"{ev.get('nom')} {json.dumps(ev.get('args') or {}, ensure_ascii=False)[:200]}"})
+    elif t == "session":
+        entree["detail"] = f"device {ev.get('etat')} {ev.get('platform') or ''}".strip()
+    elif t in ("run_lance", "run_bilan"):
+        entree.update({"type": "test", "detail": "exécution de tests " + ("lancée" if t == "run_lance" else "terminée")})
+    else:
+        entree["detail"] = t
+    _evenement(s["id"], entree)
+
+
+evenements.abonner(observer_evenement, TYPES_SUIVIS)
+
+
+# =========================================================================== résultats et vues
+def _resultats(s: dict) -> dict:
+    a, b = s.get("photo_debut") or {"ecrans": {}, "transitions": []}, s.get("photo_fin") or photo()
+    nouveaux = sorted(set(b["ecrans"]) - set(a["ecrans"]))
+    modifies = sorted(k for k in set(a["ecrans"]) & set(b["ecrans"])
+                      if (b["ecrans"][k]["elements"], b["ecrans"][k]["etats"], b["ecrans"][k]["changements"])
+                      != (a["ecrans"][k]["elements"], a["ecrans"][k]["etats"], a["ecrans"][k]["changements"]))
+    tl = timeline(s["id"])
+    return {"nouveaux_ecrans": len(nouveaux), "ecrans_modifies": len(modifies), "ecrans_visites": len({e.get("ecran") for e in tl if e.get("ecran")}),
+            "nouvelles_transitions": len(set(b["transitions"]) - set(a["transitions"])), "actions": sum(e["type"] == "action" for e in tl),
+            "composants_ajoutes": sum(b["ecrans"][k]["elements"] - a["ecrans"].get(k, {"elements": 0})["elements"] for k in b["ecrans"]),
+            "nouveaux": [{"id": k, "nom": b["ecrans"][k]["nom"]} for k in nouveaux], "modifies": [{"id": k, "nom": b["ecrans"][k]["nom"]} for k in modifies],
+            "annotations": s.get("annotations", 0), "sensibles": s.get("sensibles", 0)}
+
+
+def resultats(sid: str) -> dict:
+    s = _lire(sid)
+    return {**s, "resultats": s.get("resultats") or (_resultats({**s, "photo_fin": photo()}) if s.get("photo_debut") else None),
+            "timeline": timeline(sid, 300)}
+
+
+def comparer(a: str, b: str) -> dict:
+    """Deux sessions : écrans et transitions connus à la fin de chacune, différences."""
+    sa, sb = _lire(a), _lire(b)
+    pa, pb = sa.get("photo_fin") or sa.get("photo_debut") or {"ecrans": {}, "transitions": []}, sb.get("photo_fin") or photo()
+    return {"a": a, "b": b, "ecrans_a": len(pa["ecrans"]), "ecrans_b": len(pb["ecrans"]),
+            "ajoutes": [pb["ecrans"][k]["nom"] for k in sorted(set(pb["ecrans"]) - set(pa["ecrans"]))],
+            "retires": [pa["ecrans"][k]["nom"] for k in sorted(set(pa["ecrans"]) - set(pb["ecrans"]))],
+            "transitions_ajoutees": len(set(pb["transitions"]) - set(pa["transitions"]))}
+
+
+def vue_ensemble() -> dict:
+    """Indicateurs de découverte calculés sur la carte et le Knowledge Graph (aucune valeur estimée)."""
+    from atelier.discovery import carte, connaissance, intelligence_app
+
+    k = {"ecrans": 0, "transitions": 0, "actions": 0, "composants": 0, "locators": 0, "sans_locator_stable": 0,
+         "ecrans_avec_variantes": 0, "ecrans_modifies": 0, "a_nommer": 0}
+    if carte.app_courante():
+        ecr, tr = carte.ecrans(), carte.transitions()
+        k["ecrans"], k["transitions"] = len(ecr), len(tr)
+        k["actions"] = len({(t["de"], json.dumps(t.get("action") or {}, sort_keys=True)) for t in tr})
+        for e in ecr:
+            els = (e.get("elements") or {}).values()
+            k["composants"] += len(els)
+            for el in els:
+                locs = [l for ls in (el.get("locators") or {}).values() for l in ls]
+                k["locators"] += len(locs)
+                if el.get("type") in carte.INTERACTIFS and not any(carte.robustesse(l) == "robuste" for l in locs):
+                    k["sans_locator_stable"] += 1
+            k["ecrans_avec_variantes"] += bool(e.get("etats"))
+            k["ecrans_modifies"] += bool(e.get("a_revoir"))
+            k["a_nommer"] += not e.get("nom")
+    g = connaissance.construire()
+    par_type = {}
+    for n in g.noeuds.values():
+        par_type[n.type] = par_type.get(n.type, 0) + 1
+    a_valider = len(intelligence_app.validation())
+    return {"kpi": k, "fonctionnel": {"fonctionnalites": par_type.get("fonctionnalite", 0), "parcours": par_type.get("parcours", 0),
+                                      "regles": par_type.get("regle", 0), "endpoints": par_type.get("endpoint", 0)},
+            "qualite": {"a_valider": a_valider, "valides": sum(n.statut == "validé" for n in g.noeuds.values()),
+                        "a_revoir": k["ecrans_modifies"]},
+            "sessions": len(lister()), "active": active(), "app": carte.app_courante()}
+
+
+def navigation() -> dict:
+    """Transitions, impasses (aucune sortie), écrans isolés (aucune entrée hors départ), transitions instables."""
+    from atelier.discovery import carte
+
+    if not carte.app_courante():
+        return {"transitions": [], "impasses": [], "isoles": [], "instables": []}
+    g = carte.graphe()
+    noms = {n["id"]: n["nom"] or n["titre"] or n["id"] for n in g["nodes"]}
+    sorties = {e["de"] for e in g["edges"] if e["type"] != "press_back"}
+    entrees = {e["vers"] for e in g["edges"] if e["type"] != "press_back"}
+    return {"depart": g["depart"], "noms": noms,
+            "transitions": [{**e, "de_nom": noms.get(e["de"], e["de"]), "vers_nom": noms.get(e["vers"], e["vers"])} for e in g["edges"]],
+            "impasses": [{"id": i, "nom": noms[i]} for i in noms if i not in sorties],
+            "isoles": [{"id": i, "nom": noms[i]} for i in noms if i not in entrees and i != g["depart"]],
+            "instables": [e["id"] for e in g["edges"] if e["essais"] and e["fiabilite"] < 0.8]}
+
+
+def chemin(vers: str, depuis: str = "", plateforme: str = "") -> dict:
+    """Chemin le plus fiable vers un écran (carte.chemin : transitions réussies privilégiées)."""
+    from atelier.discovery import carte
+
+    g = carte.graphe()
+    depuis = depuis or g["depart"]
+    plateforme = plateforme or ((carte.config_app().get("plateformes") or ["web"])[0])
+    c = carte.chemin(depuis, vers, plateforme)
+    return {"depuis": depuis, "vers": vers, "plateforme": plateforme, "etapes": c or [], "trouve": c is not None}

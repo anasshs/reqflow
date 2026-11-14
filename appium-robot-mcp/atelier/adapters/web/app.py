@@ -43,6 +43,7 @@ from atelier.discovery import carte as amap  # noqa: E402
 from atelier.discovery import carte_outils, espaces, exploration, session  # noqa: E402
 from atelier.domain import declarations, evenements, projet  # noqa: E402
 from atelier.domain import projets  # noqa: E402
+from atelier.discovery import sessions_discovery  # noqa: E402  (abonne la timeline au bus d'événements)
 from atelier.execution import jdd  # noqa: E402
 from atelier.execution import centre, echecs, historique  # noqa: E402
 from atelier.discovery import intelligence_app  # noqa: E402
@@ -211,6 +212,7 @@ async def events(req: Request):
     if ev.get("type") == "session" and ev.get("etat") == "ouverte":
         state["flux"] = {"platform": ev.get("platform"), "udid": ev.get("udid") or None}
     emit(ev)
+    _call_silencieux(sessions_discovery.observer_evenement, ev)  # MCP / listener : timeline de la session Discovery
     return {"ok": True}
 
 
@@ -1135,6 +1137,62 @@ async def conception_statuts_jira(projet: str = ""):
 
 
 # --------------------------------------------------------------------------- Test Design › Règles de test
+# --------------------------------------------------------------------------- Application Discovery
+@app.get("/api/graphes/sources")
+async def graphes_sources():
+    from atelier.discovery import connaissance
+
+    return await asyncio.to_thread(_call, connaissance.sources)
+
+
+@app.get("/api/discovery/vue")
+async def discovery_vue():
+    return await asyncio.to_thread(_call, sessions_discovery.vue_ensemble)
+
+
+@app.get("/api/discovery/sessions")
+def discovery_sessions():
+    return _call(sessions_discovery.lister)
+
+
+@app.post("/api/discovery/sessions")
+async def discovery_creer(req: Request):
+    return _call(sessions_discovery.creer, await req.json())
+
+
+@app.get("/api/discovery/sessions/{sid}")
+def discovery_session(sid: str):
+    return _call(sessions_discovery.resultats, sid)
+
+
+@app.post("/api/discovery/sessions/{sid}/{action}")
+async def discovery_action(sid: str, action: str, req: Request):
+    b = await req.json() if (await req.body()) else {}
+    actions = {"demarrer": lambda: sessions_discovery.demarrer(sid), "pause": lambda: sessions_discovery.pause(sid),
+               "arreter": lambda: sessions_discovery.arreter(sid),
+               "annoter": lambda: sessions_discovery.annoter(sid, b.get("texte", ""), bool(b.get("sensible")), b.get("ecran", ""))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    r = await asyncio.to_thread(_call, actions[action])
+    emit({"type": "discovery", "session": sid, "statut": r.get("statut")})
+    return r
+
+
+@app.get("/api/discovery/comparer")
+def discovery_comparer(a: str, b: str):
+    return _call(sessions_discovery.comparer, a, b)
+
+
+@app.get("/api/discovery/navigation")
+async def discovery_navigation():
+    return await asyncio.to_thread(_call, sessions_discovery.navigation)
+
+
+@app.get("/api/discovery/chemin")
+def discovery_chemin(vers: str, depuis: str = "", plateforme: str = ""):
+    return _call(sessions_discovery.chemin, vers, depuis, plateforme)
+
+
 @app.get("/api/conception/regles")
 async def conception_regles():
     from atelier.generation import regles_test

@@ -371,3 +371,37 @@ def analyser_impact(g: Graphe, noeud_id: str) -> dict:
                 "explication": ("TNR ciblée : tests Robot qui portent les clés Xray concernées."
                                 if cles else "Aucun test concerné ne porte de clé Xray : TNR par tag impossible.")},
     }
+
+
+def sources() -> dict:
+    """Ce qui alimente le graphe, avec état et volume : carte (Discovery), dépôt Robot, JDD, Jira / Xray
+    (copie locale), contrats OpenAPI, déclarations. Aucune source n'est interrogée en direct."""
+    from atelier.discovery import carte, sessions_discovery
+    from atelier.domain import projet
+    from atelier.execution import depot_robot
+    from atelier.intelligence import patrimoine_xray
+
+    out = {}
+    try:
+        app = carte.app_courante()
+        sess = sessions_discovery.lister()
+        out["carte"] = {"app": app, "ecrans": len(carte.ecrans()) if app else 0, "transitions": len(carte.transitions()) if app else 0,
+                        "derniere_session": (sess[0].get("fin") or sess[0].get("debut") or sess[0]["cree"]) if sess else None, "sessions": len(sess)}
+    except Exception as e:  # noqa: BLE001
+        out["carte"] = {"erreur": str(e)[:200]}
+    try:
+        inv = depot_robot.lire_depot()
+        out["depot"] = {"suites": len(inv.get("suites") or []), "tests": len(inv.get("tests") or {}), "keywords": len(inv.get("keywords") or {})}
+    except Exception as e:  # noqa: BLE001
+        out["depot"] = {"erreur": str(e)[:200]}
+    e = patrimoine_xray.etat()
+    out["jira_xray"] = {"present": e.get("present", False), "date": e.get("date"), "source": e.get("source"), "tests": e.get("nb_tests", 0),
+                        "exigences": e.get("nb_exigences", 0), "definitions": (e.get("definitions_xray") or {}).get("date")}
+    api_dir = projet.PROJECT_DIR / "api"
+    out["openapi"] = {"fichiers": sorted(f.name for f in api_dir.glob("*.*") if f.suffix in (".yaml", ".yml", ".json"))} if api_dir.exists() else {"fichiers": []}
+    jdd_dir = projet.PROJECT_DIR / "data" / "jdd"
+    out["jdd"] = {"environnements": sorted(f.stem for f in jdd_dir.glob("*.y*ml") if f.stem != "requetes")} if jdd_dir.exists() else {"environnements": []}
+    d = declarations.charger()
+    out["declarations"] = {"noeuds": len(d["noeuds"]), "relations": len(d["relations"]),
+                           "a_valider": sum(n.get("statut") == "à valider" for n in d["noeuds"].values())}
+    return out
