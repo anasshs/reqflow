@@ -118,10 +118,22 @@
     if (plats.includes("ios")) { devs.ios_simulateurs.forEach(d => cibles.push({p: "ios", udid: d.udid, lib: `Simulateur iOS · ${d.nom}`, det: d.runtime})); devs.ios_physiques.forEach(u => cibles.push({p: "ios", udid: u, lib: "iPhone branché", det: u})); }
     if (plats.includes("web")) cibles.push({p: "web", udid: "", lib: "Navigateur", det: "Chromium piloté par l'atelier"});
     const mobilesAbsents = plats.filter(p => p !== "web" && !cibles.some(c => c.p === p));
+    const diag = mobilesAbsents.length ? await api("/api/devices/diagnostic").catch(() => null) : null;
+    const pourquoi = () => {
+      const l = [`Application <b>${esc(app.nom)}</b> déclarée pour : ${plats.map(esc).join(", ") || "aucune plateforme"}${plats.includes("web") ? "" : " (pas de web : le navigateur n'est pas proposé ; l'ajouter dans Paramètres › Applications si l'application a une version web)"}.`];
+      if (mobilesAbsents.includes("android") && diag) {
+        if (!diag.adb) l.push(`Android : <b>adb introuvable</b> (ni dans le PATH, ni dans ANDROID_HOME / ANDROID_SDK_ROOT, ni dans %LOCALAPPDATA%\\Android\\Sdk). Installer les « platform-tools » du SDK Android ou définir ANDROID_HOME, puis relancer l'atelier.`);
+        else if (!diag.android_tous.length) l.push(`Android : adb trouvé (<span class="mono">${esc(diag.adb)}</span>) mais <b>aucun appareil</b>. Démarrer l'émulateur (Android Studio › Device Manager) ou brancher le téléphone avec le débogage USB activé.`);
+        else l.push(`Android : appareils vus par adb mais pas prêts : ${diag.android_tous.filter(d => d.etat !== "device").map(d => `<span class="mono">${esc(d.udid)}</span> (${esc(d.etat)}${d.etat === "unauthorized" ? " : accepter l'autorisation de débogage sur le téléphone" : d.etat === "offline" ? " : débrancher / rebrancher ou redémarrer l'émulateur" : ""})`).join(", ")}.`);
+        if (diag.erreur) l.push(`adb : ${esc(diag.erreur)}`);
+      }
+      if (mobilesAbsents.includes("ios") && diag) l.push(diag.xcrun || diag.idevice_id ? "iOS : aucun simulateur démarré ni iPhone branché." : "iOS : outils Apple absents (xcrun, libimobiledevice) : iOS n'est disponible que sur un Mac.");
+      return l.map(x => `<li>${x}</li>`).join("");
+    };
     corps.innerHTML = `<p class="lib">Application <b>${esc(app.nom)}</b> ${esc(app.build || "")} · projet du header. Choisir où découvrir :</p>
       <div class="df-cibles">${cibles.map((c, i) => `<label class="df-cible"><input type="radio" name="df-c" value="${i}" ${i === 0 ? "checked" : ""}><span><b>${esc(c.lib)}</b><br><span class="lib">${esc(c.det || "")}</span></span></label>`).join("")
         || `<p class="warn-t">Aucune cible disponible.</p>`}</div>
-      ${mobilesAbsents.length ? `<p class="lib">${mobilesAbsents.map(p => p === "android" ? "Android : aucun émulateur ni appareil détecté (démarrer l'émulateur ou brancher le téléphone, débogage USB activé), puis" : "iOS : aucun simulateur démarré ni iPhone branché, puis").join(" ; ")} <button class="lien" id="df-rech">rechercher à nouveau</button>.</p>` : ""}
+      ${mobilesAbsents.length || !cibles.length ? `<ul class="lib" style="margin:4px 0;padding-left:18px">${pourquoi()}</ul><button class="btn petit" id="df-rech">Rechercher à nouveau</button>` : ""}
       <div class="grille-2">
         <div class="champ" id="df-url-c" hidden><label for="df-url">Adresse</label><input class="in" id="df-url" value="${esc(app.web?.url || "")}" placeholder="https://recette.exemple.fr"></div>
         <div class="champ"><label for="df-env">Environnement</label><input class="in" id="df-env" value="${esc(Atelier.env || "")}" placeholder="recette"></div>

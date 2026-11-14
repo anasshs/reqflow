@@ -391,6 +391,11 @@ def devices():
     return _call(outils.list_devices)
 
 
+@app.get("/api/devices/diagnostic")
+def devices_diagnostic():
+    return _call(session.diagnostic_devices)
+
+
 @app.post("/api/connecter")
 async def connecter(req: Request):
     """Connexion en un clic : device détecté + app mémorisée. Renvoie 'besoin' s'il manque une info."""
@@ -468,8 +473,9 @@ def _grab() -> bytes | None:
     try:
         if p == "web":
             return session.screenshot_png() if session.is_web() else None
-        if p == "android" and shutil.which("adb"):
-            cmd = ["adb"] + (["-s", udid] if udid else []) + ["exec-out", "screencap", "-p"]
+        adb = session.chemin_adb() if p == "android" else None
+        if adb:
+            cmd = [adb] + (["-s", udid] if udid else []) + ["exec-out", "screencap", "-p"]
             return subprocess.run(cmd, capture_output=True, timeout=8).stdout or None
         if p == "ios" and shutil.which("xcrun"):
             with tempfile.NamedTemporaryFile(suffix=".png") as f:

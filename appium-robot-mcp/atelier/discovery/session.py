@@ -48,10 +48,45 @@ def find(locator: str, timeout: float = 10):
 
 
 # --------------------------------------------------------------------------- devices & session
+def chemin_adb() -> str | None:
+    """adb du PATH, sinon celui du SDK Android (ANDROID_HOME, ANDROID_SDK_ROOT, emplacements par défaut de Windows,
+    macOS et Linux) : sous Windows, le SDK installé par Android Studio n'est souvent pas dans le PATH."""
+    trouve = shutil.which("adb")
+    if trouve:
+        return trouve
+    exe = "adb.exe" if os.name == "nt" else "adb"
+    racines = [os.environ.get("ANDROID_HOME"), os.environ.get("ANDROID_SDK_ROOT"),
+               os.path.join(os.environ.get("LOCALAPPDATA", ""), "Android", "Sdk") if os.environ.get("LOCALAPPDATA") else None,
+               os.path.expanduser("~/Library/Android/sdk"), os.path.expanduser("~/Android/Sdk")]
+    for r in racines:
+        if r and os.path.isfile(os.path.join(r, "platform-tools", exe)):
+            return os.path.join(r, "platform-tools", exe)
+    return None
+
+
+def diagnostic_devices() -> dict:
+    """Pourquoi un device n'apparaît pas : adb trouvé ou non, appareils vus par adb mais pas prêts (unauthorized,
+    offline), outils iOS présents."""
+    adb = chemin_adb()
+    out = {"adb": adb, "android_tous": [], "xcrun": bool(shutil.which("xcrun")), "idevice_id": bool(shutil.which("idevice_id")),
+           "android_home": os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or "", "erreur": ""}
+    if adb:
+        try:
+            r = subprocess.run([adb, "devices", "-l"], capture_output=True, text=True, timeout=20)
+            for line in r.stdout.splitlines()[1:]:
+                parts = line.split()
+                if len(parts) > 1:
+                    out["android_tous"].append({"udid": parts[0], "etat": parts[1]})
+        except Exception as e:  # noqa: BLE001
+            out["erreur"] = str(e)[:200]
+    return out
+
+
 def list_devices() -> dict:
     out: dict = {"android": [], "ios_simulateurs": [], "ios_physiques": []}
-    if shutil.which("adb"):
-        r = subprocess.run(["adb", "devices", "-l"], capture_output=True, text=True, timeout=20)
+    adb = chemin_adb()
+    if adb:
+        r = subprocess.run([adb, "devices", "-l"], capture_output=True, text=True, timeout=20)
         for line in r.stdout.splitlines()[1:]:
             parts = line.split()
             if len(parts) > 1 and parts[1] == "device":
