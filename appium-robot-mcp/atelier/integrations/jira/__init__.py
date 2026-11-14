@@ -87,3 +87,21 @@ class JiraClient:
         body = {"type": {"name": type_name}, "inwardIssue": {"key": issue_a},
                 "outwardIssue": {"key": issue_b}}
         http("POST", f"{self.base}/rest/api/3/issueLink", json.dumps(body).encode(), self._h())
+
+    def rechercher(self, jql: str, champs: list[str], limite: int = 1000) -> list[dict]:
+        """Recherche JQL paginée (POST /rest/api/3/search/jql, pagination par nextPageToken).
+        Point d'API à vérifier sur la documentation Jira Cloud : voir docs/XRAY_API.md."""
+        if not self.enabled:
+            raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")
+        out: list[dict] = []
+        jeton = None
+        while len(out) < limite:
+            corps = {"jql": jql, "fields": champs, "maxResults": min(100, limite - len(out))}
+            if jeton:
+                corps["nextPageToken"] = jeton
+            r = json.loads(http("POST", f"{self.base}/rest/api/3/search/jql", json.dumps(corps).encode(), self._h()))
+            out += r.get("issues", [])
+            jeton = r.get("nextPageToken")
+            if not jeton:
+                break
+        return out[:limite]

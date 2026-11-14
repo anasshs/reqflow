@@ -170,3 +170,28 @@ def run_robot(target: str, include_tags: list[str] | None = None,
         bilan["jdd"] = jdd_info
     evenements.publier({"type": "run_bilan", "bilan": bilan})
     return bilan
+
+
+def derniers_resultats(dossier: str = "results") -> dict:
+    """Dernier statut connu de chaque test Robot, lu dans les output.xml du dossier de résultats
+    (le plus récent l'emporte). Clé : « <fichier relatif>::<nom du test> »."""
+    from robot.api import ExecutionResult
+
+    base = projet.safe_path(dossier)
+    out: dict = {}
+    if not base.exists():
+        return out
+    for f in sorted(base.rglob("output.xml"), key=lambda p: p.stat().st_mtime):
+        try:
+            res = ExecutionResult(str(f))
+        except Exception:
+            continue
+        for t in res.suite.all_tests:
+            src = Path(str(t.source)) if t.source else None
+            try:
+                rel = str(src.resolve().relative_to(projet.PROJECT_DIR)) if src else ""
+            except ValueError:
+                rel = str(src)
+            out[f"{rel}::{t.name}"] = {"statut": t.status, "message": t.message[:300],
+                                       "fin": str(t.end_time or ""), "output": str(f.relative_to(projet.PROJECT_DIR))}
+    return out
