@@ -25,11 +25,11 @@ les outils MCP existants. Cocher les cases au fil de l'eau ; noter les décision
 (test automatique qui compare les deux) ; toutes les routes web répondent ; `pytest -q` vert.
 
 ### 1.2 Sécurité de l'interface locale
-- [ ] Jeton de session généré au démarrage, transmis à la page (cookie HttpOnly SameSite=Strict) ;
+- [x] Jeton de session généré au démarrage, transmis à la page (cookie HttpOnly SameSite=Strict) ;
       exigé sur toutes les routes `/api/*` et le WebSocket, sauf `/api/events` (jeton propre aux listeners).
-- [ ] Vérification `Host` ∈ {127.0.0.1:PORT, localhost:PORT} (protection DNS rebinding) et
+- [x] Vérification `Host` ∈ {127.0.0.1:PORT, localhost:PORT} (protection DNS rebinding) et
       `Origin` identique pour les requêtes navigateur et le WebSocket. Pas de CORS.
-- [ ] Taille maximale des requêtes, chemins limités au projet (déjà `_safe_path`), liste blanche
+- [x] Taille maximale des requêtes, chemins limités au projet (déjà `_safe_path`), liste blanche
       des actions manuelles (déjà en place, à tester).
 **Acceptation** : tests qui prouvent le refus sans jeton, avec un mauvais `Host`, avec une `Origin`
 étrangère, et l'acceptation dans le cas nominal.

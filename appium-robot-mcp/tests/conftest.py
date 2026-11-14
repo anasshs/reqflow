@@ -16,6 +16,8 @@ os.environ["ROBOT_PROJECT_DIR"] = tempfile.mkdtemp(prefix="atelier_tests_")
 for _var in ("WEB_EVENTS_URL", "XRAY_CLIENT_ID", "XRAY_CLIENT_SECRET", "JIRA_BASE_URL",
              "JIRA_EMAIL", "JIRA_API_TOKEN", "ANTHROPIC_API_KEY"):
     os.environ.pop(_var, None)
+os.environ["ATELIER_JETON_FICHIER"] = str(Path(os.environ["ROBOT_PROJECT_DIR"]) / "jeton")
+os.environ.pop("ATELIER_JETON_EVENEMENTS", None)
 os.environ.setdefault("ATELIER_CONFIG", str(Path(os.environ["ROBOT_PROJECT_DIR"]) / "atelier.json"))
 sys.path.insert(0, str(RACINE))
 

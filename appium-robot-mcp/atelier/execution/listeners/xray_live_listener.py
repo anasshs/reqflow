@@ -32,6 +32,7 @@ import urllib.request
 # Racine de l'outil (le listener est chargé par chemin depuis un sous-processus Robot).
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
+from atelier.integrations import interface_web  # noqa: E402
 from atelier.integrations.jira import JiraClient  # noqa: E402
 from atelier.integrations.xray import KEY_RE, XrayClient, now_iso  # noqa: E402
 
@@ -85,8 +86,7 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
                 return
             try:
                 req = urllib.request.Request(self.cfg["events_url"], data=json.dumps(ev).encode(),
-                                             headers={"Content-Type": "application/json"},
-                                             method="POST")
+                                             headers=interface_web.entetes(), method="POST")
                 urllib.request.urlopen(req, timeout=2).read()
             except Exception:
                 pass  # l'interface peut être fermée : le run continue

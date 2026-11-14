@@ -29,6 +29,14 @@ projets), adapter les chemins, puis activer le serveur dans *Settings → MCP*.
 Avantage sous Cursor : l'agent voit directement les fichiers du projet, il peut donc
 écrire locators, steps et suites dans l'éditeur et lancer `run_robot` dans la foulée.
 
+## Organisation du code
+
+Le code vit dans le paquet `atelier/` : moteurs (`discovery`, `generation`, `execution`,
+`intelligence`), services partagés (`domain`), clients bas niveau (`integrations`) et façades
+(`adapters/mcp`, `adapters/web`). Les fichiers racine (`server.py`, `web/app.py`, listeners…)
+restent les points d'entrée : les configurations existantes n'ont pas à changer.
+Tests : `pytest -q` (aucun service réel appelé).
+
 ## Outils exposés
 
 | Domaine | Outils |
@@ -253,7 +261,18 @@ python web/app.py                   # http://127.0.0.1:8765
   avec heures de début et de fin, keyword en cours, journal Xray et bilan.
 
 `CLAUDE_MODEL` choisit le modèle (défaut `claude-sonnet-5-5`). L'interface n'écoute qu'en
-local (127.0.0.1), sans authentification : ne pas l'exposer sur le réseau.
+local (127.0.0.1) : ne pas l'exposer sur le réseau.
+
+### Sécurité de l'interface locale
+
+- La page d'accueil pose un jeton de session (cookie HttpOnly, SameSite=Strict), nouveau à chaque
+  démarrage : après un redémarrage de l'interface, recharger la page.
+- Seuls les hôtes `127.0.0.1:PORT` et `localhost:PORT` sont acceptés ; une requête venant d'un
+  autre site (en-tête `Origin` différent) est refusée, WebSocket compris. Pas de CORS.
+- Le listener Robot et le MCP (Cursor, Claude Desktop) s'authentifient avec un jeton à part, lu
+  dans `ATELIER_JETON_EVENEMENTS` ou, à défaut, dans le fichier `~/.atelier-automatisation.jeton`
+  (droits 600) que l'interface écrit au démarrage : rien à configurer sur un même poste.
+- Requêtes limitées à 2 Mio (`WEB_TAILLE_MAX`).
 
 ## Points d'attention
 

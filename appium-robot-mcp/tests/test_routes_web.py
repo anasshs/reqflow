@@ -14,9 +14,14 @@ def client(projet, monkeypatch, tmp_path):
     mod = module_web()
     monkeypatch.setattr(mod, "CONFIG_PATH", tmp_path / "atelier.json")
     c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
-    if hasattr(mod, "connecter_client_test"):
-        mod.connecter_client_test(c)
+    assert c.get("/").status_code == 200  # la page d'accueil pose le cookie de session
     return c
+
+
+def _processus() -> dict:
+    from atelier.integrations import interface_web
+
+    return interface_web.entetes()
 
 
 @pytest.mark.parametrize("route", [
@@ -45,10 +50,11 @@ def test_fichier_de_resultat_hors_dossier_refuse(client):
 
 
 def test_step_externe_valide_dans_l_interface(client):
-    pid = client.post("/api/externe/step", json={"gherkin": "Quand je valide"}).json()["id"]
-    assert client.get(f"/api/externe/reponse/{pid}").json() == {"decision": None}
+    pid = client.post("/api/externe/step", json={"gherkin": "Quand je valide"}, headers=_processus()).json()["id"]
+    assert client.get(f"/api/externe/reponse/{pid}", headers=_processus()).json() == {"decision": None}
     client.post("/api/agent/reponse", json={"id": pid, "decision": "corriger", "texte": "Quand je confirme"})
-    assert client.get(f"/api/externe/reponse/{pid}").json() == {"decision": "corrigé", "texte": "Quand je confirme"}
+    assert client.get(f"/api/externe/reponse/{pid}", headers=_processus()).json() == {
+        "decision": "corrigé", "texte": "Quand je confirme"}
 
 
 def test_evenement_carte_diffuse_a_la_page(client):

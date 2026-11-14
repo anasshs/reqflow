@@ -7,7 +7,9 @@ Façade web : routes minces qui appellent les moteurs (aucune logique métier ic
 Lancement (depuis le dossier appium-robot-mcp) :
     python web/app.py            -> http://127.0.0.1:8765
 
-Écoute uniquement en local (127.0.0.1) : pas d'authentification, ne pas exposer sur le réseau.
+Écoute uniquement en local (127.0.0.1). Sécurité : jeton de session (cookie HttpOnly
+SameSite=Strict), contrôle Host / Origin, jeton propre aux processus locaux sur /api/events et
+/api/externe/*, taille des requêtes plafonnée (voir securite.py). Ne pas exposer sur le réseau.
 """
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -35,6 +38,7 @@ from fastapi.responses import FileResponse, Response  # noqa: E402
 
 from atelier.adapters import facade as outils  # noqa: E402
 from atelier.adapters.web.agent import Agent  # noqa: E402
+from atelier.adapters.web.securite import SecuriteLocale, jeton_processus  # noqa: E402
 from atelier.discovery import carte as amap  # noqa: E402
 from atelier.discovery import carte_outils, exploration, session  # noqa: E402
 from atelier.domain import evenements, projet  # noqa: E402
@@ -54,7 +58,10 @@ CONFIG_DEFAUT = {
     "statut_sous_tache_fini": "Terminé",
 }
 
-app = FastAPI(title="Atelier d'automatisation")
+app = FastAPI(title="Atelier d'automatisation", docs_url=None, redoc_url=None, openapi_url=None)
+JETON_SESSION = secrets.token_urlsafe(32)  # nouveau à chaque démarrage : la page doit être rechargée
+JETON_PROCESSUS = jeton_processus()
+app.add_middleware(SecuriteLocale, port=PORT, jeton_session=JETON_SESSION, jeton_evenements=JETON_PROCESSUS)
 clients: set[WebSocket] = set()
 history: deque = deque(maxlen=400)
 externes: dict = {}  # steps proposés par Cursor / Claude Desktop via le MCP : id -> {...}
