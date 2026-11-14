@@ -1423,6 +1423,38 @@ async def strategie_infos(req: Request):
     return await asyncio.to_thread(_call, strategie.modifier_infos, await req.json())
 
 
+@app.get("/api/strategie/lot/{rubrique}")
+def strategie_options_lot(rubrique: str):
+    return _call(strategie.options_lot, rubrique)
+
+
+@app.post("/api/strategie/lot")
+async def strategie_lot(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.ajouter_en_lot, b.get("rubrique", ""), b.get("valeurs") or [], b.get("communs") or {}, b.get("parts") or {})
+
+
+@app.post("/api/strategie/squads")
+async def strategie_squads(req: Request):
+    """Squads du périmètre ; option : activer aussi leur testabilité des US (politique par espace Jira)."""
+    from atelier.intelligence import testabilite_us
+
+    b = await req.json()
+    r = _call(strategie.ajouter_squads, b.get("squads") or [])
+    if b.get("testabilite"):  # les squads sont déjà ajoutées : un échec ici n'est qu'un avertissement
+        actives = {e["projet_jira"] for e in testabilite_us.espaces()}
+        r["testabilite_activee"], r["avertissements"] = [], []
+        for q in b.get("squads") or []:
+            cle = str(q.get("cle", "")).upper()
+            if cle in r["ajoutees"] and cle not in actives:
+                try:
+                    testabilite_us.enregistrer_espace({"projet_jira": cle, "nom": q.get("nom") or cle})
+                    r["testabilite_activee"].append(cle)
+                except Exception as e:  # noqa: BLE001
+                    r["avertissements"].append(f"{cle} : testabilité non activée ({e})")
+    return r
+
+
 @app.post("/api/strategie/elements")
 async def strategie_element(req: Request):
     b = await req.json()

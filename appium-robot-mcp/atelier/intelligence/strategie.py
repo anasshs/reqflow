@@ -66,7 +66,8 @@ RUBRIQUES = [
         _c("types", "Types de test associés", "refs", cible="types_tests")]},
     {"id": "perimetre", "titre": "Périmètre", "numero": 3, "champs": [
         _c("nom", "Nom", obligatoire=True),
-        _c("niveau", "Niveau", "choix", ["domaine", "module", "fonctionnalite", "exigence", "interface"], obligatoire=True),
+        _c("niveau", "Niveau", "choix", ["squad", "domaine", "module", "fonctionnalite", "exigence", "interface"], obligatoire=True),
+        _c("projet_jira", "Projet Jira de la squad", aide="Niveau « squad » : projet Jira de l'équipe (ses US alimentent la stratégie)."),
         _c("parent", "Élément parent", "ref", cible="perimetre"), _c("description", "Description", "long"),
         _c("criticite", "Criticité métier", "choix", ["Critique", "Haute", "Moyenne", "Basse"]),
         _c("priorite", "Priorité", "choix", PRIORITES), _c("inclus", "Inclus dans le périmètre", "bool"),
@@ -417,6 +418,78 @@ def enregistrer_element(rubrique: str, element: dict) -> dict:
     _sauver(s)
     _journaliser("modification" if existant else "ajout", s, rubrique=rubrique, element=eid)
     return etat()
+
+
+# valeurs proposées par défaut lors d'un ajout en lot (champs obligatoires non choisis dans la liste)
+DEFAUTS_LOT = {
+    "types_tests": {"methode": "Mixte", "actif": True, "automatisation_autorisee": True, "priorite": "Moyenne"},
+    "niveaux": {"automatisation": "Partielle"},
+    "outils": {},
+    "environnements": {"type": "TEST"},
+}
+USAGES_OUTILS = {"Jira": "Exigences, User Stories et anomalies", "Xray Cloud": "Référentiel des tests, plans et exécutions",
+                 "GitLab": "Versionnement des scripts et merge requests", "CI/CD": "Exécution planifiée des campagnes",
+                 "Robot Framework": "Moteur d'exécution des tests automatisés", "Playwright": "Pilotage du navigateur (web)",
+                 "Appium": "Pilotage des applications mobiles", "Browser Library": "Tests web Robot Framework",
+                 "API": "Tests d'API", "Oracle": "Données de test (lecture seule)", "Grafana": "Suivi des indicateurs"}
+
+
+def options_lot(rubrique: str) -> dict:
+    """Valeurs proposées pour un ajout en lot : options du champ principal, celles déjà présentes signalées."""
+    if rubrique not in ("types_tests", "niveaux", "outils"):
+        raise ValueError("Ajout en lot disponible pour Types de tests, Niveaux de tests et Outils.")
+    champ = next(c for c in PAR_ID[rubrique]["champs"] if c["nom"] == "nom")
+    presents = {x.get("nom") for x in (charger() or {"rubriques": {}}).get("rubriques", {}).get(rubrique, [])}
+    return {"rubrique": rubrique, "options": [{"valeur": o, "present": o in presents} for o in champ["options"]],
+            "defauts": DEFAUTS_LOT.get(rubrique, {}), "champs_communs": [c for c in PAR_ID[rubrique]["champs"]
+                                                                       if c["obligatoire"] and c["nom"] != "nom"]}
+
+
+def ajouter_en_lot(rubrique: str, valeurs: list[str], communs: dict | None = None, parts: dict | None = None) -> dict:
+    """Ajoute plusieurs éléments d'un coup (ex. 5 types de tests cochés). Les valeurs déjà présentes sont ignorées ;
+    communs : valeurs appliquées à tous (ex. méthode) ; parts : niveau -> part cible (%) pour les niveaux.
+    Une seule nouvelle version si la stratégie était publiée (RG12), chaque ajout journalisé."""
+    o = options_lot(rubrique)
+    connues = {x["valeur"] for x in o["options"]}
+    a_ajouter = [v for v in dict.fromkeys(valeurs) if v in connues and not next(x for x in o["options"] if x["valeur"] == v)["present"]]
+    if not a_ajouter:
+        raise ValueError("Aucune nouvelle valeur à ajouter (déjà présentes ou inconnues).")
+    for v in a_ajouter:
+        el = {"nom": v, **o["defauts"], **{k: x for k, x in (communs or {}).items() if x not in ("", None)}}
+        if rubrique == "outils":
+            el.setdefault("usage", USAGES_OUTILS.get(v, "À préciser"))
+        if rubrique == "niveaux":
+            el["part_cible"] = (parts or {}).get(v, el.get("part_cible"))
+        enregistrer_element(rubrique, el)
+    _journaliser("ajout_en_lot", charger(), rubrique=rubrique, valeurs=", ".join(a_ajouter))
+    return {**etat(), "ajoutes": a_ajouter}
+
+
+def ajouter_squads(squads: list[dict]) -> dict:
+    """Périmètre : squads concernées par la stratégie (projets Jira des équipes). squads : [{cle, nom}]. Une squad déjà
+    présente (même projet Jira) n'est pas dupliquée."""
+    s = _exiger()
+    presentes = {(x.get("projet_jira") or "").upper() for x in s["rubriques"]["perimetre"] if x.get("niveau") == "squad"}
+    ajoutees = []
+    for q in squads:
+        cle = str(q.get("cle") or "").strip().upper()
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,19}", cle) or cle in presentes:
+            continue
+        enregistrer_element("perimetre", {"nom": str(q.get("nom") or cle), "niveau": "squad", "projet_jira": cle, "inclus": True,
+                                          "priorite": "Moyenne"})
+        presentes.add(cle)
+        ajoutees.append(cle)
+    if not ajoutees:
+        raise ValueError("Aucune nouvelle squad (déjà dans le périmètre ou clé invalide).")
+    _journaliser("ajout_squads", charger(), squads=", ".join(ajoutees))
+    return {**etat(), "ajoutees": ajoutees}
+
+
+def squads() -> list[dict]:
+    """Squads du périmètre (niveau « squad »), incluses ou non."""
+    s = charger() or {"rubriques": {"perimetre": []}}
+    return [{"id": x["id"], "nom": x["nom"], "projet_jira": x.get("projet_jira", ""), "inclus": x.get("inclus", True)}
+            for x in s["rubriques"].get("perimetre", []) if x.get("niveau") == "squad"]
 
 
 def supprimer_element(rubrique: str, eid: str) -> dict:

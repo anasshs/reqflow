@@ -165,3 +165,29 @@ def test_archivee_reprise_et_suivi_hors_version(tmp_path, monkeypatch):
     st.enregistrer_element("criteres", {"description": "Nouveau critère", "type": "sortie", "verification": "manuelle"})
     s = st.charger()
     assert s["statut"] == "Draft" and s["version"] == 2
+
+
+
+def test_ajout_en_lot_et_squads(tmp_path, monkeypatch):
+    from atelier.domain import projet
+    from atelier.intelligence import strategie as st
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+    st.creer("Stratégie TAM", "TAM")
+    st.enregistrer_element("types_tests", {"nom": "API", "methode": "Automatisée"})
+    o = st.options_lot("types_tests")
+    assert next(x for x in o["options"] if x["valeur"] == "API")["present"]
+    e = st.ajouter_en_lot("types_tests", ["Fonctionnel", "Régression", "API", "Inconnu"], {"methode": "Automatisée"})
+    assert e["ajoutes"] == ["Fonctionnel", "Régression"]  # API déjà présent, valeur inconnue ignorée
+    types = {x["nom"]: x for x in st.charger()["rubriques"]["types_tests"]}
+    assert types["Régression"]["methode"] == "Automatisée" and types["Fonctionnel"]["actif"] is True
+    st.ajouter_en_lot("niveaux", ["API", "End-to-End"], parts={"API": 40, "End-to-End": 10})
+    assert {x["nom"]: x["part_cible"] for x in st.charger()["rubriques"]["niveaux"]} == {"API": 40, "End-to-End": 10}
+    st.ajouter_en_lot("outils", ["Jira", "Xray Cloud"])
+    assert {x["nom"]: x["usage"] for x in st.charger()["rubriques"]["outils"]}["Jira"].startswith("Exigences")
+    with pytest.raises(ValueError):
+        st.ajouter_en_lot("outils", ["Jira"])
+    r = st.ajouter_squads([{"cle": "sqcarte", "nom": "Squad Cartes"}, {"cle": "SQPAY", "nom": "Squad Paiement"}])
+    assert r["ajoutees"] == ["SQCARTE", "SQPAY"] and [q["projet_jira"] for q in st.squads()] == ["SQCARTE", "SQPAY"]
+    with pytest.raises(ValueError):
+        st.ajouter_squads([{"cle": "SQCARTE"}])  # jamais dupliquée

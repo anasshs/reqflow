@@ -9,7 +9,7 @@
     ["historique", "Historique des versions"]];
   const COLONNES = {
     objectifs: ["nom", "categorie", "indicateur", "_cible", "_valeur", "_etat", "echeance", "responsable"],
-    perimetre: ["_arbre", "niveau", "criticite", "priorite", "_inclus", "jira", "xray"],
+    perimetre: ["_arbre", "niveau", "projet_jira", "criticite", "priorite", "_inclus", "jira", "xray"],
     types_tests: ["nom", "methode", "_actif", "priorite", "_auto", "cible_auto", "responsable"],
     niveaux: ["nom", "part_cible", "automatisation", "outil", "environnement", "responsable"],
     environnements: ["nom", "type", "plateforme", "url", "jdd_env", "_defaut", "_verif"],
@@ -22,6 +22,8 @@
   const PILL_RISQUE = {critique: "ko", "élevé": "warn", moyen: "info", faible: ""};
   const PILL_STATUT = {Draft: "warn", "In Review": "info", Approved: "violet", Published: "ok", Archived: ""};
   let E = null, R = "vue", SEL = null, FILTRE = "", TRI = null, SANTE = null, JEUX = null, PLAN = null;
+  const FILTRES = {};  // filtres multi-valeurs : « rubrique.champ » -> valeurs cochées (OU dans un champ, ET entre champs)
+  const LOT = new Set(["types_tests", "niveaux", "outils"]);
 
   Atelier.enregistrer("strategie", {
     async afficher(zone, sous) {
@@ -193,7 +195,9 @@
   async function rubrique(z) {
     const rub = R, sc = schema(rub);
     if (!sc) return vue(z);
-    let liste = elements(rub).filter(x => !FILTRE || JSON.stringify(x).toLowerCase().includes(FILTRE.toLowerCase()));
+    const champsFiltre = sc.champs.filter(c => c.type === "choix" && new Set(elements(rub).map(x => x[c.nom]).filter(v => v !== "" && v != null)).size > 1);
+    const passe = x => champsFiltre.every(c => { const v = FILTRES[`${rub}.${c.nom}`] || []; return !v.length || v.includes(String(x[c.nom] ?? "")); });
+    let liste = elements(rub).filter(x => (!FILTRE || JSON.stringify(x).toLowerCase().includes(FILTRE.toLowerCase())) && passe(x));
     if (rub === "perimetre" && !TRI) {  // arbre : chaque enfant sous son parent (parcours en profondeur)
       const enfants = id => liste.filter(x => (x.parent || "") === id), ids = new Set(liste.map(x => x.id)), out = [];
       const visiter = x => { out.push(x); enfants(x.id).forEach(visiter); };
@@ -202,10 +206,19 @@
     }
     if (TRI) liste = [...liste].sort((a, b) => String(a[TRI.col] ?? "").localeCompare(String(b[TRI.col] ?? ""), "fr", {numeric: true}) * TRI.sens);
     const cols = COLONNES[rub];
-    const extra = {perimetre: `<button class="btn" id="r-import">${ico("xray")}Importer depuis Xray / Jira</button>`}[rub] || "";
+    const extra = ({perimetre: `<button class="btn" id="r-squads">Ajouter des squads</button><button class="btn" id="r-import">${ico("xray")}Importer depuis Xray / Jira</button>`}[rub] || "")
+      + (LOT.has(rub) ? `<button class="btn" id="r-lot">${ico("plus")}Ajout rapide (plusieurs)</button>` : "");
+    const nbActifs = champsFiltre.reduce((n, c) => n + (FILTRES[`${rub}.${c.nom}`] || []).length, 0);
+    const barreFiltres = champsFiltre.length ? `<div class="btns" style="margin-bottom:10px;flex-wrap:wrap">${champsFiltre.map(c => {
+        const sel = FILTRES[`${rub}.${c.nom}`] || [];
+        const valeurs = [...new Set(elements(rub).map(x => String(x[c.nom] ?? "")).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr", {numeric: true}));
+        return `<details class="filtre-multi" style="position:relative"><summary class="btn petit">${esc(c.libelle)}${sel.length ? ` (${sel.length})` : ""}</summary>
+          <div class="carte" style="position:absolute;z-index:20;padding:8px;min-width:200px;margin-top:4px">${valeurs.map(v => `<label class="lib" style="display:block;white-space:nowrap">
+            <input type="checkbox" data-fm="${esc(c.nom)}" value="${esc(v)}" ${sel.includes(v) ? "checked" : ""}> ${esc(v)}</label>`).join("")}</div></details>`; }).join("")}
+        ${nbActifs ? `<button class="btn petit" id="r-fm-x">Effacer les filtres (${nbActifs})</button>` : ""}</div>` : "";
     z.innerHTML = `${entete(`${MENU.findIndex(m => m[0] === rub) + 1}. ${sc.titre}`, `${extra}<input type="search" class="in" id="r-filtre" placeholder="Filtrer…" value="${esc(FILTRE)}" style="width:170px">
         <button class="btn primaire" id="r-ajout">${ico("plus")}Ajouter</button>`)}
-      <div class="corps-carte">${{niveaux: pyramide(), risques: matrice()}[rub] || ""}
+      <div class="corps-carte">${barreFiltres}${{niveaux: pyramide(), risques: matrice()}[rub] || ""}
         ${liste.length ? `<table class="table-strat"><tr>${cols.map(c => `<th data-tri="${c}" class="${TRI?.col === c ? "trie" : ""}">${esc(libCol(rub, c))}</th>`).join("")}<th></th></tr>
           ${liste.map(x => `<tr class="cliquable ${SEL === x.id ? "sel" : ""}" data-id="${x.id}">${cols.map(c => `<td>${valeurCellule(rub, x, c)}</td>`).join("")}
             <td><button class="icone" data-suppr="${x.id}" title="Supprimer">${ico("poubelle")}</button></td></tr>`).join("")}</table>`
@@ -214,6 +227,15 @@
       </div>`;
     $("#r-filtre").oninput = e => { FILTRE = e.target.value; clearTimeout(rubrique.t); rubrique.t = setTimeout(() => { rubrique(z); const f = $("#r-filtre"); f.focus(); f.setSelectionRange(99, 99); }, 250); };
     $("#r-ajout").onclick = () => formulaire(rub, null);
+    $$("[data-fm]", z).forEach(cb => cb.onchange = () => {
+      const k = `${rub}.${cb.dataset.fm}`;
+      FILTRES[k] = $$(`[data-fm="${cb.dataset.fm}"]`, z).filter(x => x.checked).map(x => x.value);
+      const ouvert = cb.closest("details").querySelector("summary").textContent;
+      rubrique(z).then(() => { const d = [...$$("details.filtre-multi", z)].find(d => d.querySelector("summary").textContent.split(" (")[0] === ouvert.split(" (")[0]); if (d) d.open = true; });
+    });
+    if ($("#r-fm-x")) $("#r-fm-x").onclick = () => { champsFiltre.forEach(c => delete FILTRES[`${rub}.${c.nom}`]); rubrique(z); };
+    if ($("#r-lot")) $("#r-lot").onclick = () => ajoutLot(rub);
+    if ($("#r-squads")) $("#r-squads").onclick = () => ajoutSquads();
     $$("[data-tri]", z).forEach(th => th.onclick = () => { const col = th.dataset.tri.replace(/^_(arbre|niveau)$/, m => m === "_arbre" ? "nom" : "score"); TRI = {col, sens: TRI?.col === col ? -TRI.sens : 1}; rubrique(z); });
     $$("tr[data-id]", z).forEach(tr => tr.onclick = e => { if (!e.target.closest("button")) formulaire(rub, tr.dataset.id); });
     $$("[data-suppr]", z).forEach(b => b.onclick = () => confirm("Supprimer cet élément ? (journalisé)") && operer("/api/strategie/elements/supprimer", {rubrique: rub, id: b.dataset.suppr}, "Supprimé."));
@@ -226,8 +248,71 @@
     if (SEL && R === rub) formulaire(rub, SEL);
   }
 
+  /* Ajout en lot : cocher plusieurs types / niveaux / outils, champs obligatoires communs proposés */
+  async function ajoutLot(rub) {
+    const o = await api("/api/strategie/lot/" + rub);
+    const communs = o.champs_communs.filter(c => rub !== "niveaux" || c.nom !== "part_cible");
+    const m = modale(`Ajout rapide · ${schema(rub).titre}`, `<p class="lib">Cocher les éléments à ajouter (les éléments déjà présents sont grisés). Les détails restent modifiables ensuite.</p>
+      <div class="grille-2">${o.options.map(x => `<label class="lib" style="display:flex;gap:8px;align-items:center">
+        <input type="checkbox" data-lot value="${esc(x.valeur)}" ${x.present ? "checked disabled" : ""}> ${esc(x.valeur)}${x.present ? " <span class='pill'>déjà présent</span>" : ""}
+        ${rub === "niveaux" && !x.present ? `<input class="in" type="number" min="0" max="100" data-part="${esc(x.valeur)}" placeholder="part %" style="width:80px;margin-left:auto">` : ""}</label>`).join("")}</div>
+      ${communs.length ? `<h3 class="lib" style="margin-top:12px">VALEURS COMMUNES</h3>${communs.map(c => champHtml(c, o.defauts[c.nom])).join("")}` : ""}
+      ${rub === "outils" ? "<p class='lib'>L'usage de chaque outil est prérempli (modifiable ensuite).</p>" : ""}`,
+      `<button class="btn" id="lot-tout">Tout cocher</button><button class="btn primaire" id="lot-ok">Ajouter la sélection</button>`);
+    $("#lot-tout", m.el).onclick = () => $$("[data-lot]:not(:disabled)", m.el).forEach(c => { c.checked = true; });
+    $("#lot-ok", m.el).onclick = async () => {
+      const valeurs = $$("[data-lot]:checked:not(:disabled)", m.el).map(c => c.value);
+      if (!valeurs.length) { toast("Aucun élément coché.", "ko"); return; }
+      const com = {};
+      communs.forEach(c => { const i = $("#f-" + c.nom, m.el); com[c.nom] = c.type === "bool" ? i.checked : i.value; });
+      const parts = {};
+      $$("[data-part]", m.el).forEach(i => { if (i.value !== "") parts[i.dataset.part] = +i.value; });
+      if (await operer("/api/strategie/lot", {rubrique: rub, valeurs, communs: com, parts}, `${valeurs.length} élément(s) ajouté(s) (journalisé).`)) m.fermer();
+    };
+  }
+
+  /* Périmètre : squads concernées (projets Jira des équipes), recherche dans Jira et multi-sélection */
+  function ajoutSquads() {
+    const choisies = new Map();
+    const m = modale("Squads concernées par la stratégie", `<p class="lib">Rechercher les projets Jira des squads (nom ou clé) et cocher celles qui entrent dans le périmètre.</p>
+      <input class="in" id="sq-q" placeholder="ex. squad, cartes, SQ…" autocomplete="off">
+      <ul class="liste" id="sq-res" style="max-height:240px;overflow:auto;margin-top:6px"></ul>
+      <p class="lib" id="sq-sel">Aucune squad sélectionnée.</p>
+      <label class="lib"><input type="checkbox" id="sq-testa" checked> Activer aussi la testabilité des US de ces squads (Test Design › US à couvrir, sprint actif)</label>
+      <details style="margin-top:8px"><summary class="lib">Jira indisponible : saisir des clés à la main</summary><input class="in" id="sq-man" placeholder="SQ1, SQ2"></details>`,
+      `<button class="btn primaire" id="sq-ok">Ajouter au périmètre</button>`);
+    const majSel = () => { $("#sq-sel", m.el).innerHTML = choisies.size ? `Sélection : ${[...choisies.entries()].map(([k, n]) => `<b>${esc(k)}</b> ${esc(n)}`).join(", ")}` : "Aucune squad sélectionnée."; };
+    let t = null, derniere = "";
+    const chercher = async q => {
+      derniere = q;
+      try {
+        const l = await api("/api/testabilite/jira/projets?q=" + encodeURIComponent(q));
+        if (q !== derniere) return;
+        const dejaPerimetre = new Set(elements("perimetre").filter(x => x.niveau === "squad").map(x => (x.projet_jira || "").toUpperCase()));
+        $("#sq-res", m.el).innerHTML = l.map(p => `<li><label style="display:flex;gap:8px;align-items:center;width:100%">
+          <input type="checkbox" data-sq="${esc(p.cle)}" data-nom="${esc(p.nom)}" ${choisies.has(p.cle) || dejaPerimetre.has(p.cle) ? "checked" : ""} ${dejaPerimetre.has(p.cle) ? "disabled" : ""}>
+          <span class="mono">${esc(p.cle)}</span><span class="item">${esc(p.nom)}</span>${dejaPerimetre.has(p.cle) ? '<span class="pill ok">déjà dans le périmètre</span>' : ""}</label></li>`).join("")
+          || "<li class='lib'>Aucun projet visible pour cette recherche.</li>";
+        $$("[data-sq]", m.el).forEach(c => c.onchange = () => { c.checked ? choisies.set(c.dataset.sq, c.dataset.nom) : choisies.delete(c.dataset.sq); majSel(); });
+      } catch (e) { $("#sq-res", m.el).innerHTML = `<li class="ko-t">${esc(e.message)}</li>`; }
+    };
+    $("#sq-q", m.el).oninput = e => { clearTimeout(t); const q = e.target.value.trim(); if (q.length >= 2) t = setTimeout(() => chercher(q), 300); };
+    $("#sq-q", m.el).focus();
+    $("#sq-ok", m.el).onclick = async () => {
+      $("#sq-man", m.el).value.split(/[\s,;]+/).filter(Boolean).forEach(k => choisies.set(k.toUpperCase(), k.toUpperCase()));
+      if (!choisies.size) { toast("Aucune squad sélectionnée.", "ko"); return; }
+      const corps = {squads: [...choisies.entries()].map(([cle, nom]) => ({cle, nom})), testabilite: $("#sq-testa", m.el).checked};
+      try {
+        const r = await api("/api/strategie/squads", {method: "POST", body: corps});
+        const av = r.avertissements || [];
+        toast(`${r.ajoutees.length} squad(s) ajoutée(s) au périmètre${(r.testabilite_activee || []).length ? ` ; testabilité des US activée pour ${r.testabilite_activee.join(", ")}` : ""}${av.length ? " — " + av.join(" ; ") : ""}.`, av.length ? "ko" : "ok");
+        m.fermer(); await recharger(r);
+      } catch (e) { toast(e.message, "ko"); }
+    };
+  }
+
   const aideVide = rub => ({objectifs: "Ex. : automatiser 80 % de la régression (indicateur « Couverture automatisée », cible 80).",
-    perimetre: "Ajouter un module ou importer modules et exigences depuis l'instantané Xray / Jira.",
+    perimetre: "« Ajouter des squads » (projets Jira des équipes), ajouter un module, ou importer modules et exigences depuis Xray / Jira.",
     types_tests: "Ex. : Fonctionnel, Régression, API…", niveaux: "Définir la répartition visée (pyramide des tests).",
     environnements: "Ex. : TEST (recette), PREPROD. Les secrets restent dans un coffre ou l'environnement.",
     criteres: "Critères d'entrée (démarrer une campagne) et de sortie (la clôturer).",
