@@ -64,7 +64,8 @@ def test_routes_test_design(client):
     assert client.post("/api/conception/baselines", json={"nom": "B1"}).status_code == 200
     assert client.post("/api/conception/baselines", json={"nom": "B1"}).status_code == 400  # immuable
     assert client.get("/api/conception/baselines/comparer", params={"a": "B1"}).json()["tests_impactes"] == []
-    assert client.post("/api/conception/mapping", json={"mode": "B (bidirectionnel)"}).status_code == 400
+    assert client.post("/api/conception/mapping", json={"mode": "B (bidirectionnel)"}).status_code == 200
+    assert client.post("/api/conception/mapping", json={"mode": "Z"}).status_code == 400
     assert client.get("/api/conception/mapping/tester").json()["tests_analyses"] == 9
 
 
@@ -92,3 +93,16 @@ def test_execution_center_file_et_campagne(client):
     assert client.get(f"/api/centre/preuves/{r1['run_id']}").json()["fichiers"]
     assert client.get("/api/centre/fichier", params={"chemin": "tests/connexion.robot"}).status_code == 400
     assert client.get("/api/centre/xray").json()[0]["statut"] in ("Non configuré", "Synced", "Pending", "Partial")
+
+
+def test_routes_integrations_jira_xray(client, monkeypatch):
+    """Routes Jira / Xray : historique vide, refus propre sans identifiants (jamais d'appel réseau en test)."""
+    for v in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "XRAY_CLIENT_ID", "XRAY_CLIENT_SECRET"):
+        monkeypatch.delenv(v, raising=False)
+    assert client.get("/api/conception/sync-historique").json() == []
+    r = client.post("/api/echecs/jira/doublons", json={"id": "inconnu", "projet": "DEMO"})
+    assert r.status_code >= 400
+    r = client.post("/api/conception/publier", json={"cle": "INCONNU-1", "projet": "DEMO"})
+    assert r.status_code >= 400
+    r = client.post("/api/centre/xray/rejouer", json={"run": "inexistant"})
+    assert r.status_code in (200, 400, 404)

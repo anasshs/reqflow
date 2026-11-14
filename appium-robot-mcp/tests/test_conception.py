@@ -71,13 +71,13 @@ def test_baseline_immuable_et_comparaison(td):
 def test_mapping_sans_supposition(td):
     m = td.mapping()
     assert all(s["externe"] == "" for s in m["statuts"])  # aucun équivalent Jira supposé
-    assert "indisponible" in m["modes"]["B (bidirectionnel)"]
+    assert "Cucumber" in m["modes"]["B (bidirectionnel)"]  # disponible depuis la vérification du schéma Xray
     t = td.tester_mapping()
     assert set(t["statuts_sans_equivalent"]) == set(td.STATUTS_REVUE)
     champs = {c["interne"]: c for c in t["champs"]}
     assert champs["summary"]["dans_instantane"] and not champs["preconditions"]["dans_instantane"]
     with pytest.raises(ValueError):
-        td.enregistrer_mapping({"mode": "C (publication)"})
+        td.enregistrer_mapping({"mode": "D (inconnu)"})
     with pytest.raises(ValueError):
         td.enregistrer_mapping({"champs": [{"interne": "dataset", "externe": "customfield_abc", "sens": "lecture"}]})
     m = td.enregistrer_mapping({"statuts": [{"interne": "Approved", "externe": "Ready"}], "champs": m["champs"] + [

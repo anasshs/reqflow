@@ -88,7 +88,7 @@
     $$("tr[data-cle]").forEach(tr => tr.classList.toggle("sel", tr.dataset.cle === c.cle));
     const p = $(".panneau-strat");
     p.hidden = false;
-    const ouvrir = c.editeur === "bdd" ? `<a class="btn primaire" href="#bdd${c.bdd ? "/" + encodeURIComponent(c.bdd) : ""}">${ico("bdd")}${c.bdd ? "Ouvrir le scénario BDD" : "Créer le scénario BDD"}</a>`
+    const ouvrir = c.editeur === "bdd" ? `<a class="btn primaire" href="#bdd${c.bdd ? "/" + encodeURIComponent(c.bdd) : ""}">${ico("bdd")}${c.bdd ? "Ouvrir le scénario BDD" : "Créer le scénario BDD"}</a>${c.bdd ? `<button class="btn" id="pc-pub">${ico("xray")}Publier dans Xray</button>` : ""}`
       : `<button class="btn" disabled title="À venir">${esc(EDITEUR[c.editeur])} : à venir</button>`;
     p.innerHTML = `${entete(c.cle, `<button class="icone" id="pc-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
       <p><b>${esc(c.resume)}</b></p><dl class="props"><dt>Type Xray</dt><dd>${esc(c.type)}</dd><dt>Éditeur</dt><dd>${esc(EDITEUR[c.editeur])}</dd>
@@ -98,8 +98,25 @@
       <div class="btns" style="margin-top:12px">${ouvrir}<a class="btn" href="#conception/revue" id="pc-rev">Revue</a>
         <button class="btn" id="pc-graphe">${ico("graphe")}Traçabilité</button></div></div>`;
     $("#pc-x").onclick = () => { p.hidden = true; SEL = null; };
+    if ($("#pc-pub")) $("#pc-pub").onclick = () => publier(c.bdd, c.cle.split("-")[0]);
     $("#pc-rev").onclick = e => { e.preventDefault(); SEL = c.cle; R = "revue"; history.replaceState(null, "", "#conception/revue"); revue($(".corps-strat"), c.cle); };
     $("#pc-graphe").onclick = () => { location.hash = "graphe/couverture"; };
+  }
+
+  async function publier(cle, projet, decision = "") {
+    if (!decision && !confirm(`Publier le scénario ${cle} dans Xray (création d'un test Cucumber ou mise à jour de son Gherkin) ?`)) return;
+    try {
+      const r = await api("/api/conception/publier", {method: "POST", body: {cle, projet, decision}});
+      if (r.conflit) {
+        const m = modale(`Conflit Xray · ${r.cle_xray}`, `<p>${esc(r.message)}</p><div class="grille-2"><div><h3 class="lib">VERSION LOCALE</h3><pre class="code-bloc">${esc(r.local)}</pre></div>
+          <div><h3 class="lib">VERSION XRAY</h3><pre class="code-bloc">${esc(r.xray)}</pre></div></div>`,
+          `<button class="btn" id="cf-x">Garder la version Xray</button><button class="btn danger" id="cf-l">Imposer la version locale</button>`);
+        $("#cf-x", m.el).onclick = () => { m.fermer(); publier(cle, projet, "xray"); };
+        $("#cf-l", m.el).onclick = () => { m.fermer(); publier(cle, projet, "local"); };
+        return;
+      }
+      toast(`${r.mode} · ${r.cle_xray} : ${r.resultat}`, "ok");
+    } catch (e) { toast(e.message, "ko"); }
   }
 
   /* ------------------------------------------------------------------ 05 JDD, 07 suites, 08 traçabilité, 09 réutilisables, 06 règles */
@@ -207,7 +224,8 @@
 
   /* ------------------------------------------------------------------ 12 mapping Xray */
   async function mapping(z) {
-    const [m, t, sante] = await Promise.all([api("/api/conception/mapping"), api("/api/conception/mapping/tester"), api("/api/sante").catch(() => [])]);
+    const [m, t, sante, hist] = await Promise.all([api("/api/conception/mapping"), api("/api/conception/mapping/tester"), api("/api/sante").catch(() => []),
+      api("/api/conception/sync-historique").catch(() => [])]);
     const xray = sante.find(i => /xray/i.test(i.nom)), jira = sante.find(i => /jira/i.test(i.nom));
     const dans = Object.fromEntries(t.champs.map(c => [c.interne, c.dans_instantane]));
     z.innerHTML = `${entete("Xray Mapping & synchronisation", `<button class="btn primaire" id="mp-ok">${ico("check")}Enregistrer le mapping</button>`)}<div class="corps-carte">
@@ -234,7 +252,9 @@
       <table class="table-strat"><tr><th>Statut interne</th><th>Statut externe (Jira / Xray)</th></tr>${m.statuts.map((s, i) => `<tr><td>${esc(m.libelles_revue[s.interne] || s.interne)}</td>
         <td><input class="in" data-st="${i}" value="${esc(s.externe || "")}" placeholder="À configurer"></td></tr>`).join("")}</table>
       <h3 class="lib" style="margin-top:14px">TYPES DE TEST → ÉDITEUR</h3><ul class="liste">${m.types.map(x => `<li><b>${esc(x.xray)}</b><span class="item lib">${esc(EDITEUR[x.editeur] || x.editeur)}</span></li>`).join("")}</ul>
-      <h3 class="lib" style="margin-top:14px">HISTORIQUE DES SYNCHRONISATIONS</h3><p class="lib">Import d'instantané (mode A) uniquement : date et source dans la vue d'ensemble. Conflits et historique objet par objet : avec les modes B / C.</p></div>`;
+      <h3 class="lib" style="margin-top:14px">HISTORIQUE DES SYNCHRONISATIONS</h3>${hist.length ? `<table class="table-strat"><tr><th>Date</th><th>Objet</th><th>Direction</th><th>Statut</th><th>Résultat</th><th>Auteur</th></tr>${hist.map(h => `<tr><td class="mono">${esc(h.date.replace("T", " "))}</td>
+        <td class="cle-xray">${esc(h.objet)}</td><td>${esc(h.direction)}</td><td><span class="pill ${h.statut === "Conflit" ? "warn" : h.statut === "Refusé" ? "ko" : "ok"}">${esc(h.statut)}</span></td><td class="lib">${esc(h.resultat)}</td><td>${esc(h.auteur)}</td></tr>`).join("")}</table>`
+        : "<p class='lib'>Aucune publication. Cas de test (Cucumber) › « Publier dans Xray ».</p>"}</div>`;
     const collecter = () => {
       m.objets.forEach((o, i) => { o.externe = $(`[data-obj="${i}"]`).value; o.confirme = $(`[data-objc="${i}"]`).checked; });
       m.champs.forEach((c, i) => $$(`[data-ch="${i}"]`).forEach(e => { c[e.dataset.k] = e.type === "checkbox" ? e.checked : e.value; }));

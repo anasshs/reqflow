@@ -156,6 +156,24 @@ class XrayClient:
         q = 'mutation($e: String!, $t: [String]) { addTestsToTestExecution(issueId: $e, testIssueIds: $t) { addedTests warning } }'
         return self.gql(q, {"e": exec_id, "t": test_ids})
 
+    # ------------------------------------------------------------ tests Cucumber (Test Design, mode C / B)
+    def creer_test_cucumber(self, projet: str, resume: str, gherkin: str) -> dict:
+        """Crée un Test Xray de type Cucumber (mutation createTest, vérifiée par xray-verifier)."""
+        q = ('mutation($tt: UpdateTestTypeInput, $g: String, $j: JSON!) { createTest(testType: $tt, gherkin: $g, jira: $j) '
+             '{ test { issueId jira(fields: ["key"]) } warnings } }')
+        r = self.gql(q, {"tt": {"name": "Cucumber"}, "g": gherkin, "j": {"fields": {"summary": resume, "project": {"key": projet}}}})
+        t = r["createTest"]["test"]
+        return {"cle": t["jira"]["key"], "issueId": t["issueId"], "avertissements": r["createTest"].get("warnings") or []}
+
+    def lire_gherkin(self, cle: str) -> dict | None:
+        q = 'query($jql: String) { getTests(jql: $jql, limit: 1) { results { issueId gherkin testType { name } jira(fields: ["key"]) } } }'
+        res = self.gql(q, {"jql": f"key = {cle}"})["getTests"]["results"]
+        return {"issueId": res[0]["issueId"], "gherkin": res[0].get("gherkin") or "", "type": (res[0].get("testType") or {}).get("name")} if res else None
+
+    def maj_gherkin(self, issue_id: str, gherkin: str):
+        q = 'mutation($id: String!, $g: String!) { updateGherkinTestDefinition(issueId: $id, gherkin: $g) { issueId } }'
+        return self.gql(q, {"id": issue_id, "g": gherkin})
+
     # ------------------------------------------------------------ test runs
     def set_status(self, run_id: str, status: str):
         q = 'mutation($id: String!, $s: String!) { updateTestRunStatus(id: $id, status: $s) }'

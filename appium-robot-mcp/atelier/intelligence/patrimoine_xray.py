@@ -102,12 +102,15 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
                       "statut": (f.get("status") or {}).get("name"),
                       "criticite": (f.get("priority") or {}).get("name"), "exigences": exig})
     exigences, epics = [], set()
+    champ_criteres = os.environ.get("JIRA_CHAMP_CRITERES", "").strip()  # ex. customfield_10050 (critères d'acceptation)
+    champs_exig = champs + ["description"] + ([champ_criteres] if champ_criteres else [])
     if ids_exigences:
-        for i in jira.rechercher(f"key in ({', '.join(sorted(ids_exigences))})", champs, limite):
+        for i in jira.rechercher(f"key in ({', '.join(sorted(ids_exigences))})", champs_exig, limite):
             f = i["fields"]
             parent = (f.get("parent") or {}).get("key")
             exigences.append({"cle": i["key"], "type": _type_exigence(f), "resume": f.get("summary"),
-                              "parent": parent, "module": _module(f), "statut": (f.get("status") or {}).get("name")})
+                              "parent": parent, "module": _module(f), "statut": (f.get("status") or {}).get("name"),
+                              **_description_et_criteres(f, champ_criteres)})
             if parent:
                 epics.add(parent)
         connues = {e["cle"] for e in exigences}
@@ -118,6 +121,25 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
                 exigences.append({"cle": i["key"], "type": "epic", "resume": f.get("summary"), "parent": None,
                                   "module": _module(f), "statut": (f.get("status") or {}).get("name")})
     return enregistrer({"projet": projet_cle, "tests": tests, "exigences": exigences}, f"Jira : {jql}")
+
+
+def _description_et_criteres(f: dict, champ_criteres: str = "") -> dict:
+    """Description (ADF -> texte) et critères d'acceptation : champ dédié s'il est configuré, sinon les puces
+    qui suivent un titre « Critères d'acceptation » / « Acceptance criteria » dans la description."""
+    import re as _re
+
+    from atelier.integrations.jira import adf_vers_texte
+
+    desc = adf_vers_texte(f.get("description"))
+    brut = adf_vers_texte(f.get(champ_criteres)) if champ_criteres and f.get(champ_criteres) else ""
+    if not brut:
+        m = _re.search(r"(?is)(crit[eè]res? d.acceptation|acceptance criteria)\s*:?\s*\n(.*)", desc)
+        brut = m.group(2) if m else ""
+    criteres = [_re.sub(r"^\s*[-*•]\s*", "", l).strip() for l in brut.splitlines() if _re.match(r"^\s*[-*•]\s+\S", l)]
+    out = {"description": desc[:4000]} if desc else {}
+    if criteres:
+        out["criteres"] = criteres
+    return out
 
 
 def _module(f: dict) -> str | None:

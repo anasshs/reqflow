@@ -295,9 +295,9 @@ def _defaut_mapping() -> dict:
 def mapping() -> dict:
     f = _dossier() / "mapping_xray.yaml"
     m = yaml.safe_load(f.read_text("utf-8")) if f.exists() else _defaut_mapping()
-    return {**m, "modes": {"A (import)": "disponible : instantané JSON ou synchronisation Jira",
-                           "B (bidirectionnel)": "indisponible : mutations Xray non vérifiées (docs/XRAY_API.md)",
-                           "C (publication)": "indisponible : mutations Xray non vérifiées (docs/XRAY_API.md)"},
+    return {**m, "modes": {"A (import)": "disponible : instantané JSON ou synchronisation Jira (description et critères inclus)",
+                           "B (bidirectionnel)": "disponible pour les tests Cucumber : mise à jour du Gherkin, conflits détectés (jamais d'écrasement silencieux)",
+                           "C (publication)": "disponible : scénario BDD publié comme test Cucumber, clé Xray conservée"},
             "sens_possibles": SENS, "statuts_internes": STATUTS_REVUE, "libelles_revue": LIBELLES_REVUE}
 
 
@@ -310,8 +310,8 @@ def enregistrer_mapping(m: dict) -> dict:
             raise ValueError(f"Sens inconnu : {c.get('sens')}")
         if re.match(r"^customfield_\d+$", c["externe"]) is None and c["externe"].startswith("customfield"):
             raise ValueError(f"Champ personnalisé Jira mal formé : {c['externe']} (customfield_<numéro>).")
-    if propre.get("mode", "A (import)") != "A (import)":
-        raise ValueError("Seul le mode A (import) est disponible tant que l'API Xray n'est pas vérifiée.")
+    if propre.get("mode", "A (import)") not in ("A (import)", "B (bidirectionnel)", "C (publication)"):
+        raise ValueError("Mode : A (import), B (bidirectionnel) ou C (publication).")
     base = mapping()
     base.update(propre)
     for k in ("modes", "sens_possibles", "statuts_internes", "libelles_revue"):
@@ -332,3 +332,91 @@ def tester_mapping() -> dict:
     return {"champs": champs, "non_mappes": sorted(presents - {c.get("cle_instantane") for c in m["champs"]}),
             "statuts_sans_equivalent": [s["interne"] for s in m["statuts"] if not s.get("externe")],
             "tests_analyses": len(pat["tests"])}
+
+
+# =========================================================================== publication BDD -> Xray (modes C et B)
+def _empreinte(texte: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(re.sub(r"\s+", " ", texte or "").strip().encode()).hexdigest()[:16]
+
+
+def gherkin_xray(m: dict) -> str:
+    """Étapes du scénario principal, au format attendu par la définition d'un test Cucumber Xray."""
+    from atelier.generation.bdd import MOTS_EN
+
+    p = next((s for s in m["scenarios"] if s["type"] == "principal"), m["scenarios"][0])
+    return "\n".join(f"{MOTS_EN[e['type']]} {e['texte']}" for e in p["etapes"])
+
+
+def _publications_xray() -> dict:
+    f = _dossier() / "sync_xray.json"
+    return json.loads(f.read_text("utf-8")) if f.exists() else {}
+
+
+def _historiser_sync(objet: str, direction: str, statut: str, resultat: str):
+    f = _dossier() / "sync_xray.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"date": _maintenant(), "auteur": _auteur(), "objet": objet, "direction": direction,
+                             "statut": statut, "resultat": resultat}, ensure_ascii=False) + "\n")
+
+
+def historique_sync(limite: int = 200) -> list[dict]:
+    f = _dossier() / "sync_xray.jsonl"
+    l = [json.loads(x) for x in f.read_text("utf-8").splitlines() if x.strip()] if f.exists() else []
+    return list(reversed(l))[:limite]
+
+
+def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None) -> dict:
+    """Mode C : test absent de Xray -> création d'un test Cucumber (clé récupérée et conservée).
+    Mode B : test Cucumber existant -> mise à jour du Gherkin, seulement si Xray n'a pas changé depuis la dernière
+    synchronisation ; sinon conflit présenté (decision = « local » pour imposer la version locale, « xray » pour
+    garder celle de Xray). Un test d'un autre type n'est jamais converti. Chaque échange est historisé."""
+    from atelier.generation import bdd
+    from atelier.integrations.xray import KEY_RE, XrayClient
+
+    m = bdd.charger(cle)
+    if not m:
+        raise KeyError(f"Scénario BDD inconnu : {cle}")
+    local = gherkin_xray(m)
+    sync = _publications_xray()
+    st = sync.get(cle)
+    xray = xray or XrayClient()
+    cible = (st or {}).get("xray") or (cle if KEY_RE.match(cle) else "")
+    existant = xray.lire_gherkin(cible) if cible else None
+    if existant:
+        if (existant.get("type") or "").lower() not in ("", "cucumber"):
+            _historiser_sync(cible, "Local → Xray", "Refusé", f"test de type {existant['type']} : aucune conversion automatique")
+            raise ValueError(f"{cible} est un test {existant['type']} : pas de conversion automatique en Cucumber.")
+        e_xray, e_local = _empreinte(existant["gherkin"]), _empreinte(local)
+        modifie_xray = existant["gherkin"].strip() and e_xray != (st or {}).get("empreinte") and e_xray != e_local
+        if modifie_xray and decision not in ("local", "xray"):
+            _historiser_sync(cible, "Bidirectionnel", "Conflit", "modification externe détectée dans Xray")
+            return {"conflit": True, "cle_xray": cible, "local": local, "xray": existant["gherkin"],
+                    "message": "Le Gherkin a été modifié dans Xray depuis la dernière synchronisation : choisir la version à conserver."}
+        if decision == "xray":
+            sync[cle] = {"xray": cible, "issueId": existant["issueId"], "empreinte": e_xray, "date": _maintenant()}
+            resultat = "version Xray conservée (le scénario local est à aligner dans Construction BDD)"
+            statut = "Conflit résolu"
+        elif e_xray == e_local:
+            sync[cle] = {"xray": cible, "issueId": existant["issueId"], "empreinte": e_local, "date": _maintenant()}
+            resultat, statut = "déjà identique", "Synchronisé"
+        else:
+            xray.maj_gherkin(existant["issueId"], local)
+            sync[cle] = {"xray": cible, "issueId": existant["issueId"], "empreinte": e_local, "date": _maintenant()}
+            resultat, statut = "Gherkin mis à jour", "Succès"
+        mode = "B (mise à jour)"
+    else:
+        if not projet_xray:
+            raise ValueError("Projet Xray requis pour créer le test (mode C).")
+        r = xray.creer_test_cucumber(projet_xray, m.get("titre") or cle, local)
+        cible = r["cle"]
+        sync[cle] = {"xray": cible, "issueId": r["issueId"], "empreinte": _empreinte(local), "date": _maintenant()}
+        resultat, statut, mode = f"test Cucumber créé ({cible})", "Succès", "C (publication)"
+    from atelier.intelligence.strategie import _ecrire_atomique as _ea
+
+    _ea(_dossier() / "sync_xray.json", json.dumps(sync, ensure_ascii=False, indent=1))
+    _historiser_sync(cible, "Local → Xray" if decision != "xray" else "Xray → Local", statut, resultat)
+    _journaliser("publication_xray", cle=cle, xray=cible, statut=statut)
+    return {"conflit": False, "mode": mode, "cle_xray": cible, "statut": statut, "resultat": resultat}

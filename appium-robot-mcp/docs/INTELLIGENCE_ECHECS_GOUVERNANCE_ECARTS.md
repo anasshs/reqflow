@@ -10,7 +10,7 @@ modifié silencieusement (résultats d'exécution, scripts, référentiels).
 | Écran | État | Détail |
 |---|---|---|
 | Application Overview | 🆕 | Application, plateformes, build, dates (exploration, instantané Xray / Jira, graphe), compteurs fonctionnels, techniques et de traçabilité. |
-| Jira Intelligence | 🆕 / ⛔ | Hiérarchie Epic → Story et tests Xray (traçabilité dans les deux sens) depuis l'instantané. ⛔ descriptions / critères d'acceptation, donc extraction IA des fonctionnalités et règles : import Jira complet requis. |
+| Jira Intelligence | 🆕 | Hiérarchie Epic → Story et tests Xray (traçabilité dans les deux sens) depuis l'instantané. 🆕 descriptions (ADF → texte) et critères d'acceptation (champ personnalisé JIRA_CHAMP_CRITERES) lus à la synchronisation Jira. |
 | Application Map, Functional / Technical Graph, Impact | ✅ + 🆕 | Knowledge Graph central ; nouvelles vues Fonctionnel et Technique (distinctes, connectées). |
 | User Journeys | ✅ / ⏳ | Parcours déclarés + vue graphe ; éditeur de parcours dédié à venir (Construction BDD en tient lieu). |
 | Screen Explorer | 🆕 | Écrans de la carte : vignettes, composants et locators par plateforme, contexte, transitions, états, tests qui les utilisent. |
@@ -29,7 +29,7 @@ modifié silencieusement (résultats d'exécution, scripts, référentiels).
 | Root Cause | 🆕 | Regroupement par signature (message normalisé), réversible ; tests impactés (même locator / keyword). ⏳ croisement Git / versions. |
 | Fix Recommendations | 🆕 / ⏳ | Correction recommandée par catégorie et module cible ; ⏳ propositions de code avant / après générées par IA. |
 | Retest & Validation | 🆕 | Relance via la file de l'Execution Center ; avant / après conservés ; clôture impossible sans retest réussi. |
-| Jira Defects | 🆕 / ⛔ | Brouillon d'anomalie (étapes, attendu / obtenu, environnement, version, preuves), association à une clé existante ; ⛔ création et recherche de doublons dans Jira. |
+| Jira Defects | 🆕 | Brouillon d'anomalie (étapes, attendu / obtenu, environnement, version, preuves), association à une clé existante ; 🆕 recherche de doublons (JQL : texte du message + liens avec le test Xray, anomalies non terminées), création sur confirmation (JIRA_TYPE_ANOMALIE, défaut Bug), captures jointes, lien vers le test Xray (JIRA_LIEN_ANOMALIE, défaut Relates). |
 
 ## Quality Governance (12 rubriques) — `atelier/intelligence/gouvernance.py`
 | Écran | État | Détail |
@@ -56,5 +56,6 @@ Restant commun : rôles et permissions (pas d'authentification locale), multi-pr
   `criteres` ou les puces de la description, règles métier candidates proposées « à valider » avec ticket et extrait ;
   import OpenAPI / Swagger (`api/*.yaml|json` : endpoints, module par tag, stories par `x-jira`) ; versions nommées du
   graphe (immuables), comparaison, restauration avec sauvegarde automatique de l'état courant.
-- Restent bloqués par Jira / Xray : import Jira complet (descriptions réelles), création d'anomalies et doublons,
-  écriture des tests et résultats dans Xray (voir docs/XRAY_API.md).
+- Écrans Jira / Xray branchés (troisième passe) : anomalies et doublons, publication BDD, rejeu Xray, artefacts Robot.
+  Reste à confirmer sur un vrai Jira : JQL `text ~` et le nom du lien, et sur Xray : `createTest` / `updateGherkinTestDefinition`
+  (relancer `python -m atelier xray-verifier`).

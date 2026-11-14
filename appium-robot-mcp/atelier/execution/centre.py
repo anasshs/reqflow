@@ -465,3 +465,18 @@ def vue_ensemble() -> dict:
             "par_plateforme": par("plateforme"), "par_statut": par("statut"),
             "tendance": [{"id": r["id"], "debut": r["debut"], "passes": r["passes"], "echecs": r["echecs"]} for r in reversed(reels[:20])],
             "recents": runs[:10], "file": FILE.attente(), "en_cours": {k: v for k, v in (FILE.en_cours or {}).items() if k != "params"} or None}
+
+
+
+def rejouer_xray(run_id: str) -> dict:
+    """Renvoie les événements Xray restés en attente d'un run (même mécanisme que « python -m atelier xray-sync »)."""
+    from atelier.execution import historique
+    from atelier.execution.journal_xray import OUTBOX, Synchroniseur
+
+    d = historique.dossier(run_id)
+    dossiers = [p.parent for p in d.rglob(OUTBOX)] if d.exists() else []
+    if not dossiers:
+        raise KeyError(f"Aucun journal Xray pour {run_id}.")
+    bilans = [Synchroniseur(x).envoyer_tout() for x in dossiers]
+    return {"run": run_id, "envoyes": sum(b["envoyes"] for b in bilans), "restants": sum(b["restants"] for b in bilans),
+            "erreurs": [b["erreur"] for b in bilans if b.get("erreur")], "etat": etat_xray(run_id)}

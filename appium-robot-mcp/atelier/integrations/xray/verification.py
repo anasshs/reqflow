@@ -28,6 +28,8 @@ MUTATIONS = {
     "updateTestRunStatus": ["id", "status"],
     "updateTestRun": ["id", "startedOn", "finishedOn", "comment"],
     "addEvidenceToTestRun": ["id", "evidence"],
+    "createTest": ["testType", "gherkin", "jira"],               # Test Design : publication d'un scénario BDD
+    "updateGherkinTestDefinition": ["issueId", "gherkin"],      # Test Design : mise à jour (mode B)
 }
 TYPES_ENTREE = {"AttachmentDataInput": ["filename", "mimeType", "data"]}
 

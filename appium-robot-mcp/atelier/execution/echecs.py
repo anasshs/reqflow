@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 
 from atelier.domain import projet
@@ -431,3 +432,56 @@ def faire_avancer_correction(cid: str, action: str, commentaire: str = "") -> di
     _sauver_corrections(cs)
     _journaliser(f"correction_{action}", correction=cid)
     return c
+
+
+
+# =========================================================================== anomalies Jira (création encadrée)
+def doublons_jira(eid: str, projet: str, jira=None) -> list[dict]:
+    """Anomalies ouvertes probablement identiques, à examiner AVANT toute création (même test ou même message)."""
+    from atelier.integrations.jira import JiraClient
+
+    jira = jira or JiraClient()
+    e = _evenement(eid)
+    mots = " ".join(re.findall(r"[A-Za-zÀ-ÿ]{5,}", nettoyer(e["message"]))[:6]).replace('"', "")
+    clauses = [f'text ~ "{mots}"'] if mots else []
+    if e["cle_xray"]:
+        clauses.append(f'issue in linkedIssues("{e["cle_xray"]}")')
+    if not clauses:
+        return []
+    type_bug = os.environ.get("JIRA_TYPE_ANOMALIE", "Bug")
+    jql = f'project = "{projet}" AND issuetype = "{type_bug}" AND statusCategory != Done AND ({" OR ".join(clauses)})'
+    return [{"cle": i["key"], "resume": (i.get("fields") or {}).get("summary", ""), "statut": ((i.get("fields") or {}).get("status") or {}).get("name", "")}
+            for i in jira.rechercher(jql, ["summary", "status"], 20)]
+
+
+def creer_anomalie_jira(eid: str, projet: str, resume: str = "", description: str = "", lier_test: bool = True, jira=None) -> dict:
+    """Crée l'anomalie à partir du brouillon (modifiable), joint les captures, lie le test Xray, associe l'échec.
+    Appelée uniquement sur action explicite de l'utilisateur, après consultation des doublons."""
+    from atelier.integrations.jira import JiraClient
+
+    jira = jira or JiraClient()
+    i = investigation(eid)
+    b = i["brouillon_jira"]
+    texte = description.strip() or "\n".join([f"Étapes : " + " ; ".join(b["steps"]), f"Résultat attendu : {b['expected']}",
+                                                f"Résultat obtenu : {b['actual']}", f"Environnement : {b['environment']}",
+                                                f"Version : {b['version']}", f"Test Xray : {b['xray']} · exécution {b['execution']}"])
+    cle = jira.creer_ticket(projet, (resume or b["summary"])[:250], texte, os.environ.get("JIRA_TYPE_ANOMALIE", "Bug"))
+    jointes, erreurs = [], []
+    for c in b["evidence"]:
+        try:
+            jira.joindre(cle, str(projet_dir() / c))
+            jointes.append(c.rsplit("/", 1)[-1])
+        except Exception as ex:  # noqa: BLE001 - l'anomalie existe : on signale sans l'annuler
+            erreurs.append(str(ex)[:200])
+    if lier_test and b["xray"]:
+        try:
+            jira.link(cle, b["xray"], os.environ.get("JIRA_LIEN_ANOMALIE", "Relates"))
+        except Exception as ex:  # noqa: BLE001
+            erreurs.append(f"lien : {str(ex)[:200]}")
+    associer_jira(eid, cle)
+    _journaliser("anomalie_jira_creee", echec=eid, cle=cle)
+    return {"cle": cle, "pieces_jointes": jointes, "erreurs": erreurs}
+
+
+def projet_dir():
+    return projet.PROJECT_DIR

@@ -90,6 +90,23 @@ class JiraClient:
                 "outwardIssue": {"key": issue_b}}
         http("POST", f"{self.base}/rest/api/3/issueLink", json.dumps(body).encode(), self._h())
 
+    def joindre(self, key: str, chemin: str) -> None:
+        """Pièce jointe (multipart, en-tête X-Atlassian-Token: no-check exigé par Jira)."""
+        import mimetypes
+        import secrets as _s
+        from pathlib import Path
+
+        if not self.enabled:
+            raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")
+        f = Path(chemin)
+        borne = "----atelier" + _s.token_hex(8)
+        corps = (f"--{borne}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{f.name}\"\r\n"
+                 f"Content-Type: {mimetypes.guess_type(f.name)[0] or 'application/octet-stream'}\r\n\r\n").encode() \
+            + f.read_bytes() + f"\r\n--{borne}--\r\n".encode()
+        http("POST", f"{self.base}/rest/api/3/issue/{key}/attachments", corps,
+             {"Authorization": self._auth, "X-Atlassian-Token": "no-check", "Accept": "application/json",
+              "Content-Type": f"multipart/form-data; boundary={borne}"})
+
     def rechercher(self, jql: str, champs: list[str], limite: int = 1000) -> list[dict]:
         """Recherche JQL paginée (POST /rest/api/3/search/jql, pagination par nextPageToken).
         Point d'API à vérifier sur la documentation Jira Cloud : voir docs/XRAY_API.md."""
@@ -107,3 +124,30 @@ class JiraClient:
             if not jeton:
                 break
         return out[:limite]
+
+
+def adf_vers_texte(adf) -> str:
+    """Atlassian Document Format (descriptions Jira Cloud v3) -> texte ; listes à puces en lignes « - … »."""
+    if adf is None:
+        return ""
+    if isinstance(adf, str):
+        return adf
+    lignes: list[str] = []
+
+    def texte(n) -> str:
+        return "".join(c.get("text", "") if c.get("type") == "text" else texte(c) for c in n.get("content") or [])
+
+    def parcourir(n, puce=False):
+        t = n.get("type")
+        if t in ("bulletList", "orderedList"):
+            for item in n.get("content") or []:
+                parcourir(item, True)
+        elif t == "listItem":
+            lignes.append("- " + " ".join(texte(c) for c in n.get("content") or []).strip())
+        elif t in ("paragraph", "heading"):
+            lignes.append(texte(n))
+        else:
+            for c in n.get("content") or []:
+                parcourir(c, puce)
+    parcourir(adf)
+    return "\n".join(l for l in lignes if l.strip())

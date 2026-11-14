@@ -43,7 +43,7 @@ Légende : ✅ existant réutilisé · 🆕 ajouté · ⏳ restant · ⛔ bloqu�
 | 9 | Execution Results | ✅ + 🆕 | Résultats détaillés (écran Exécution) ; comparaison de deux runs. ⏳ qualification (Failure Analysis). |
 | 10 | Evidence Repository | 🆕 | Fichiers du run (captures prévisualisées, output.xml, log, rapport, journal Xray, tentatives). ⏳ vidéos, traces réseau, politique de conservation. |
 | 11 | Execution History | 🆕 | Contexte figé, campagne, tentatives et tests instables, export CSV. |
-| 12 | Xray Synchronization | ✅ + 🆕 | Journal local (outbox) idempotent, jamais bloquant ; état Synced / Pending / Partial par run. ⛔ création / association réelles tant que l'API n'est pas vérifiée. |
+| 12 | Xray Synchronization | ✅ + 🆕 | Journal local (outbox) idempotent, jamais bloquant ; état Synced / Pending / Partial par run. Création / association réelles vérifiées sur un projet de recette (2026-11-14) ; 🆕 bouton « Rejouer » par run (événements en attente), résultats Robot zippés en pièce jointe (XRAY_ARTEFACTS). |
 | 13 | Settings | 🆕 (lecture) | Parallélisme, priorités, retry, preuves, Xray. ⏳ notifications, planification. |
 
 Retry : seconde tentative des seuls échecs, preuves de chaque tentative conservées (`tentative-1/`, `tentative-2/`),

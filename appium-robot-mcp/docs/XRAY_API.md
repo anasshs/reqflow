@@ -94,3 +94,13 @@ puis une Test Execution existants.
   désormais zippés (`robot-resultats.zip`) et joints aux test runs en fin de run, via le journal (rejouable).
   `XRAY_ARTEFACTS` = `tous` (défaut) | `echecs` | `aucun` ; `XRAY_ARTEFACTS_MAX_MO` (défaut 10) plafonne l'archive.
 - Restent à confirmer : taille maximale acceptée par `addEvidenceToTestRun`, statuts personnalisés (`getStatuses`).
+
+## Publication BDD (Test Design, modes B / C) — à vérifier
+| Appel | Usage | Statut |
+|---|---|---|
+| `createTest(testType: {name: "Cucumber"}, gherkin: String, jira: JSON!)` → `test { issueId jira(fields: ["key"]) } warnings` | création d'un test Cucumber (mode C) | ajouté à `xray-verifier` ; non vérifié |
+| `updateGherkinTestDefinition(issueId: String!, gherkin: String!)` | mise à jour du Gherkin (mode B) | ajouté à `xray-verifier` ; non vérifié |
+| `getTests(jql) { results { issueId gherkin testType { name } } }` | lecture du Gherkin pour détecter les conflits | même requête que l'instantané, champ `gherkin` à confirmer |
+
+Variables Jira associées : `JIRA_CHAMP_CRITERES` (champ des critères d'acceptation, ex. `customfield_<n>`),
+`JIRA_TYPE_ANOMALIE` (défaut `Bug`), `JIRA_LIEN_ANOMALIE` (défaut `Relates`).

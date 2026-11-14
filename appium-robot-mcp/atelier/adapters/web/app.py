@@ -1716,6 +1716,36 @@ async def intelligence_restaurer(req: Request):
     return await asyncio.to_thread(_call, intelligence_app.restaurer_version, (await req.json()).get("nom", ""))
 
 
+@app.post("/api/echecs/jira/doublons")
+async def echecs_doublons(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.doublons_jira, b.get("id", ""), b.get("projet", ""))
+
+
+@app.post("/api/echecs/jira/creer")
+async def echecs_creer_jira(req: Request):
+    """Création explicite (après consultation des doublons) ; jamais automatique."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.creer_anomalie_jira, b.get("id", ""), b.get("projet", ""),
+                                   b.get("resume", ""), b.get("description", ""), bool(b.get("lier_test", True)))
+
+
+@app.post("/api/conception/publier")
+async def conception_publier(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, conception.publier_bdd, b.get("cle", ""), b.get("projet", ""), b.get("decision", ""))
+
+
+@app.get("/api/conception/sync-historique")
+def conception_sync_historique():
+    return _call(conception.historique_sync)
+
+
+@app.post("/api/centre/xray/rejouer")
+async def centre_rejouer_xray(req: Request):
+    return await asyncio.to_thread(_call, centre.rejouer_xray, (await req.json()).get("run", ""))
+
+
 # --------------------------------------------------------------------------- Application Intelligence
 @app.get("/api/intelligence/{section}")
 async def intelligence_section(section: str):

@@ -285,12 +285,15 @@
   async function xray(z) {
     const l = await api("/api/centre/xray");
     const P = {Synced: "ok", Pending: "warn", Partial: "warn", "Non configuré": ""};
+    setTimeout(() => $$("[data-rejouer]", z).forEach(b => b.onclick = async () => {
+      try { const r = await api("/api/centre/xray/rejouer", {method: "POST", body: {run: b.dataset.rejouer}}); toast(`${r.envoyes} envoyé(s), ${r.restants} restant(s).`, r.restants ? "ko" : "ok"); xray(z); }
+      catch (e) { toast(e.message, "ko"); } }), 0);
     z.innerHTML = `${entete("Xray Synchronization")}<div class="corps-carte"><p class="lib">Xray reste la source officielle (Test, Test Plan, Test Execution, Test Run) ; l'Execution Center orchestre les jobs techniques.
       Chaque résultat est d'abord écrit dans le journal local du run (outbox), puis envoyé dans l'ordre, sans doublon (clés d'idempotence). Une indisponibilité Xray n'interrompt jamais un run : synchronisation rattrapable par « python -m atelier xray-sync &lt;dossier&gt; ».</p>
       <table class="table-strat"><tr><th>Run</th><th>Début</th><th>Run</th><th>Test Execution Xray</th><th>Événements</th><th>Restants</th><th>Synchronisation</th></tr>
       ${l.map(x => `<tr><td class="cle-xray">${esc(x.run)}</td><td class="mono">${esc((x.debut || "").replace("T", " "))}</td><td>${statut(x.statut_run)}</td><td>${esc(x.xray_execution || "—")}</td>
-        <td>${x.evenements}</td><td>${x.restants}</td><td><span class="pill ${P[x.statut] || ""}">${esc(x.statut)}</span></td></tr>`).join("")}</table>
-      <p class="lib" style="margin-top:10px">Mapping des statuts : variable XRAY_STATUTS (défaut PASS → PASSED, FAIL → FAILED, SKIP → TODO) ; appels Xray à vérifier (docs/XRAY_API.md).</p></div>`;
+        <td>${x.evenements}</td><td>${x.restants}</td><td><span class="pill ${P[x.statut] || ""}">${esc(x.statut)}</span>${x.restants ? ` <button class="btn petit" data-rejouer="${esc(x.run)}">Rejouer</button>` : ""}</td></tr>`).join("")}</table>
+      <p class="lib" style="margin-top:10px">Ordre d'envoi en fin de test : statut final, puis heures et commentaire, puis captures ; résultats Robot (zip) joints après le run (XRAY_ARTEFACTS). Mapping des statuts : variable XRAY_STATUTS (défaut PASS → PASSED, FAIL → FAILED, SKIP → TODO) ; appels Xray à vérifier (docs/XRAY_API.md).</p></div>`;
   }
 
   function parametres(z) {

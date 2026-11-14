@@ -188,11 +188,29 @@
     const i = await api("/api/echecs/investigation?id=" + encodeURIComponent(SEL)), b = i.brouillon_jira;
     const texte = `${b.summary}\n\nÉtapes :\n${b.steps.map((s, n) => `${n + 1}. ${s}`).join("\n")}\n\nRésultat attendu : ${b.expected}\nRésultat obtenu : ${b.actual}\nEnvironnement : ${b.environment}\nVersion : ${b.version}\nTest Xray : ${b.xray} · Exécution : ${b.execution}\nPreuves : ${b.evidence.join(", ")}`;
     z.innerHTML = `${entete("Jira Defects", `${i.jira ? `<span class="pill violet">${esc(i.jira)}</span>` : ""}`)}<div class="corps-carte">
-      <p class="lib">Anomalie préparée à partir de l'échec (sévérité suggérée : ${esc(b.severity_suggeree)}). Création dans Jira : à venir (API à vérifier) ; copier le texte ou associer une anomalie existante. Avant création, vérifier les doublons dans Jira (même message, module, version).</p>
-      <div class="code-bloc">${esc(texte)}</div><div class="btns"><button class="btn" id="jr-copier">Copier</button>
+      <p class="lib">Anomalie préparée à partir de l'échec (sévérité suggérée : ${esc(b.severity_suggeree)}). Rechercher d'abord les doublons ; la création n'a lieu que sur confirmation, avec les captures jointes et un lien vers le test Xray.</p>
+      <div class="champ"><label for="jr-res">Résumé</label><input class="in" id="jr-res" value="${esc(b.summary)}"></div>
+      <div class="champ"><label for="jr-desc">Description (modifiable)</label><textarea class="in" id="jr-desc" rows="8">${esc(texte)}</textarea></div>
+      <div class="btns"><input class="in" id="jr-proj" placeholder="Projet Jira (ex. TAM)" value="${esc((b.xray || "").split("-")[0])}" style="width:150px">
+        <button class="btn" id="jr-doub">Rechercher les doublons</button><button class="btn primaire" id="jr-creer">Créer l'anomalie dans Jira</button></div><div id="jr-res-doub"></div>
+      <div class="btns" style="margin-top:8px"><button class="btn" id="jr-copier">Copier</button>
         <input class="in" id="jr-cle" placeholder="Clé Jira existante (ex. DEMO-42)" value="${esc(i.jira || "")}" style="width:220px"><button class="btn primaire" id="jr-ok">Associer</button></div>
       <p class="lib">La fermeture de l'anomalie Jira ne clôt pas l'analyse : un retest réussi est exigé.</p></div>`;
     $("#jr-copier").onclick = () => navigator.clipboard?.writeText(texte).then(() => toast("Copié.", "ok"));
+    let doublonsVus = false;
+    $("#jr-doub").onclick = async () => {
+      try { const l = await api("/api/echecs/jira/doublons", {method: "POST", body: {id: SEL, projet: $("#jr-proj").value.trim()}}); doublonsVus = true;
+        $("#jr-res-doub").innerHTML = l.length ? `<p class="warn-t">Anomalies ouvertes possiblement identiques :</p><ul class="liste">${l.map(x => `<li><span class="cle-xray">${esc(x.cle)}</span><span class="item">${esc(x.resume)}</span><span class="pill">${esc(x.statut)}</span>
+          <button class="btn petit" data-asso="${esc(x.cle)}">Associer</button></li>`).join("")}</ul>` : "<p class='ok-t'>Aucun doublon ouvert trouvé.</p>";
+        $$("[data-asso]", z).forEach(x => x.onclick = async () => { await api("/api/echecs/jira", {method: "POST", body: {id: SEL, cle: x.dataset.asso}}); toast("Associée.", "ok"); jira(z); });
+      } catch (e) { toast(e.message, "ko"); }
+    };
+    $("#jr-creer").onclick = async () => {
+      if (!doublonsVus && !confirm("Les doublons n'ont pas été recherchés. Créer quand même ?")) return;
+      if (!confirm(`Créer l'anomalie dans Jira (projet ${$("#jr-proj").value.trim()}) ?`)) return;
+      try { const r = await api("/api/echecs/jira/creer", {method: "POST", body: {id: SEL, projet: $("#jr-proj").value.trim(), resume: $("#jr-res").value, description: $("#jr-desc").value}});
+        toast(`Anomalie ${r.cle} créée${r.erreurs.length ? " (avec avertissements)" : ""}.`, r.erreurs.length ? "ko" : "ok"); jira(z); } catch (e) { toast(e.message, "ko"); }
+    };
     $("#jr-ok").onclick = async () => { try { await api("/api/echecs/jira", {method: "POST", body: {id: SEL, cle: $("#jr-cle").value.trim()}}); toast("Anomalie associée.", "ok"); jira(z); } catch (e) { toast(e.message, "ko"); } };
   }
 
