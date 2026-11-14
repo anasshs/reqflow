@@ -365,8 +365,76 @@
       <p class="lib" style="margin-top:10px">Source : data/jdd/${esc(Atelier.env || "<env>")}.yaml (valeurs secrètes jamais affichées). Association à un scénario : Construction BDD › propriétés. Import CSV / JSON et éditeur : à venir.</p></div>`;
   }
 
-  function regles(z) {
-    z.innerHTML = `${entete("Règles de test")}<div class="corps-carte">${vide("À venir", "Règles métier, de validation et de calcul liées aux exigences et aux cas de test : objet métier non encore créé (voir docs/TEST_DESIGN_ECARTS.md).")}</div>`;
+  async function regles(z) {
+    const d = await api("/api/conception/regles");
+    const k = d.indicateurs;
+    z.innerHTML = `${entete("Règles de test", `<button class="btn" id="rg-prop">Proposer depuis les exigences</button><button class="btn primaire" id="rg-new">${ico("plus")}Nouvelle règle</button>`)}<div class="corps-carte">
+      <p class="lib">Règles métier, de validation, de calcul, de sécurité fonctionnelle, de données et de workflow. Ce sont les règles du Knowledge Graph : les candidates extraites des critères Jira apparaissent ici « à valider ».</p>
+      <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr));margin:10px 0">${[[k.regles, "règles"], [k.validees, "validées"], [k.a_valider, "à valider"], [k.non_couvertes.length, "validées sans test"]]
+        .map(([v, t], i) => `<div class="kpi"><div class="v ${i === 3 && v ? "warn-t" : ""}">${v}</div><div class="l">${t}</div></div>`).join("")}</div>
+      ${d.regles.length ? `<table class="table-strat"><tr><th>Règle</th><th>Catégorie</th><th>Statut</th><th>Paramètres</th><th>Exigences</th><th>Tests</th><th>Couverture</th></tr>
+        ${d.regles.map(x => `<tr class="cliquable" data-rg="${esc(x.id)}"><td><b>${esc(x.nom)}</b>${x.source ? ` <span class="lib">${esc(x.source)}</span>` : ""}</td><td>${esc(x.categorie || "—")}</td>
+          <td><span class="pill ${x.statut === "validé" ? "ok" : "warn"}">${esc(x.statut)}</span></td><td>${x.parametres.length}</td>
+          <td>${x.exigences.map(e => `<span class="cle-xray">${esc(e)}</span>`).join(", ") || "—"}</td><td>${x.tests.map(e => `<span class="cle-xray">${esc(e)}</span>`).join(", ") || "—"}</td>
+          <td>${x.statut !== "validé" ? "" : x.couverte ? '<span class="pill ok">couverte</span>' : '<span class="pill ko">non couverte</span>'}</td></tr>`).join("")}</table>`
+        : vide("Aucune règle", "« Nouvelle règle » ou « Proposer depuis les exigences » (critères d'acceptation Jira).")}</div>`;
+    $("#rg-new").onclick = () => panneauRegle(null, d, z);
+    $("#rg-prop").onclick = async () => { try { const r = await api("/api/conception/regles/proposer", {method: "POST", body: {}}); toast(`${r.proposees} règle(s) candidate(s) proposée(s), à valider.`, "ok"); regles(z); } catch (e) { toast(e.message, "ko"); } };
+    $$("[data-rg]", z).forEach(tr => tr.onclick = () => panneauRegle(tr.dataset.rg, d, z));
+    recherche(z, "regles");
+  }
+
+  async function panneauRegle(id, d, z) {
+    const r = id ? await api("/api/conception/regles/detail?id=" + encodeURIComponent(id)) : {nom: "", categorie: "", logique: "", conditions: [], resultats: [], parametres: [], exigences: [], tests: [], cas_limites: [], statut: "validé"};
+    const p = $(".panneau-strat");
+    p.hidden = false;
+    const ligneParam = (x = {}) => `<tr data-prm><td><input class="in" data-k="nom" value="${esc(x.nom || "")}" placeholder="Montant"></td>
+      <td><select class="in" data-k="type">${Object.entries(d.types_parametre).map(([k, l]) => `<option value="${k}" ${x.type === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></td>
+      <td><input class="in" data-k="min" value="${esc(x.min || "")}" placeholder="min" style="width:70px"></td><td><input class="in" data-k="max" value="${esc(x.max || "")}" placeholder="max" style="width:80px"></td>
+      <td><input class="in" data-k="unite" value="${esc(x.unite || "")}" placeholder="MAD" style="width:60px"></td>
+      <td><input class="in" data-k="valeurs" value="${esc((x.valeurs || []).join(", ") || x.valeur || "")}" placeholder="valeurs autorisées / valeur"></td>
+      <td><button class="icone" data-prm-x title="Retirer">${ico("x")}</button></td></tr>`;
+    p.innerHTML = `${entete(id ? r.nom : "Nouvelle règle", `<button class="icone" id="rg-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
+      ${id && r.statut !== "validé" ? `<p class="warn-t">Proposition ${esc(r.provenance)} (${esc(r.source || "")}) à valider${r.extrait ? ` : « ${esc(r.extrait)} »` : ""}.</p>
+        <div class="btns"><button class="btn petit succes" id="rg-ok">Valider</button><button class="btn petit danger" id="rg-ko">Rejeter</button></div>` : ""}
+      <div class="champ"><label for="rg-nom">Règle</label><input class="in" id="rg-nom" value="${esc(r.nom)}" placeholder="Montant maximum d'un virement"></div>
+      <div class="champ"><label for="rg-cat">Catégorie</label><select class="in" id="rg-cat"><option value=""></option>${d.categories.map(c => `<option ${r.categorie === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
+      <div class="champ"><label for="rg-log">Logique</label><textarea class="in" id="rg-log" rows="2">${esc(r.logique || "")}</textarea></div>
+      <div class="grille-2"><div class="champ"><label for="rg-cond">Conditions (une par ligne)</label><textarea class="in" id="rg-cond" rows="3">${esc(r.conditions.join("\n"))}</textarea></div>
+        <div class="champ"><label for="rg-res">Résultats attendus (un par ligne)</label><textarea class="in" id="rg-res" rows="3">${esc(r.resultats.join("\n"))}</textarea></div></div>
+      <h3 class="lib">PARAMÈTRES</h3><table id="rg-prms"><tr><th>Paramètre</th><th>Type</th><th>Min</th><th>Max</th><th>Unité</th><th>Valeurs</th><th></th></tr>${(r.parametres.length ? r.parametres : [{}]).map(ligneParam).join("")}</table>
+      <button class="btn petit" id="rg-padd">${ico("plus")}Paramètre</button>
+      <div class="grille-2" style="margin-top:8px"><div class="champ"><label for="rg-ex">Exigences (clés)</label><input class="in" id="rg-ex" value="${esc(r.exigences.join(", "))}" placeholder="TAM-10, TAM-11"></div>
+        <div class="champ"><label for="rg-ts">Tests Xray (clés)</label><input class="in" id="rg-ts" value="${esc(r.tests.join(", "))}" placeholder="TAM-735"></div></div>
+      <div class="btns"><button class="btn primaire" id="rg-save">${ico("check")}Enregistrer</button>${id ? `<button class="btn danger" id="rg-del">Supprimer</button>` : ""}</div>
+      ${id ? `<h3 class="lib" style="margin-top:12px">CAS LIMITES PROPOSÉS (${r.cas_limites.length})</h3>${r.cas_limites.length ? `<table class="table-strat"><tr><th></th><th>Cas</th><th>Attendu</th></tr>
+        ${r.cas_limites.map(c => `<tr><td><input type="checkbox" data-cl="${esc(c.id)}"></td><td>${esc(c.titre)}<br><span class="lib">${esc(Object.entries(c.donnees).map(([k, v]) => `${k} = ${v}`).join(" · "))}</span></td>
+          <td><span class="pill ${c.attendu === "accepté" ? "ok" : "ko"}">${esc(c.attendu)}</span></td></tr>`).join("")}</table>
+        <div class="btns"><input class="in" id="rg-px" value="${esc(Atelier.ctx.projet_xray || "")}" placeholder="Projet Xray" style="width:120px">
+          <button class="btn primaire" id="rg-xray" ${r.statut !== "validé" ? "disabled title='Valider la règle d&apos;abord'" : ""}>${ico("xray")}Créer les cas choisis dans Xray</button></div>`
+        : "<p class='lib'>Ajouter des paramètres (bornes, valeurs autorisées, conditions obligatoires) pour générer les cas limites.</p>"}` : ""}</div>`;
+    const lire = () => ({id: id || undefined, nom: $("#rg-nom").value, categorie: $("#rg-cat").value, logique: $("#rg-log").value,
+      conditions: $("#rg-cond").value.split("\n"), resultats: $("#rg-res").value.split("\n"),
+      parametres: $$("[data-prm]", p).map(tr => { const v = k => $(`[data-k="${k}"]`, tr).value.trim(); const t = v("type");
+        return {nom: v("nom"), type: t, min: v("min"), max: v("max"), unite: v("unite"), valeurs: t === "liste" ? v("valeurs") : undefined, valeur: t === "texte" ? v("valeurs") : undefined}; }),
+      exigences: $("#rg-ex").value.split(/[\s,;]+/).filter(Boolean), tests: $("#rg-ts").value.split(/[\s,;]+/).filter(Boolean)});
+    const brancherPrm = () => $$("[data-prm-x]", p).forEach(b => b.onclick = () => { b.closest("tr").remove(); });
+    brancherPrm();
+    $("#rg-x").onclick = () => { p.hidden = true; };
+    $("#rg-padd").onclick = () => { $("#rg-prms").insertAdjacentHTML("beforeend", ligneParam()); brancherPrm(); };
+    $("#rg-save").onclick = async () => { try { const n = await api("/api/conception/regles", {method: "POST", body: lire()}); toast("Règle enregistrée (historisée).", "ok"); await regles(z); panneauRegle(n.id, d, z); } catch (e) { toast(e.message, "ko"); } };
+    if ($("#rg-del")) $("#rg-del").onclick = async () => { if (!confirm("Supprimer cette règle ? (historisé)")) return; try { await api("/api/conception/regles/supprimer", {method: "POST", body: {id}}); p.hidden = true; regles(z); } catch (e) { toast(e.message, "ko"); } };
+    if ($("#rg-ok")) $("#rg-ok").onclick = async () => { await api("/api/graphes/valider", {method: "POST", body: {id}}); toast("Règle validée.", "ok"); await regles(z); panneauRegle(id, d, z); };
+    if ($("#rg-ko")) $("#rg-ko").onclick = async () => { const mo = prompt("Motif du rejet (la proposition ne reviendra pas) :"); if (mo === null) return;
+      await api("/api/graphes/rejeter", {method: "POST", body: {id, motif: mo}}); p.hidden = true; toast("Règle rejetée.", "ok"); regles(z); };
+    if ($("#rg-xray")) $("#rg-xray").onclick = async () => {
+      const cas = $$("[data-cl]:checked", p).map(c => c.dataset.cl);
+      if (!cas.length) { toast("Cocher au moins un cas limite.", "ko"); return; }
+      if (!confirm(`Créer ${cas.length} test(s) Manual dans Xray (${$("#rg-px").value}) et les lier aux exigences de la règle ?`)) return;
+      try { const res = await api("/api/conception/regles/xray", {method: "POST", body: {id, cas, projet: $("#rg-px").value.trim()}});
+        toast(`${res.crees.length} test(s) créé(s)${res.erreurs.length ? `, ${res.erreurs.length} erreur(s) : ${res.erreurs[0].erreur}` : ""}.`, res.erreurs.length ? "ko" : "ok"); await regles(z); panneauRegle(id, d, z); }
+      catch (e) { toast(e.message, "ko"); }
+    };
   }
 
   async function suites(z) {

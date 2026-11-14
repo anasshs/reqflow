@@ -1134,6 +1134,52 @@ async def conception_statuts_jira(projet: str = ""):
     return await asyncio.to_thread(_call, conception.statuts_workflow_test, projet)
 
 
+# --------------------------------------------------------------------------- Test Design › Règles de test
+@app.get("/api/conception/regles")
+async def conception_regles():
+    from atelier.generation import regles_test
+
+    return await asyncio.to_thread(lambda: {"regles": _call(regles_test.lister), "indicateurs": _call(regles_test.indicateurs),
+                                            "categories": regles_test.CATEGORIES, "types_parametre": regles_test.TYPES_PARAMETRE})
+
+
+@app.get("/api/conception/regles/detail")
+async def conception_regle_detail(id: str):
+    from atelier.generation import regles_test
+
+    return await asyncio.to_thread(_call, regles_test.detail, id)
+
+
+@app.post("/api/conception/regles")
+async def conception_regle_enregistrer(req: Request):
+    from atelier.generation import regles_test
+
+    return await asyncio.to_thread(_call, regles_test.enregistrer, await req.json())
+
+
+@app.post("/api/conception/regles/supprimer")
+async def conception_regle_supprimer(req: Request):
+    from atelier.generation import regles_test
+
+    return _call(regles_test.supprimer, (await req.json()).get("id", ""))
+
+
+@app.post("/api/conception/regles/proposer")
+async def conception_regles_proposer():
+    from atelier.generation import regles_test
+
+    return await asyncio.to_thread(_call, regles_test.proposer_depuis_exigences)
+
+
+@app.post("/api/conception/regles/xray")
+async def conception_regle_xray(req: Request):
+    """Création explicite, dans Xray, des cas limites choisis (tests Manual liés aux exigences de la règle)."""
+    from atelier.generation import regles_test
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, regles_test.creer_cas_xray, b.get("id", ""), b.get("cas") or [], b.get("projet", ""))
+
+
 @app.get("/api/conception/organisation-xray")
 def conception_organisation_xray():
     return _call(patrimoine_xray.organisation)

@@ -32,3 +32,12 @@ locale), multi-projets dans une même interface.
   Champs choisis par introspection du type `Test` : un champ absent du schéma n'est jamais demandé ni inventé.
   Tests de l'instantané introuvables dans Xray : listés, jamais supprimés. Lecture seule dans Xray.
 - RG-X05 (éditeur selon le type Xray) et RG-X01 (issueId conservé) tenues après import.
+
+## Règles de test (écran 06) — 2026-11-14
+- 🆕 Test Design › Règles de test : règles = nœuds « regle » du Knowledge Graph (une seule source avec Application
+  Intelligence) ; catégorie (6 du cahier), logique, conditions, résultats attendus, paramètres (nombre min / max,
+  liste de valeurs, condition obligatoire, valeur fixe) ; liens exigences (contient) et tests Xray (teste_par).
+- 🆕 Cas limites générés depuis les paramètres (bornes ± pas, valeur nominale, hors liste, condition non remplie),
+  proposés puis créés sur action explicite dans Xray (tests Manual liés aux exigences de la règle).
+- 🆕 Règles validées non couvertes (indicateur) ; candidates depuis les critères Jira (« à valider », rejet définitif).
+- ⏳ Propositions de règles par l'IA (Cursor / LLM interne) : à brancher sur le fournisseur d'IA.
