@@ -104,3 +104,11 @@ puis une Test Execution existants.
 
 Variables Jira associées : `JIRA_CHAMP_CRITERES` (champ des critères d'acceptation, ex. `customfield_<n>`),
 `JIRA_TYPE_ANOMALIE` (défaut `Bug`), `JIRA_LIEN_ANOMALIE` (défaut `Relates`).
+
+## Statuts de test run (lecture vérifiée le 2026-11-14)
+`getStatuses(projectId: String)` → `[Status { name description final color coverageStatus }]` ; `projectId` est
+l'identifiant numérique Jira du projet (lu sur un test : `jira(fields: ["project"])`).
+Contrôle en lecture seule : `python -m atelier xray-statuts --projet <CLÉ>` compare `XRAY_STATUTS` aux statuts réels
+(PASS / FAIL doivent viser un statut final, EXECUTING un statut non final). Les statuts non finaux
+(`XRAY_STATUTS_NON_FINAUX`, défaut `TODO,EXECUTING`) ne reçoivent jamais d'heure de fin : un test SKIP (→ TODO)
+n'est donc plus refusé par Xray.

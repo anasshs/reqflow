@@ -42,6 +42,38 @@ def statuts_xray() -> dict:
         return dict(STATUTS_DEFAUT)
 
 
+def statuts_non_finaux() -> set[str]:
+    """Statuts Xray non finaux (Xray refuse alors l'heure de fin). Défaut : TODO, EXECUTING ;
+    XRAY_STATUTS_NON_FINAUX='TODO,EXECUTING,EN ATTENTE' (contrôle : `python -m atelier xray-statuts`)."""
+    v = os.environ.get("XRAY_STATUTS_NON_FINAUX") or "TODO,EXECUTING"
+    return {x.strip().upper() for x in v.split(",") if x.strip()}
+
+
+def controler_statuts(statuts: list[dict], table: dict | None = None) -> dict:
+    """Compare la table Robot -> Xray (XRAY_STATUTS) aux statuts réels du projet (getStatuses).
+    Signale les statuts inexistants et la finalité attendue : PASS / FAIL finaux, EXECUTING non final."""
+    table = table or statuts_xray()
+    reels = {str(s.get("name", "")).upper(): s for s in statuts}
+    lignes, ok = [], True
+    for robot, cible in table.items():
+        s = reels.get(str(cible).upper())
+        attendu_final = robot in ("PASS", "FAIL")
+        if not s:
+            etat, ok = "absent du projet Xray", False
+        elif robot == "EXECUTING" and s.get("final"):
+            etat, ok = "final : l'heure de fin serait figée dès le début du test", False
+        elif attendu_final and not s.get("final"):
+            etat, ok = "non final : Xray refusera l'heure de fin", False
+        else:
+            etat = "conforme"
+        lignes.append({"robot": robot, "xray": cible, "final": (s or {}).get("final"), "etat": etat})
+    non_finaux_reels = sorted(n for n, s in reels.items() if not s.get("final"))
+    declares = statuts_non_finaux()
+    return {"ok": ok and set(non_finaux_reels) <= declares, "lignes": lignes, "non_finaux_reels": non_finaux_reels,
+            "non_finaux_declares": sorted(declares),
+            "non_finaux_manquants": sorted(set(non_finaux_reels) - declares)}
+
+
 class ErreurDefinitive(Exception):
     """Erreur que la répétition ne corrigera pas (ex. ticket cible qui est un Test)."""
 
@@ -218,8 +250,11 @@ class Synchroniseur:
         elif ev["type"] == "test_fin":
             # Xray Cloud refuse finishedOn tant que le statut n'est pas final (constaté à l'essai réel) :
             # statut final d'abord, puis heures et commentaire, puis preuves.
+            # SKIP / NOT RUN -> TODO (non final) : l'heure de fin n'est pas envoyée, sinon refus définitif.
             self.xray.set_status(run_id, d["statut"])
-            self.xray.update_run(run_id, started=d.get("debut"), finished=d["fin"], comment=d.get("commentaire"))
+            final = str(d["statut"]).upper() not in statuts_non_finaux()
+            self.xray.update_run(run_id, started=d.get("debut"), finished=d["fin"] if final else None,
+                                 comment=d.get("commentaire"))
             captures = [c for c in d.get("captures") or [] if Path(c).exists()]
             if captures:
                 self.xray.add_evidence(run_id, captures)

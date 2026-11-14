@@ -220,3 +220,18 @@ def test_refus_metier_xray_non_reessaye_et_rejouable(tmp_path):
     bilan = Synchroniseur(tmp_path, xray=Refus(), sommeil=attentes.append, journaliser=lambda *a, **k: None).envoyer_tout()
     assert Refus.appels == 1 and attentes == []
     assert bilan["restants"] == 1 and len(j.restants()) == 1
+
+
+def test_controle_des_statuts_xray(monkeypatch):
+    from atelier.execution.journal_xray import controler_statuts
+
+    monkeypatch.delenv("XRAY_STATUTS", raising=False)
+    monkeypatch.delenv("XRAY_STATUTS_NON_FINAUX", raising=False)
+    reels = [{"name": "PASSED", "final": True}, {"name": "FAILED", "final": True},
+             {"name": "TODO", "final": False}, {"name": "EXECUTING", "final": False}]
+    c = controler_statuts(reels)
+    assert c["ok"] and all(l["etat"] == "conforme" for l in c["lignes"])
+    c = controler_statuts(reels + [{"name": "BLOQUE", "final": False}], {"FAIL": "ECHEC", "EXECUTING": "EXECUTING"})
+    assert not c["ok"]
+    assert {l["robot"]: l["etat"] for l in c["lignes"]}["FAIL"] == "absent du projet Xray"
+    assert c["non_finaux_manquants"] == ["BLOQUE"]

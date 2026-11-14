@@ -93,6 +93,21 @@ class XrayClient:
                         "resume": (r.get("jira") or {}).get("summary", "")}
         return {"type": "autre", "key": t, "projet": projet}
 
+    def id_projet(self, projet: str) -> str:
+        """Identifiant Jira (numérique) du projet, lu sur un test du projet : getStatuses l'exige."""
+        if projet.isdigit():
+            return projet
+        q = 'query($jql: String) { getTests(jql: $jql, limit: 1) { results { jira(fields: ["project"]) } } }'
+        res = self.gql(q, {"jql": f'project = "{projet}"'})["getTests"]["results"]
+        if not res:
+            raise RuntimeError(f"Aucun test Xray dans le projet {projet} : identifiant introuvable.")
+        return str(((res[0].get("jira") or {}).get("project") or {}).get("id", ""))
+
+    def statuts(self, project_id: str) -> list[dict]:
+        """Statuts de test run du projet (schéma vérifié le 2026-11-14 : getStatuses(projectId))."""
+        q = "query($p: String) { getStatuses(projectId: $p) { name description final color } }"
+        return self.gql(q, {"p": project_id})["getStatuses"] or []
+
     def search_tests(self, jql: str, limit: int = 50) -> list[dict]:
         """Tests correspondant à un JQL (ex. candidats à l'automatisation)."""
         q = ('query($jql: String, $l: Int!) { getTests(jql: $jql, limit: $l) { results { issueId '

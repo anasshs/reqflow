@@ -3,6 +3,7 @@
     python -m atelier xray-sync <dossier>    rejoue les journaux Xray non envoyés d'un run
                                              (ou de tous les runs sous ce dossier)
     python -m atelier xray-verifier          compare les appels du client au schéma GraphQL réel
+    python -m atelier xray-statuts --projet TAM   contrôle XRAY_STATUTS avec les statuts réels du projet
 """
 from __future__ import annotations
 
@@ -48,6 +49,24 @@ def xray_verifier(sortie: str = "") -> int:
     return 0 if res["ok"] else 1
 
 
+def xray_statuts(projet: str) -> int:
+    """Lecture seule : aucune écriture dans Xray."""
+    from atelier.execution.journal_xray import controler_statuts
+    from atelier.integrations.xray import XrayClient
+
+    x = XrayClient()
+    statuts = x.statuts(x.id_projet(projet))
+    c = controler_statuts(statuts)
+    print(f"Statuts de test run du projet {projet} : " + ", ".join(
+        f"{s['name']}{' (final)' if s.get('final') else ''}" for s in statuts))
+    for ligne in c["lignes"]:
+        print(f"  {ligne['robot']:<10} -> {ligne['xray']:<12} {ligne['etat']}")
+    if c["non_finaux_manquants"]:
+        print("Statuts non finaux à déclarer dans XRAY_STATUTS_NON_FINAUX : " + ", ".join(c["non_finaux_manquants"]))
+    print("Résultat : " + ("conforme" if c["ok"] else "à corriger (XRAY_STATUTS / XRAY_STATUTS_NON_FINAUX)"))
+    return 0 if c["ok"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m atelier", description="Atelier d'automatisation")
     sous = p.add_subparsers(dest="commande", required=True)
@@ -55,11 +74,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("dossier", help="Dossier d'un run (xray_outbox.jsonl) ou dossier parent")
     v = sous.add_parser("xray-verifier", help="Vérifie les appels Xray par introspection du schéma")
     v.add_argument("--sortie", default="", help="Fichier Markdown du résultat (ex. docs/XRAY_API_resultat.md)")
+    st = sous.add_parser("xray-statuts", help="Contrôle la table des statuts avec les statuts réels du projet Xray")
+    st.add_argument("--projet", required=True, help="Clé du projet Jira (ex. TAM) ou son identifiant numérique")
     args = p.parse_args(argv)
     if args.commande == "xray-sync":
         return xray_sync(args.dossier)
     if args.commande == "xray-verifier":
         return xray_verifier(args.sortie)
+    if args.commande == "xray-statuts":
+        return xray_statuts(args.projet)
     return 2
 
 
