@@ -174,6 +174,37 @@ def sprints(espace: str = "", jira=None) -> dict:
     return out
 
 
+def chercher_projets_jira(recherche: str = "", jira=None) -> list[dict]:
+    """Aide à la saisie de la politique : projets Jira visibles (nom ou clé), déjà suivis signalés."""
+    from atelier.integrations.jira import JiraClient
+
+    jira = jira or JiraClient()
+    if not getattr(jira, "enabled", True):
+        raise RuntimeError("Jira non configuré (Paramètres › Connexions).")
+    suivis = {e["projet_jira"] for e in espaces()}
+    return [{**p, "suivi": p["cle"] in suivis} for p in jira.projets(recherche.strip())]
+
+
+def details_projet_jira(cle: str, jira=None) -> dict:
+    """Types de ticket, statuts et tableaux Scrum / sprints du projet choisi (préremplissage, lecture seule)."""
+    from atelier.integrations.jira import JiraClient
+
+    jira = jira or JiraClient()
+    out = {"cle": cle, "types": [], "statuts": [], "tableaux": [], "sprint_actif": None, "erreurs": []}
+    for nom, appel in (("types", lambda: jira.types_issue_projet(cle)), ("statuts", lambda: jira.statuts_projet(cle, "Story")),
+                       ("tableaux", lambda: jira.tableaux(cle))):
+        try:
+            out[nom] = appel()
+        except Exception as ex:  # noqa: BLE001 - une information indisponible n'empêche pas la saisie
+            out["erreurs"].append(f"{nom} : {str(ex)[:150]}")
+    for t in [x for x in out["tableaux"] if (x.get("type") or "scrum") == "scrum"]:
+        try:
+            out["sprint_actif"] = next((s for s in jira.sprints(t["id"], "active") if s.get("etat") == "active"), None) or out["sprint_actif"]
+        except Exception as ex:  # noqa: BLE001
+            out["erreurs"].append(f"sprints : {str(ex)[:150]}")
+    return out
+
+
 def _cibles(e: dict, jira, sprint: str = "") -> list[tuple[str, dict | None]]:
     """Requêtes de détection d'un espace : une par sprint visé (avec le sprint), ou par statuts."""
     if e.get("portee", "sprint") == "statuts" and not sprint:

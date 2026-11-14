@@ -195,7 +195,10 @@
     const m = modale("Politique de testabilité des US", `<p class="lib">Espaces Jira (projets des squads) dont chaque US doit être couverte par des tests du projet Xray cible.</p>
       ${cfg.espaces.length ? `<table><tr><th>Projet Jira</th><th>Nom</th><th>Types</th><th>Portée</th><th>Xray</th><th>Tests</th><th></th></tr>${cfg.espaces.map(ligne).join("")}</table>` : ""}
       <h3 class="lib" style="margin-top:12px">AJOUTER / MODIFIER UN ESPACE</h3><div class="grille-2">
-        <div class="champ"><label for="es-pj">Projet Jira de la squad</label><input class="in" id="es-pj" placeholder="SQUAD1"></div>
+        <div class="champ" style="grid-column:1/-1;position:relative"><label for="es-q">Rechercher le projet Jira de la squad (nom ou clé)</label>
+          <input class="in" id="es-q" placeholder="ex. cartes, paiement, SQ1…" autocomplete="off">
+          <ul class="liste" id="es-res" style="max-height:220px;overflow:auto;margin-top:4px"></ul><p class="lib" id="es-info"></p></div>
+        <div class="champ"><label for="es-pj">Projet Jira retenu</label><input class="in mono" id="es-pj" placeholder="cliquer un résultat ci-dessus"></div>
         <div class="champ"><label for="es-nom">Nom</label><input class="in" id="es-nom" placeholder="Squad Cartes"></div>
         <div class="champ"><label for="es-ty">Types de ticket (virgules)</label><input class="in" id="es-ty" value="Story"></div>
         <div class="champ"><label for="es-po">Portée (le backlog du sprint est le périmètre de test)</label><select class="in" id="es-po">${Object.entries(cfg.portees).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
@@ -206,6 +209,36 @@
         <div class="champ"><label for="es-jql">Complément JQL (optionnel)</label><input class="in" id="es-jql" placeholder="sprint in openSprints()"></div></div>`,
       `<button class="btn primaire" id="es-ok">Enregistrer l'espace</button>`);
     const liste = v => v.split(",").map(x => x.trim()).filter(Boolean);
+    let minuteur = null, derniere = "";
+    const chercher = async q => {
+      derniere = q;
+      try {
+        const l = await api("/api/testabilite/jira/projets?q=" + encodeURIComponent(q));
+        if (q !== derniere) return;  // réponse d'une saisie plus ancienne
+        $("#es-res", m.el).innerHTML = l.map(p => `<li class="cliquable" data-pj="${esc(p.cle)}" data-nom="${esc(p.nom)}"><span class="cle-xray">${esc(p.cle)}</span>
+          <span class="item">${esc(p.nom)}</span><span class="lib">${esc(p.type)}</span>${p.suivi ? '<span class="pill ok">déjà suivi</span>' : ""}</li>`).join("")
+          || "<li class='lib'>Aucun projet visible avec ce compte Jira pour cette recherche.</li>";
+        $$("[data-pj]", m.el).forEach(li => li.onclick = () => choisir(li.dataset.pj, li.dataset.nom));
+      } catch (e) { $("#es-res", m.el).innerHTML = `<li class="ko-t">${esc(e.message)}</li>`; }
+    };
+    const choisir = async (cle, nom) => {
+      $("#es-pj", m.el).value = cle;
+      if (!$("#es-nom", m.el).value) $("#es-nom", m.el).value = nom;
+      $("#es-res", m.el).innerHTML = "";
+      $("#es-q", m.el).value = `${cle} — ${nom}`;
+      $("#es-info", m.el).textContent = "Lecture du projet…";
+      try {
+        const d = await api("/api/testabilite/jira/projet?cle=" + encodeURIComponent(cle));
+        const stories = d.types.filter(t => /stor|récit|recit/i.test(t));
+        if (d.types.length) $("#es-ty", m.el).value = (stories.length ? stories : ["Story"]).join(", ");
+        const scrum = d.tableaux.filter(t => (t.type || "scrum") === "scrum");
+        $("#es-info", m.el).innerHTML = `Types : ${esc(d.types.join(", ") || "—")}. ${scrum.length ? `Tableau Scrum : ${esc(scrum.map(t => t.nom).join(", "))}` : "<b>Aucun tableau Scrum</b> : choisir la portée « statuts »"}${d.sprint_actif ? ` · sprint en cours : <b>${esc(d.sprint_actif.nom)}</b>` : ""}.`
+          + (d.statuts.length ? ` Statuts : ${esc(d.statuts.join(", "))}.` : "") + (d.erreurs.length ? ` <span class="warn-t">${esc(d.erreurs.join(" ; "))}</span>` : "");
+        if (!scrum.length) $("#es-po", m.el).value = "statuts";
+      } catch (e) { $("#es-info", m.el).textContent = e.message; }
+    };
+    $("#es-q", m.el).oninput = e => { clearTimeout(minuteur); const q = e.target.value.trim(); if (q.length >= 2) minuteur = setTimeout(() => chercher(q), 300); };
+    $("#es-q", m.el).focus();
     $("#es-ok", m.el).onclick = async () => {
       try { await api("/api/testabilite/espaces", {method: "POST", body: {projet_jira: $("#es-pj", m.el).value, nom: $("#es-nom", m.el).value, types_issue: liste($("#es-ty", m.el).value),
           statuts: liste($("#es-st", m.el).value), portee: $("#es-po", m.el).value, projet_xray: $("#es-x", m.el).value, type_test: $("#es-tt", m.el).value, min_tests: +$("#es-min", m.el).value, jql_complement: $("#es-jql", m.el).value, actif: true}});

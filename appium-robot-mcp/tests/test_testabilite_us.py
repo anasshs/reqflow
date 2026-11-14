@@ -181,3 +181,24 @@ def test_sprint_backlog_fige_et_bilan(t):
     t.enregistrer_espace({"projet_jira": "SQ1", "projet_xray": "TAM", "portee": "sprint_et_suivant"})
     assert t.detecter(jira=j)["sprints"] == ["SQ1 · Sprint 12", "SQ1 · Sprint 13"]
     assert t.indicateurs("12")["us"] == 2
+
+
+
+def test_recherche_projets_jira_pour_la_politique(t):
+    class J(FauxJiraAgile):
+        def projets(self, recherche="", limite=30):
+            self.q = recherche
+            return [{"cle": "SQ1", "nom": "Squad Cartes", "type": "software", "geree_par_equipe": False},
+                    {"cle": "SQ2", "nom": "Squad Paiement", "type": "software", "geree_par_equipe": True}]
+
+        def types_issue_projet(self, projet):
+            return ["Epic", "Story", "Bug", "Task"]
+
+        def statuts_projet(self, projet, issue_type=""):
+            return ["To Do", "Ready", "In Progress", "Done"]
+
+    j = J()
+    l = t.chercher_projets_jira(" squad ", jira=j)
+    assert j.q == "squad" and [p["suivi"] for p in l] == [True, False]  # SQ1 déjà suivi par la politique
+    d = t.details_projet_jira("SQ1", jira=j)
+    assert d["types"][1] == "Story" and d["sprint_actif"]["nom"] == "Sprint 12" and "Ready" in d["statuts"]

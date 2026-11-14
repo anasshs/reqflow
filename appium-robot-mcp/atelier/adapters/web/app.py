@@ -1006,6 +1006,20 @@ def testabilite_espaces(sprint: str = ""):
             "portees": testabilite_us.PORTEES}
 
 
+@app.get("/api/testabilite/jira/projets")
+async def testabilite_jira_projets(q: str = ""):
+    from atelier.intelligence import testabilite_us
+
+    return await asyncio.to_thread(_call, testabilite_us.chercher_projets_jira, q)
+
+
+@app.get("/api/testabilite/jira/projet")
+async def testabilite_jira_projet(cle: str):
+    from atelier.intelligence import testabilite_us
+
+    return await asyncio.to_thread(_call, testabilite_us.details_projet_jira, cle)
+
+
 @app.get("/api/testabilite/sprints")
 async def testabilite_sprints():
     from atelier.intelligence import testabilite_us

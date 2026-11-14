@@ -63,6 +63,19 @@ class JiraClient:
         return [{"transition": t["name"], "statut_cible": (t.get("to") or {}).get("name")}
                 for t in data.get("transitions", [])]
 
+    def projets(self, recherche: str = "", limite: int = 30) -> list[dict]:
+        """Projets visibles par le compte, filtrés par nom ou clé (GET /rest/api/3/project/search?query=)."""
+        import urllib.parse
+
+        r = self.get(f"/rest/api/3/project/search?query={urllib.parse.quote(recherche)}&maxResults={limite}&orderBy=name") or {}
+        return [{"cle": p.get("key"), "nom": p.get("name"), "type": p.get("projectTypeKey", ""),
+                 "geree_par_equipe": p.get("style") == "next-gen"} for p in r.get("values") or []]
+
+    def types_issue_projet(self, projet: str) -> list[str]:
+        """Types de ticket du projet (hors sous-tâches), via GET /rest/api/3/project/{clé}."""
+        p = self.get(f"/rest/api/3/project/{projet}") or {}
+        return [t["name"] for t in p.get("issueTypes") or [] if not t.get("subtask")]
+
     def statuts_projet(self, project: str, issue_type: str = "") -> list[str]:
         """Statuts du workflow d'un type de ticket (ex. Test Execution) dans un projet."""
         issue_type = issue_type or os.environ.get("XRAY_EXEC_ISSUE_TYPE", "Test Execution")
