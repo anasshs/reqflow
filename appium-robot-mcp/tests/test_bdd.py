@@ -121,11 +121,12 @@ def test_generation_robot_reutilise_le_socle(depot):
     g = bdd.generer_robot(m)
     assert g["keywords_reutilises"] == ["Saisir Le Montant", "Se Connecter", "Valider Le Virement"]
     assert g["keywords_a_creer"] == ["le récapitulatif s'affiche"]
-    assert "Resource    ../resources/socle/commun.resource" in g["contenu"]
+    assert g["chemin"] == "tests/application/sans_module/virement_entre_comptes.robot"  # tests/{application}/{module}/
+    assert "Resource    ../../../resources/socle/commun.resource" in g["contenu"]  # import relatif depuis le dossier du module
     assert "    Initialiser Le Test    &{JDD_VIREMENT_STANDARD}" in g["contenu"]
     assert "    Given Se Connecter" in g["contenu"] and "[Tags]    DEMO-6" in g["contenu"]
     # la suite générée est valide pour Robot (dry run)
-    (depot / g["chemin"]).parent.mkdir(exist_ok=True)
+    (depot / g["chemin"]).parent.mkdir(parents=True, exist_ok=True)
     (depot / g["chemin"]).write_text(g["contenu"], "utf-8")
     import server
 

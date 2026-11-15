@@ -169,7 +169,9 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
             etapes.append(bdd._etape("Quand", texte, ecran=_ref(de), locator=loc))
             etapes.append(bdd._etape("Alors", f"l'écran {_lisible(vers)} est affiché", ecran=_ref(vers)))
     tags = ["discovery"] + (["action_sensible"] if sensible else [])
-    m = {"langue": "fr", "feature": titre, "description": [f"Brouillon généré depuis la Discovery ({source}) : à relire et valider."],
+    from atelier.generation import rangement
+
+    m = {"langue": "fr", "feature": titre, "module": rangement.module_des_ecrans([e["id"] for e in seq]), "description": [f"Brouillon généré depuis la Discovery ({source}) : à relire et valider."],
          "contexte": [], "tags": [], "source": f"discovery ({source})", "titre": titre, "jdd": "", "statut": "brouillon",
          "scenarios": [{"id": bdd._id(), "nom": titre, "type": "principal", "tags": tags, "depuis": "", "etapes": etapes}]}
     base = bdd._slug(cle or f"parcours_{titre}")
@@ -178,5 +180,6 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
         cle, n = f"{base}_{n}", n + 1
     m["cle"] = cle
     m = bdd.sauver(m, auteur="discovery")
-    return {"cle": cle, "titre": titre, "gherkin": bdd.serialiser(m), "etapes": len(etapes), "ecrans": [_ref(e) for e in seq],
+    return {"cle": cle, "titre": titre, "module": m.get("module", ""), "chemin_robot": rangement.chemin_robot(m),
+            "dossier_xray": rangement.dossier_xray(m), "gherkin": bdd.serialiser(m), "etapes": len(etapes), "ecrans": [_ref(e) for e in seq],
             "locators": locators, "donnees": donnees, "avertissements": avertissements, "controles": bdd.controles(m)}

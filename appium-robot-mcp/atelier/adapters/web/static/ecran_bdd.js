@@ -420,8 +420,18 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
         <div><div class="lib">Statut</div>${p.statut ? `<span class="pill contour-ok">${esc(p.statut).toUpperCase()}</span>` : "—"}</div></div>
       <div class="lib">Priorité</div><div style="margin-bottom:8px">${p.criticite ? `<span style="color:var(--orange)">${ico("haut")}</span> ${esc(p.criticite)}` : "—"}</div>
       ${precond.length ? `<div class="lib">Préconditions</div><ul style="margin:2px 0 8px;padding-left:16px">${precond.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+      <div class="lib">Module</div><button class="boite" id="t-mod" style="cursor:pointer;margin:3px 0 4px;color:var(--ink)">${esc(m.module || "Choisir le module")}</button>
+      ${S.vue.rangement?.robot ? `<div class="lib" style="font-size:11px;margin-bottom:8px">Dépôt : <span class="mono">${esc(S.vue.rangement.robot)}</span><br>Xray : <span class="mono">${esc(S.vue.rangement.xray)}</span></div>` : ""}
       <div class="lib">Jeu de données</div><button class="boite" id="t-jdd" style="cursor:pointer;margin:3px 0 8px;color:var(--ink)">${ico("donnee")}${esc(m.jdd || "Associer un jeu de données")}</button>
       <div class="lib">Tags</div><div class="btns" style="margin-top:3px">${[...(m.tags || []), ...(p.libelles || [])].map(t => `<span class="pill">${esc(t)}</span>`).join("") || '<span class="lib">—</span>'}</div>`;
     $("#t-jdd").onclick = () => lier("jdd");
+    $("#t-mod").onclick = async () => {
+      const r = await api("/api/conception/rangement").catch(() => ({modules: []}));
+      const mm = modale("Module du scénario", `<div class="champ"><label for="mo">Module (range le test dans le dépôt et dans Xray)</label>
+        <input class="in" id="mo" list="mo-liste" value="${esc(m.module || "")}" placeholder="Virements"><datalist id="mo-liste">${r.modules.map(x => `<option>${esc(x)}</option>`).join("")}</datalist></div>
+        <p class="lib">Règles : dépôt <span class="mono">${esc(r.robot || "")}</span> · Xray <span class="mono">${esc(r.xray || "")}</span> (Test Design › Paramètres).</p>`,
+        `<button class="btn primaire" id="mo-ok">Enregistrer</button>`);
+      $("#mo-ok", mm.el).onclick = () => { mm.fermer(); operation({op: "module", module: $("#mo", mm.el).value}, "Module enregistré."); };
+    };
   }
 })();

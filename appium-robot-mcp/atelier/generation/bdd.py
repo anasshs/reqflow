@@ -436,7 +436,9 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
             resources.add(kws["initialiserletest"]["fichier"])
         else:
             a_creer.insert(0, "Initialiser Le Test")
-    cible = f"tests/{projet.slug(m.get('titre') or m['cle'], 60)}.robot"
+    from atelier.generation import rangement
+
+    cible = rangement.chemin_robot(m)  # tests/{application}/{module}/{scenario}.robot (réglable)
     imports = [f"Resource    {os.path.relpath(projet.PROJECT_DIR / r, (projet.PROJECT_DIR / cible).parent)}"
                for r in sorted(resources) if r.endswith(".resource")]
     texte = ["*** Settings ***",
@@ -450,6 +452,13 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
                       f"    Fail    Keyword à implémenter : {k}", ""]
     return {"chemin": cible, "contenu": "\n".join(texte).rstrip() + "\n", "keywords_reutilises": sorted(set(reutilises)),
             "keywords_a_creer": a_creer}
+
+
+def associer_module(cle: str, module: str) -> dict:
+    """Module du scénario : range le test Robot (tests/{application}/{module}/) et le test Xray (dossier du module)."""
+    m = _exiger(cle)
+    m["module"] = module.strip()
+    return sauver(m)
 
 
 def associer_jdd(cle: str, jdd: str) -> dict:

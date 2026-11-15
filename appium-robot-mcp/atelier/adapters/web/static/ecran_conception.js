@@ -664,6 +664,16 @@
         <li>Validation humaine de toute proposition IA.</li></ul></section>
       <section class="bloc-strat"><h3>IA et intégrations</h3><dl class="props"><dt>Assistant IA</dt><dd>${Atelier.ctx.agent_integre ? "clé présente" : "désactivé (ANTHROPIC_API_KEY absente)"}</dd>
         <dt>Modèle</dt><dd>variable CLAUDE_MODEL</dd><dt>Langue des scénarios</dt><dd>français</dd><dt>Mapping Xray</dt><dd><a href="#conception/mapping">Xray Mapping & synchronisation</a></dd>
-        <dt>Workflow de revue</dt><dd>${Object.values(LIB_REVUE).map(esc).join(" → ")}</dd></dl></section></div></div>`;
+        <dt>Workflow de revue</dt><dd>${Object.values(LIB_REVUE).map(esc).join(" → ")}</dd></dl></section>
+      <section class="bloc-strat" style="grid-column:1/-1"><h3>Rangement des tests générés</h3>
+        <div class="grille-2"><div class="champ"><label for="rg-robot">Dépôt Robot (chemin du fichier)</label><input class="in mono" id="rg-robot"></div>
+          <div class="champ"><label for="rg-xray">Dossier du Test Repository Xray</label><input class="in mono" id="rg-xray"></div></div>
+        <p class="lib">Variables : {application}, {module}, {scenario}, {dossier_application} (dossier de l'application dans Xray Mapping). Le module se choisit sur chaque scénario
+          (déduit des écrans pour un brouillon issu de la Discovery). Le chemin est proposé à l'écriture et reste modifiable ; jamais d'écrasement implicite.</p>
+        <div class="btns"><button class="btn primaire" id="rg-ok">${ico("disque")}Enregistrer</button><button class="btn" id="rg-def">Valeurs par défaut</button></div></section></div></div>`;
+    api("/api/conception/rangement").then(r => { $("#rg-robot").value = r.robot; $("#rg-xray").value = r.xray;
+      $("#rg-def").onclick = () => { $("#rg-robot").value = r.defaut.robot; $("#rg-xray").value = r.defaut.xray; }; }).catch(() => {});
+    $("#rg-ok").onclick = async () => { try { await api("/api/conception/rangement", {method: "POST", body: {robot: $("#rg-robot").value, xray: $("#rg-xray").value}}); toast("Règles de rangement enregistrées.", "ok"); }
+      catch (e) { toast(e.message, "ko"); } };
   }
 })();

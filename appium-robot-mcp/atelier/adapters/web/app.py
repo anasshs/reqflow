@@ -1594,7 +1594,33 @@ def bdd_liste():
 
 
 def _vue_bdd(m: dict) -> dict:
-    return {"scenario": m, "gherkin": bdd.serialiser(m), "controles": bdd.controles(m), "statistiques": bdd.statistiques(m)}
+    from atelier.generation import rangement
+
+    try:
+        rang = {"robot": rangement.chemin_robot(m), "xray": rangement.dossier_xray(m) or "/ (racine)"}
+    except Exception as e:  # noqa: BLE001
+        rang = {"erreur": str(e)[:200]}
+    return {"scenario": m, "gherkin": bdd.serialiser(m), "controles": bdd.controles(m), "statistiques": bdd.statistiques(m), "rangement": rang}
+
+
+@app.get("/api/conception/rangement")
+def conception_rangement():
+    from atelier.discovery import connaissance
+    from atelier.generation import rangement
+
+    try:
+        modules = sorted({n.libelle for n in connaissance.construire().noeuds.values() if n.type == "module"})
+    except Exception:  # noqa: BLE001
+        modules = []
+    return {**rangement.regles(), "defaut": rangement.DEFAUT, "variables": rangement.VARIABLES, "modules": modules}
+
+
+@app.post("/api/conception/rangement")
+async def conception_rangement_maj(req: Request):
+    from atelier.generation import rangement
+
+    b = await req.json()
+    return _call(rangement.maj, b.get("robot"), b.get("xray"))
 
 
 @app.get("/api/bdd/{cle}")
@@ -1630,6 +1656,7 @@ async def bdd_operation(cle: str, req: Request):
            "supprimer_scenario": lambda: bdd.supprimer_scenario(cle, b["scenario"]),
            "texte": lambda: bdd.depuis_texte(cle, b["gherkin"]),
            "jdd": lambda: bdd.associer_jdd(cle, b.get("jdd", "")),
+           "module": lambda: bdd.associer_module(cle, b.get("module", "")),
            "valider": lambda: bdd.valider(cle)}
     if op not in ops:
         raise HTTPException(400, f"Opération inconnue : {op}")

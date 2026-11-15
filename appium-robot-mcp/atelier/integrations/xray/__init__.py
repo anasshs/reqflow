@@ -333,6 +333,30 @@ class XrayClient:
         t = r["createTest"]["test"]
         return {"cle": t["jira"]["key"], "issueId": t["issueId"], "avertissements": r["createTest"].get("warnings") or []}
 
+    def ranger_test(self, projet: str, issue_id: str, chemin: str) -> dict:
+        """Range un test dans un dossier du Test Repository, créé au besoin (parents compris). Mutations et arguments
+        vérifiés par introspection (createFolder, addTestsToFolder) : absents du schéma = erreur explicite."""
+        mut = self._type_champs("Mutation")
+        add = mut.get("addTestsToFolder")
+        if not add or not {"projectId", "path", "testIssueIds"} <= set(add["args"]):
+            raise RuntimeError("Le schéma Xray n'expose pas addTestsToFolder(projectId, path, testIssueIds) : test laissé à la racine.")
+        pid = self.id_projet(projet)
+        crees = []
+        cf = mut.get("createFolder")
+        if cf and {"projectId", "path"} <= set(cf["args"]):
+            parties = [p for p in chemin.split("/") if p]
+            for i in range(1, len(parties) + 1):
+                sous = "/" + "/".join(parties[:i])
+                try:
+                    self.gql("mutation($p: String!, $c: String!) { createFolder(projectId: $p, path: $c) { folder { path } warnings } }",
+                             {"p": pid, "c": sous})
+                    crees.append(sous)
+                except Exception:  # noqa: BLE001 - dossier déjà présent : rien à créer
+                    pass
+        self.gql("mutation($p: String!, $c: String!, $t: [String]!) { addTestsToFolder(projectId: $p, path: $c, testIssueIds: $t) { folder { path } warnings } }",
+                 {"p": pid, "c": chemin, "t": [issue_id]})
+        return {"dossier": chemin, "dossiers_crees": crees}
+
     def creer_test_manuel(self, projet: str, resume: str, etapes: list[dict]) -> dict:
         """Crée un Test Xray de type Manual avec ses étapes (createTest, argument steps : vérifié par xray-verifier)."""
         q = ('mutation($tt: UpdateTestTypeInput, $s: [CreateStepInput], $j: JSON!) { createTest(testType: $tt, steps: $s, jira: $j) '

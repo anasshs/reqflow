@@ -457,6 +457,16 @@ def _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision) -> dic
         cible = r["cle"]
         sync[cle] = {"xray": cible, "issueId": r["issueId"], "empreinte": _empreinte(local), "date": _maintenant()}
         resultat, statut, mode = f"test Cucumber créé ({cible})", "Succès", "C (publication)"
+        from atelier.generation import rangement
+
+        dossier = rangement.dossier_xray(m)
+        if dossier:  # rangement application / module : un échec laisse le test à la racine, signalé
+            try:
+                xray.ranger_test(projet_xray, r["issueId"], dossier)
+                resultat += f" dans {dossier}"
+                sync[cle]["dossier"] = dossier
+            except Exception as e:  # noqa: BLE001
+                resultat += f" ; rangement dans {dossier} impossible ({str(e)[:160]}) : à ranger dans Xray"
     from atelier.intelligence.strategie import _ecrire_atomique as _ea
 
     _ea(_dossier() / "sync_xray.json", json.dumps(sync, ensure_ascii=False, indent=1))
