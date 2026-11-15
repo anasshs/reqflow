@@ -306,7 +306,7 @@
       ${u.politique.type_test === "Cucumber" ? `<textarea class="in mono" rows="4" data-g="${c.id}" ${c.statut === "Publié" ? "disabled" : ""}>${esc(c.gherkin)}</textarea>`
         : `<table><tr><th>Action</th><th>Données</th><th>Résultat attendu</th></tr>${c.etapes.map((e, i) => `<tr>${["action", "donnees", "resultat"].map(k => `<td><input class="in" data-e="${c.id}" data-i="${i}" data-k="${k}" value="${esc(e[k])}" ${c.statut === "Publié" ? "disabled" : ""}></td>`).join("")}</tr>`).join("")}</table>`}
       ${c.notes ? `<p class="lib">${esc(c.notes)}</p>` : ""}${c.avertissement ? `<p class="warn-t">${esc(c.avertissement)}</p>` : ""}
-      ${c.statut === "Publié" || c.statut === "Rejeté" ? "" : `<div class="btns"><button class="btn petit" data-cas-ok="${c.id}">Enregistrer</button><button class="btn petit succes" data-cas-v="${c.id}">Valider</button><button class="btn petit danger" data-cas-r="${c.id}">Rejeter</button></div>`}</div>`;
+      ${c.statut === "Publié" || c.statut === "Rejeté" ? `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button></div>` : `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button><button class="btn petit" data-cas-ok="${c.id}">Enregistrer</button><button class="btn petit succes" data-cas-v="${c.id}">Valider</button><button class="btn petit danger" data-cas-r="${c.id}">Rejeter</button></div>`}</div>`;
     p.innerHTML = `${entete(cle, `<button class="icone" id="pu-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
       <p><b>${esc(u.resume)}</b></p><p><span class="pill ${ST_US[u.statut] || ""}">${esc(u.statut)}</span> <span class="lib">${esc(u.espace)} · Jira : ${esc(u.statut_jira)}${u.assigne ? " · " + esc(u.assigne) : ""}</span></p>
       ${(u.alertes || []).map(a => `<p class="warn-t">${esc(a.message)}</p>`).join("")}
@@ -322,7 +322,8 @@
       <div class="btns"><button class="btn" id="pu-qs">Enregistrer le brouillon</button><button class="btn primaire" id="pu-qe">Envoyer en commentaire Jira</button></div>
       ${(q.envois || []).map(e => `<p class="lib">Envoyé le ${esc(e.date.replace("T", " ").slice(0, 16))} par ${esc(e.auteur)}</p>`).join("")}
       ${(q.reponses || []).length ? `<h3 class="lib">RÉPONSES</h3><ul class="liste">${q.reponses.map(r => `<li><b>${esc(r.auteur)}</b><span class="item">${esc(r.texte)}</span><span class="lib">${esc(String(r.date).slice(0, 16).replace("T", " "))}</span></li>`).join("")}</ul>` : ""}
-      <h3 class="lib" style="margin-top:12px">CAS DE TEST (${(u.cas || []).length}) · ${esc(u.politique.type_test || "")} dans ${esc(u.politique.projet_xray || "")}</h3>
+      <h3 class="lib" style="margin-top:12px">CAS DE TEST (${(u.cas || []).length}) · ${esc(u.politique.type_test || "")} dans ${esc(u.politique.projet_xray || "")}
+        ${(u.cas || []).length ? `<button class="btn petit" id="pu-vue" style="float:right">Visualiser les cas</button>` : ""}</h3>
       ${(u.cas || []).map(casHtml).join("") || "<p class='lib'>Aucun cas : « Proposer des cas » (règles) ou analyse IA / Cursor.</p>"}
       ${(u.cas || []).some(c => c.statut === "Validé") ? `<div class="btns" style="margin-top:8px"><button class="btn primaire" id="pu-pub">${ico("xray")}Publier les cas validés dans Xray et lier à l'US</button></div>` : ""}
       <h3 class="lib" style="margin-top:12px">HISTORIQUE</h3><ul class="liste">${(u.historique || []).slice().reverse().map(h => `<li class="lib">${esc(h.date.replace("T", " ").slice(0, 16))} · ${esc(h.auteur)} · ${esc(h.de || "—")} → ${esc(h.vers)} ${esc(h.detail || "")}</li>`).join("")}</ul></div>`;
@@ -338,6 +339,8 @@
       try { await act("questions", {texte: $("#pu-q").value}); await ok(act("envoyer"), "Questions publiées dans Jira."); } catch (e) { toast(e.message, "ko"); }
     };
     $$("[data-cas-ok]", p).forEach(b => b.onclick = () => ok(act("cas", lireCas(b.dataset.casOk, p)), "Cas enregistré."));
+    $$("[data-cas-vue]", p).forEach(b => b.onclick = () => visualiserCas(cle, u, b.dataset.casVue, z));
+    if ($("#pu-vue")) $("#pu-vue").onclick = () => visualiserCas(cle, u, "", z);
     $$("[data-cas-v]", p).forEach(b => b.onclick = async () => { try { await act("cas", lireCas(b.dataset.casV, p)); await ok(act("decision", {id: b.dataset.casV, decision: "valider"}), "Cas validé."); } catch (e) { toast(e.message, "ko"); } });
     $$("[data-cas-r]", p).forEach(b => b.onclick = () => { const mo = prompt("Motif du rejet :"); if (mo) ok(act("decision", {id: b.dataset.casR, decision: "rejeter", motif: mo}), "Cas rejeté."); });
     if ($("#pu-pub")) $("#pu-pub").onclick = async () => {
@@ -345,6 +348,39 @@
       try { const r = await act("publier"); toast(`${r.publies.length} test(s) créé(s)${r.erreurs.length ? `, ${r.erreurs.length} erreur(s) : ${r.erreurs[0].erreur}` : ""}.`, r.erreurs.length ? "ko" : "ok"); panneauUS(cle, z); }
       catch (e) { toast(e.message, "ko"); }
     };
+  }
+
+  /* visualisation des cas proposés : les deux formats (BDD et étapes manuelles) côte à côte, vérification de chacun,
+     format qui sera publié (type de test de l'espace), conversion d'un format vers l'autre */
+  function gherkinHtml(g) {
+    const MOT = /^(\s*)(Given|When|Then|And|But|Étant donnée?s?|Etant donne|Soit|Quand|Lorsque|Alors|Et|Mais)\b(.*)$/i;
+    return (g || "").split("\n").map(l => { const m = l.match(MOT); return m ? `${esc(m[1])}<b style="color:var(--accent-ink)">${esc(m[2])}</b>${esc(m[3])}` : esc(l); }).join("\n");
+  }
+
+  function visualiserCas(cle, u, seul, z) {
+    const liste = (u.cas || []).filter(c => !seul || c.id === seul);
+    const pub = u.politique.type_test === "Cucumber" ? "bdd" : "manuel";
+    const verif = (pbs, actif) => pbs.length ? `<ul class="liste">${pbs.map(x => `<li class="${actif ? "ko-t" : "lib"}">${esc(x)}</li>`).join("")}</ul>` : '<p class="ok-t">Prêt à publier dans ce format.</p>';
+    const bloc = c => `<section class="bloc-strat" style="margin-bottom:12px"><div class="btns"><b class="item">${esc(c.titre)}</b><span class="pill ${c.statut === "Validé" ? "ok" : c.statut === "Publié" ? "violet" : c.statut === "Rejeté" ? "ko" : "info"}">${esc(c.statut)}</span>
+        ${c.cle_xray ? `<span class="cle-xray">${esc(c.cle_xray)}</span>` : ""}<span class="lib">${esc(c.source)}</span></div>
+      <div class="grille-2" style="align-items:start">
+        <div><h4 class="lib">BDD (CUCUMBER) ${pub === "bdd" ? '<span class="pill ok">publié dans ce format</span>' : ""}</h4>
+          <pre class="code-bloc" style="white-space:pre-wrap;min-height:60px">${gherkinHtml(c.gherkin) || '<span class="lib">(vide)</span>'}</pre>${verif(c.verification.bdd, pub === "bdd")}
+          ${c.statut === "Publié" || c.statut === "Rejeté" ? "" : `<button class="btn petit" data-conv="${c.id}" data-vers="gherkin">Générer le Gherkin depuis les étapes</button>`}</div>
+        <div><h4 class="lib">ÉTAPES MANUELLES ${pub === "manuel" ? '<span class="pill ok">publié dans ce format</span>' : ""}</h4>
+          ${c.etapes.length ? `<table class="table-strat"><tr><th>#</th><th>Action</th><th>Données</th><th>Résultat attendu</th></tr>${c.etapes.map((e, i) => `<tr><td>${i + 1}</td><td>${esc(e.action)}</td><td class="lib">${esc(e.donnees || "—")}</td><td>${esc(e.resultat || "—")}</td></tr>`).join("")}</table>` : '<p class="lib">(aucune étape)</p>'}
+          ${verif(c.verification.manuel, pub === "manuel")}
+          ${c.statut === "Publié" || c.statut === "Rejeté" ? "" : `<button class="btn petit" data-conv="${c.id}" data-vers="etapes">Générer les étapes depuis le Gherkin</button>`}</div></div>
+      ${c.notes ? `<p class="lib">${esc(c.notes)}</p>` : ""}</section>`;
+    const m = modale(`Cas proposés · ${cle}`, `<p class="lib">Type de test de l'espace ${esc(u.espace)} : <b>${esc(u.politique.type_test || "Manual")}</b> (Test Design › US à couvrir › Politique). La vérification bloquante est celle du format publié ; l'autre format est indicatif.</p>
+      ${liste.map(bloc).join("") || "<p class='lib'>Aucun cas.</p>"}`);
+    $$("[data-conv]", m.el).forEach(b => b.onclick = async () => {
+      const cible = b.dataset.vers === "gherkin" ? "le Gherkin" : "les étapes";
+      if (!confirm(`Remplacer ${cible} de ce cas par la conversion de l'autre format ?`)) return;
+      try { const d = await api(`/api/testabilite/us/${encodeURIComponent(cle)}/convertir`, {method: "POST", body: {id: b.dataset.conv, vers: b.dataset.vers}});
+        m.fermer(); toast("Conversion faite (à relire).", "ok"); visualiserCas(cle, d, seul, z); panneauUS(cle, z); }
+      catch (e) { toast(e.message, "ko"); }
+    });
   }
 
   function lireCas(id, p) {

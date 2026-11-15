@@ -400,7 +400,109 @@ def bilan_sprint(espace: str, sprint: str) -> dict:
 def detail(cle: str) -> dict:
     _, u = _exiger(cle)
     e = next((x for x in espaces() if x["projet_jira"] == u["espace"]), {})
-    return {**u, "politique": e, "journal": journal(cle, 50)}
+    cas = [{**c, "verification": {"manuel": verifier_cas(c, "Manual"), "bdd": verifier_cas(c, "Cucumber")},
+            "format_publication": e.get("type_test") or "Manual"} for c in u.get("cas") or []]
+    return {**u, "cas": cas, "politique": e, "journal": journal(cle, 50)}
+
+
+# =========================================================================== deux formats d'un cas : BDD et étapes manuelles
+_MOTS = {"given": "given", "étant donné": "given", "etant donne": "given", "soit": "given", "when": "when", "quand": "when",
+         "lorsque": "when", "then": "then", "alors": "then", "and": "and", "et": "and", "but": "and", "mais": "and"}
+_RE_LIGNE = re.compile(r"^\s*(" + "|".join(sorted(map(re.escape, _MOTS), key=len, reverse=True)) + r")\b\s*(.*)$", re.I)
+_A_PRECISER = re.compile(r"\.\.\.|à préciser|a preciser|\(à compléter|à compléter", re.I)
+
+
+def lignes_gherkin(g: str) -> list[tuple[str, str]]:
+    """[(type effectif given|when|then, texte)] ; « Et / Mais » prennent le type de la ligne précédente."""
+    out, courant = [], "given"
+    for brut in (g or "").splitlines():
+        m = _RE_LIGNE.match(brut)
+        if not m:
+            continue
+        t = _MOTS[m.group(1).lower()]
+        courant = courant if t == "and" else t
+        out.append((courant, m.group(2).strip()))
+    return out
+
+
+def gherkin_vers_etapes(g: str) -> list[dict]:
+    """Given → prérequis ; When → action ; Then → résultat attendu de l'action précédente."""
+    etapes = []
+    for t, texte in lignes_gherkin(g):
+        if t == "given":
+            etapes.append({"action": f"Prérequis : {texte}", "donnees": "", "resultat": ""})
+        elif t == "when":
+            etapes.append({"action": texte, "donnees": "", "resultat": ""})
+        else:
+            if etapes and not etapes[-1]["action"].startswith("Prérequis"):
+                etapes[-1]["resultat"] = (etapes[-1]["resultat"] + " ; " if etapes[-1]["resultat"] else "") + texte
+            else:
+                etapes.append({"action": "Vérifier", "donnees": "", "resultat": texte})
+    return etapes
+
+
+def etapes_vers_gherkin(etapes: list[dict]) -> str:
+    lignes, precedent = [], ""
+    for e in etapes or []:
+        action, res = (e.get("action") or "").strip(), (e.get("resultat") or "").strip()
+        if action.lower().startswith("prérequis"):
+            lignes.append(("And" if precedent == "given" else "Given") + " " + action.split(":", 1)[-1].strip())
+            precedent = "given"
+            continue
+        if action:
+            if e.get("donnees"):
+                action += " avec les données du jeu"
+            lignes.append(("And" if precedent == "when" else "When") + " " + action)
+            precedent = "when"
+        if res:
+            lignes.append(("And" if precedent == "then" else "Then") + " " + res)
+            precedent = "then"
+    if lignes and not lignes[0].startswith("Given"):
+        lignes.insert(0, "Given le contexte de l'US est en place")
+    return "\n".join(lignes)
+
+
+def verifier_cas(c: dict, type_test: str) -> list[str]:
+    """Problèmes qui empêchent de publier le cas dans ce format (vide = prêt)."""
+    if type_test == "Cucumber":
+        g = (c.get("gherkin") or "").strip()
+        if not g:
+            return ["Gherkin vide."]
+        types = [t for t, _ in lignes_gherkin(g)]
+        pb = [f"Aucune étape « {lib} »." for t, lib in (("given", "Étant donné / Given"), ("when", "Quand / When"), ("then", "Alors / Then")) if t not in types]
+        if _A_PRECISER.search(g):
+            pb.append("Gherkin encore générique (« ... » ou « à préciser »).")
+        return pb
+    etapes = c.get("etapes") or []
+    if not etapes:
+        return ["Aucune étape."]
+    pb = []
+    for i, e in enumerate(etapes, 1):
+        if not (e.get("action") or "").strip():
+            pb.append(f"Étape {i} : action vide.")
+        prerequis = (e.get("action") or "").lower().startswith("prérequis")
+        if not prerequis and (not (e.get("resultat") or "").strip() or _A_PRECISER.search(e.get("resultat") or "")):
+            pb.append(f"Étape {i} : résultat attendu à préciser.")
+        if _A_PRECISER.search(e.get("action") or ""):
+            pb.append(f"Étape {i} : action à compléter.")
+    return pb
+
+
+def convertir_cas(cle: str, cid: str, vers: str) -> dict:
+    """Génère un format depuis l'autre : vers « etapes » (depuis le Gherkin) ou « gherkin » (depuis les étapes)."""
+    _, u = _exiger(cle)
+    c = next((x for x in u.get("cas") or [] if x["id"] == cid), None)
+    if not c:
+        raise KeyError(f"Cas inconnu : {cid}")
+    if vers == "etapes":
+        if not lignes_gherkin(c.get("gherkin")):
+            raise ValueError("Gherkin vide : rien à convertir.")
+        return modifier_cas(cle, cid, {"etapes": gherkin_vers_etapes(c["gherkin"])})
+    if vers == "gherkin":
+        if not c.get("etapes"):
+            raise ValueError("Aucune étape : rien à convertir.")
+        return modifier_cas(cle, cid, {"gherkin": etapes_vers_gherkin(c["etapes"])})
+    raise ValueError("Conversion : etapes ou gherkin.")
 
 
 def indicateurs(sprint: str = "") -> dict:
@@ -677,10 +779,11 @@ def decider_cas(cle: str, cid: str, decision: str, motif: str = "") -> dict:
         raise PermissionError("Cas déjà publié.")
     if decision == "rejeter" and not motif.strip():
         raise ValueError("Un rejet doit être motivé.")
-    if decision == "valider":
-        vide = [e for e in c["etapes"] if not e["action"].strip() or e["resultat"].strip() in ("", "à préciser")]
-        if c["etapes"] and vide:
-            raise ValueError("Chaque étape doit avoir une action et un résultat attendu précis avant validation.")
+    if decision == "valider":  # vérifié dans le format qui sera publié (type de test de l'espace)
+        e = next((x for x in espaces() if x["projet_jira"] == u["espace"]), {})
+        pb = verifier_cas(c, e.get("type_test") or "Manual")
+        if pb:
+            raise ValueError(f"Cas non prêt ({'BDD' if e.get('type_test') == 'Cucumber' else 'étapes manuelles'}) : " + " ".join(pb))
     c["statut"], c["decision"] = ("Validé" if decision == "valider" else "Rejeté"), {"par": _auteur(), "date": _maintenant(), "motif": motif.strip()}
     _sauver_us(d)
     _journaliser("cas_" + decision, cle=cle, cas=cid, motif=motif.strip())

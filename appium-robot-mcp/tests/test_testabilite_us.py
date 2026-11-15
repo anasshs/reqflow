@@ -247,3 +247,43 @@ def test_portees_prochain_sprint_et_backlog(t):
     assert "statusCategory != Done" in b.jql and "sprint" not in b.jql
     t.detecter(jira=b, portee="hors_sprint")
     assert "sprint is EMPTY" in b.jql
+
+
+def test_deux_formats_bdd_et_etapes_manuelles(t):
+    j = FauxJira()
+    t.detecter(jira=j)
+    d = t.proposer_cas("SQ1-10")
+    c = d["cas"][0]
+    # les deux formats sont vérifiés et visibles ; le format publié dépend du type de test de l'espace
+    assert c["format_publication"] == "Manual" and c["verification"]["manuel"] and c["verification"]["bdd"]
+    # conversion Gherkin -> étapes, puis étapes -> Gherkin
+    t.modifier_cas("SQ1-10", c["id"], {"gherkin": "Étant donné un client sans carte\nQuand le conseiller crée une carte\nAlors la carte est créée\nEt elle est inactive"})
+    d = t.convertir_cas("SQ1-10", c["id"], "etapes")
+    e = next(x for x in d["cas"] if x["id"] == c["id"])
+    assert e["etapes"] == [{"action": "Prérequis : un client sans carte", "donnees": "", "resultat": ""},
+                           {"action": "le conseiller crée une carte", "donnees": "", "resultat": "la carte est créée ; elle est inactive"}]
+    assert e["verification"]["manuel"] == [] and e["verification"]["bdd"] == []
+    d = t.convertir_cas("SQ1-10", c["id"], "gherkin")
+    g = next(x for x in d["cas"] if x["id"] == c["id"])["gherkin"]
+    assert g.splitlines() == ["Given un client sans carte", "When le conseiller crée une carte", "Then la carte est créée ; elle est inactive"]
+    # espace Cucumber : la validation vérifie le Gherkin (et plus les étapes manuelles cachées)
+    t.enregistrer_espace({"projet_jira": "sq1", "nom": "Squad Cartes", "statuts": ["Ready"], "projet_xray": "TAM", "portee": "statuts", "type_test": "Cucumber"})
+    err = next(x for x in t.detail("SQ1-10")["cas"] if "cas d'erreur" in x["titre"])
+    t.modifier_cas("SQ1-10", err["id"], {"gherkin": "Given ...\nWhen ...\nThen ..."})
+    with pytest.raises(ValueError, match="générique"):
+        t.decider_cas("SQ1-10", err["id"], "valider")
+    t.modifier_cas("SQ1-10", err["id"], {"gherkin": "Given un client avec 3 cartes\nWhen le conseiller crée une carte\nThen la création est refusée",
+                                         "etapes": [{"action": "à compléter", "donnees": "", "resultat": "à préciser"}]})
+    t.decider_cas("SQ1-10", err["id"], "valider")  # étapes manuelles incomplètes : sans effet en Cucumber
+
+    class XrayCucumber:
+        def __init__(self):
+            self.crees = []
+
+        def creer_test_cucumber(self, projet, resume, gherkin):
+            self.crees.append(gherkin)
+            return {"cle": "TAM-2001", "issueId": "2"}
+
+    x = XrayCucumber()
+    r = t.publier_cas("SQ1-10", xray=x, jira=j)
+    assert r["publies"] == ["TAM-2001"] and x.crees[0].startswith("Given un client avec 3 cartes")

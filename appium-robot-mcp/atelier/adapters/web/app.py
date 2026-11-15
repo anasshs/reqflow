@@ -1239,7 +1239,8 @@ async def testabilite_action(cle: str, action: str, req: Request):
                "questions": lambda: t.modifier_questions(cle, b.get("texte", "")), "envoyer": lambda: t.envoyer_questions(cle),
                "reponses": lambda: t.relever_reponses(cle), "proposer-cas": lambda: t.proposer_cas(cle),
                "cas": lambda: t.modifier_cas(cle, b.get("id", ""), b), "decision": lambda: t.decider_cas(cle, b.get("id", ""), b.get("decision", ""), b.get("motif", "")),
-               "publier": lambda: t.publier_cas(cle), "non-testable": lambda: t.non_testable(cle, b.get("justification", ""))}
+               "publier": lambda: t.publier_cas(cle), "non-testable": lambda: t.non_testable(cle, b.get("justification", "")),
+               "convertir": lambda: t.convertir_cas(cle, b.get("id", ""), b.get("vers", ""))}
     if action not in actions:
         raise HTTPException(404, f"Action inconnue : {action}")
     return await asyncio.to_thread(_call, actions[action])
