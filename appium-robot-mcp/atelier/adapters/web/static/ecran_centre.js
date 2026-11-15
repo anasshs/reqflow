@@ -204,7 +204,15 @@
         <div class="grille-2"><div class="champ"><label for="ca-pl">Planification</label><select class="in" id="ca-pl">${["aucun", "quotidien", "hebdomadaire", "intervalle"].map(t => `<option ${t === (c.planning?.type || "aucun") ? "selected" : ""}>${t}</option>`).join("")}</select></div>
           <div class="champ"><label for="ca-h">Heure (HH:MM) / minutes</label><div class="btns"><input class="in" id="ca-h" value="${esc(c.planning?.heure || "02:00")}" style="width:90px"><input class="in" id="ca-min" type="number" value="${esc(c.planning?.minutes || 60)}" style="width:90px"></div></div></div>
         <div class="champ"><label>Jours (hebdomadaire)</label><div class="btns">${["lun", "mar", "mer", "jeu", "ven", "sam", "dim"].map((j, n) => `<label><input type="checkbox" data-jour="${n}" ${(c.planning?.jours || []).includes(n) ? "checked" : ""}> ${j}</label>`).join("")}</div></div>
-        <div class="champ"><label for="ca-xray">Ticket Xray (plan / exécution)</label><input class="in" id="ca-xray" value="${esc(c.xray_ticket || "")}"></div>
+        <fieldset class="bloc-strat" style="margin:8px 0"><legend class="lib">XRAY</legend>
+          <div class="champ"><label for="ca-plan">Test Plan de la campagne</label><div class="btns"><select class="in" id="ca-plan" style="flex:1"><option value="">Chargement des Test Plans…</option></select>
+            <button class="btn petit" id="ca-plan-n" type="button">${ico("plus")}Créer un Test Plan</button></div>
+            <small class="lib" id="ca-plan-info">Test Plans de l'application (JQL de Paramètres › Configuration).</small></div>
+          <div class="champ"><label>Test Execution à chaque lancement</label>
+            <label><input type="radio" name="ca-mx" value="nouvelle" ${c.mode_execution !== "reutiliser" ? "checked" : ""}> nouvelle Test Execution, rattachée au Test Plan</label><br>
+            <label><input type="radio" name="ca-mx" value="reutiliser" ${c.mode_execution === "reutiliser" ? "checked" : ""}> réutiliser la Test Execution</label>
+            <input class="in" id="ca-exe" value="${esc(c.execution_xray || "")}" placeholder="DEMO-123" style="width:140px;display:inline-block"></div>
+          ${c.xray_ticket && !c.plan_xray && !c.execution_xray ? `<p class="lib">Ancien ticket Xray de la campagne : <span class="cle-xray">${esc(c.xray_ticket)}</span> (gardé si aucun plan n'est choisi).</p>` : ""}</fieldset>
         <label class="ligne-champ"><span>Retry des échecs (une relance, historisée)</span><input type="checkbox" class="bascule" id="ca-retry" ${c.retry ? "checked" : ""}></label>
         <div class="champ"><label for="ca-st">Statut</label><select class="in" id="ca-st">${["Active", "Archivée"].map(t => `<option ${t === c.statut ? "selected" : ""}>${t}</option>`).join("")}</select></div>
         <p class="lib">Parallélisation : 1 run à la fois sur le runner local. Webhook CI/CD : POST /api/externe/campagnes/&lt;id&gt;/executer avec l'en-tête X-Atelier-Jeton.</p>
@@ -213,11 +221,24 @@
         const b = {id: c.id, nom: $("#ca-nom", p).value, description: $("#ca-desc", p).value, type: $("#ca-type", p).value, priorite: $("#ca-prio", p).value,
           plateformes: $$("[data-pl]", p).filter(x => x.checked).map(x => x.dataset.pl), environnement: $("#ca-env", p).value, cible: $("#ca-cible", p).value,
           tests: [...$("#ca-tests", p).selectedOptions].map(o => o.value), tags: $("#ca-tags", p).value.split(",").map(x => x.trim()).filter(Boolean),
-          xray_ticket: $("#ca-xray", p).value.trim(), retry: $("#ca-retry", p).checked, statut: $("#ca-st", p).value,
+          plan_xray: $("#ca-plan", p).value, mode_execution: ($$("[name=ca-mx]", p).find(x => x.checked) || {}).value, execution_xray: $("#ca-exe", p).value.trim(),
+          xray_ticket: c.xray_ticket || "", retry: $("#ca-retry", p).checked, statut: $("#ca-st", p).value,
           exclus: $("#ca-excl", p).value.split(",").map(x => x.trim()).filter(Boolean),
           planning: {type: $("#ca-pl", p).value, heure: $("#ca-h", p).value.trim(), minutes: +$("#ca-min", p).value, jours: $$("[data-jour]", p).filter(x => x.checked).map(x => +x.dataset.jour)}};
         try { await api("/api/centre/campagnes", {method: "POST", body: b}); toast("Campagne enregistrée.", "ok"); campagnes(z); } catch (e) { toast(e.message, "ko"); }
       };
+      const remplirPlans = (plans, choisi) => { $("#ca-plan", p).innerHTML = `<option value="">Aucun Test Plan</option>` + [...new Map([...(choisi ? [[choisi, {cle: choisi, resume: ""}]] : []), ...plans.map(x => [x.cle, x])]).values()]
+        .map(x => `<option value="${esc(x.cle)}" ${x.cle === choisi ? "selected" : ""}>${esc(x.cle)} ${esc(x.resume || "")}${x.statut ? ` (${esc(x.statut)})` : ""}</option>`).join(""); };
+      let PLANS = [];
+      api("/api/centre/plans-xray").then(r => { PLANS = r.plans; remplirPlans(PLANS, c.plan_xray); $("#ca-plan-info", p).textContent = `${r.plans.length} Test Plan(s) · ${r.jql}`; })
+        .catch(e => { remplirPlans([], c.plan_xray); $("#ca-plan-info", p).innerHTML = `<span class="warn-t">Test Plans indisponibles : ${esc(e.message)}</span>`; });
+      $("#ca-plan-n", p).onclick = async () => { const nom = $("#ca-nom", p).value.trim(); if (!nom) { toast("Saisir le nom de la campagne d'abord.", "ko"); return; }
+        if (!confirm(`Créer dans Xray le Test Plan « Campagne – ${nom} » ?`)) return;
+        const bt = $("#ca-plan-n", p); bt.disabled = true;
+        try { const r = await api("/api/centre/campagnes/plan-xray", {method: "POST", body: {nom, tests: [...$("#ca-tests", p).selectedOptions].map(o => o.value)}});
+          PLANS = [{cle: r.cle, resume: `Campagne – ${nom}`}, ...PLANS]; remplirPlans(PLANS, r.cle);
+          toast(`Test Plan ${r.cle} créé${r.tests.length ? ` avec ${r.tests.length} test(s)` : ""}${r.absents.length ? ` ; absents de Xray : ${r.absents.join(", ")}` : ""}. Enregistrer la campagne.`, "ok"); }
+        catch (e) { toast(e.message, "ko"); } bt.disabled = false; };
     };
     $("#ca-n").onclick = () => form();
     $$("[data-ed]", z).forEach(t => t.onclick = () => form(l.find(c => c.id === t.dataset.ed)));

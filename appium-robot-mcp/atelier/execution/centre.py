@@ -295,7 +295,9 @@ def enregistrer_campagne(c: dict) -> list[dict]:
               "type": c.get("type", "TNR"), "plateformes": plats, "environnement": c.get("environnement", ""),
               "cible": c.get("cible") or "tests", "tests": [str(t) for t in c.get("tests") or []],
               "tags": [str(t) for t in c.get("tags") or []], "retry": bool(c.get("retry")), "priorite": c.get("priorite", "Normal"),
-              "xray_ticket": c.get("xray_ticket", ""), "statut": c.get("statut", "Active"),
+              "xray_ticket": _ticket_xray(c), "plan_xray": (c.get("plan_xray") or "").strip().upper(),
+              "execution_xray": (c.get("execution_xray") or "").strip().upper() if c.get("mode_execution") == "reutiliser" else "",
+              "mode_execution": "reutiliser" if c.get("mode_execution") == "reutiliser" else "nouvelle", "statut": c.get("statut", "Active"),
               "exclus": [str(t) for t in c.get("exclus") or []], "planning": _planning(c.get("planning"))}
     l = campagnes()
     i = next((k for k, x in enumerate(l) if x["id"] == propre["id"]), None)
@@ -305,6 +307,40 @@ def enregistrer_campagne(c: dict) -> list[dict]:
         l[i] = propre
     _ecrire_campagnes(l)
     return campagnes()
+
+
+CLE_JIRA = re.compile(r"[A-Z][A-Z0-9_]+-\d+")
+
+
+def _ticket_xray(c: dict) -> str:
+    """Ticket passé au run : l'exécution à réutiliser, sinon le Test Plan (une nouvelle Test Execution par run,
+    rattachée au plan), sinon l'ancien champ libre."""
+    plan, exe = (c.get("plan_xray") or "").strip().upper(), (c.get("execution_xray") or "").strip().upper()
+    for k in (plan, exe if c.get("mode_execution") == "reutiliser" else ""):
+        if k and not CLE_JIRA.fullmatch(k):
+            raise ValueError(f"Clé Jira invalide : {k}")
+    if c.get("mode_execution") == "reutiliser":
+        if not exe:
+            raise ValueError("Test Execution à réutiliser : clé obligatoire.")
+        return exe
+    return plan or (c.get("xray_ticket") or "").strip()
+
+
+def creer_plan_campagne(nom: str, tests: list[str], xray=None) -> dict:
+    """Crée dans Xray un Test Plan pour la campagne (résumé = nom de la campagne, tests choisis s'ils existent dans Xray).
+    Action explicite de l'utilisateur ; renvoie la clé à enregistrer dans la campagne."""
+    from atelier.domain import projets
+    from atelier.integrations.xray import XrayClient
+
+    if not (nom or "").strip():
+        raise ValueError("Nom de campagne obligatoire pour nommer le Test Plan.")
+    cle = projets.cle_xray()
+    if not cle:
+        raise ValueError("Projet Xray inconnu (Paramètres › Projets).")
+    x = xray or XrayClient()
+    ids = x.test_ids([t for t in tests or [] if CLE_JIRA.fullmatch(t)]) if tests else {}
+    _, plan = x.create_plan(cle, f"Campagne – {nom.strip()}", list(ids.values()))
+    return {"cle": plan, "tests": sorted(ids), "absents": sorted(set(tests or []) - set(ids))}
 
 
 TYPES_PLANNING = ("aucun", "quotidien", "hebdomadaire", "intervalle")
@@ -572,9 +608,14 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
     from atelier.execution.depot_robot import lire_depot
     from atelier.intelligence import patrimoine_xray
 
+    from atelier.discovery import carte
+    from atelier.intelligence import source_tests
+
     pat = patrimoine_xray.charger() or {}
     vue = patrimoine_xray.charger_vue() or {"tests": []}
     tests_app = {t["cle"] for t in vue.get("tests") or []}
+    slug = carte.app_courante() if carte.app_courante() else ""
+    par_jql = bool(slug) and not source_tests.source().get("executions_deduite")  # JQL des exécutions de l'application
     filtre = bool((vue.get("filtre_application") or {}).get("valeurs") or (vue.get("filtre_application") or {}).get("champ"))
     automatises = {c for t in lire_depot()["tests"].values() for c in t.get("cles_xray") or []}
     execs, par_statut, dernier = [], {}, {}
@@ -582,8 +623,10 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
         jour = (e.get("cree") or "")[:10]
         if (depuis and (not jour or jour < depuis)) or (jusqu and (not jour or jour > jusqu)):
             continue
+        if par_jql and slug not in (e.get("applications") or []):
+            continue
         runs = {k: r for k, r in (e.get("runs") or {}).items() if not filtre or k in tests_app}
-        if filtre and not runs and not any(k in tests_app for k in e.get("tests") or []):
+        if filtre and not par_jql and not runs and not any(k in tests_app for k in e.get("tests") or []):
             continue
         n = {"reussi": 0, "echec": 0, "non_execute": 0, "autre": 0}
         for k, r in runs.items():
@@ -600,7 +643,7 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
     tot = {k: sum(x[k] for x in execs) for k in ("reussi", "echec", "non_execute")}
     executes = tot["reussi"] + tot["echec"]
     imp = pat.get("executions_xray") or {}
-    return {"import": {"date": imp.get("date"), "nombre": imp.get("nombre"), "erreur": imp.get("erreur"), "absents": imp.get("absents") or [],
+    return {"filtre_executions": "jql" if par_jql else "tests", "import": {"date": imp.get("date"), "nombre": imp.get("nombre"), "erreur": imp.get("erreur"), "absents": imp.get("absents") or [],
                        "periode": imp.get("periode") or {}}, "periode": {"depuis": depuis, "jusqu": jusqu},
             "incompletes": [x["cle"] for x in execs if x["incomplete"]],
             "kpi": {"executions": len(execs), "runs": sum(x["tests"] for x in execs), **tot,

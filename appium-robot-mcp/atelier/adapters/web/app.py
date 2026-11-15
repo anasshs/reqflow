@@ -880,6 +880,17 @@ async def apps_source(req: Request):
     return r
 
 
+@app.post("/api/apps/source/conteneurs")
+async def apps_source_conteneurs(req: Request):
+    """JQL des Test Plans et des Test Executions de l'application."""
+    from atelier.intelligence import source_tests
+
+    b = await req.json()
+    r = _call(source_tests.enregistrer_conteneurs, b.get("slug") or amap.app_courante(), b.get("jql_plans", ""), b.get("jql_executions", ""))
+    emit({"type": "app_change", "slug": b.get("slug") or amap.app_courante()})
+    return r
+
+
 @app.post("/api/apps/source/tester")
 async def apps_source_tester(req: Request):
     from atelier.intelligence import source_tests
@@ -2194,6 +2205,21 @@ async def centre_campagnes():
 @app.post("/api/centre/campagnes")
 async def centre_enregistrer_campagne(req: Request):
     return await asyncio.to_thread(_call, centre.enregistrer_campagne, await req.json())
+
+
+@app.get("/api/centre/plans-xray")
+async def centre_plans_xray():
+    """Test Plans de l'application (JQL de sa configuration), pour rattacher une campagne."""
+    from atelier.intelligence import patrimoine_xray
+
+    return await asyncio.to_thread(_call, patrimoine_xray.plans_application)
+
+
+@app.post("/api/centre/campagnes/plan-xray")
+async def centre_creer_plan_xray(req: Request):
+    """Crée un Test Plan Xray pour une campagne (action explicite)."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, centre.creer_plan_campagne, b.get("nom", ""), b.get("tests") or [])
 
 
 @app.post("/api/centre/campagnes/{cid}/executer")

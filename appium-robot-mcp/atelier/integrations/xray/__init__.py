@@ -148,13 +148,15 @@ class XrayClient:
             sel.append(texte)
         return " ".join(sel), absents
 
-    def conteneurs(self, projet: str, limite: int = 500) -> dict:
+    def conteneurs(self, projet: str, limite: int = 500, jql_plans: str = "", seulement: tuple = ()) -> dict:
         """Test Plans et Test Sets du projet avec leurs tests (lecture seule). Requêtes et champs choisis par
         introspection : getTestPlans / getTestSets, champ « tests » et ses arguments ; un objet absent du schéma est
         signalé, jamais supposé. Plus de 100 tests dans un conteneur : signalé (tests_total)."""
         requete = self._type_champs("Query")
         out = {"plans": [], "test_sets": [], "absents": []}
         for cle_out, req, type_gql in (("plans", "getTestPlans", "TestPlan"), ("test_sets", "getTestSets", "TestSet")):
+            if seulement and cle_out not in seulement:
+                continue
             if req not in requete:
                 out["absents"].append(req)
                 continue
@@ -171,7 +173,8 @@ class XrayClient:
                  f'{{ total results {{ issueId jira(fields: ["key", "summary", "status"]) {sel_tests} }} }} }}')
             debut, brut = 0, []
             while len(brut) < limite:
-                page = self.gql(q, {"jql": f'project = "{projet}"', "l": 100, **({"s": debut} if pagine else {})})[req]
+                jql = (jql_plans if cle_out == "plans" and jql_plans else f'project = "{projet}"')
+                page = self.gql(q, {"jql": jql, "l": 100, **({"s": debut} if pagine else {})})[req]
                 brut += page["results"]
                 debut += 100
                 if not pagine or not page["results"] or debut >= (page.get("total") or 0):
@@ -184,7 +187,7 @@ class XrayClient:
                                      "tests_total": tests.get("total")})
         return out
 
-    def executions(self, projet: str, limite: int = 200, depuis: str = "", jusqu: str = "") -> dict:
+    def executions(self, projet: str, limite: int = 200, depuis: str = "", jusqu: str = "", jql: str = "") -> dict:
         """Test Executions du projet, les plus récentes d'abord : clé, résumé, statut Jira, environnements, tests et
         statut de chaque test run (lecture seule). Requête et champs choisis par introspection (getTestExecutions,
         TestExecution.tests / testRuns / testEnvironments, TestRun.status / test / finishedOn) : un champ absent du
@@ -218,8 +221,9 @@ class XrayClient:
              f"{{ total results {{ {' '.join(sel)} }} }} }}")
         debut, brut = 0, []
         while len(brut) < limite:
-            jql = f'project = "{projet}"' + (f' AND created >= "{depuis}"' if depuis else "") + (f' AND created <= "{jusqu} 23:59"' if jusqu else "")
-            page = self.gql(q, {"jql": jql + " ORDER BY created DESC", "l": min(100, limite), **({"s": debut} if pagine else {})})["getTestExecutions"]
+            base = f"({jql})" if jql else f'project = "{projet}"'  # jql : filtre de l'application (sans ORDER BY)
+            filtre = base + (f' AND created >= "{depuis}"' if depuis else "") + (f' AND created <= "{jusqu} 23:59"' if jusqu else "")
+            page = self.gql(q, {"jql": filtre + " ORDER BY created DESC", "l": min(100, limite), **({"s": debut} if pagine else {})})["getTestExecutions"]
             brut += page["results"]
             debut += 100
             if not pagine or not page["results"] or debut >= (page.get("total") or 0):

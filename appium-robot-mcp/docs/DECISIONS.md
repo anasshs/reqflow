@@ -119,3 +119,12 @@ Une ligne datée par décision d'architecture ou de conception.
 - Variables propres d'un projet (ex. XRAY_CLIENT_ID_TAM) : lues dans le coffre elles aussi, sans repli silencieux sur
   le compte général. Clés IA (ANTHROPIC_API_KEY, IA_INTERNE_JETON) gérées de la même façon.
 
+
+## 2026-11-15 — Campagne, Test Plan et Test Execution — décision de l'utilisateur
+- Une campagne est une définition locale de l'atelier (quoi lancer, plateformes, environnement, planification) ;
+  ce n'est ni un Test Plan ni une Test Execution Xray.
+- Elle se rattache à un Test Plan Xray existant (liste filtrée par la JQL des Test Plans de l'application) ou à un
+  Test Plan créé depuis le formulaire (action explicite). Chaque lancement crée une Test Execution rattachée à ce
+  plan, ou réutilise une Test Execution donnée.
+- Configuration de l'application : JQL des Test Plans et JQL des Test Executions (vide = tout le projet Xray) ; le
+  tableau de bord ne lit dans Xray que les Test Executions de cette JQL.

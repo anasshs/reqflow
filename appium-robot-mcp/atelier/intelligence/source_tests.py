@@ -2,7 +2,9 @@
 (Paramètres › Configuration, une configuration par application ; décision de l'utilisateur du 2026-11-15).
 
 - jql      : requête Jira des tests de l'application (ex. project = "DEMO" AND issuetype = "Test" AND component = "Mobile") ;
-- dossiers : en option, dossiers du Test Repository Xray pour affiner (Xray ne permet pas de filtrer un dossier en JQL).
+- dossiers : en option, dossiers du Test Repository Xray pour affiner (Xray ne permet pas de filtrer un dossier en JQL) ;
+- jql_plans / jql_executions : requêtes Jira des Test Plans et des Test Executions de l'application (Execution Center :
+  tableau de bord, choix du plan d'une campagne). Non renseignées : tout le projet Xray (« déduites »).
 
 La synchronisation Jira ne récupère que l'application active (sa JQL) ; dans la copie locale, chaque test porte les
 applications qui l'ont synchronisé, et les écrans ne montrent que ceux de l'application sélectionnée.
@@ -52,13 +54,48 @@ def jql_deduite(cfg: dict) -> str:
     return " AND ".join(parts) + " ORDER BY key"
 
 
+TYPES_CONTENEURS = {"jql_plans": "Test Plan", "jql_executions": "Test Execution"}
+
+
+def _jql_conteneur(cfg: dict, champ: str) -> str:
+    from atelier.domain import projets
+
+    cle = (cfg.get("projet_xray") or projets.cle_xray() or "").strip().upper()
+    return f'project = "{cle}" AND issuetype = "{TYPES_CONTENEURS[champ]}" ORDER BY created DESC' if cle else ""
+
+
 def source(slug: str | None = None) -> dict:
-    """{"jql", "dossiers", "deduite"} de l'application (active par défaut)."""
+    """{"jql", "dossiers", "deduite", "jql_plans", "jql_executions", "plans_deduite", "executions_deduite"} de
+    l'application (active par défaut)."""
     cfg = _cfg(slug)
     s = cfg.get("source_tests") or {}
-    if s.get("jql"):
-        return {"jql": s["jql"], "dossiers": list(s.get("dossiers") or []), "deduite": False}
-    return {"jql": jql_deduite(cfg), "dossiers": list((cfg.get("tests_xray") or {}).get("dossiers") or []), "deduite": True}
+    out = {"jql": s["jql"], "dossiers": list(s.get("dossiers") or []), "deduite": False} if s.get("jql") else \
+        {"jql": jql_deduite(cfg), "dossiers": list((cfg.get("tests_xray") or {}).get("dossiers") or []), "deduite": True}
+    for champ in TYPES_CONTENEURS:
+        court = champ.split("_")[1]
+        out[champ] = s.get(champ) or _jql_conteneur(cfg, champ)
+        out[f"{court}_deduite"] = not s.get(champ)
+    return out
+
+
+def jql_pour_xray(jql: str) -> str:
+    """JQL sans ORDER BY (l'atelier impose son propre tri dans les lectures Xray)."""
+    return re.split(r"\bORDER\s+BY\b", jql or "", flags=re.I)[0].strip()
+
+
+def enregistrer_conteneurs(slug: str, jql_plans: str = "", jql_executions: str = "") -> dict:
+    """JQL des Test Plans et des Test Executions de l'application ; vide = tout le projet Xray."""
+    from atelier.discovery import carte
+
+    cfg = carte.config_app(slug)
+    s = dict(cfg.get("source_tests") or {})
+    for champ, v in (("jql_plans", jql_plans), ("jql_executions", jql_executions)):
+        v = (v or "").strip()
+        if v and not jql_pour_xray(v):
+            raise ValueError("JQL vide avant ORDER BY.")
+        s[champ] = v
+    carte.maj_app(slug, source_tests=s)
+    return source(slug)
 
 
 def enregistrer(slug: str, jql: str, dossiers: list[str] | None = None) -> dict:
@@ -71,7 +108,8 @@ def enregistrer(slug: str, jql: str, dossiers: list[str] | None = None) -> dict:
         jql += " ORDER BY key"
     d = sorted({carte.normaliser_dossier(x) for x in dossiers or [] if str(x).strip()})
     # les dossiers restent aussi dans tests_xray (rangement des tests publiés, liste des dossiers par application)
-    carte.maj_app(slug, source_tests={"jql": jql, "dossiers": d}, tests_xray={"dossiers": d} if d else {})
+    garde = {k: v for k, v in (carte.config_app(slug).get("source_tests") or {}).items() if k in TYPES_CONTENEURS}
+    carte.maj_app(slug, source_tests={"jql": jql, "dossiers": d, **garde}, tests_xray={"dossiers": d} if d else {})
     return source(slug)
 
 

@@ -479,6 +479,14 @@
         <div class="btns"><button class="btn" id="cf-test">Tester la JQL</button><button class="btn primaire" id="cf-ok">${ico("disque")}Enregistrer la source</button>
           <button class="btn" id="cf-sync">${ico("rejouer")}Synchroniser les tests de l'application</button></div><div id="cf-res" class="lib" style="margin-top:6px"></div>
         ${cf.copie_marquee ? "" : '<p class="lib">La copie locale n\'a pas encore été synchronisée par application : en attendant, les anciens réglages filtrent les écrans.</p>'}</section>
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>TEST PLANS ET TEST EXECUTIONS</h3>
+        <p class="lib">Filtrent l'Execution Center pour cette application : tableau de bord (Test Executions lues dans Xray) et choix du Test Plan d'une campagne. Vide : tout le projet Xray.</p>
+        <div class="champ"><label for="cf-jqlp">JQL des Test Plans ${s.plans_deduite ? '<span class="pill">tout le projet</span>' : ""}</label>
+          <textarea class="in mono" id="cf-jqlp" rows="2" placeholder='project = "DEMO" AND issuetype = "Test Plan" AND component = "Mobile"'>${esc(s.plans_deduite ? "" : s.jql_plans)}</textarea></div>
+        <div class="champ"><label for="cf-jqle">JQL des Test Executions ${s.executions_deduite ? '<span class="pill">tout le projet</span>' : ""}</label>
+          <textarea class="in mono" id="cf-jqle" rows="2" placeholder='project = "DEMO" AND issuetype = "Test Execution" AND component = "Mobile"'>${esc(s.executions_deduite ? "" : s.jql_executions)}</textarea></div>
+        <div class="btns"><button class="btn" data-cf-tester="cf-jqlp">Tester (plans)</button><button class="btn" data-cf-tester="cf-jqle">Tester (exécutions)</button>
+          <button class="btn primaire" id="cf-cont">${ico("disque")}Enregistrer</button></div><div id="cf-res2" class="lib" style="margin-top:6px"></div></section>
       <section class="bloc-strat" style="margin-bottom:12px"><h3>POLITIQUE DES US (ESPACES JIRA)</h3>
         <p class="lib">Espaces Jira (projets des squads) dont les US doivent être couvertes par des tests de cette application. « US à couvrir » lit ces espaces pour l'application sélectionnée.</p>
         ${cf.espaces.length ? `<table><tr><th>Projet Jira</th><th>Nom</th><th>Types · portée</th><th>Tests créés</th><th></th></tr>${cf.espaces.map(e => ligneEsp(e, false)).join("")}</table>` : "<p class='lib'>Aucun espace rattaché.</p>"}
@@ -495,6 +503,13 @@
       try { const r = await api("/api/apps/source/tester", {method: "POST", body: {jql: $("#cf-jql").value}});
         $("#cf-res").innerHTML = `<b>${r.nombre}${r.plafond ? "+" : ""}</b> ticket(s) : ${r.exemples.map(x => `<span class="cle-xray">${esc(x.cle)}</span> ${esc(x.resume)} <span class="lib">(${esc(x.type)})</span>`).join(" · ")}`; }
       catch (e) { $("#cf-res").innerHTML = `<span class="ko-t">${esc(e.message)}</span>`; } };
+    $$("[data-cf-tester]", z).forEach(b => b.onclick = async () => { const jql = $("#" + b.dataset.cfTester).value.trim(); if (!jql) { $("#cf-res2").textContent = "JQL vide : tout le projet Xray."; return; }
+      $("#cf-res2").textContent = "Interrogation de Jira…";
+      try { const r = await api("/api/apps/source/tester", {method: "POST", body: {jql}});
+        $("#cf-res2").innerHTML = `<b>${r.nombre}${r.plafond ? "+" : ""}</b> ticket(s) : ${r.exemples.map(x => `<span class="cle-xray">${esc(x.cle)}</span> ${esc(x.resume)} <span class="lib">(${esc(x.type)})</span>`).join(" · ")}`; }
+      catch (e) { $("#cf-res2").innerHTML = `<span class="ko-t">${esc(e.message)}</span>`; } });
+    $("#cf-cont").onclick = async () => { try { await api("/api/apps/source/conteneurs", {method: "POST", body: {jql_plans: $("#cf-jqlp").value, jql_executions: $("#cf-jqle").value}});
+      toast("JQL des Test Plans et Test Executions enregistrées.", "ok"); configuration(z); } catch (e) { toast(e.message, "ko"); } };
     $("#cf-ok").onclick = async () => { try { await api("/api/apps/source", {method: "POST", body: {jql: $("#cf-jql").value, dossiers: dossiers()}}); toast("Source des tests enregistrée.", "ok"); configuration(z); } catch (e) { toast(e.message, "ko"); } };
     $("#cf-sync").onclick = async () => { const b = $("#cf-sync"); b.disabled = true; $("#cf-res").textContent = "Synchronisation des tests de l'application…";
       try { const r = await api("/api/patrimoine/synchroniser", {method: "POST", body: {}}); toast(`${r.tests_application} test(s) de l'application synchronisé(s)${r.tronque ? " — TRONQUÉ : " + r.tronque : ""}.`, r.tronque ? "ko" : "ok"); configuration(z); }

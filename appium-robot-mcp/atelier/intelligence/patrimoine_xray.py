@@ -332,9 +332,14 @@ def _fusionner_executions(data: dict, r: dict, conserver: bool = False):
     """Exécutions dans l'instantané ; sur chaque test : ses exécutions et son dernier statut Xray (exécution la
     plus récente qui le contient avec un statut). conserver : les exécutions déjà importées absentes de cette lecture
     (hors période demandée) sont gardées, celles relues sont mises à jour."""
-    lues = [{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests", "tests_total", "runs", "incomplete")} for e in r["executions"]]
+    lues = [{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests", "tests_total", "runs", "incomplete", "applications")
+             if k != "applications" or e.get(k)} for e in r["executions"]]
     if conserver:
         cles = {e["cle"] for e in lues}
+        avant = {e["cle"]: e.get("applications") or [] for e in data.get("executions") or []}
+        for e in lues:  # une exécution lue par l'application A puis B garde les deux
+            if avant.get(e["cle"]) or e.get("applications"):
+                e["applications"] = sorted(set(avant.get(e["cle"]) or []) | set(e.get("applications") or []))
         lues += [e for e in data.get("executions") or [] if e.get("cle") not in cles]
     execs = sorted(lues, key=lambda e: e.get("cree") or "", reverse=True)
     data["executions"] = execs
@@ -411,12 +416,36 @@ def importer_executions(projet_cle: str = "", xray=None, depuis: str = "", jusqu
     for d in (depuis, jusqu):
         if d and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
             raise ValueError("Dates attendues au format AAAA-MM-JJ.")
-    r = (xray or XrayClient()).executions(projet_cle, limite_executions(), depuis, jusqu) if (depuis or jusqu) else \
-        (xray or XrayClient()).executions(projet_cle, limite_executions())
+    from atelier.discovery import carte
+    from atelier.intelligence import source_tests
+
+    slug = carte.app_courante() if carte.app_courante() else ""
+    src = source_tests.source() if slug else {}
+    jql = source_tests.jql_pour_xray(src["jql_executions"]) if slug and not src.get("executions_deduite") else ""
+    args = (projet_cle, limite_executions()) + ((depuis, jusqu) if (depuis or jusqu or jql) else ()) + ((jql,) if jql else ())
+    r = (xray or XrayClient()).executions(*args)
+    if slug:  # chaque exécution porte les applications qui l'ont lue (filtre du tableau de bord)
+        for e in r["executions"]:
+            e["applications"] = [slug]
     r["periode"] = {"depuis": depuis, "jusqu": jusqu}
     _fusionner_executions(data, r, conserver=True)
     enregistrer(data, data.get("source") or f"Xray : project = {projet_cle}")
     return data["executions_xray"]
+
+
+def plans_application(xray=None) -> dict:
+    """Test Plans de l'application (sa JQL des Test Plans ; à défaut tout le projet Xray), les plus récents d'abord."""
+    from atelier.domain import projets
+    from atelier.intelligence import source_tests
+    from atelier.integrations.xray import XrayClient
+
+    src = source_tests.source()
+    cle = (projets.cle_xray() or (charger() or {}).get("projet") or "").upper()
+    if not cle and src.get("plans_deduite"):
+        raise ValueError("Projet Xray inconnu (Paramètres › Projets).")
+    jql = "" if src.get("plans_deduite") else source_tests.jql_pour_xray(src["jql_plans"])
+    r = (xray or XrayClient()).conteneurs(cle, 300, jql_plans=jql, seulement=("plans",))
+    return {"plans": sorted(r["plans"], key=lambda p: p.get("cle") or "", reverse=True), "absents": r["absents"], "jql": jql or f'project = "{cle}"'}
 
 
 def dossiers_repository() -> dict:
