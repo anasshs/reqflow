@@ -641,10 +641,39 @@ def studio_soumettre_revue(fichier: str, commentaire: str = "") -> dict:
 @outil
 def studio_corrections_locators() -> list[dict]:
     """Locators à fiabiliser (fragiles, obsolètes, ou dont un secours a servi dans les derniers runs) avec la valeur
-    proposée et sa source. Lecture seule : la correction s'applique dans l'atelier après validation."""
+    proposée et sa source. Appliquer avec studio_corriger_locator (les suites concernées repassent en revue)."""
     from atelier.generation import studio_avance
 
     return studio_avance.propositions_correction()
+
+
+@outil
+def studio_corriger_locator(locator_id: str, valeur: str) -> dict:
+    """Applique une correction de locator (ex. valeur proposée par studio_corrections_locators) dans son fichier
+    .resource, avec historique de l'éditeur. Toutes les suites qui utilisent ce locator repassent en revue
+    technique : l'automaticien valide dans l'atelier. locator_id : « écran.clé@plateforme »."""
+    from atelier.generation import studio_avance
+
+    return studio_avance.appliquer_correction(locator_id, valeur, origine="cursor")
+
+
+@outil
+def studio_factorisation_keywords() -> list[dict]:
+    """Groupes de keywords en double (corps identique, ou même nom dans plusieurs fichiers) avec le keyword à garder
+    et ceux à remplacer. Seuls les groupes « applicable » peuvent être factorisés automatiquement."""
+    from atelier.generation import studio_avance
+
+    return studio_avance.propositions_factorisation()
+
+
+@outil
+def studio_factoriser_keywords(groupe_id: str) -> dict:
+    """Factorise un groupe de keywords au corps identique (id renvoyé par studio_factorisation_keywords) : appels
+    renommés vers le keyword gardé, définitions en double retirées, imports vérifiés, historique de l'éditeur. Les
+    suites concernées repassent en revue technique : l'automaticien valide dans l'atelier."""
+    from atelier.generation import studio_avance
+
+    return studio_avance.appliquer_factorisation(groupe_id, origine="cursor")
 
 
 __all__ = [f.__name__ for f in OUTILS]

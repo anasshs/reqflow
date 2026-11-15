@@ -217,3 +217,72 @@ def test_suite_ecrite_par_l_agent_entre_en_revue(demo):
     facade.write_project_file("resources/socle/notes.resource", "*** Keywords ***\nK\n    Log    x\n")
     rev = studio.revues_scripts()
     assert rev["tests/ecrite_par_cursor.robot"]["statut"] == "Generated" and "resources/socle/notes.resource" not in rev
+
+
+# --------------------------------------------------------------------------- Cursor en direct
+def test_activite_agent_masque_les_secrets():
+    from atelier.domain import activite_agent as a
+
+    r = a.resumer_arguments("type_text", {"key": "champ_mot_de_passe", "text": "Demo#2026"})
+    assert r == {"key": "champ_mot_de_passe", "text": "•••"}
+    assert a.resumer_arguments("write_project_file", {"path": "tests/x.robot", "content": "x" * 900}) == {"path": "tests/x.robot", "content": "900 caractères"}
+    assert a.resumer_arguments("studio_socle", {"jeton_api": "abc"})["jeton_api"] == "•••"
+    assert a.famille("tap") == "ecran" and a.famille("studio_construire_test") == "ecriture" and a.famille("studio_socle") == "lecture"
+
+
+def test_chaque_appel_mcp_est_publie_debut_et_fin():
+    pytest.importorskip("mcp")
+    from atelier.adapters.mcp import server
+    from atelier.domain import evenements
+
+    recus = []
+    evenements.abonner(recus.append, {"mcp_outil"})
+
+    def type_text(key: str, text: str) -> dict:
+        return {"statut": "saisi"}
+
+    def tap(key: str) -> dict:
+        raise RuntimeError("élément introuvable")
+
+    server._suivre_projet(type_text)("champ_mdp", "secret!")
+    with pytest.raises(RuntimeError):
+        server._suivre_projet(tap)("bouton")
+    assert [(e["nom"], e["etat"]) for e in recus] == [("type_text", "debut"), ("type_text", "fin"), ("tap", "debut"), ("tap", "erreur")]
+    assert recus[0]["args"] == {"key": "champ_mdp", "text": "•••"} and "secret!" not in json.dumps(recus)
+    assert recus[1]["resultat"] == "statut : saisi" and "introuvable" in recus[3]["message"]
+
+
+def test_image_du_navigateur_de_l_agent_et_activite(projet, monkeypatch, tmp_path):
+    pytest.importorskip("fastapi")
+    import base64
+
+    from fastapi.testclient import TestClient
+    from web_app_loader import charger_app_web, module_web
+
+    web = module_web()
+    monkeypatch.setattr(web, "CONFIG_PATH", tmp_path / "atelier.json")
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    c.get("/")
+    png = base64.b64encode(b"\x89PNG-image-de-test").decode()
+    assert c.post("/api/mcp/image", json={"png": png, "outil": "open_url"}).status_code == 401  # jeton des processus exigé
+    h = {"X-Atelier-Jeton": web.JETON_PROCESSUS}
+    assert c.post("/api/events", json={"source": "mcp", "type": "session", "etat": "ouverte", "platform": "web"}, headers=h).status_code == 200
+    assert c.post("/api/events", json={"source": "mcp", "type": "mcp_outil", "nom": "open_url", "etat": "fin", "famille": "ecran"}, headers=h).status_code == 200
+    assert c.post("/api/mcp/image", json={"png": png, "outil": "open_url"}, headers=h).status_code == 200
+    a = c.get("/api/mcp/activite").json()
+    assert a["actif"] and a["evenements"][-1]["nom"] == "open_url" and a["image_agent"]["outil"] == "open_url"
+    assert c.get("/api/frame.png").content == b"\x89PNG-image-de-test"  # navigateur piloté dans le processus MCP
+
+
+def test_cursor_corrige_un_locator_et_les_suites_repassent_en_revue(demo):
+    from atelier.adapters import facade
+    from atelier.generation import studio
+
+    f = "tests/connexion.robot"
+    studio.transition_script(f, "soumettre")
+    studio.transition_script(f, "approuver")
+    assert studio.revue_script(f)["statut"] == "Approved"
+    r = facade.studio_corriger_locator("connexion.bouton_connexion@web", "data-testid=login")
+    assert r["suites_en_revue"] == [f] and studio.revue_script(f)["statut"] == "Technical Review"  # le fichier de la suite n'a pas changé
+    j = next(x for x in studio.journal() if x["op"] == "correction_locator")
+    assert j["origine"] == "cursor"

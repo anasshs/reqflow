@@ -7,7 +7,8 @@
   const GROUPES = [
     ["vue", "Tableau de bord", [["vue", "Tableau de bord"]], "Où en est l'automatisation et quoi faire ensuite"],
     ["candidats", "1 · À automatiser", [["candidats", "Candidats"]], "Tests Xray retenus pour l'automatisation : créer leur BDD, voir leur mapping ou leur graphe"],
-    ["mapping", "2 · Construire", [["mapping", "BDD → Robot (mapping)"], ["builder", "Assembler un test (palette)"]], "Transformer un scénario BDD en test Robot avec les keywords du socle"],
+    ["direct", "2 · Construire", [["direct", "Avec Cursor (en direct)"], ["mapping", "BDD → Robot (mapping)"], ["builder", "Assembler un test (palette)"]],
+      "Cursor construit le test (écran et appels visibles en direct), vous assistez et validez ; ou construction manuelle"],
     ["revue", "3 · Revue et publication", [["revue", "Revue technique"], ["git", "Git et merge request"]], "Contrôler, approuver ou refuser les scripts, puis commit et merge request"],
     ["locators", "Socle technique", [["locators", "Locators"], ["keywords", "Keywords"], ["pages", "Page Objects"], ["donnees", "Données de test"]], "Référentiels réutilisés par tous les tests : locators, keywords, page objects, données"],
     ["espaces", "Environnement", [["espaces", "Espaces d'automatisation"], ["frameworks", "Frameworks"], ["parametres", "Réglages"]], "Espaces techniques, frameworks installés et conventions"],
@@ -36,7 +37,7 @@
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "studio/" + b.dataset.r; });
       $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = "studio/" + b.dataset.onglet; });
       const z = $("#st-contenu");
-      try { await ({vue, candidats, espaces, mapping, builder, knowledge, locators, keywords, pages, donnees, frameworks, git, revue, historique, parametres}[R])(z, arg); }
+      try { await ({direct, vue, candidats, espaces, mapping, builder, knowledge, locators, keywords, pages, donnees, frameworks, git, revue, historique, parametres}[R])(z, arg); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
   });
@@ -58,7 +59,7 @@
     z.innerHTML = `${entete("Tableau de bord")}
       <div class="corps-carte"><div style="display:flex;gap:8px;align-items:stretch;margin-bottom:14px">
         ${etape("1", "À automatiser", k.candidats, "candidats", "#studio/candidats", "Tests Xray retenus : créer leur scénario BDD", "warn-t")}
-        ${etape("2", "Construire", k.scenarios_bdd, "scénarios BDD", "#studio/mapping", "Mapping étape → keyword, prévisualisation et écriture du test Robot")}
+        ${etape("2", "Construire", k.scenarios_bdd, "scénarios BDD", "#studio/direct", "Mapping étape → keyword, prévisualisation et écriture du test Robot")}
         ${etape("3", "Revue", k.en_revue, "scripts en revue", "#studio/revue", "Contrôles automatiques puis décision : approuver, demander des modifications ou refuser", "info")}
         ${etape("4", "Publier", k.approuves, "approuvés à publier", "#studio/revue", "Un script approuvé est publié vers l'Execution Center, puis commit et merge request", "violet")}
         ${etape("!", "À corriger", k.locators_a_corriger, "locators fragiles / obsolètes", "#studio/locators", "Locators à fiabiliser dans le socle", "ko-t")}</div>
@@ -71,6 +72,68 @@
         <section class="bloc-strat" style="margin-top:12px"><h3>Évolution dans le temps</h3>${courbes(v.tendance)}</section>
         <p class="lib">${v.roles.actifs ? `Rôles actifs : vous êtes <b>${esc(v.roles.utilisateur)}</b> (${esc(v.roles.role)})${v.roles.quatre_yeux ? " · quatre yeux en revue" : ""}.`
           : `Rôles non activés : tout le monde peut tout faire (<a href="#studio/parametres">activer les rôles</a>).`}</p></div>`;
+  }
+
+  /* ------------------------------------------------------------------ Construire avec Cursor, en direct
+     Cursor pilote le device / le navigateur et écrit le test par le MCP ; l'atelier montre l'écran et chaque appel
+     d'outil au moment où il a lieu. Les décisions (revue, publication) restent ici, à l'automaticien. */
+  const COUL = {ecran: "var(--info, #2563eb)", ecriture: "var(--violet, #7c3aed)", revue: "var(--warn)", execution: "var(--ok)", lecture: "var(--muted)"};
+  const FAM = {ecran: "écran", ecriture: "écrit", revue: "revue", execution: "exécute", lecture: "lit"};
+  async function direct(z) {
+    const [bdds, rev] = await Promise.all([api("/api/bdd").catch(() => []), api("/api/studio/revues").catch(() => ({}))]);
+    const parCursor = Object.entries(rev).filter(([, r]) => (r.historique || []).some(h => /\(cursor\)/.test(h.commentaire || "")) && r.statut !== "Published");
+    z.innerHTML = `${entete("Construire avec Cursor", `<select class="in" id="dr-cle" style="width:auto" title="Scénario BDD à faire construire">${bdds.map(b => `<option value="${esc(b.cle)}">${esc(b.cle)} ${esc(b.titre || "")}</option>`).join("") || "<option value=''>aucun scénario BDD</option>"}</select>
+        <button class="btn primaire" id="dr-dem" title="Demande prête à coller dans Cursor pour ce scénario">${ico("ia")}Demander à Cursor</button>`)}
+      <div class="corps-carte">
+        <ol class="workflow" style="margin-bottom:10px"><li>Vous demandez (bouton ci-dessus)</li><li>Cursor pilote l'écran et écrit le test : vous le voyez ici</li><li>Il le soumet en revue</li><li>Vous approuvez, demandez des modifications ou refusez</li></ol>
+        <div id="dr-etat" class="lib" style="margin-bottom:8px"></div>
+        <div style="display:grid;grid-template-columns:minmax(260px,420px) minmax(0,1fr);gap:12px;align-items:start">
+          <section class="bloc-strat"><h3>Écran piloté <span class="lib" id="dr-cible" style="font-weight:normal"></span></h3>
+            <div id="dr-ecran" style="min-height:260px;display:flex;align-items:center;justify-content:center;background:var(--fond-2, #0001);border-radius:8px;overflow:hidden">
+              <span class="lib" style="padding:16px">En attente d'une session (device, émulateur ou navigateur) ouverte par Cursor.</span></div>
+            <p class="lib" style="margin-top:6px">Mobile : écran lu en direct sur le device / l'émulateur. Navigateur : image envoyée par le MCP après chaque action.</p></section>
+          <section class="bloc-strat"><h3>Ce que fait Cursor <label class="lib" style="font-weight:normal;margin-left:8px" title="Masquer les simples lectures (socle, carte, fichiers)"><input type="checkbox" id="dr-lect"> masquer les lectures</label></h3>
+            <ol id="dr-tl" class="liste" style="max-height:440px;overflow:auto;margin:0"></ol></section></div>
+        <section class="bloc-strat" style="margin-top:12px"><h3>Écrit par Cursor, en attente de vous (${parCursor.length})</h3>
+          ${parCursor.length ? `<table><tr><th>Suite</th><th>Statut</th><th>Dernière étape</th><th></th></tr>${parCursor.map(([f, r]) => { const h = (r.historique || []).slice(-1)[0] || {};
+            return `<tr><td class="mono">${esc(f)}</td><td>${pill(r.statut)}</td><td class="lib">${esc((h.date || "").slice(0, 16).replace("T", " "))} · ${esc(h.commentaire || "")}</td>
+              <td><a class="btn petit primaire" href="#studio/revue" data-revue="${esc(f)}" title="Ouvrir les contrôles et décider">Revoir</a></td></tr>`; }).join("")}</table>`
+            : "<p class='lib'>Rien en attente : les tests écrits par Cursor apparaîtront ici dès qu'il les écrit.</p>"}</section></div>`;
+    $("#dr-dem").onclick = () => { const cle = $("#dr-cle").value;
+      demandeCursor(cle ? `Construis le test Robot du scénario BDD ${cle} avec le MCP de l'atelier : studio_socle, studio_scenario_bdd("${cle}"), ouvre la session (start_session) et vérifie chaque étape à l'écran, `
+        + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants sans wrapper 1:1, corrige les locators fragiles (studio_corrections_locators, studio_corriger_locator), `
+        + `vérifie en dry_run, écris la suite puis studio_soumettre_revue. Je suis l'écran et tes actions dans Automation Studio › Construire et je valide la revue.`
+        : "Construis un test Robot avec le MCP de l'atelier (studio_socle d'abord), puis soumets-le en revue avec studio_soumettre_revue."); };
+    $$("[data-revue]", z).forEach(a => a.onclick = () => { try { sessionStorage.setItem("studio-revue", a.dataset.revue); } catch (e) { /* facultatif */ } });
+    let vus = 0, imageT = 0;
+    const ligne = e => `<li style="border-left:3px solid ${COUL[e.famille] || COUL.lecture};padding-left:8px;margin:4px 0" title="${esc(JSON.stringify(e.args || {}))}">
+      <span class="mono lib">${esc(e.heure || "")}</span> <span class="pill" style="color:${COUL[e.famille] || ""}">${esc(FAM[e.famille] || e.famille || "")}</span> <b class="mono">${esc(e.nom)}</b>
+      ${e.etat === "debut" ? '<span class="pill info">en cours…</span>' : e.etat === "erreur" ? `<span class="pill ko">erreur</span> <span class="ko-t">${esc(e.message || "")}</span>`
+        : `<span class="lib">${esc(e.duree ?? "")} s · ${esc(e.resultat || "")}</span>`}
+      ${e.etat === "debut" && e.args && Object.keys(e.args).length ? `<div class="lib mono" style="font-size:11px">${esc(Object.entries(e.args).map(([k, v]) => k + "=" + v).join("  "))}</div>` : ""}</li>`;
+    const rafraichir = async () => {
+      if (!document.body.contains(z)) return clearInterval(minuteur);
+      const a = await api("/api/mcp/activite").catch(() => null);
+      if (!a) return;
+      const depuis = a.dernier ? Math.round(Date.now() / 1000 - a.dernier) : null;
+      $("#dr-etat").innerHTML = a.actif ? `<span class="pill ok">Cursor actif</span> dernier appel il y a ${depuis} s`
+        : `<span class="pill">Cursor inactif</span> ${a.dernier ? `dernier appel il y a ${Math.round(depuis / 60)} min` : "aucun appel reçu : vérifier la liaison Cursor (Paramètres › Connexions)"}`;
+      $("#dr-cible").textContent = a.flux?.platform ? `· ${a.flux.platform}${a.flux.udid ? " " + a.flux.udid : ""}` : "";
+      const masquer = $("#dr-lect").checked;
+      // une ligne par appel : l'état de fin remplace le début
+      const parAppel = [];
+      for (const e of a.evenements) { if (e.etat !== "debut") { const i = parAppel.map(x => x.nom).lastIndexOf(e.nom); if (i >= 0 && parAppel[i].etat === "debut") { parAppel[i] = {...parAppel[i], ...e, args: parAppel[i].args}; continue; } } parAppel.push(e); }
+      const l = parAppel.filter(e => !masquer || e.famille !== "lecture").reverse();
+      $("#dr-tl").innerHTML = l.map(ligne).join("") || "<li class='lib'>Aucun appel pour l'instant.</li>";
+      if (a.evenements.length !== vus || (a.image_agent && a.image_agent.t !== imageT) || a.actif) {
+        vus = a.evenements.length; imageT = a.image_agent?.t || 0;
+        if (a.flux?.platform) { const img = new Image(); img.alt = "Écran piloté par Cursor"; img.style.maxWidth = "100%";
+          img.onload = () => $("#dr-ecran").replaceChildren(img); img.src = "/api/frame.png?t=" + Date.now(); }
+      }
+    };
+    const minuteur = setInterval(rafraichir, 1500);
+    rafraichir();
+    $("#dr-lect").onchange = rafraichir;
   }
 
   /* demande prête à coller dans Cursor (chat de l'agent) : Cursor construit, l'automaticien valide ici */
@@ -432,6 +495,9 @@
         return `<tr class="cliquable" data-f="${esc(f)}" title="Ouvrir les contrôles et décider (approuver, demander des modifications, refuser)"><td class="mono">${esc(f)}${origine ? ` <span class="pill ${origine === "cursor" ? "violet" : ""}" title="Origine du script">${origine === "cursor" ? "écrit par Cursor" : esc(origine)}</span>` : ""}</td><td>${pill(r[f].statut)}${r[f].modifie_depuis_validation ? ' <span class="pill warn">modifié depuis la validation</span>' : ""}</td>
           <td class="lib">${h ? `${esc(h.date.slice(0, 16).replace("T", " "))} · ${esc(h.auteur)}${h.commentaire ? " · « " + esc(h.commentaire) + " »" : ""}` : "—"}</td></tr>`; }).join("")}</table></div>`;
     $$("tr[data-f]", z).forEach(tr => tr.onclick = () => detailRevue(tr.dataset.f, z));
+    let aOuvrir = "";
+    try { aOuvrir = sessionStorage.getItem("studio-revue") || ""; sessionStorage.removeItem("studio-revue"); } catch (e) { /* facultatif */ }
+    if (aOuvrir && fichiers.includes(aOuvrir)) detailRevue(aOuvrir, z);
   }
 
   async function detailRevue(f, z) {

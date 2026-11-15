@@ -6,7 +6,7 @@
 - Jeton de session : généré au démarrage, posé par la page d'accueil dans un cookie HttpOnly
   SameSite=Strict, exigé sur /api/* et /ws.
 - Jeton des processus locaux (listener Robot, MCP de Cursor / Claude Desktop) : en-tête
-  X-Atelier-Jeton, seul accepté sur /api/events et /api/externe/*. Lu dans
+  X-Atelier-Jeton, seul accepté sur /api/events, /api/mcp/image et /api/externe/*. Lu dans
   ATELIER_JETON_EVENEMENTS, sinon généré et écrit dans un fichier lisible par le seul
   utilisateur (ATELIER_JETON_FICHIER, défaut ~/.atelier-automatisation.jeton).
 - Taille des requêtes plafonnée (WEB_TAILLE_MAX, 2 Mio par défaut).
@@ -23,7 +23,7 @@ from pathlib import Path
 from atelier.integrations.interface_web import ENTETE_JETON, FICHIER_JETON_DEFAUT
 
 COOKIE = "atelier_jeton"
-ROUTES_PROCESSUS = ("/api/events", "/api/externe/")
+ROUTES_PROCESSUS = ("/api/events", "/api/externe/", "/api/mcp/image")
 TAILLE_MAX_DEFAUT = 2 * 1024 * 1024
 PAGES = ("/", "/plateforme")  # pages qui posent le cookie de session
 

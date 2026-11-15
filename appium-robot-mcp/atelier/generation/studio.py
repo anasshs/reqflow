@@ -225,6 +225,25 @@ def entrer_en_revue(fichier: str, origine: str) -> dict:
     return r
 
 
+def renvoyer_en_revue(fichiers: list[str], motif: str) -> list[str]:
+    """Suites touchées par une modification du socle (locator corrigé, keywords factorisés) : de nouveau en revue
+    technique, même si leur propre fichier n'a pas changé. Renvoie les suites renvoyées."""
+    st = _stock()
+    renvoyees = []
+    for f in sorted(set(fichiers)):
+        r = st.setdefault(f, {"statut": "Generated", "historique": []})
+        if r["statut"] == "Technical Review":
+            continue
+        r["historique"].append({"date": _maintenant(), "auteur": _auteur(), "de": r["statut"], "vers": "Technical Review", "commentaire": motif})
+        r["statut"] = "Technical Review"
+        r.pop("empreinte", None)
+        renvoyees.append(f)
+    if renvoyees:
+        _ecrire_atomique(_dossier() / "revues_scripts.json", json.dumps(st, ensure_ascii=False, indent=1))
+        _journaliser("renvoi_en_revue", fichiers=renvoyees, commentaire=motif)
+    return renvoyees
+
+
 def controles_script(fichier: str) -> list[dict]:
     from atelier.execution.depot_robot import fermeture_keywords
     from atelier.generation import editeur

@@ -14,6 +14,7 @@ SameSite=Strict), contrôle Host / Origin, jeton propre aux processus locaux sur
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import os
 import re
@@ -219,6 +220,9 @@ async def events(req: Request):
     ev = await req.json()
     if ev.get("source") == "mcp":
         state["dernier_mcp"] = time.time()
+    if ev.get("type") == "mcp_outil":  # activité de l'agent, gardée pour la vue « Cursor en direct »
+        ev = {**ev, "heure": time.strftime("%H:%M:%S")}
+        state.setdefault("activite_mcp", collections.deque(maxlen=300)).append(ev)
     if ev.get("type") == "session" and ev.get("etat") == "ouverte":
         state["flux"] = {"platform": ev.get("platform"), "udid": ev.get("udid") or None}
     emit(ev)
@@ -543,7 +547,10 @@ def _grab() -> bytes | None:
     p, udid = state["flux"].get("platform"), state["flux"].get("udid")
     try:
         if p == "web":
-            return session.screenshot_png() if session.is_web() else None
+            if session.is_web():
+                return session.screenshot_png()
+            im = state.get("image_mcp")  # navigateur piloté par l'agent dans le processus MCP
+            return im["png"] if im and time.time() - im["t"] < 1800 else None
         adb = session.chemin_adb() if p == "android" else None
         if adb:
             cmd = [adb] + (["-s", udid] if udid else []) + ["exec-out", "screencap", "-p"]
@@ -563,6 +570,30 @@ def _grab() -> bytes | None:
     except Exception:
         return None
     return None
+
+
+@app.post("/api/mcp/image")
+async def mcp_image(req: Request):
+    """Image du navigateur piloté par l'agent (processus MCP), envoyée après chaque action visible."""
+    import base64
+
+    b = await req.json()
+    png = base64.b64decode(b.get("png") or "")
+    if not png or len(png) > 8_000_000:
+        raise HTTPException(400, "Image absente ou trop grande.")
+    state["image_mcp"] = {"png": png, "t": time.time(), "outil": b.get("outil", "")}
+    emit({"type": "mcp_image", "outil": b.get("outil", "")})
+    return {"ok": True}
+
+
+@app.get("/api/mcp/activite")
+async def mcp_activite(depuis: int = 0):
+    """Appels d'outils de l'agent (Cursor, Claude) : les plus récents, pour la vue « Cursor en direct »."""
+    l = list(state.get("activite_mcp") or [])
+    actif = time.time() - (state.get("dernier_mcp") or 0) < 120
+    im = state.get("image_mcp")
+    return {"actif": actif, "dernier": state.get("dernier_mcp"), "evenements": l[-max(1, min(300, depuis or 150)):],
+            "flux": state["flux"], "image_agent": {"t": im["t"], "outil": im["outil"]} if im else None}
 
 
 @app.get("/api/frame.png")

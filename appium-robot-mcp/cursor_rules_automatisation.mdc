@@ -54,7 +54,10 @@ Construire un test (Cursor écrit, l'automaticien valide dans l'atelier) :
    l'atelier (Automation Studio › Revue et publication). Tu ne peux ni approuver ni publier.
 5. Statut « Modifications demandées » : studio_revue(fichier) pour lire les contrôles et le commentaire,
    corriger, puis resoumettre.
-6. Locators fragiles : studio_corrections_locators donne les valeurs proposées ; la correction s'applique
-   dans l'atelier après validation humaine.
+6. Locators fragiles : studio_corrections_locators donne les valeurs proposées ; studio_corriger_locator les
+   applique. Keywords en double : studio_factorisation_keywords puis studio_factoriser_keywords. Dans les deux
+   cas, les suites concernées repassent en revue : l'automaticien valide.
+L'automaticien voit en direct ton écran (device, émulateur ou navigateur) et chacun de tes appels d'outils dans
+Automation Studio › Construire › « Avec Cursor (en direct) » : annonce ce que tu fais, une étape à la fois.
 Toute suite écrite avec write_project_file entre aussi en revue : elle ne s'exécute (hors dry_run) qu'une
 fois approuvée.

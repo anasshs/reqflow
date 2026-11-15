@@ -240,6 +240,25 @@ const Atelier = {
 };
 window.Atelier = Atelier;
 
+/* Indicateur « Cursor agit » : visible partout pendant que l'agent appelle des outils MCP ; clic = vue en direct */
+(() => {
+  let puce = null, extinction = null;
+  Atelier.on("mcp_outil", e => {
+    if (!puce) {
+      puce = document.createElement("a");
+      puce.href = "#studio/direct";
+      puce.className = "btn primaire";
+      puce.title = "Cursor agit sur l'automatisation : voir l'écran piloté et chaque appel en direct";
+      puce.style.cssText = "position:fixed;left:16px;bottom:16px;z-index:50;box-shadow:0 4px 14px #0003";
+      document.body.appendChild(puce);
+    }
+    puce.hidden = false;
+    puce.innerHTML = `${ico("ia")}Cursor : ${esc(e.nom)}${e.etat === "debut" ? "…" : e.etat === "erreur" ? " ✕" : " ✓"}`;
+    clearTimeout(extinction);
+    extinction = setTimeout(() => { if (puce) puce.hidden = true; }, 20000);
+  });
+})();
+
 /* Clés de tickets (DEMO-735, SQ1-10…) cliquables partout : ouverture du ticket dans Jira, nouvel onglet.
    Un clic sur la clé n'active pas la ligne qui la contient (pas d'ouverture de panneau en même temps). */
 const CLE_TICKET = /^[A-Z][A-Z0-9_]{0,19}-\d+$/;

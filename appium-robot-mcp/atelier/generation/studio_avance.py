@@ -134,7 +134,20 @@ def propositions_correction() -> list[dict]:
     return out
 
 
-def appliquer_correction(locator_id: str, nouvelle_valeur: str, version_lue: str | None = None) -> dict:
+def suites_impactees(locator: tuple | None = None, keywords: list[str] | None = None) -> list[str]:
+    """Suites dont un test utilise (directement ou par ses keywords) ce locator (écran, clé) ou l'un de ces keywords."""
+    from atelier.execution.depot_robot import dependances_test, lire_depot
+
+    inv = lire_depot()
+    out = set()
+    for tid in inv["tests"]:
+        d = dependances_test(inv, tid)
+        if (locator and list(locator) in d["locators"]) or (keywords and set(keywords) & set(d["keywords"] + inv["tests"][tid]["keywords"])):
+            out.add(tid.split("::", 1)[0])
+    return sorted(out)
+
+
+def appliquer_correction(locator_id: str, nouvelle_valeur: str, version_lue: str | None = None, origine: str = "atelier") -> dict:
     """Remplace la valeur principale du locator dans son fichier (éditeur : historisé, protection contre l'écrasement).
     Les suites qui l'utilisent repassent en revue (empreinte) ; la correction n'est pas déclarée fiable ici."""
     from atelier.domain import roles
@@ -164,9 +177,11 @@ def appliquer_correction(locator_id: str, nouvelle_valeur: str, version_lue: str
         raise ValueError(f"Valeur introuvable de façon unique dans {l['fichier']} ({remplace} occurrence(s)) : corriger dans l'éditeur.")
     contenu = "\n".join(lignes) + ("\n" if avant.endswith("\n") else "")
     r = editeur.enregistrer(l["fichier"], contenu, version_lue if version_lue is not None else avant)
-    studio._journaliser("correction_locator", locator=locator_id, de=l["valeur"], vers=nouvelle_valeur, fichier=l["fichier"])
-    return {**r, "locator": locator_id, "avant": l["valeur"], "apres": nouvelle_valeur,
-            "suite": "Les suites qui utilisent ce locator repassent en revue ; fiabilité confirmée après 3 exécutions stables."}
+    studio._journaliser("correction_locator", locator=locator_id, de=l["valeur"], vers=nouvelle_valeur, fichier=l["fichier"], origine=origine)
+    renvoyees = studio.renvoyer_en_revue(suites_impactees(locator=(l["ecran"], l["cle"])),
+                                         f"locator {locator_id} corrigé ({origine}) : {l['valeur']} → {nouvelle_valeur}")
+    return {**r, "locator": locator_id, "avant": l["valeur"], "apres": nouvelle_valeur, "suites_en_revue": renvoyees,
+            "suite": f"{len(renvoyees)} suite(s) repassée(s) en revue ; fiabilité confirmée après 3 exécutions stables."}
 
 
 # =========================================================================== factorisation des keywords
@@ -220,7 +235,7 @@ def propositions_factorisation(avec_ia: bool = False) -> list[dict]:
     return out
 
 
-def appliquer_factorisation(groupe_id: str) -> dict:
+def appliquer_factorisation(groupe_id: str, origine: str = "atelier") -> dict:
     """Pour un groupe « corps identique » : remplace dans tout le dépôt les appels aux keywords doublons par le keyword
     gardé, puis retire leurs définitions. Chaque fichier passe par l'éditeur (historique + diff) ; les suites modifiées
     repassent en revue. Refusé si un fichier a besoin d'une ressource qu'il n'importe pas."""
@@ -269,7 +284,10 @@ def appliquer_factorisation(groupe_id: str) -> dict:
                       for r in g["remplacer"])
         if appelle and fichier != garde["fichier"] and garde["fichier"] not in accessibles(fichier):
             raise ValueError(f"{fichier} n'importe pas {garde['fichier']} : ajouter la ressource avant de factoriser.")
+    impactees = suites_impactees(keywords=[garde["id"], *[r["id"] for r in g["remplacer"]]])
     resultats = [editeur.enregistrer(f, c) for f, c in modifs.items()]
     studio._journaliser("factorisation_keywords", nom=garde["nom"], garde=garde["id"], retires=[r["id"] for r in g["remplacer"]],
-                        fichiers=sorted(modifs))
-    return {"garde": garde, "retires": g["remplacer"], "fichiers": resultats}
+                        fichiers=sorted(modifs), origine=origine)
+    renvoyees = studio.renvoyer_en_revue(impactees + [f for f in modifs if f.endswith(".robot")],
+                                         f"keywords factorisés ({origine}) : « {garde['nom']} » gardé")
+    return {"garde": garde, "retires": g["remplacer"], "fichiers": resultats, "suites_en_revue": renvoyees}

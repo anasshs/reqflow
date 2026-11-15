@@ -145,3 +145,11 @@ Une ligne datée par décision d'architecture ou de conception.
   l'atelier (historisée) ou par libellé Xray AC<n> / CA<n>.
 - Synchronisations journalisées (ajouts, sorties, liens modifiés) ; une exigence sortie de la JQL est gardée et
   marquée « hors périmètre », jamais supprimée en silence ; une JQL vide n'écrase rien. Instantanés par version.
+
+## 2026-11-15 — Construire avec Cursor : l'agent construit, l'automaticien voit et valide — décision de l'utilisateur
+- Cursor construit les tests par le MCP (socle, scénario BDD, génération, étape isolée, corrections de locators,
+  factorisation) ; il ne peut ni approuver, ni refuser, ni publier. Tout ce qu'il écrit ou corrige renvoie les
+  suites concernées en revue technique.
+- Chaque appel d'outil MCP est publié à l'atelier (début, fin, durée, résultat ; texte saisi et secrets masqués).
+  L'écran piloté est visible : mobile par adb / simctl, navigateur par une image envoyée par le MCP après chaque
+  action (route protégée par le jeton des processus locaux). Vue : Automation Studio › Construire › Avec Cursor.
