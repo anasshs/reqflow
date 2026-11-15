@@ -133,8 +133,8 @@ def lacunes(srcs: list[dict], mods: list[dict], a_valider: int) -> list[dict]:
             out.append({"priorite": 3, "sujet": f"Module {m['module']}", "texte": f"locators fragiles sur {m['ecrans_fragiles']} écran(s)",
                         "action": "#studio/locators", "action_lib": "Corriger les locators"})
     if a_valider:
-        out.append({"priorite": 2, "sujet": "Connaissances à valider", "texte": f"{a_valider} proposition(s) (Discovery, Cursor, règles extraites) attendent une décision",
-                    "action": "#intelligence/validation", "action_lib": "Valider"})
+        out.append({"priorite": 2, "sujet": "Connaissances à valider", "texte": f"{a_valider} proposition(s) (Discovery, Cursor, graphe, Coverage Intelligence) attendent une décision",
+                    "action": "#intelligence/a_valider", "action_lib": "Valider"})
     return sorted(out, key=lambda x: x["priorite"])
 
 
@@ -170,11 +170,14 @@ def vue() -> dict:
     g = connaissance.construire()
     srcs = sources()
     mods = modules(g)
-    a_valider = sum(1 for n in g.noeuds.values() if n.statut == "à valider") + sum(1 for r in g.relations.values() if r.statut == "à valider")
+    try:
+        a_valider_n = len(a_valider())
+    except Exception:  # noqa: BLE001 — une source illisible ne bloque pas le cerveau
+        a_valider_n = sum(1 for n in g.noeuds.values() if n.statut == "à valider")
     app, _, _ = intelligence_app._ecrans_carte()
     slug = carte.app_courante() if carte.app_courante() else ""
     connues = sum(1 for s in srcs if s["fraicheur"] != "jamais")
-    lac = lacunes(srcs, mods, a_valider)
+    lac = lacunes(srcs, mods, a_valider_n)
     try:  # documentation Jira (Coverage Intelligence) : anomalies hautes signalées au cerveau
         from atelier.intelligence import intelligence_couverture
 
@@ -187,7 +190,7 @@ def vue() -> dict:
         pass
     return {"application": {"slug": slug, "nom": app.get("nom") or slug, "plateformes": app.get("plateformes", []), "build": app.get("build", "")},
             "maturite": {"sources_alimentees": connues, "sources": len(srcs), "modules": len(mods), "modules_connus": sum(m["connu"] for m in mods),
-                         "a_valider": a_valider,
+                         "a_valider": a_valider_n,
                          "definition": "Sources alimentées : sources avec au moins une mise à jour ; module connu : au moins un écran ou un parcours dans la carte."},
             "sources": srcs, "modules": mods, "lacunes": lac, "apprentissages": apprentissages(),
             "ia": _ia_etat()}
@@ -256,3 +259,31 @@ def demander(question: str) -> dict:
         resume += d["pistes"][:3]
     return {"mode": "recherche", "reponse": " ".join(resume) or f"{len(faits)} élément(s) liés à la question.", "elements": faits,
             "modules": [m["module"] for m in cibles], "detail": contexte["detail_modules"]}
+
+
+# =========================================================================== une seule boîte « À valider »
+def a_valider() -> list[dict]:
+    """Toutes les propositions en attente d'une décision humaine, d'où qu'elles viennent, sans doublon :
+    Discovery / agent (déclarations et noms d'écrans), relations déduites du graphe, Coverage Intelligence
+    (Stories, critères, liens exigence ↔ test, classements de tests orphelins). Chaque élément dit comment décider."""
+    from atelier.discovery import apprentissage, intelligence_app
+    from atelier.intelligence import intelligence_couverture
+
+    out, vus = [], set()
+    for p in apprentissage.propositions():
+        vus.add(p["id"])
+        src = str(p.get("source") or "")
+        origine = "Cursor" if "cursor" in src.lower() else "Jira (règles extraites)" if src.startswith("jira:") or src == "déduit" else "Discovery"
+        out.append({"source": origine, "decision": "discovery", "id": p["id"], "type": p.get("type", ""), "libelle": p.get("libelle", ""),
+                    "detail": p.get("source") or "", "confiance": None})
+    for v in intelligence_app.validation():
+        if v["id"] not in vus:
+            out.append({"source": "Knowledge Graph (déduit)", "decision": "graphe", "id": v["id"], "type": v["type"], "libelle": v["libelle"],
+                        "detail": v.get("source") or "", "confiance": v.get("confiance")})
+    L = {"user_story": "Story reconstruite", "criteres": "critères d'acceptation", "lien_test": "lien exigence ↔ test", "classement_orphelin": "classement de test orphelin"}
+    for p in intelligence_couverture.propositions(statut="proposee"):
+        c = p["contenu"]
+        out.append({"source": "Coverage Intelligence", "decision": "ci", "id": p["id"], "type": L.get(p["type"], p["type"]),
+                    "libelle": c.get("titre") or f"{c.get('exigence', '')} ↔ {c.get('test', '')}" if p["type"] == "lien_test" else c.get("titre") or c.get("test", ""),
+                    "detail": " · ".join(p.get("justification") or [])[:240], "confiance": p.get("score")})
+    return out

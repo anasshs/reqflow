@@ -2,41 +2,84 @@
    (Jira / Xray, carte observée, dépôt, BDD, déclarations). Aucun second graphe. */
 "use strict";
 (() => {
-  /* Le cerveau de l'application d'abord ; les autres écrans sont regroupés par question (adresses inchangées) */
+  /* 4 entrées : le cerveau, la connaissance (une page par sujet), une seule boîte « À valider », l'historique.
+     Doublons retirés : renvois vers le graphe (un seul lien), « Explorer » (= Discovery), « Réglages » (texte statique),
+     file de validation du graphe et de Discovery (fusionnées avec Coverage Intelligence), changements (dans l'historique).
+     Les anciennes adresses restent valides (ALIAS). */
   const GROUPES = [
-    ["vue", "Cerveau de l'application", [["vue", "Cerveau"]], "Ce que l'atelier sait de l'application, d'où, depuis quand, ce qui manque et quoi faire"],
-    ["jira", "Ce qui est demandé", [["jira", "Exigences Jira"], ["regles", "Règles métier"], ["fonctionnel", "Graphe fonctionnel"]], "Epics, stories, critères d'acceptation et règles métier"],
-    ["ecrans", "Ce qui existe", [["ecrans", "Écrans"], ["parcours", "Parcours"], ["api", "API"], ["carte", "Carte (graphe)"], ["technique", "Graphe technique"]], "Écrans observés, parcours, API et composants"],
-    ["exploration", "Apprendre", [["exploration", "Explorer"], ["reconstruction", "Reconstruction fonctionnelle"], ["validation", "À valider"], ["changements", "Changements"]],
-      "Enrichir la connaissance : explorer, reconstruire les fonctionnalités non documentées, valider les propositions, voir les écarts"],
-    ["impact", "Analyser l'impact", [["impact", "Impact"]], "Ce qui est touché si un écran, une règle ou un locator change"],
-    ["historique", "Historique et versions", [["historique", "Historique"]], "Journal des connaissances et versions nommées du graphe"],
-    ["parametres", "Réglages", [["parametres", "Réglages"]], "Réglages d'Application Intelligence"]];
+    ["vue", "Cerveau", [["vue", "Cerveau"]], "Ce que l'atelier sait de l'application, d'où, depuis quand, ce qui manque et quoi faire"],
+    ["exigences", "Connaissance", [["exigences", "Exigences et règles"], ["ecrans", "Écrans et parcours"], ["api", "API"], ["graphe", "Knowledge Graph"]],
+      "Ce qui est demandé (Jira) et ce qui existe (écrans, parcours, API), reliés dans un seul graphe"],
+    ["a_valider", "À valider", [["a_valider", "À valider"]], "Toutes les propositions en attente : Discovery, Cursor, graphe, Coverage Intelligence"],
+    ["historique", "Historique", [["historique", "Historique"]], "Changements détectés, journal des connaissances et versions du graphe"]];
+  const ALIAS = {jira: "exigences", regles: "exigences", parcours: "ecrans", validation: "a_valider", changements: "historique", parametres: "vue"};
   const MENU = GROUPES.flatMap(g => g[2]);
   const groupeDe = r => GROUPES.find(g => g[2].some(o => o[0] === r)) || GROUPES[0];
-  const GRAPHE = {carte: "graphe/connaissance", fonctionnel: "graphe/fonctionnel", technique: "graphe/technique", impact: "graphe/impact"};
+  const GRAPHE = {graphe: "graphe", carte: "graphe/connaissance", fonctionnel: "graphe/fonctionnel", technique: "graphe/technique", impact: "graphe/impact"};
   let R = "vue";
 
   Atelier.enregistrer("intelligence", {
     async afficher(zone, sous) {
-      R = MENU.some(m => m[0] === sous) ? sous : "vue";
+      if (sous === "exploration") { location.hash = "discovery"; return; }  // l'exploration, c'est Discovery
+      if (sous === "reconstruction") {  // Coverage Intelligence vit dans Test Strategy
+        try { sessionStorage.setItem("ci-onglet", "reconstruction"); } catch (e) { /* facultatif */ }
+        location.hash = "strategie/coverage"; return;
+      }
+      sous = ALIAS[sous] || sous;
+      R = MENU.some(m => m[0] === sous) || GRAPHE[sous] ? sous : "vue";
       if (GRAPHE[R]) { location.hash = GRAPHE[R]; return; }
       const G = groupeDe(R);
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques Application Intelligence"><div class="titre-carte">APPLICATION INTELLIGENCE</div>
-        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span>${GRAPHE[id] ? ` <span class="lib">${ico("graphe")}</span>` : ""}</button></li>`).join("")}</ol>
-        <div class="pied-strat lib">Jira dit ce qui est demandé, l'application montre ce qui existe, Xray comment vérifier, Git l'automatisation : le cerveau relie les quatre, application par application.</div></nav>
+        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span><span class="compl" data-compte="${id}"></span></button></li>`).join("")}</ol>
+        <div class="pied-strat lib">Jira dit ce qui est demandé, l'application montre ce qui existe, Xray comment vérifier, Git l'automatisation : le cerveau relie les quatre, application par application.
+          <br><a href="#discovery" title="Explorer l'application (device, émulateur ou navigateur)">Explorer (Discovery)</a> · <a href="#strategie/coverage" title="Couverture, reconstruction fonctionnelle, liens Jira / Xray">Coverage Intelligence</a></div></nav>
         <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}${GRAPHE[id] ? " ↗" : ""}</button>`).join("")}</div>` : ""}
           <div id="ai-contenu"><div class="corps-carte">${vide("Chargement…")}</div></div></section><aside class="carte panneau-strat" hidden></aside>`;
-      $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = GRAPHE[b.dataset.r] || "intelligence/" + b.dataset.r; });
+      $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "intelligence/" + b.dataset.r; });
       $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = GRAPHE[b.dataset.onglet] || "intelligence/" + b.dataset.onglet; });
+      api("/api/cerveau/a-valider").then(l => { const c = $('[data-compte="a_valider"]', zone); if (c && l.length) c.textContent = l.length; }).catch(() => {});
       const z = $("#ai-contenu");
-      try { await ({vue, jira, parcours, ecrans, api: liste("api", "API Intelligence", "Endpoints et entités déclarés ou importés depuis les contrats OpenAPI / Swagger du projet (api/*.yaml|json ; module par tag, stories par x-jira). Import Postman : à venir."),
-        regles: liste("regles", "Business Rules", "Règles métier déclarées ou extraites des critères d'acceptation Jira (Jira Intelligence › « Proposer les règles métier ») ; provenance, ticket et extrait conservés, validation humaine obligatoire."),
-        exploration, changements, validation, historique, parametres, reconstruction: z => window.CoverageIntelligence(z, "reconstruction")}[R])(z); }
+      try { await ({vue, exigences, ecrans: ecransParcours, a_valider: aValider, historique,
+        api: liste("api", "API", "Endpoints et entités déclarés ou importés depuis les contrats OpenAPI / Swagger du projet (api/*.yaml|json ; module par tag, stories par x-jira).")}[R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
   });
+
+  /* pages fusionnées : une page par sujet, sections empilées */
+  async function sections(z, fns) {
+    z.innerHTML = fns.map((_, i) => `<div id="ai-s${i}"></div>`).join("");
+    for (const [i, f] of fns.entries()) await f($(`#ai-s${i}`, z));
+  }
+  const exigences = z => sections(z, [jira, liste("regles", "Règles métier", "Règles déclarées ou extraites des critères d'acceptation Jira (bouton « Proposer les règles métier » ci-dessus) ; provenance, ticket et extrait conservés, validation dans « À valider ».")]);
+  const ecransParcours = z => sections(z, [parcours, ecrans]);
+
+  /* une seule boîte de validation */
+  async function aValider(z) {
+    const l = await api("/api/cerveau/a-valider");
+    const sources = [...new Set(l.map(x => x.source))];
+    z.innerHTML = `${entete("À valider", `<a class="btn" href="#strategie/coverage" title="Coverage Intelligence : proposer des Stories, analyser les liens exigence ↔ test">Coverage Intelligence</a>`)}<div class="corps-carte">
+      <p class="lib">Toutes les propositions en attente, quelle que soit leur origine (Discovery, Cursor, relations déduites du graphe, Coverage Intelligence). Rien n'est utilisé ni écrit dans Jira / Xray avant validation ; un rejet est motivé et définitif.</p>
+      <div class="btns" style="margin-bottom:8px">${["", ...sources].map(x => `<button class="btn petit ${x ? "" : "primaire"}" data-src="${esc(x)}" title="Filtrer par origine">${esc(x || "Tout")} (${x ? l.filter(y => y.source === x).length : l.length})</button>`).join("")}</div>
+      ${l.length ? `<table class="table-strat" id="av-t"><tr><th>Origine</th><th>Proposition</th><th>Type</th><th>Justification / source</th><th>Confiance</th><th></th></tr>
+        ${l.map((x, i) => `<tr data-s="${esc(x.source)}"><td><span class="pill">${esc(x.source)}</span></td><td><b>${esc(x.libelle)}</b></td><td>${esc(x.type)}</td><td class="lib">${esc(x.detail || "")}</td>
+          <td>${x.confiance === null || x.confiance === undefined ? "—" : esc(String(x.confiance > 1 ? x.confiance : Math.round(x.confiance * 100))) + " %"}</td>
+          <td style="white-space:nowrap">${x.decision === "ci" ? `<a class="btn petit" href="#strategie/coverage" title="Ouvrir le détail (critères, observations, synchronisation) dans Coverage Intelligence">Détail</a>` : ""}
+            <button class="btn petit succes" data-av="${i}" data-v="1" title="Valider">Valider</button><button class="btn petit danger" data-av="${i}" data-v="0" title="Rejeter (motif obligatoire, définitif)">Rejeter</button></td></tr>`).join("")}</table>`
+        : vide("Rien à valider", "Aucune proposition en attente.")}</div>`;
+    $$("[data-src]", z).forEach(b => b.onclick = () => { $$("[data-src]", z).forEach(x => x.classList.toggle("primaire", x === b));
+      $$("#av-t tr[data-s]", z).forEach(tr => { tr.hidden = !!b.dataset.src && tr.dataset.s !== b.dataset.src; }); });
+    $$("[data-av]", z).forEach(b => b.onclick = async () => {
+      const x = l[+b.dataset.av], valider = b.dataset.v === "1";
+      const motif = valider ? "" : prompt("Motif du rejet (définitif, historisé) :", "");
+      if (!valider && !motif) return;
+      try {
+        if (x.decision === "discovery") await api("/api/discovery/propositions/decider", {method: "POST", body: {id: x.id, valider, motif}});
+        else if (x.decision === "graphe") await api(valider ? "/api/graphes/valider" : "/api/graphes/rejeter", {method: "POST", body: {id: x.id, motif}});
+        else await api("/api/ci/decider", {method: "POST", body: {id: x.id, decision: valider ? "valider" : "rejeter", motif}});
+        toast(valider ? "Validé (historisé)." : "Rejeté (historisé).", "ok"); aValider(z);
+      } catch (e) { toast(e.message, "ko"); } });
+  }
 
   const entete = (t, a = "") => `<h2 class="titre-carte">${esc(t)}<span class="actions-titre">${a}</span></h2>`;
   const date = d => d ? esc(String(d).replace("T", " ").slice(0, 16)) : "—";
@@ -120,9 +163,9 @@
       <td>${e.tests.map(t => `<span class="pill ${t.automatise ? "ok" : ""}" title="${esc(t.resume)}">${esc(t.cle)}${t.automatise ? " auto" : ""}</span>`).join(" ") || (e.type === "epic" ? '<span class="lib">via stories</span>' : '<span class="pill ko">aucun test</span>')}</td></tr>`
       + e.enfants.map(c => par[c] ? ligne(par[c], n + 1) : "").join("");
     const cr = await api("/api/intelligence/criteres").catch(() => []);
-    z.innerHTML = `${entete("Jira Intelligence", `<a class="btn" href="#rapports/patrimoine">Synchroniser (JQL)</a><button class="btn primaire" id="ji-an">Proposer les règles métier</button>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Exigences Jira", `<a class="btn" href="#rapports/patrimoine">Synchroniser (JQL)</a><button class="btn primaire" id="ji-an">Proposer les règles métier</button>`)}<div class="corps-carte">
       <p class="lib">Tickets de l'instantané Jira / Xray, hiérarchie Epic → Story et tests Xray associés (traçabilité dans les deux sens). Critères d'acceptation structurés et règles candidates extraits par motifs explicites (sans IA)
-        depuis les descriptions et le champ JIRA_CHAMP_CRITERES ; chaque proposition passe par la file de validation, un rejet est définitif. Extraction de fonctionnalités par IA : à venir.</p>
+        depuis les descriptions et le champ JIRA_CHAMP_CRITERES ; chaque proposition passe par « À valider », un rejet est définitif. Stories mal documentées et fonctionnalités observées sans exigence : <a href="#strategie/coverage">Coverage Intelligence</a>.</p>
       ${l.length ? `<table class="table-strat"><tr><th>Ticket</th><th>Type</th><th>Statut</th><th>Module</th><th>Tests Xray</th></tr>${racines.map(e => ligne(e, 0)).join("")}</table>` : vide("Aucun ticket", "Importer l'instantané Xray / synchroniser Jira.")}
       <h3 class="lib" style="margin-top:14px">CRITÈRES D'ACCEPTATION STRUCTURÉS (motifs explicites, sans IA)</h3>
       ${cr.length ? `<table class="table-strat"><tr><th>Ticket</th><th>Critère</th><th>Condition</th><th>Action</th><th>Résultat attendu</th><th>Règle candidate</th></tr>${cr.map(c => `<tr><td class="cle-xray">${esc(c.ticket)}</td><td>${esc(c.texte)}</td>
@@ -134,16 +177,16 @@
 
   async function parcours(z) {
     const l = await api("/api/intelligence/parcours");
-    z.innerHTML = `${entete("User Journeys", `<a class="btn" href="#graphe/parcours">${ico("graphe")}Parcours (graphe)</a><a class="btn" href="#bdd">Scénarios BDD</a>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Parcours", `<a class="btn" href="#graphe/parcours">${ico("graphe")}Parcours (graphe)</a><a class="btn" href="#bdd">Scénarios BDD</a>`)}<div class="corps-carte">
       ${l.length ? `<table class="table-strat"><tr><th>Parcours / action</th><th>Provenance</th><th>Statut</th><th>Relations</th></tr>${l.map(n => `<tr><td><b>${esc(n.libelle)}</b><div class="lib">${esc(n.type)}</div></td><td>${esc(n.provenance)}</td><td>${esc(n.statut)}</td>
         <td class="lib">${esc(n.relations.map(r => `${r.sens} ${r.type} ${r.cible}`).join(" · "))}</td></tr>`).join("")}</table>`
         : vide("Aucun parcours déclaré", "Les transitions observées (carte) et les scénarios BDD décrivent les chemins ; déclarer un parcours : Knowledge Graph › Ajouter nœud (type parcours).")}
-      <p class="lib" style="margin-top:10px">Journey Builder graphique (étapes, alternatives, conditions) : la Construction BDD en tient lieu aujourd'hui ; éditeur de parcours dédié à venir.</p></div>`;
+      <p class="lib" style="margin-top:10px">Les parcours viennent de Discovery (transitions observées) et des déclarations ; « Du parcours au test » (Discovery) en fait un scénario BDD.</p></div>`;
   }
 
   async function ecrans(z) {
     const l = await api("/api/intelligence/ecrans");
-    z.innerHTML = `${entete("Screen Explorer", `<a class="btn" href="/">Carte (interface classique)</a>`)}<div class="corps-carte">${l.map(e => `<section class="bloc-strat" style="margin-bottom:12px">
+    z.innerHTML = `${entete("Écrans observés", `<a class="btn" href="#discovery" title="Explorer pour compléter la carte">Explorer (Discovery)</a>`)}<div class="corps-carte">${l.map(e => `<section class="bloc-strat" style="margin-bottom:12px">
         <h3>${esc(e.nom)} <span class="lib">${esc(e.module || "")} · ${esc(e.titre || "")}</span>${e.a_revoir ? ' <span class="pill warn">à revoir</span>' : ""}</h3>
         <div style="display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px">${e.vignettes.map(v => `<img src="/api/carte/vignette/${encodeURIComponent(v)}" alt="${esc(e.nom)}" style="max-width:200px;border-radius:8px">`).join("") || "<div></div>"}
         <div><table><tr><th>Composant</th><th>Type</th>${Object.keys(e.plateformes).map(p => `<th>${esc(p)}</th>`).join("")}</tr>${e.elements.map(x => `<tr><td>${esc(x.cle)}<div class="lib">${esc(x.libelle || "")}</div></td><td>${esc(x.type || "")}</td>
@@ -162,39 +205,14 @@
     };
   }
 
-  function exploration(z) {
-    z.innerHTML = `${entete("Application Exploration", `<a class="btn primaire" href="/">Ouvrir l'exploration (interface classique)</a>`)}<div class="corps-carte"><ul class="liste">
-      <li><b>Exploration guidée</b> : session Appium / navigateur, « Où suis-je ? », nommage des écrans (outils MCP where_am_i, name_screen).</li>
-      <li><b>Exploration automatique</b> : outil explore (profondeur, nombre d'écrans, durée) — aucune saisie, aucune case cochée, liste rouge (confirmer, payer, virement, supprimer…) jamais touchée, liens externes ignorés.</li>
-      <li><b>Cartographie par les tests</b> : listener de cartographie pendant un run Robot (option « cartographie »).</li>
-      <li><b>Exploration assistée par IA, découverte d'API</b> : à venir.</li></ul>
-      <p class="lib">Les écrans découverts sont comparés à la carte existante (empreinte) avant intégration ; une correspondance incertaine est proposée à la validation.</p></div>`;
-  }
 
-  async function changements(z) {
-    const l = await api("/api/intelligence/changements");
-    z.innerHTML = `${entete("Change Detection", `<a class="btn" href="#graphe/impact">Analyse d'impact</a>`)}<div class="corps-carte">
-      <p class="lib">Changements détectés en comparant les sources entre elles (carte observée, dépôt, Xray). Les changements Jira (versions de tickets) nécessitent l'import Jira incrémental : à venir.
-        Un changement Jira ne signifie pas que l'application a déjà évolué : les deux sources restent distinguées.</p>
-      ${l.length ? `<table class="table-strat"><tr><th>Source</th><th>Nature</th><th>Élément</th><th>Impact</th></tr>${l.map(c => `<tr><td>${esc(c.source)}</td><td>${esc(c.nature)}</td><td class="mono">${esc(c.element)}</td><td>${esc(c.impact)}</td></tr>`).join("")}</table>`
-        : vide("Aucun changement détecté", "Carte, dépôt et Xray sont cohérents.")}</div>`;
-  }
 
-  async function validation(z) {
-    const l = await api("/api/intelligence/validation");
-    z.innerHTML = `${entete("Knowledge Validation")}<div class="corps-carte"><p class="lib">Propositions (relations déduites, éléments proposés par l'IA) en attente de décision humaine ; jamais utilisées pour une décision avant validation.</p>
-      ${l.length ? `<table class="table-strat"><tr><th>Objet</th><th>Élément</th><th>Type</th><th>Provenance</th><th>Source</th><th></th></tr>${l.map(x => `<tr><td>${esc(x.objet)}</td><td>${esc(x.libelle)}</td><td>${esc(x.type)}</td><td>${esc(x.provenance)}</td><td>${esc(x.source)}</td>
-        <td class="btns"><button class="btn petit succes" data-ok="${esc(x.id)}">Valider</button><button class="btn petit danger" data-ko="${esc(x.id)}" data-objet="${esc(x.objet)}">Rejeter</button></td></tr>`).join("")}</table>`
-        : vide("File vide", "Aucune proposition en attente.")}</div>`;
-    $$("[data-ok]", z).forEach(b => b.onclick = async () => { try { await api("/api/graphes/valider", {method: "POST", body: {id: b.dataset.ok}}); toast("Validé (historisé).", "ok"); validation(z); } catch (e) { toast(e.message, "ko"); } });
-    $$("[data-ko]", z).forEach(b => b.onclick = async () => { const motif = prompt("Motif du rejet (historisé ; la proposition ne sera plus jamais reproposée) :");
-      if (motif === null) return;
-      try { await api("/api/graphes/rejeter", {method: "POST", body: {id: b.dataset.ko, motif}}); toast("Rejeté (historisé, définitif).", "ok"); validation(z); } catch (e) { toast(e.message, "ko"); } });
-  }
 
   async function historique(z) {
-    const [h, vs] = await Promise.all([api("/api/graphes/historique").catch(() => []), api("/api/intelligence/versions").catch(() => [])]);
-    z.innerHTML = `${entete("Knowledge History", `<input class="in" id="kv-nom" placeholder="Nom (ex. v1.1)" style="width:140px"><button class="btn primaire" id="kv-ok">Créer une version</button>`)}<div class="corps-carte">
+    const [h, vs, ch] = await Promise.all([api("/api/graphes/historique").catch(() => []), api("/api/intelligence/versions").catch(() => []), api("/api/intelligence/changements").catch(() => [])]);
+    z.innerHTML = `${entete("Historique", `<input class="in" id="kv-nom" placeholder="Nom (ex. v1.1)" style="width:140px"><button class="btn primaire" id="kv-ok">Créer une version</button>`)}<div class="corps-carte">
+      <h3 class="lib">CHANGEMENTS DÉTECTÉS (carte, dépôt, Xray)</h3>${ch.length ? `<table class="table-strat" style="margin-bottom:12px"><tr><th>Source</th><th>Nature</th><th>Élément</th><th>Impact</th></tr>${ch.map(c => `<tr><td>${esc(c.source)}</td><td>${esc(c.nature)}</td><td class="mono">${esc(c.element)}</td><td>${esc(c.impact)}</td></tr>`).join("")}</table>`
+        : "<p class='lib'>Aucun écart : carte, dépôt et Xray sont cohérents.</p>"}
       <h3 class="lib">VERSIONS DU GRAPHE (immuables)</h3>${vs.length ? `<table class="table-strat"><tr><th>Version</th><th>Date</th><th>Auteur</th><th>Nœuds</th><th>Relations</th><th>Description</th><th></th></tr>
         ${vs.map(v => `<tr><td><b>${esc(v.nom)}</b></td><td class="mono">${date(v.date)}</td><td>${esc(v.auteur)}</td><td>${v.noeuds}</td><td>${v.relations}</td><td class="lib">${esc(v.description)}</td>
           <td class="btns"><button class="btn petit" data-cmp="${esc(v.nom)}">Comparer au courant</button><button class="btn petit" data-rest="${esc(v.nom)}">Restaurer</button></td></tr>`).join("")}</table><div id="kv-res"></div>`
@@ -209,9 +227,4 @@
       try { const r = await api("/api/intelligence/versions/restaurer", {method: "POST", body: {nom: b.dataset.rest}}); toast(`Restauré ; sauvegarde ${r.sauvegarde}.`, "ok"); historique(z); } catch (e) { toast(e.message, "ko"); } });
   }
 
-  function parametres(z) {
-    z.innerHTML = `${entete("Settings")}<div class="corps-carte"><dl class="props"><dt>Jira / Xray</dt><dd>variables d'environnement (Paramètres globaux), instantané patrimoine/xray.json, mapping dans <a href="#conception/mapping">Test Design</a></dd>
-      <dt>Exploration</dt><dd>profondeur, nombre d'écrans, durée, liste rouge par application (carte)</dd><dt>Graphe</dt><dd>types de nœuds et relations du domaine (atelier/domain/graphe.py), provenance observé / déclaré / déduit</dd>
-      <dt>IA</dt><dd>${Atelier.ctx.agent_integre ? "disponible (CLAUDE_MODEL)" : "désactivée"} ; propositions toujours « à valider »</dd></dl></div>`;
-  }
 })();

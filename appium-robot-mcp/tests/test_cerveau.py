@@ -77,3 +77,19 @@ def test_outils_mcp_du_cerveau(demo):
     v = facade.cerveau_application()
     assert set(v) == {"application", "maturite", "sources", "modules", "lacunes"}
     assert facade.cerveau_question("connexion")["mode"] == "recherche"
+
+
+def test_une_seule_boite_a_valider_sans_doublon(demo, monkeypatch):
+    from atelier.discovery import apprentissage, intelligence_app
+    from atelier.intelligence import cerveau, intelligence_couverture
+
+    monkeypatch.setattr(apprentissage, "propositions", lambda session="": [{"id": "ecran:x", "type": "ecran", "libelle": "Écran X", "source": "Cursor (MCP)"}])
+    monkeypatch.setattr(intelligence_app, "validation", lambda: [
+        {"objet": "nœud", "id": "ecran:x", "libelle": "Écran X", "type": "ecran", "provenance": "déclaré", "source": "cursor", "confiance": 0.5},
+        {"objet": "relation", "id": "r1", "libelle": "a — mène_à → b", "type": "navigue_vers", "provenance": "déduit", "source": "carte", "confiance": None}])
+    monkeypatch.setattr(intelligence_couverture, "propositions", lambda type_="", statut="": [
+        {"id": "P1", "type": "lien_test", "contenu": {"exigence": "DEMO-12", "test": "DEMO-102"}, "justification": ["termes communs"], "score": 80}])
+    l = cerveau.a_valider()
+    assert [(x["decision"], x["id"]) for x in l] == [("discovery", "ecran:x"), ("graphe", "r1"), ("ci", "P1")]  # ecran:x une seule fois
+    assert l[0]["source"] == "Cursor" and l[2]["libelle"] == "DEMO-12 ↔ DEMO-102" and l[2]["confiance"] == 80
+    assert cerveau.vue()["maturite"]["a_valider"] == 3

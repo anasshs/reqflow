@@ -2922,6 +2922,14 @@ async def cerveau_module(module: str):
     return await asyncio.to_thread(_call, plan_test.plan, module)
 
 
+@app.get("/api/cerveau/a-valider")
+async def cerveau_a_valider():
+    """Une seule boîte : propositions Discovery / agent, relations déduites du graphe, Coverage Intelligence."""
+    from atelier.intelligence import cerveau
+
+    return await asyncio.to_thread(_call, cerveau.a_valider)
+
+
 @app.post("/api/cerveau/question")
 async def cerveau_question(req: Request):
     """Question posée au cerveau : réponse fondée sur ses seules connaissances (IA si configurée, sinon les faits)."""

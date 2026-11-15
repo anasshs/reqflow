@@ -18,6 +18,9 @@
   let ONGLET = "overview";
 
   window.CoverageIntelligence = async (z, onglet) => {
+    if (!onglet) {  // ouvert depuis un autre module sur un onglet précis (ex. Application Intelligence › Reconstruction)
+      try { onglet = sessionStorage.getItem("ci-onglet") || ""; sessionStorage.removeItem("ci-onglet"); } catch (e) { /* facultatif */ }
+    }
     ONGLET = onglet || ONGLET;
     if (ONGLET === "graphe") { location.hash = "graphe/couverture"; return; }
     z.innerHTML = `<h2 class="titre-carte">Coverage Intelligence<span class="actions-titre">
