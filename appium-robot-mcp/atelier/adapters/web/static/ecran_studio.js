@@ -71,8 +71,10 @@
           ${barres("Tests par plateforme", v.tests_par_plateforme)}${barres("Réutilisation des keywords", v.keywords_reutilisation)}
           <section class="bloc-strat"><h3>Activité</h3><ul class="liste">${v.activite.map(a => `<li><span class="mono lib">${esc(a.date.slice(5, 16).replace("T", " "))}</span><span class="item">${esc(a.op.replace(/_/g, " "))} ${esc(a.fichier || a.nom || a.locator || "")} ${a.vers ? "→ " + esc(LIB[a.vers] || a.vers) : ""}</span></li>`).join("") || "<li class='lib'>Aucune activité.</li>"}</ul></section></div>
         <section class="bloc-strat" style="margin-top:12px"><h3>Évolution dans le temps</h3>${courbes(v.tendance)}</section>
+        <section class="bloc-strat" style="margin-top:12px"><h3>Productivité et qualité de la revue</h3><div id="vu-prod" class="lib">Chargement…</div></section>
         <p class="lib">${v.roles.actifs ? `Rôles actifs : vous êtes <b>${esc(v.roles.utilisateur)}</b> (${esc(v.roles.role)})${v.roles.quatre_yeux ? " · quatre yeux en revue" : ""}.`
           : `Rôles non activés : tout le monde peut tout faire (<a href="#studio/parametres">activer les rôles</a>).`}</p></div>`;
+    productivite();
   }
 
   /* ------------------------------------------------------------------ Construire avec Cursor, en direct
@@ -84,7 +86,8 @@
     const [bdds, rev] = await Promise.all([api("/api/bdd").catch(() => []), api("/api/studio/revues").catch(() => ({}))]);
     const parCursor = Object.entries(rev).filter(([, r]) => (r.historique || []).some(h => /\(cursor\)/.test(h.commentaire || "")) && r.statut !== "Published");
     z.innerHTML = `${entete("Construire avec Cursor", `<select class="in" id="dr-cle" style="width:auto" title="Scénario BDD à faire construire">${bdds.map(b => `<option value="${esc(b.cle)}">${esc(b.cle)} ${esc(b.titre || "")}</option>`).join("") || "<option value=''>aucun scénario BDD</option>"}</select>
-        <button class="btn primaire" id="dr-dem" title="Demande prête à coller dans Cursor pour ce scénario">${ico("ia")}Demander à Cursor</button>`)}
+        <select class="in" id="dr-mod" style="width:auto" title="Modèle de demande (réglables dans Environnement › Réglages)"></select>
+        <button class="btn primaire" id="dr-dem" title="Demande prête à coller dans Cursor, selon le modèle et le scénario choisis">${ico("ia")}Demander à Cursor</button>`)}
       <div class="corps-carte">
         <ol class="workflow" style="margin-bottom:10px"><li>Vous demandez (bouton ci-dessus)</li><li>Cursor pilote l'écran et écrit le test : vous le voyez ici</li><li>Il le soumet en revue</li><li>Vous approuvez, demandez des modifications ou refusez</li></ol>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span id="dr-etat" class="lib"></span>
@@ -94,8 +97,10 @@
         <div id="dr-attente"></div>
         <div style="display:grid;grid-template-columns:minmax(260px,420px) minmax(0,1fr);gap:12px;align-items:start">
           <section class="bloc-strat"><h3>Écran piloté <span class="lib" id="dr-cible" style="font-weight:normal"></span></h3>
-            <div id="dr-ecran" style="min-height:260px;display:flex;align-items:center;justify-content:center;background:var(--fond-2, #0001);border-radius:8px;overflow:hidden">
+            <div style="position:relative"><div id="dr-ecran" style="min-height:260px;display:flex;align-items:center;justify-content:center;background:var(--fond-2, #0001);border-radius:8px;overflow:hidden">
               <span class="lib" style="padding:16px">En attente d'une session (device, émulateur ou navigateur) ouverte par Cursor.</span></div>
+              <div id="dr-cadre" hidden style="position:absolute;border:3px solid var(--ko, #dc2626);border-radius:4px;box-shadow:0 0 0 9999px #0002;pointer-events:none;transition:all .2s">
+                <span id="dr-cadre-l" style="position:absolute;top:-22px;left:-3px;background:var(--ko, #dc2626);color:#fff;font-size:11px;padding:1px 6px;border-radius:3px;white-space:nowrap"></span></div></div>
             <p class="lib" style="margin-top:6px">Mobile : écran lu en direct sur le device / l'émulateur. Navigateur : image envoyée par le MCP après chaque action.</p></section>
           <section class="bloc-strat"><h3>Ce que fait Cursor <label class="lib" style="font-weight:normal;margin-left:8px" title="Masquer les simples lectures (socle, carte, fichiers)"><input type="checkbox" id="dr-lect"> masquer les lectures</label></h3>
             <ol id="dr-tl" class="liste" style="max-height:440px;overflow:auto;margin:0"></ol></section></div>
@@ -110,7 +115,12 @@
         <td class="mono lib">${esc(x.ecrits.join(", ") || "—")}</td><td><button class="btn petit" data-rejouer-s="${esc(x.id)}" title="Revoir chaque appel et l'écran après chaque action">Revoir</button></td></tr>`).join("")}</table>`
         : "Aucune session enregistrée.";
       $$("[data-rejouer-s]", z).forEach(b => b.onclick = () => rejouerSession(b.dataset.rejouerS)); }).catch(e => { $("#dr-sess").textContent = e.message; });
-    $("#dr-dem").onclick = () => { const cle = $("#dr-cle").value;
+    api("/api/studio/modeles").then(m => { $("#dr-mod").innerHTML = Object.entries(m).map(([k, x]) => `<option value="${esc(k)}" ${k === (Atelier.plateforme === "web" ? "web" : "mobile") ? "selected" : ""}>${esc(x.titre)}</option>`).join(""); }).catch(() => {});
+    $("#dr-dem").onclick = async () => { const cle = $("#dr-cle").value, b = bdds.find(x => x.cle === cle) || {};
+      if ($("#dr-mod").value) {
+        try { const r = await api("/api/studio/modeles/rendre", {method: "POST", body: {cle: $("#dr-mod").value, scenario: cle, titre: b.titre || "", plateforme: Atelier.plateforme || "web"}});
+          return demandeCursor(r.texte + " Je suis l'écran et tes actions dans Automation Studio › Construire et je valide la revue."); } catch (e) { toast(e.message, "ko"); }
+      }
       demandeCursor(cle ? `Construis le test Robot du scénario BDD ${cle} avec le MCP de l'atelier : studio_socle, studio_scenario_bdd("${cle}"), ouvre la session (start_session) et vérifie chaque étape à l'écran, `
         + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants sans wrapper 1:1, corrige les locators fragiles (studio_corrections_locators, studio_corriger_locator), `
         + `vérifie en dry_run, écris la suite puis studio_soumettre_revue. Je suis l'écran et tes actions dans Automation Studio › Construire et je valide la revue.`
@@ -163,6 +173,20 @@
     $$("[data-pilote]", z).forEach(b => b.onclick = async () => {
       try { await api("/api/agent/pilotage", {method: "POST", body: {etat: b.dataset.pilote}}); rafraichir(); } catch (e) { toast(e.message, "ko"); } });
     const minuteur = setInterval(rafraichir, 1500);
+    // élément que Cursor s'apprête à toucher (surlignage publié par le MCP avant l'action), cadré sur l'écran
+    let effacer = null;
+    const desaboCadre = Atelier.on("surlignage", e => {
+      if (!document.body.contains(z)) return desaboCadre();
+      const img = $("#dr-ecran img"), c = $("#dr-cadre");
+      if (!img || !c) return;
+      const ri = img.getBoundingClientRect(), rp = c.parentElement.getBoundingClientRect();
+      Object.assign(c.style, {left: `${ri.left - rp.left + e.x * ri.width}px`, top: `${ri.top - rp.top + e.y * ri.height}px`,
+        width: `${Math.max(8, e.w * ri.width)}px`, height: `${Math.max(8, e.h * ri.height)}px`});
+      $("#dr-cadre-l").textContent = e.label || "";
+      c.hidden = false;
+      clearTimeout(effacer);
+      effacer = setTimeout(() => { c.hidden = true; }, 3000);
+    });
     rafraichir();
     $("#dr-lect").onchange = rafraichir;
   }
@@ -175,6 +199,22 @@
         vous décidez dans <a href="#studio/revue">Revue et publication</a>.</p>`, `<button class="btn primaire" id="dc-copier">Copier</button>`);
     $("#dc-copier", m.el).onclick = async () => { try { await navigator.clipboard.writeText(texte); toast("Demande copiée : la coller dans Cursor.", "ok"); m.fermer(); }
       catch (e) { $("textarea", m.el).select(); toast("Sélectionnée : Ctrl + C pour copier.", "ok"); } };
+  }
+
+  async function productivite() {
+    const x = await api("/api/studio/productivite").catch(e => ({erreur: e.message}));
+    const z = $("#vu-prod");
+    if (!z) return;
+    if (x.erreur) { z.textContent = x.erreur; return; }
+    const O = {cursor: "Cursor", builder: "Builder (palette)", bdd: "depuis le BDD", existant: "patrimoine existant"};
+    const kpi = (val, l, t = "") => `<div class="kpi" title="${esc(t)}"><div class="v">${val ?? "—"}</div><div class="l">${l}</div></div>`;
+    z.innerHTML = `<div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:8px">
+        ${kpi(x.scripts_par_origine.cursor || 0, "scripts écrits par Cursor")}${kpi((x.scripts_par_origine.builder || 0) + (x.scripts_par_origine.bdd || 0), "scripts construits dans l'atelier")}
+        ${kpi(x.taux_refus === null ? null : String(x.taux_refus).replace(".", ",") + " %", "taux de refus", `${x.decisions} décision(s) d'approbation ou de refus`)}
+        ${kpi(x.derogations, "approbations par dérogation", "Approuvées sans run réussi, avec justification")}${kpi(x.sessions_cursor, "sessions Cursor", `${x.appels_cursor} appels, ${x.erreurs_cursor} en erreur`)}</div>
+      <p>Délai moyen génération → approbation : ${Object.entries(x.delai_moyen_approbation_h).map(([o, h]) => `${esc(O[o] || o)} <b>${String(h).replace(".", ",")} h</b>`).join(" · ") || "pas encore d'approbation"}</p>
+      <h3 style="margin-top:8px">Dernières modifications demandées</h3>${x.modifications_demandees.length ? `<ul class="liste">${x.modifications_demandees.map(m => `<li><span class="mono lib">${esc(m.date.slice(0, 10))}</span><span class="item">« ${esc(m.commentaire)} »</span><span class="mono lib">${esc(m.fichier)}</span></li>`).join("")}</ul>
+        <p class="lib">Les motifs qui reviennent sont à ajouter à la règle Cursor ou aux modèles de demandes (Environnement › Réglages).</p>` : "<p class='lib'>Aucune.</p>"}`;
   }
 
   /* courbes SVG des relevés quotidiens (un point par jour réellement relevé ; rien n'est reconstitué) */
@@ -567,6 +607,28 @@
       catch (e) { toast(e.message, "ko"); }
     };
     if ($("#rv-sess", p)) $("#rv-sess", p).onclick = () => rejouerSession(r.session_agent);
+    if (["Approved", "Published"].includes(r.statut)) {
+      const q = document.createElement("div");
+      $(".corps-carte", p).prepend(q);
+      const rendreQ = async () => {
+        const x = await api("/api/studio/qualification?fichier=" + encodeURIComponent(f)).catch(e => ({erreur: e.message}));
+        if (x.erreur) { q.innerHTML = `<p class="ko-t">${esc(x.erreur)}</p>`; return; }
+        q.innerHTML = `<section class="bloc-strat" style="margin-bottom:10px"><h3>Qualification ${x.stable ? '<span class="pill ok">stable</span>' : '<span class="pill warn">à qualifier</span>'}</h3>
+          <p class="lib">Règle : ${x.runs_requis} exécutions réelles réussies d'affilée + revue humaine avant de déclarer le test fiable.</p>
+          ${Object.entries(x.tests).map(([t, seq]) => `<div><span class="mono">${esc(t)}</span> ${seq.map(v => `<span class="pill ${v === "PASS" ? "ok" : "ko"}">${esc(v)}</span>`).join(" ") || '<span class="lib">aucune exécution réelle</span>'}</div>`).join("")}
+          <div class="btns" style="margin:8px 0"><button class="btn primaire" id="rv-qual" title="Met ${x.runs_requis} runs réels de cette suite en file (résultats non publiés dans Xray) ; rouvrir la revue à la fin">${ico("play")}Qualifier (${x.runs_requis} runs)</button></div>
+          ${x.cles.map(c => `<div style="margin:4px 0"><span class="cle-xray">${esc(c.cle)}</span> ${pill("", c.libelle)}
+            ${c.automatise ? "" : c.peut_passer ? `<button class="btn petit succes" data-auto="${esc(c.cle)}" title="Transition Jira vers « Automatisé » (gardes vérifiées : script, 3 runs stables, revue)">Passer à « Automatisé »</button>`
+              : `<span class="lib" title="${esc(c.gardes.map(g => (g.ok ? "✓ " : "✕ ") + g.message).join("\n"))}">« Automatisé » pas encore possible</span>`}</div>`).join("")}</section>`;
+        $("#rv-qual", q).onclick = async () => { if (!confirm(`Lancer ${x.runs_requis} runs réels de ${f} (plateforme ${Atelier.plateforme || "web"}) ?`)) return;
+          try { const rr = await api("/api/studio/qualifier", {method: "POST", body: {fichier: f, plateforme: Atelier.plateforme || "web", env: Atelier.env || ""}});
+            toast(`${rr.runs.length} run(s) en file : ${rr.runs.join(", ")}.`, "ok"); } catch (e) { toast(e.message, "ko"); } };
+        $$("[data-auto]", q).forEach(b => b.onclick = async () => {
+          try { await api("/api/conception/cycle-vie/" + encodeURIComponent(b.dataset.auto), {method: "POST", body: {vers: "automatise", commentaire: `qualifié dans Automation Studio (${f})`}});
+            toast(`${b.dataset.auto} : Automatisé.`, "ok"); rendreQ(); } catch (e) { toast(e.message, "ko"); } });
+      };
+      rendreQ();
+    }
   }
 
   /* rejoue une session de l'agent : appels dans l'ordre, avec l'écran après chaque action */
@@ -598,7 +660,20 @@
       <section class="bloc-strat"><h3>IA, Git, Xray</h3><dl class="props"><dt>IA</dt><dd>${Atelier.ctx.agent_integre ? "clé présente (CLAUDE_MODEL)" : "désactivée"} · validation humaine obligatoire</dd>
         <dt>Git</dt><dd>branche et commit local (branches protégées refusées, suites approuvées uniquement) ; push et merge request GitLab depuis « Revue et publication › Git et merge request » (suites approuvées et stables, dérogation justifiée sinon)</dd><dt>Xray</dt><dd><a href="#conception/mapping">Mapping (Test Design)</a></dd>
         <dt>Connexions communes</dt><dd><a href="#parametres">Paramètres globaux</a></dd></dl></section></div>
+      <section class="bloc-strat" style="margin-top:12px"><h3>Modèles de demandes pour Cursor</h3>
+        <p class="lib">Variables : {cle} (scénario BDD / test Xray), {titre}, {plateforme}. Proposés dans Construire › Avec Cursor. Un modèle par défaut modifié peut être rétabli.</p><div id="mo-z">Chargement…</div></section>
       <section class="bloc-strat" style="margin-top:12px"><h3>Rôles et droits</h3><div id="ro-z" class="lib">Chargement…</div></section></div>`;
+    const rendreModeles = m => {
+      $("#mo-z").innerHTML = `${Object.entries(m).map(([k, x]) => `<div class="bloc-strat" style="margin:6px 0"><div class="btns"><span class="mono">${esc(k)}</span><input class="in" data-mo-t="${esc(k)}" value="${esc(x.titre)}" style="flex:1" title="Titre affiché dans la liste">
+          <button class="btn petit" data-mo-ok="${esc(k)}" title="Enregistre ce modèle pour le projet">${ico("disque")}Enregistrer</button><button class="btn petit" data-mo-x="${esc(k)}" title="Supprime la version du projet (un modèle par défaut retrouve son texte d'origine)">Rétablir / supprimer</button></div>
+          <textarea class="in" data-mo-x-t="${esc(k)}" rows="3" style="width:100%">${esc(x.texte)}</textarea></div>`).join("")}
+        <div class="btns"><input class="in" id="mo-n" placeholder="nouvel_identifiant" style="width:200px"><button class="btn" id="mo-aj" title="Ajoute un modèle vide à compléter">${ico("plus")}Ajouter un modèle</button></div>`;
+      const envoyer = async corps => { try { rendreModeles(await api("/api/studio/modeles", {method: "POST", body: corps})); toast("Modèles enregistrés.", "ok"); } catch (e) { toast(e.message, "ko"); } };
+      $$("[data-mo-ok]").forEach(b => b.onclick = () => envoyer({cle: b.dataset.moOk, titre: $(`[data-mo-t="${b.dataset.moOk}"]`).value, texte: $(`[data-mo-x-t="${b.dataset.moOk}"]`).value}));
+      $$("[data-mo-x]").forEach(b => b.onclick = () => envoyer({cle: b.dataset.moX, supprimer: true}));
+      $("#mo-aj").onclick = () => envoyer({cle: $("#mo-n").value.trim(), titre: "Nouveau modèle", texte: "Construis le test Robot du scénario {cle} ({titre}) avec le MCP de l'atelier, puis studio_soumettre_revue."});
+    };
+    api("/api/studio/modeles").then(rendreModeles).catch(e => { $("#mo-z").textContent = e.message; });
     const rendreRoles = r => {
       const lignes = Object.entries(r.utilisateurs).concat([["", "automaticien"]]);
       $("#ro-z").innerHTML = `<p>${r.actifs ? `Actifs (fichier <code>${esc(r.fichier)}</code> du projet, partagé par Git). Vous : <b>${esc(r.utilisateur)}</b> — ${esc(r.role)}.`

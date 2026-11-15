@@ -2588,6 +2588,57 @@ async def studio_etape(req: Request):
     return {**job, **e}
 
 
+@app.get("/api/studio/qualification")
+async def studio_qualification(fichier: str):
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.qualification, fichier)
+
+
+@app.post("/api/studio/qualifier")
+async def studio_qualifier(req: Request):
+    """3 runs réels de la suite approuvée, à la file : l'invariant « 3 exécutions stables » se vérifie ensuite."""
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    l = _call(studio_avance.runs_qualification, b.get("fichier", ""), b.get("plateforme") or "web", b.get("env") or "")
+    jobs = [await asyncio.to_thread(_call, _mettre_en_file, p, "Normal", "", f"Qualification {i}/{len(l)} · {b.get('fichier', '')}")
+            for i, p in enumerate(l, 1)]
+    return {"runs": [j["run_id"] for j in jobs]}
+
+
+@app.get("/api/studio/productivite")
+async def studio_productivite():
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.productivite)
+
+
+@app.get("/api/studio/modeles")
+async def studio_modeles():
+    from atelier.generation import studio_avance
+
+    return _call(studio_avance.modeles)
+
+
+@app.post("/api/studio/modeles")
+async def studio_modele_enregistrer(req: Request):
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    if b.get("supprimer"):
+        return _call(studio_avance.supprimer_modele, b.get("cle", ""))
+    return _call(studio_avance.enregistrer_modele, b.get("cle", ""), b.get("titre", ""), b.get("texte", ""))
+
+
+@app.post("/api/studio/modeles/rendre")
+async def studio_modele_rendre(req: Request):
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    return {"texte": _call(studio_avance.rendre_modele, b.get("cle", ""), b.get("scenario", ""), b.get("titre", ""), b.get("plateforme") or "web")}
+
+
 @app.get("/api/studio/locators/corrections")
 async def studio_corrections():
     from atelier.generation import studio_avance

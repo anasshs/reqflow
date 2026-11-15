@@ -347,3 +347,47 @@ def test_pause_et_arret_de_l_agent(monkeypatch):
 
     monkeypatch.setattr(interface_web, "appeler", injoignable)
     server._attendre_autorisation("tap", delai=0)  # atelier injoignable : l'outil continue
+
+
+# --------------------------------------------------------------------------- qualification, productivité, modèles
+def test_qualification_exige_une_suite_approuvee(demo):
+    from atelier.generation import studio, studio_avance
+
+    f = "tests/connexion.robot"
+    q = studio_avance.qualification(f)
+    assert q["runs_requis"] == 3 and not q["stable"] and q["revue"] == "Generated"
+    assert {c["cle"] for c in q["cles"]} and not any(c["peut_passer"] for c in q["cles"])  # pas de runs stables
+    with pytest.raises(ValueError, match="approuvée"):
+        studio_avance.runs_qualification(f)
+    studio.transition_script(f, "soumettre")
+    studio.transition_script(f, "approuver", derogation="démonstration hors poste")
+    runs = studio_avance.runs_qualification(f, "web", "recette")
+    assert len(runs) == 3 and runs[0] == {"target": f, "variables": {"PLATFORM": "web"}, "xray_mode": "aucun", "jdd_env": "recette"}
+
+
+def test_productivite_depuis_l_historique_de_revue(demo):
+    from atelier.generation import studio, studio_avance
+
+    f = "tests/connexion.robot"
+    studio.entrer_en_revue(f, "cursor")
+    studio.transition_script(f, "soumettre")
+    studio.transition_script(f, "demander_modifications", "locators fragiles sur l'accueil")
+    studio.transition_script(f, "soumettre")
+    studio.transition_script(f, "approuver", derogation="démonstration hors poste")
+    p = studio_avance.productivite()
+    assert p["scripts_par_origine"] == {"cursor": 1} and p["taux_refus"] == 0.0 and p["derogations"] == 1
+    assert p["modifications_demandees"][0]["commentaire"] == "locators fragiles sur l'accueil" and "cursor" in p["delai_moyen_approbation_h"]
+
+
+def test_modeles_de_demandes_cursor(demo):
+    from atelier.generation import studio_avance
+
+    assert {"web", "mobile", "api", "negatif", "migration"} <= set(studio_avance.modeles())
+    t = studio_avance.rendre_modele("mobile", "DEMO-301", "Connexion", "android")
+    assert "DEMO-301" in t and "(android)" in t and "{" not in t
+    studio_avance.enregistrer_modele("web", "Web maison", "Teste {cle} sur {plateforme}.")
+    assert studio_avance.rendre_modele("web", "DEMO-1", "", "web") == "Teste DEMO-1 sur web."
+    studio_avance.supprimer_modele("web")
+    assert studio_avance.modeles()["web"]["titre"] == "Test web depuis un scénario BDD"  # défaut rétabli
+    with pytest.raises(ValueError):
+        studio_avance.enregistrer_modele("Mauvais Nom", "t", "x")

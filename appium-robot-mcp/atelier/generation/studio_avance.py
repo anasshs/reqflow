@@ -291,3 +291,135 @@ def appliquer_factorisation(groupe_id: str, origine: str = "atelier") -> dict:
     renvoyees = studio.renvoyer_en_revue(impactees + [f for f in modifs if f.endswith(".robot")],
                                          f"keywords factorisés ({origine}) : « {garde['nom']} » gardé")
     return {"garde": garde, "retires": g["remplacer"], "fichiers": resultats, "suites_en_revue": renvoyees}
+
+
+# =========================================================================== qualification (invariant 5)
+def qualification(fichier: str) -> dict:
+    """Où en est la suite vis-à-vis de l'invariant 5 (3 exécutions réelles stables ET revue humaine) et, pour chaque
+    clé Xray qu'elle porte, son étape du cycle de vie et si la transition « Automatisé » est possible."""
+    from atelier.execution.depot_robot import lire_depot
+    from atelier.generation import cycle_vie, studio
+
+    projet.safe_path(fichier)
+    stab = studio._stabilite_suites([fichier])[fichier]
+    revue = (studio.revues_scripts().get(fichier) or {}).get("statut", "Generated")
+    cles = sorted({c for t in lire_depot()["tests"].values() if t["fichier"] == fichier for c in t.get("cles_xray") or []})
+    out = []
+    for c in cles:
+        e = cycle_vie.etat(c)
+        g = cycle_vie.gardes(c, "automatise")
+        out.append({"cle": c, "etape": e["etape"], "libelle": e["libelle"], "automatise": e["etape"] == "automatise",
+                    "peut_passer": e["etape"] == "en_automatisation" and all(x["ok"] for x in g), "gardes": g})
+    return {"fichier": fichier, "stable": stab["stable"], "tests": stab["tests"], "revue": revue, "cles": out,
+            "runs_requis": studio.EXECUTIONS_STABLES}
+
+
+def runs_qualification(fichier: str, plateforme: str = "web", env: str = "") -> list[dict]:
+    """Paramètres des 3 runs réels de qualification (suite approuvée ou publiée uniquement ; résultats non publiés
+    dans Xray : la qualification est interne à l'atelier)."""
+    from atelier.domain import roles
+    from atelier.generation import studio
+
+    roles.exiger("executer_etape")
+    statut = (studio.revues_scripts().get(fichier) or {}).get("statut")
+    if statut not in ("Approved", "Published"):
+        raise ValueError("Qualifier : la suite doit d'abord être approuvée en revue technique.")
+    p = {"target": fichier, "variables": {"PLATFORM": plateforme or "web"}, "xray_mode": "aucun", **({"jdd_env": env} if env else {})}
+    return [dict(p) for _ in range(studio.EXECUTIONS_STABLES)]
+
+
+# =========================================================================== productivité
+def productivite() -> dict:
+    """Indicateurs tirés de l'historique de revue des scripts et des sessions de l'agent (rien d'estimé) : scripts par
+    origine, délai moyen génération → approbation, taux de refus, motifs des demandes de modifications, dérogations."""
+    from atelier.generation import sessions_agent, studio
+
+    rev = studio._stock()
+    origines: dict = {}
+    delais: dict = {}
+    motifs, derogations, refus, decides = [], 0, 0, 0
+    for f, r in rev.items():
+        h = r.get("historique") or []
+        gen = next((x for x in h if (x.get("commentaire") or "").startswith("généré (")), None)
+        o = re.match(r"généré \((\w+)\)", gen["commentaire"]).group(1) if gen else "existant"
+        origines[o] = origines.get(o, 0) + 1
+        appr = next((x for x in h if x.get("vers") == "Approved"), None)
+        if gen and appr:
+            d = (datetime.fromisoformat(appr["date"][:19]) - datetime.fromisoformat(gen["date"][:19])).total_seconds() / 3600
+            delais.setdefault(o, []).append(d)
+        for x in h:
+            if x.get("vers") == "Changes Requested" and x.get("commentaire"):
+                motifs.append({"fichier": f, "date": x["date"], "commentaire": x["commentaire"]})
+            if "dérogation" in (x.get("commentaire") or ""):
+                derogations += 1
+            if x.get("vers") in ("Approved", "Rejected"):
+                decides += 1
+                refus += x["vers"] == "Rejected"
+    sess = sessions_agent.lister(200)
+    return {"scripts_par_origine": origines,
+            "delai_moyen_approbation_h": {o: round(sum(v) / len(v), 1) for o, v in delais.items()},
+            "taux_refus": round(100 * refus / decides, 1) if decides else None, "decisions": decides,
+            "modifications_demandees": sorted(motifs, key=lambda m: m["date"], reverse=True)[:10], "derogations": derogations,
+            "sessions_cursor": len(sess), "appels_cursor": sum(s["appels"] for s in sess),
+            "erreurs_cursor": sum(s["erreurs"] for s in sess)}
+
+
+# =========================================================================== modèles de demandes pour Cursor
+MODELES_DEFAUT = {
+    "web": {"titre": "Test web depuis un scénario BDD",
+            "texte": "Construis le test Robot web du scénario BDD {cle} ({titre}) avec le MCP de l'atelier : studio_socle, studio_scenario_bdd(\"{cle}\"), "
+                     "start_session(platform=\"web\") et vérifie chaque étape à l'écran, propose les étapes délicates avec propose_step, "
+                     "réutilise le socle (aucun wrapper 1:1), studio_generer_depuis_bdd(\"{cle}\") puis dry run réussi, écris la suite et studio_soumettre_revue."},
+    "mobile": {"titre": "Test mobile (Android / iOS)",
+               "texte": "Construis le test Robot mobile ({plateforme}) du scénario BDD {cle} ({titre}) : where_am_i, goto_screen vers les écrans connus, "
+                        "screen_info avant de réanalyser, mêmes clés métier Android / iOS, locators stables (id, accessibility_id), studio_corrections_locators "
+                        "pour les fragiles ; propose les étapes délicates avec propose_step ; dry run réussi puis studio_soumettre_revue."},
+    "api": {"titre": "Test d'API",
+            "texte": "Construis le test Robot d'API (RequestsLibrary) du scénario BDD {cle} ({titre}) : données par jeu de données (list_jdd, get_jdd), "
+                     "aucune donnée littérale, vérifie statut et contenu de chaque réponse, réutilise le socle ; dry run réussi puis studio_soumettre_revue."},
+    "negatif": {"titre": "Cas négatif / limite",
+                "texte": "Ajoute au test du scénario {cle} ({titre}) les cas négatifs et limites (données invalides, champs vides, droits insuffisants) "
+                         "avec des jeux de données dédiés et le tag negatif ; aucune action sensible hors environnement autorisé ; dry run réussi puis studio_soumettre_revue."},
+    "migration": {"titre": "Automatiser un test manuel Xray",
+                  "texte": "Automatise le test manuel Xray {cle} ({titre}) : xray_get_test(\"{cle}\") pour ses étapes, une étape Robot par étape manuelle, "
+                           "vérifications explicites, clé {cle} en tag ; signale toute étape non automatisable ; dry run réussi puis studio_soumettre_revue."},
+}
+
+
+def _fichier_modeles():
+    return _dossier() / "modeles_cursor.json"
+
+
+def modeles() -> dict:
+    """Modèles de demandes du projet (réglables), complétés par les modèles par défaut."""
+    perso = json.loads(_fichier_modeles().read_text("utf-8")) if _fichier_modeles().exists() else {}
+    return {**MODELES_DEFAUT, **perso}
+
+
+def enregistrer_modele(cle: str, titre: str, texte: str) -> dict:
+    from atelier.domain import roles
+
+    roles.exiger("construire")
+    if not re.fullmatch(r"[a-z0-9_]{2,30}", cle or ""):
+        raise ValueError("Identifiant du modèle : minuscules, chiffres, _ (ex. web_smoke).")
+    if not (titre or "").strip() or not (texte or "").strip():
+        raise ValueError("Titre et texte obligatoires.")
+    perso = json.loads(_fichier_modeles().read_text("utf-8")) if _fichier_modeles().exists() else {}
+    perso[cle] = {"titre": titre.strip(), "texte": texte.strip()}
+    _fichier_modeles().write_text(json.dumps(perso, ensure_ascii=False, indent=1), "utf-8")
+    return modeles()
+
+
+def supprimer_modele(cle: str) -> dict:
+    """Retire un modèle du projet (un modèle par défaut retrouve son texte d'origine)."""
+    perso = json.loads(_fichier_modeles().read_text("utf-8")) if _fichier_modeles().exists() else {}
+    perso.pop(cle, None)
+    _fichier_modeles().write_text(json.dumps(perso, ensure_ascii=False, indent=1), "utf-8")
+    return modeles()
+
+
+def rendre_modele(cle: str, scenario: str = "", titre: str = "", plateforme: str = "web") -> str:
+    m = modeles().get(cle)
+    if not m:
+        raise KeyError(f"Modèle inconnu : {cle}")
+    return m["texte"].replace("{cle}", scenario or "<clé>").replace("{titre}", titre or "").replace("{plateforme}", plateforme or "web")
