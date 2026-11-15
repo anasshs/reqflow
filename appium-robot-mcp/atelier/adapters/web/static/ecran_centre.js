@@ -199,9 +199,55 @@
   }
 
   /* ------------------------------------------------------------------ 2 campagnes */
+  /* Test Plans de l'application : statut, avancement, réussite (lus dans Xray, relus au-delà de 10 min) */
+  let PLANS_LUS = 0;
+  async function vuePlans(z, auto = true) {
+    const bloc = $("#pl-zone", z);
+    if (!bloc) return;
+    let erreur = "";
+    if (auto && Date.now() - PLANS_LUS > FRAIS_MS) {
+      bloc.innerHTML = `<h3>Test Plans</h3><p class="lib">Lecture des Test Plans depuis Xray…</p>`;
+      PLANS_LUS = Date.now();
+      try { await api("/api/centre/plans/actualiser", {method: "POST", body: {}}); } catch (e) { erreur = e.message.replace(/\.+$/, ""); }
+      if (!document.body.contains(bloc)) return;
+    }
+    const v = await api("/api/centre/plans").catch(e => ({erreur: e.message}));
+    if (v.erreur) { bloc.innerHTML = `<h3>Test Plans</h3><p class="lib">${esc(v.erreur)}</p>`; return; }
+    const k = v.kpi, pct = x => x === null || x === undefined ? "—" : String(x).replace(".", ",") + " %";
+    const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
+    const barre = p => { const t = Math.max(1, p.tests); return `<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--line);min-width:120px" title="${p.reussi} réussi(s), ${p.echec} échec(s), ${p.non_execute} non exécuté(s)">
+      <span style="width:${p.reussi / t * 100}%;background:var(--ok)"></span><span style="width:${p.echec / t * 100}%;background:var(--ko)"></span></div>`; };
+    bloc.innerHTML = `<h3 style="display:flex;align-items:center;gap:8px">Test Plans <span class="lib" style="font-weight:normal">${v.import.date ? `lus dans Xray le ${esc(v.import.date.slice(0, 16).replace("T", " "))} · ${esc(v.import.jql || "")}` : "pas encore lus"}</span>
+        <button class="btn petit" id="pl-actu" style="margin-left:auto">${ico("rejouer")}Actualiser depuis Xray</button></h3>
+      ${erreur ? `<p class="warn-t">Lecture Xray impossible : ${esc(erreur)}. Affichage de la dernière copie locale.</p>` : ""}
+      ${(v.import.absents || []).includes("TestPlan.testExecutions") ? `<p class="lib">Xray n'expose pas les exécutions d'un plan : seules celles lancées par l'atelier sont comptées.</p>` : ""}
+      ${v.plans.length ? `<div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:8px 0">${kpi(k.plans, "Test Plans")}${kpi(k.plans_ouverts, "ouverts")}${kpi(k.tests, "tests planifiés")}
+        ${kpi(pct(k.avancement), "avancement (tests exécutés)")}${kpi(pct(k.taux_reussite), "taux de réussite", "ok")}${kpi(k.echec, "tests en échec", "ko")}</div>
+      <table class="table-strat"><tr><th>Test Plan</th><th>Statut</th><th>Campagne</th><th>Tests</th><th>Exécutions</th><th>Avancement</th><th>Réussite</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th></tr>
+        ${v.plans.map(p => `<tr class="cliquable" data-plan="${esc(p.cle)}"><td><span class="cle-xray">${esc(p.cle)}</span> ${esc(p.resume)}<div class="lib">${esc((p.cree || "").slice(0, 10))}</div></td>
+          <td><span class="pill">${esc(p.statut || "—")}</span></td><td>${esc(p.campagne || "—")}</td><td>${p.tests}${p.tests_total > p.tests ? ` <span class="pill warn">/${p.tests_total}</span>` : ""}</td>
+          <td>${p.executions.length}${p.executions_inconnues ? ` <span class="lib">(+${p.executions_inconnues} non lues)</span>` : ""}<div class="lib">${esc(p.derniere_execution || "")}</div></td>
+          <td>${barre(p)}<div class="lib">${pct(p.avancement)}</div></td><td><b>${pct(p.taux_reussite)}</b></td><td class="ok-t">${p.reussi}</td><td class="ko-t">${p.echec}</td><td>${p.non_execute}</td></tr>`).join("")}</table>`
+        : "<p class='lib'>Aucun Test Plan pour cette application (JQL des Test Plans : Paramètres › Configuration).</p>"}`;
+    $("#pl-actu", bloc).onclick = () => { PLANS_LUS = 0; vuePlans(z); };
+    $$("[data-plan]", bloc).forEach(tr => tr.onclick = () => detailPlan(v.plans.find(x => x.cle === tr.dataset.plan)));
+  }
+
+  function detailPlan(p) {
+    const classe = st => /PASS/i.test(st) ? "ok" : /FAIL|ABORT|BLOCK/i.test(st) ? "ko" : "";
+    const pct = x => x === null || x === undefined ? "—" : String(x).replace(".", ",") + " %";
+    const m = modale(`Test Plan ${p.cle}`, `<p><b>${esc(p.resume)}</b> <span class="pill">${esc(p.statut || "—")}</span> ${p.campagne ? `· campagne <b>${esc(p.campagne)}</b>` : ""}</p>
+      <p class="lib">Avancement ${pct(p.avancement)} · réussite ${pct(p.taux_reussite)} · dernier statut de chaque test dans les exécutions du plan (${esc(p.source_executions)}).</p>
+      <h3>Exécutions (${p.executions.length})</h3><p>${p.executions.map(k => `<a href="#centre/vue" data-pl-exe="${esc(k)}">${esc(k)}</a>`).join(" · ") || "<span class='lib'>Aucune.</span>"}</p>
+      <h3>Tests (${p.tests})</h3><table><tr><th>Test</th><th>Dernier statut</th></tr>${Object.entries(p.statuts_tests).map(([t, st]) => `<tr><td class="cle-xray">${esc(t)}</td>
+        <td>${st ? `<span class="pill ${classe(st)}">${esc(st)}</span>` : '<span class="lib">non exécuté</span>'}</td></tr>`).join("")}</table>`);
+    $$("[data-pl-exe]", m.el).forEach(a => a.onclick = ev => { ev.preventDefault(); m.fermer(); detailXray(a.dataset.plExe, () => {}); });
+  }
+
   async function campagnes(z) {
     const l = await api("/api/centre/campagnes");
     z.innerHTML = `${entete("Test Campaigns", `<button class="btn primaire" id="ca-n">${ico("plus")}Créer une campagne</button>`)}<div class="corps-carte">
+      <section class="bloc-strat" id="pl-zone" style="margin-bottom:12px"></section><h3>Campagnes de l'atelier</h3>
       ${l.length ? `<table class="table-strat"><tr><th>Campagne</th><th>Type</th><th>Plateformes</th><th>Environnement</th><th>Tests</th><th>Priorité</th><th>Test Plan · Exécutions</th><th>Dernier run</th><th>Réussite</th><th>Statut</th><th></th></tr>
         ${l.map(c => `<tr><td class="cliquable" data-ed="${esc(c.id)}"><b>${esc(c.nom)}</b><div class="lib">${esc(c.id)} · ${esc(c.cible)}</div></td><td>${esc(c.type)}</td><td>${esc(c.plateformes.join(", "))}</td>
           <td>${esc(c.environnement || "—")}</td><td class="lib">${esc([...c.tests, ...c.tags].join(", ") || "toute la cible")}${(c.exclus || []).length ? `<div class="warn-t">exclus : ${esc(c.exclus.join(", "))}</div>` : ""}
@@ -266,6 +312,7 @@
           toast(`Test Plan ${r.cle} créé${r.tests.length ? ` avec ${r.tests.length} test(s)` : ""}${r.absents.length ? ` ; absents de Xray : ${r.absents.join(", ")}` : ""}. Enregistrer la campagne.`, "ok"); }
         catch (e) { toast(e.message, "ko"); } bt.disabled = false; };
     };
+    vuePlans(z);
     $("#ca-n").onclick = () => form();
     $$("[data-ed]", z).forEach(t => t.onclick = () => form(l.find(c => c.id === t.dataset.ed)));
     $$("[data-ouvrir-exe]", z).forEach(a => a.onclick = ev => { ev.preventDefault(); detailXray(a.dataset.ouvrirExe, () => {}); });

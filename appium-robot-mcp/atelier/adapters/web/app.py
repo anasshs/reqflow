@@ -2217,6 +2217,20 @@ async def centre_enregistrer_campagne(req: Request):
     return await asyncio.to_thread(_call, centre.enregistrer_campagne, await req.json())
 
 
+@app.get("/api/centre/plans")
+async def centre_vue_plans():
+    """Test Plans de l'application avec statut et indicateurs (copie locale)."""
+    return await asyncio.to_thread(_call, centre.vue_plans)
+
+
+@app.post("/api/centre/plans/actualiser")
+async def centre_actualiser_plans():
+    """Relit dans Xray les Test Plans de l'application et les Test Executions de ces plans."""
+    from atelier.intelligence import patrimoine_xray
+
+    return await asyncio.to_thread(_call, patrimoine_xray.importer_plans)
+
+
 @app.get("/api/centre/plans-xray")
 async def centre_plans_xray():
     """Test Plans de l'application (JQL de sa configuration), pour rattacher une campagne."""

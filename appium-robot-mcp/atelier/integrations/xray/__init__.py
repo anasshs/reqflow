@@ -148,7 +148,7 @@ class XrayClient:
             sel.append(texte)
         return " ".join(sel), absents
 
-    def conteneurs(self, projet: str, limite: int = 500, jql_plans: str = "", seulement: tuple = ()) -> dict:
+    def conteneurs(self, projet: str, limite: int = 500, jql_plans: str = "", seulement: tuple = (), avec_executions: bool = False) -> dict:
         """Test Plans et Test Sets du projet avec leurs tests (lecture seule). Requêtes et champs choisis par
         introspection : getTestPlans / getTestSets, champ « tests » et ses arguments ; un objet absent du schéma est
         signalé, jamais supposé. Plus de 100 tests dans un conteneur : signalé (tests_total)."""
@@ -168,9 +168,15 @@ class XrayClient:
                 sel_tests = ("tests(limit: 100) " if "limit" in a else "tests ") + '{ total results { jira(fields: ["key"]) } }'
             else:
                 out["absents"].append(f"{type_gql}.tests")
+            if cle_out == "plans" and avec_executions:  # exécutions du plan (TestPlan.testExecutions), si le schéma l'expose
+                if "testExecutions" in champs:
+                    a = champs["testExecutions"]["args"]
+                    sel_tests += (" testExecutions(limit: 100) " if "limit" in a else " testExecutions ") + '{ total results { jira(fields: ["key"]) } }'
+                else:
+                    out["absents"].append("TestPlan.testExecutions")
             pagine = "start" in requete[req]["args"]
             q = (f"query($jql: String, $l: {t}{', $s: Int' if pagine else ''}) {{ {req}(jql: $jql, limit: $l{', start: $s' if pagine else ''}) "
-                 f'{{ total results {{ issueId jira(fields: ["key", "summary", "status"]) {sel_tests} }} }} }}')
+                 f'{{ total results {{ issueId jira(fields: ["key", "summary", "status", "created"]) {sel_tests} }} }} }}')
             debut, brut = 0, []
             while len(brut) < limite:
                 jql = (jql_plans if cle_out == "plans" and jql_plans else f'project = "{projet}"')
@@ -182,9 +188,14 @@ class XrayClient:
             for x in brut:
                 j = x.get("jira") or {}
                 tests = x.get("tests") or {}
-                out[cle_out].append({"cle": j.get("key"), "resume": j.get("summary") or "", "statut": (j.get("status") or {}).get("name", ""),
-                                     "issueId": x.get("issueId"), "tests": [(t.get("jira") or {}).get("key") for t in tests.get("results") or []],
-                                     "tests_total": tests.get("total")})
+                item = {"cle": j.get("key"), "resume": j.get("summary") or "", "statut": (j.get("status") or {}).get("name", ""),
+                        "issueId": x.get("issueId"), "tests": [(t.get("jira") or {}).get("key") for t in tests.get("results") or []],
+                        "tests_total": tests.get("total"), "cree": (j.get("created") or "")[:19]}
+                if "testExecutions" in x:
+                    ex = x.get("testExecutions") or {}
+                    item["executions"] = [(e.get("jira") or {}).get("key") for e in ex.get("results") or []]
+                    item["executions_total"] = ex.get("total")
+                out[cle_out].append(item)
         return out
 
     def executions(self, projet: str, limite: int = 200, depuis: str = "", jusqu: str = "", jql: str = "") -> dict:

@@ -660,6 +660,58 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
             "recentes": execs}
 
 
+def vue_plans() -> dict:
+    """Test Plans de l'application (copie locale « plans_xray ») : statut Jira, campagne liée, et pour chaque plan le
+    dernier statut de chacun de ses tests dans ses Test Executions (la plus récente qui le contient), d'où :
+    réussis / en échec / non exécutés, taux de réussite (sur les tests exécutés) et avancement (tests exécutés / tests
+    du plan). Exécutions du plan : TestPlan.testExecutions si Xray l'expose, sinon celles des runs de l'atelier."""
+    from atelier.discovery import carte
+    from atelier.intelligence import patrimoine_xray
+
+    pat = patrimoine_xray.charger() or {}
+    px = pat.get("plans_xray") or {}
+    slug = carte.app_courante() if carte.app_courante() else ""
+    imp = {k: px.get(k) for k in ("date", "jql", "absents", "application")}
+    if px and px.get("application") != slug:  # lus pour une autre application : à relire
+        px = {}
+    execs = {e["cle"]: e for e in pat.get("executions") or []}
+    liens = runs_par_execution()
+    via_runs: dict = {}
+    for k, v in liens.items():
+        if v.get("plan"):
+            via_runs.setdefault(v["plan"], []).append(k)
+    noms = {c.get("plan_xray"): c["nom"] for c in campagnes() if c.get("plan_xray")}
+    plans, tot = [], {"reussi": 0, "echec": 0, "non_execute": 0, "tests": 0}
+    for p in px.get("plans") or []:
+        cles_exe = p.get("executions") if p.get("executions") is not None else via_runs.get(p["cle"], [])
+        es = sorted([execs[k] for k in cles_exe if k in execs], key=lambda e: e.get("cree") or "", reverse=True)
+        tests = list(dict.fromkeys(p.get("tests") or []))
+        dernier = {}
+        for t in tests:
+            st = next(((e["runs"][t].get("statut") or "") for e in es if t in (e.get("runs") or {}) and _classe_xray(e["runs"][t].get("statut")) != "non_execute"), "")
+            dernier[t] = st
+        n = {"reussi": 0, "echec": 0, "non_execute": 0, "autre": 0}
+        for st in dernier.values():
+            n[_classe_xray(st) if st else "non_execute"] += 1
+        executes = n["reussi"] + n["echec"]
+        for k in ("reussi", "echec", "non_execute"):
+            tot[k] += n[k]
+        tot["tests"] += len(tests)
+        plans.append({"cle": p["cle"], "resume": p.get("resume", ""), "statut": p.get("statut", ""), "cree": p.get("cree", ""),
+                      "campagne": noms.get(p["cle"], ""), "tests": len(tests), "tests_total": p.get("tests_total") or len(tests),
+                      "executions": [e["cle"] for e in es], "executions_inconnues": len([k for k in cles_exe if k not in execs]),
+                      "source_executions": "xray" if p.get("executions") is not None else "runs de l'atelier",
+                      "derniere_execution": (es[0].get("cree") or "")[:10] if es else "", **{k: n[k] for k in ("reussi", "echec", "non_execute")},
+                      "taux_reussite": round(100 * n["reussi"] / executes, 1) if executes else None,
+                      "avancement": round(100 * executes / len(tests), 1) if tests else None, "statuts_tests": dernier})
+    executes = tot["reussi"] + tot["echec"]
+    return {"import": imp, "plans": plans,
+            "kpi": {"plans": len(plans), "plans_ouverts": sum(1 for p in plans if not re.search(r"done|termin|closed|ferm", p["statut"], re.I)),
+                    "tests": tot["tests"], "reussi": tot["reussi"], "echec": tot["echec"], "non_execute": tot["non_execute"],
+                    "taux_reussite": round(100 * tot["reussi"] / executes, 1) if executes else None,
+                    "avancement": round(100 * executes / tot["tests"], 1) if tot["tests"] else None}}
+
+
 def runs_par_execution(limite: int = 500) -> dict:
     """Lien Exécution de l'atelier = Test Execution Xray : {clé: {runs, campagne, campagne_nom, plan}} à partir des runs
     Robot qui y ont écrit (un run = un lancement ; plusieurs runs peuvent alimenter la même exécution : relance des

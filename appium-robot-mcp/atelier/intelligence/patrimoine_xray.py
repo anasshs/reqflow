@@ -444,8 +444,44 @@ def plans_application(xray=None) -> dict:
     if not cle and src.get("plans_deduite"):
         raise ValueError("Projet Xray inconnu (Paramètres › Projets).")
     jql = "" if src.get("plans_deduite") else source_tests.jql_pour_xray(src["jql_plans"])
-    r = (xray or XrayClient()).conteneurs(cle, 300, jql_plans=jql, seulement=("plans",))
+    r = (xray or XrayClient()).conteneurs(cle, 300, jql_plans=jql, seulement=("plans",), avec_executions=True)
     return {"plans": sorted(r["plans"], key=lambda p: p.get("cle") or "", reverse=True), "absents": r["absents"], "jql": jql or f'project = "{cle}"'}
+
+
+def importer_plans(xray=None) -> dict:
+    """Test Plans de l'application (sa JQL) avec leurs tests et leurs Test Executions, puis lecture des exécutions
+    de ces plans absentes de la copie locale (pour calculer l'avancement et la réussite de chaque plan)."""
+    from atelier.discovery import carte
+    from atelier.integrations.xray import XrayClient
+
+    proteger_depot_outil()
+    data = charger()
+    if not data:
+        raise ValueError("Aucune copie locale Xray : synchroniser Jira ou importer les définitions d'abord.")
+    x = xray or XrayClient()
+    r = plans_application(x)
+    slug = carte.app_courante() if carte.app_courante() else ""
+    connues = {e["cle"] for e in data.get("executions") or []}
+    manquantes = sorted({k for p in r["plans"] for k in p.get("executions") or [] if k and k not in connues})
+    lues = 0
+    cle = (data.get("projet") or "").upper()
+    for i in range(0, len(manquantes), 100):
+        bloc = manquantes[i:i + 100]
+        ex = x.executions(cle, len(bloc), "", "", "key in (" + ", ".join(bloc) + ")")
+        for e in ex["executions"]:
+            if slug:
+                e["applications"] = [slug]
+        lues += len(ex["executions"])
+        meta = data.get("executions_xray")
+        _fusionner_executions(data, ex, conserver=True)
+        if meta:
+            data["executions_xray"] = meta  # la période lue par le tableau de bord ne change pas
+    data["plans_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "jql": r["jql"], "absents": r["absents"],
+                          "application": slug, "executions_lues": lues,
+                          "plans": [{k: p.get(k) for k in ("cle", "resume", "statut", "cree", "tests", "tests_total", "executions", "executions_total")}
+                                    for p in r["plans"]]}
+    enregistrer(data, data.get("source") or "Xray")
+    return {k: v for k, v in data["plans_xray"].items() if k != "plans"} | {"nombre": len(r["plans"])}
 
 
 def dossiers_repository() -> dict:
