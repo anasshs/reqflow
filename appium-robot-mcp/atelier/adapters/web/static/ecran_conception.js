@@ -13,7 +13,7 @@
   const MENU = GROUPES.flatMap(g => g[2]);
   const groupeDe = r => GROUPES.find(g => g[2].some(o => o[0] === r)) || GROUPES[0];
   /* Écrans qui existaient aussi ailleurs : une seule source par sujet */
-  const AILLEURS = {exigences: ["strategie/couverture", "exigences"], tracabilite: ["graphe/couverture"], reutilisables: ["studio/keywords"], jdd: ["studio/donnees"]};
+  const AILLEURS = {exigences: ["intelligence/couverture", "exigences"], tracabilite: ["graphe/couverture"], reutilisables: ["studio/keywords"], jdd: ["studio/donnees"]};
   const PILL_REVUE = {Draft: "", "In Review": "info", "Changes Requested": "warn", Approved: "violet", "Ready for Automation": "ok"};
   const LIB_REVUE = {Draft: "Brouillon", "In Review": "En revue", "Changes Requested": "Modifs demandées", Approved: "Approuvé", "Ready for Automation": "Prêt pour l'automatisation"};
   const EDITEUR = {bdd: "Éditeur BDD (Gherkin)", etapes: "Éditeur d'étapes (Manual)", technique: "Définition technique (Generic)", exploratoire: "Fiche exploratoire", inconnu: "Type non reconnu"};
@@ -34,7 +34,7 @@
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques Test Design"><div class="titre-carte">TEST DESIGN</div>
         <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
         <div class="pied-strat lib">Xray reste le référentiel officiel ; la plateforme garde revues, baselines et mapping.
-          <br><a href="#strategie/couverture" title="Exigences, couverture et tests manquants : Test Strategy › Couverture">Couverture</a> · <a href="#graphe/couverture" title="Traçabilité exigence → test → script → exécution">Traçabilité</a> · <a href="#studio/donnees" title="Jeux de données (Automation Studio › Socle)">Données de test</a></div></nav>
+          <br><a href="#intelligence/couverture" title="Exigences, couverture et tests manquants : Application Intelligence › Couverture">Couverture</a> · <a href="#graphe/couverture" title="Traçabilité exigence → test → script → exécution">Traçabilité</a> · <a href="#studio/donnees" title="Jeux de données (Automation Studio › Socle)">Données de test</a></div></nav>
         <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}</button>`).join("")}</div>` : ""}
           <div id="td-contenu"><div class="corps-carte">${vide("Chargement…")}</div></div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "conception/" + b.dataset.r; });
@@ -93,7 +93,7 @@
     const v = await api("/api/conception/vue"), k = v.kpi;
     const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
     z.innerHTML = `${entete("Vue d'ensemble", `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Importer le repository Xray</a><button class="btn" id="cv-def">${ico("xray")}Importer les définitions Xray</button>
-        <a class="btn" href="#conception/exigences" title="Test Strategy › Couverture (source unique des exigences)">Exigences sans tests</a><a class="btn" href="#conception/revue" title="Cas de test filtrés sur « En revue »">En attente de validation</a><a class="btn primaire" href="#bdd">${ico("bdd")}Créer un scénario BDD</a>`)}
+        <a class="btn" href="#conception/exigences" title="Application Intelligence › Couverture (source unique des exigences)">Exigences sans tests</a><a class="btn" href="#conception/revue" title="Cas de test filtrés sur « En revue »">En attente de validation</a><a class="btn primaire" href="#bdd">${ico("bdd")}Créer un scénario BDD</a>`)}
       <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(8,minmax(0,1fr));margin-bottom:12px">
         ${kpi(k.exigences, "exigences importées")}${kpi(k.cas_xray, "cas de test Xray")}${kpi(k.scenarios_bdd, "scénarios BDD")}${kpi(k.a_revoir, "à revoir", "warn-t")}
         ${kpi(k.approuves, "approuvés", "violet")}${kpi(k.prets_automatisation, "prêts pour l'automatisation", "info")}${kpi(k.automatises, "automatisés", "ok")}
@@ -190,7 +190,7 @@
     const [cfg, l] = await Promise.all([api("/api/testabilite/espaces?sprint=" + idSel), api(`/api/testabilite/file?sprint=${idSel}&espace=${espSel}`)]);
     const ind = cfg.indicateurs;
     const ETAT = {active: "actif", future: "à venir", closed: "fermé"};
-    z.innerHTML = `${entete("À concevoir · US et exigences à couvrir", `<a class="btn" href="#strategie/couverture" data-manquants="1" title="Entrée unique : Test Strategy › Couverture › Missing Tests (exigences sans test ou à vérifier). Ici, on conçoit et publie leurs cas.">Exigences sans test</a><a class="btn" href="#parametres/configuration" title="Politique des US de l'application : Paramètres › Configuration">Politique (espaces Jira)</a><button class="btn" id="us-rep">Relever les réponses</button>
+    z.innerHTML = `${entete("À concevoir · US et exigences à couvrir", `<a class="btn" href="#intelligence/couverture" data-manquants="1" title="Entrée unique : Application Intelligence › Couverture › Missing Tests (exigences sans test ou à vérifier). Ici, on conçoit et publie leurs cas.">Exigences sans test</a><a class="btn" href="#parametres/configuration" title="Politique des US de l'application : Paramètres › Configuration">Politique (espaces Jira)</a><button class="btn" id="us-rep">Relever les réponses</button>
         <button class="btn primaire" id="us-det">${ico("rejouer")}Détecter</button>`)}<div class="corps-carte">
       <div class="btns" style="margin-bottom:8px"><label class="lib" for="us-sp">Sprint</label><select class="in" id="us-sp" style="width:auto">
         <option value="">Toutes les US suivies</option>${options.map(s => `<option value="${esc(s.esp)}|${s.id}" ${SPRINT === `${s.esp}|${s.id}` ? "selected" : ""}>${esc(s.esp)} · ${esc(s.nom)} (${ETAT[s.etat] || s.etat})</option>`).join("")}</select>

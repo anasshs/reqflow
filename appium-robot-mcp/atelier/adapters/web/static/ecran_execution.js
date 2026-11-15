@@ -351,7 +351,7 @@
     api("/api/strategie/criteres/entree").then(l => {  // Test Strategy : critères d'entrée obligatoires non satisfaits
       if (l.length) $(".corps-carte", m.el).insertAdjacentHTML("afterbegin", `<div class="echec" style="margin-bottom:10px"><b>Critères d'entrée de la stratégie non satisfaits</b>
         <ul>${l.map(c => `<li>${esc(c.description)} — ${esc(c.etat)}${c.valeur !== null && c.valeur !== undefined ? ` (actuel ${esc(c.valeur)} ; seuil ${esc(c.comparateur || ">=")} ${esc(c.seuil)})` : ""}</li>`).join("")}</ul>
-        <span class="lib">Avertissement : le lancement reste possible (décision du responsable).</span> <a href="#strategie/criteres">Voir les critères</a></div>`);
+        <span class="lib">Avertissement : le lancement reste possible (décision du responsable).</span> <a href="#gouvernance/criteres">Voir les critères</a></div>`);
     }).catch(() => {});
     $("#l-ok", m.el).onclick = async () => {
       const jdd = [...$("#l-jdd", m.el).selectedOptions].map(o => o.value);

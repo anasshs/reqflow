@@ -236,8 +236,8 @@
     const [plan, ref, bdds] = await Promise.all([api("/api/strategie/plan-automatisation").catch(() => []), api("/api/centre/referentiel").catch(() => []), api("/api/bdd").catch(() => [])]);
     const aBdd = new Set(bdds.map(b => b.cle));
     const plats = c => [...new Set(ref.filter(t => t.cle_xray === c).flatMap(t => t.plateformes))].join(", ");
-    z.innerHTML = `${entete("Automation Candidates", `<a class="btn" href="#strategie/plan" title="Décider pour chaque candidat : approuvé, rejeté (justifié), reporté ; décisions journalisées">Décisions (Test Strategy)</a>`)}<div class="corps-carte">
-      <p class="lib">Candidats issus de Test Strategy (instantané Xray × dépôt). Le score d'automatisabilité n'est pas inventé : il reste « non calculé » tant que répétitivité, stabilité et complexité ne sont pas mesurées ; les critères disponibles et les manques sont affichés pour comprendre la recommandation.</p>
+    z.innerHTML = `${entete("Automation Candidates")}<div class="corps-carte">
+      <p class="lib">Candidats calculés (instantané Xray × dépôt) ; « Décider » enregistre la décision humaine (journalisée, rejet justifié). Le score d'automatisabilité n'est pas inventé : il reste « non calculé » tant que répétitivité, stabilité et complexité ne sont pas mesurées ; les critères disponibles et les manques sont affichés pour comprendre la recommandation.</p>
       ${plan.length ? `<table class="table-strat"><tr><th>Clé Xray</th><th>Test</th><th>Module</th><th>Plateforme</th><th>Criticité</th><th>Répétition</th><th>Score</th><th>Statut</th><th>Critères / manques</th><th></th></tr>
         ${plan.map(c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume || "")}</td><td>${esc(c.module || "")}</td><td>${esc(plats(c.cle) || "—")}</td><td>${esc(c.criticite || "")}</td>
           <td class="lib">plans : ${esc((c.plans || []).length || "—")}</td><td class="lib">non calculé</td><td>${pill(c.statut_plan === "Automatisé" ? "Published" : "", c.statut_plan)}</td>
@@ -245,8 +245,10 @@
           <td class="btns" style="white-space:nowrap"><button class="btn petit ${aBdd.has(c.cle) ? "" : "primaire"}" data-bdd="${esc(c.cle)}" data-titre="${esc(c.resume || "")}"
               title="${aBdd.has(c.cle) ? "Ouvrir le scénario BDD (Gherkin) de ce test dans Construction BDD" : "Aucun scénario BDD : le créer depuis le test Xray (Gherkin ou étapes manuelles), puis l'ouvrir"}">${aBdd.has(c.cle) ? "BDD" : "Créer le BDD"}</button>
             <button class="btn petit" data-map="${esc(c.cle)}" data-titre="${esc(c.resume || "")}" title="${aBdd.has(c.cle) ? "Correspondance étape BDD → keyword du socle, locators et données ; prévisualisation du Robot" : "Mapping BDD → Robot : nécessite le scénario BDD (proposé à la création)"}">Mapping</button>
-            <button class="btn petit" data-kg="${esc(c.cle)}" title="Ouvrir le Knowledge Graph centré sur ce test : exigences, écrans, scripts Robot et exécutions liés">Graphe</button></td></tr>`).join("")}</table>`
-        : vide("Aucun candidat", "Importer l'instantané Xray (Rapports › Patrimoine) puis définir le plan dans Test Strategy.")}</div>`;
+            <button class="btn petit" data-kg="${esc(c.cle)}" title="Ouvrir le Knowledge Graph centré sur ce test : exigences, écrans, scripts Robot et exécutions liés">Graphe</button>
+            ${c.automatise ? "" : `<button class="btn petit" data-decider="${esc(c.cle)}" title="Approuver, mettre en construction, rejeter (justifié)… ; journalisé">Décider</button>`}</td></tr>`).join("")}</table>`
+        : vide("Aucun candidat", "Importer l'instantané Xray (Rapports › Patrimoine) : les candidats sont calculés automatiquement.")}</div>`;
+    $$("[data-decider]", z).forEach(b => b.onclick = () => window.Pilotage.decider(plan.find(c => c.cle === b.dataset.decider), () => candidats(z)));
     $$("[data-bdd]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.bdd, b.dataset.titre));
     $$("[data-map]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.map, b.dataset.titre, "mapping"));
     $$("[data-kg]", z).forEach(b => b.onclick = () => window.OuvrirGraphe("test:" + b.dataset.kg));

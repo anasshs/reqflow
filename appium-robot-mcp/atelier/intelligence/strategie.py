@@ -1,4 +1,8 @@
-"""Test Strategy : ce que l'on veut tester et pourquoi (cahier des charges « Module Test Strategy »).
+"""Référentiel de pilotage du projet (ex-module Test Strategy : plus d'écran dédié depuis le 2026-11-15).
+
+Ses éléments s'éditent là où ils servent (composant web window.Pilotage) : périmètre (Paramètres),
+environnements (Execution Center), objectifs et critères d'entrée / sortie (Quality Governance), décisions
+du plan d'automatisation (Automation Studio) ; le document de stratégie s'exporte depuis Quality Governance › Rapports.
 
 Une stratégie par projet de tests, une seule source de données :
   strategie/strategie.yaml        version de travail (sauvegardée à chaque modification)

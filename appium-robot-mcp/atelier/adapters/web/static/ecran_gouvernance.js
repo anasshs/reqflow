@@ -6,7 +6,8 @@
   const GROUPES = [
     ["vue", "Vue qualité", [["vue", "Vue qualité"], ["couverture", "Couverture fonctionnelle"], ["automatisation", "Couverture d'automatisation"], ["efficacite", "Efficacité des tests"]],
       "Indicateurs clés, couverture fonctionnelle et d'automatisation, efficacité des tests"],
-    ["release", "Release Readiness", [["release", "Release Readiness"], ["recommandations", "Recommandations"]], "Peut-on livrer ? Critères, blocages et recommandations justifiées"],
+    ["release", "Release Readiness", [["release", "Release Readiness"], ["criteres", "Critères d'entrée et de sortie"], ["objectifs", "Objectifs"], ["recommandations", "Recommandations"]],
+      "Peut-on livrer ? Évaluations, critères d'entrée / sortie et objectifs mesurés, recommandations justifiées"],
     ["tendances", "Tendances et risques", [["tendances", "Tendances"], ["risques", "Risques applicatifs"], ["stabilite", "Stabilité"], ["sante", "Santé de l'automatisation"]],
       "Évolution des indicateurs, modules à risque, tests instables, santé du socle"],
     ["rapports", "Rapports", [["rapports", "Rapports"], ["parametres", "Réglages"]], "Rapports exportables, instantanés et seuils"]];
@@ -30,7 +31,8 @@
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "gouvernance/" + b.dataset.r; });
       $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = "gouvernance/" + b.dataset.onglet; });
       const z = $("#qg-contenu");
-      try { await ({vue, couverture, automatisation, efficacite, sante, stabilite, risques, release, tendances, recommandations, rapports, parametres}[R])(z); }
+      try { await ({vue, couverture, automatisation, efficacite, sante, stabilite, risques, release, tendances, recommandations, rapports, parametres,
+        criteres: x => window.Pilotage.rubrique(x, "criteres"), objectifs: x => window.Pilotage.rubrique(x, "objectifs")}[R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
   });
@@ -59,16 +61,16 @@
   }
 
   async function couverture(z) {
-    /* Une seule source de vérité : Test Strategy › Couverture. Ici, le résumé des 4 dimensions et le lien. */
+    /* Une seule source de vérité : Application Intelligence › Couverture. Ici, le résumé des 4 dimensions et le lien. */
     const v = await api("/api/ci/vue").catch(e => ({erreur: e.message}));
     if (!v.erreur) {
       const pc = x => x === null || x === undefined ? "—" : String(x).replace(".", ",") + " %";
       const k = (val, l, t) => `<div class="kpi" title="${esc(t)}"><div class="v">${val}</div><div class="l">${l}</div></div>`;
-      z.innerHTML = `${entete("Couverture fonctionnelle", `<a class="btn primaire" href="#strategie/couverture" title="Détail complet : exigences, documentation, reconstruction, liens, tests manquants et orphelins">Détail dans Test Strategy › Couverture</a>`)}
+      z.innerHTML = `${entete("Couverture fonctionnelle", `<a class="btn primaire" href="#intelligence/couverture" title="Détail complet : exigences, documentation, reconstruction, liens, tests manquants et orphelins">Détail dans Application Intelligence › Couverture</a>`)}
         <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">${k(pc(v.documentaire.taux), "documentaire", v.documentaire.definition)}${k(pc(v.tracabilite.taux), "traçabilité", v.tracabilite.definition)}
-          ${k(pc(v.execution.taux), "exécution", v.execution.definition)}${k(pc(v.automatisation.taux), "automatisation", v.automatisation.definition)}${k(v.overview.ecarts, "écarts détectés", "Voir Test Strategy › Couverture")}</div>
+          ${k(pc(v.execution.taux), "exécution", v.execution.definition)}${k(pc(v.automatisation.taux), "automatisation", v.automatisation.definition)}${k(v.overview.ecarts, "écarts détectés", "Voir Application Intelligence › Couverture")}</div>
           <p class="lib" style="margin-top:10px">${v.tracabilite.exigences_sans_tests} exigence(s) sans test · ${v.tracabilite.tests_orphelins} test(s) sans exigence · ${v.documentaire.anomalies} anomalie(s) de documentation Jira.
-            La couverture n'est calculée qu'à un endroit (Test Strategy › Couverture) ; Quality Governance en reprend le résumé.</p></div>`;
+            La couverture n'est calculée qu'à un endroit (Application Intelligence › Couverture) ; Quality Governance en reprend le résumé.</p></div>`;
       return;
     }
     const c = await api("/api/gouvernance/couverture");
@@ -76,7 +78,7 @@
       <table class="table-strat"><tr><th>Exigence</th><th>Type</th><th>Module</th><th>Tests</th><th>Automatisés</th><th>Couverture</th></tr>${c.exigences.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.type)}</td><td>${esc(e.module || "—")}</td>
         <td>${esc(e.tests.join(", ") || "—")}</td><td>${e.automatises}/${e.tests.length}</td><td>${etat(e.etat)}</td></tr>`).join("")}</table>
       <p style="margin-top:10px"><b>Tests sans exigence :</b> ${esc(c.sans_exigence.join(", ") || "aucun")}</p>
-      <div class="btns"><a class="btn" href="#strategie/perimetre">Transmettre les lacunes à Test Strategy</a><a class="btn" href="#strategie/couverture">Exigences (Couverture)</a></div></div>`;
+      <div class="btns"><a class="btn" href="#parametres/perimetre">Périmètre de l'application</a><a class="btn" href="#intelligence/couverture">Exigences (Couverture)</a></div></div>`;
   }
 
   async function automatisation(z) {
@@ -127,7 +129,15 @@
   async function release(z) {
     const [r, camps, envs] = await Promise.all([api("/api/gouvernance/releases"), api("/api/centre/campagnes").catch(() => []), api("/api/jdd").catch(() => ({environnements: []}))]);
     const val2 = id => r.validations.filter(v => v.release === id).slice(-1)[0];
-    z.innerHTML = `${entete("Release Readiness")}<div class="corps-carte"><div class="btns" style="margin-bottom:12px">
+    const strat = await api("/api/strategie").catch(() => null);  // lecture seule : aucun référentiel créé ici
+    const sortie = (strat?.criteres || []).filter(c => c.type === "sortie");
+    const bloquants = sortie.filter(c => c.obligatoire && c.etat !== "satisfait");
+    const blocCriteres = sortie.length ? `<section class="bloc-strat" style="margin-bottom:12px"><h3>Critères de sortie ${bloquants.length ? `<span class="pill ko">${bloquants.length} obligatoire(s) non satisfait(s) ou à valider</span>` : '<span class="pill ok">satisfaits</span>'}
+        <a class="lien" href="#gouvernance/criteres">Gérer</a></h3><ul class="liste">${sortie.map(c => `<li><span class="pill ${c.etat === "satisfait" ? "ok" : c.etat === "à valider" ? "warn" : "ko"}">${esc(c.etat)}</span>
+        <span class="item">${esc(c.description)}${c.obligatoire ? "" : ' <span class="lib">(facultatif)</span>'}</span>${c.valeur !== null && c.valeur !== undefined ? `<span class="lib">actuel ${esc(c.valeur)} · seuil ${esc(c.comparateur || ">=")} ${esc(c.seuil)}</span>` : ""}</li>`).join("")}</ul>
+        ${bloquants.length ? '<p class="ko-t">Critère de sortie obligatoire non satisfait (ou non encore validé) : la livraison n\'est pas recommandée, quel que soit le score.</p>' : ""}</section>`
+      : `<p class="lib">Aucun critère de sortie défini : <a href="#gouvernance/criteres">les définir</a> (indicateur et seuil mesurés, ou validation manuelle avec preuve).</p>`;
+    z.innerHTML = `${entete("Release Readiness")}<div class="corps-carte">${blocCriteres}<div class="btns" style="margin-bottom:12px">
         <input class="in" id="rr-v" placeholder="Version (ex. 1.0.0)" style="width:140px" value="${esc(Atelier.ctx.version || "")}">
         <select class="in" id="rr-c" style="width:auto"><option value="">Toutes campagnes</option>${camps.map(c => `<option value="${esc(c.id)}">${esc(c.nom)}</option>`).join("")}</select>
         <select class="in" id="rr-e" style="width:auto"><option value="">Tous environnements</option>${(envs.environnements || []).map(e => `<option>${esc(e)}</option>`).join("")}</select>
@@ -171,7 +181,12 @@
       <div class="grille-2">${[["qa", "Rapport QA Manager", "Couverture, résultats, risques, points bloquants, actions prioritaires"], ["factory", "Rapport Testing Factory", "Volume, automatisation, stabilité, maintenance"],
         ["automation", "Rapport Automation", "Santé, locators, keywords, flaky, maintenance"], ["release", "Rapport Release", "Dernière évaluation, risques résiduels, avis qualité"]]
         .map(([id, t, d]) => `<section class="bloc-strat"><h3>${t}</h3><p class="lib">${d}</p><div class="btns"><button class="btn primaire" data-pdf="${id}">PDF</button><button class="btn" data-csv="${id}">CSV</button></div></section>`).join("")}</div>
+      <section class="bloc-strat" style="margin-top:12px"><h3>Stratégie de test (document)</h3>
+        <p class="lib">Document de stratégie généré à partir des données réelles du jour : objectifs et critères mesurés, périmètre, environnements, plan d'automatisation, indicateurs.
+          Pour une revue, un comité ou un audit ; il n'y a plus de module dédié à maintenir.</p>
+        <div class="btns"><button class="btn primaire" id="rp-strat" title="Ouvre le document et la boîte d'impression du navigateur (PDF)">Exporter la stratégie (PDF)</button></div></section>
       <p class="lib" style="margin-top:10px">Excel et tableau de bord partageable : à venir (le CSV s'ouvre dans Excel).</p></div>`;
+    $("#rp-strat").onclick = () => window.Pilotage.exporter().catch(e => toast(e.message, "ko"));
     const donnees = async id => {
       const [v, s, st, r] = await Promise.all([api("/api/gouvernance/vue"), api("/api/gouvernance/sante"), api("/api/gouvernance/stabilite"), api("/api/gouvernance/releases")]);
       return {v, s, st, r, id};

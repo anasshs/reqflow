@@ -1,5 +1,10 @@
-/* Test Strategy : ce qu'on veut tester et pourquoi. Une stratégie, 14 rubriques, une seule source
-   (/api/strategie). Indicateurs calculés côté serveur depuis les sources réelles (jamais saisis). */
+/* Référentiel de pilotage (ex-module Test Strategy, supprimé comme écran le 2026-11-15).
+   Les éléments utilisés par les calculs sont édités là où ils servent, avec ce composant (window.Pilotage) :
+     périmètre → Paramètres › Périmètre ; environnements → Execution Center › Infrastructure ;
+     objectifs et critères d'entrée / sortie → Quality Governance › Release Readiness ;
+     couverture → Application Intelligence › Couverture ; décisions du plan → Automation Studio › À automatiser ;
+     export du document de stratégie → Quality Governance › Rapports.
+   Une seule source (/api/strategie) ; indicateurs calculés côté serveur depuis les sources réelles (jamais saisis). */
 "use strict";
 (() => {
   const MENU = [["vue", "Vue d'ensemble"], ["objectifs", "Objectifs"], ["perimetre", "Périmètre"], ["types_tests", "Types de tests"],
@@ -21,30 +26,42 @@
   const PILL_ETAT = {"atteint": "ok", "en cours": "info", "non atteint": "ko", "non mesurable": "", "satisfait": "ok", "non satisfait": "ko", "à valider": "warn"};
   const PILL_RISQUE = {critique: "ko", "élevé": "warn", moyen: "info", faible: ""};
   const PILL_STATUT = {Draft: "warn", "In Review": "info", Approved: "violet", Published: "ok", Archived: ""};
-  let E = null, R = "vue", SEL = null, FILTRE = "", TRI = null, SANTE = null, JEUX = null, PLAN = null;
+  let E = null, R = "vue", SEL = null, FILTRE = "", TRI = null, SANTE = null, JEUX = null, PLAN = null, ZONE = null;
   const FILTRES = {};  // filtres multi-valeurs : « rubrique.champ » -> valeurs cochées (OU dans un champ, ET entre champs)
   const LOT = new Set(["types_tests", "niveaux", "outils"]);
 
+  /* Anciennes adresses #strategie/… : chaque élément s'ouvre là où il sert désormais */
+  const VERS = {objectifs: "gouvernance/objectifs", criteres: "gouvernance/criteres", perimetre: "parametres/perimetre", environnements: "centre/environnements",
+    couverture: "intelligence/couverture", coverage: "intelligence/couverture", plan: "studio/candidats"};
   Atelier.enregistrer("strategie", {
-    async afficher(zone, sous) {
-      if (sous === "coverage") {  // ancienne rubrique séparée : même page, onglet Overview
-        try { if (!sessionStorage.getItem("ci-onglet")) sessionStorage.setItem("ci-onglet", "overview"); } catch (e) { /* facultatif */ }
-        sous = "couverture";
-      }
-      R = MENU.some(m => m[0] === sous) ? sous : "vue";
-      SEL = null; FILTRE = ""; TRI = null;
-      zone.className = "g-strat";
-      zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques de la stratégie"></nav>
-        <section class="carte corps-strat"><div class="corps-carte">${vide("Chargement…")}</div></section>
-        <aside class="carte panneau-strat" hidden></aside>`;
-      await recharger();
+    afficher(zone, sous) {
+      if (sous === "coverage") { try { if (!sessionStorage.getItem("ci-onglet")) sessionStorage.setItem("ci-onglet", "overview"); } catch (e) { /* facultatif */ } }
+      location.hash = VERS[sous] || "gouvernance/rapports";  // rubriques déclaratives : export du document (Rapports)
     },
   });
 
+  /* Le référentiel est créé automatiquement au premier usage (plus d'écran de création) */
+  async function charger() {
+    let e = await api("/api/strategie");
+    if (!e.existe) e = await api("/api/strategie/creer", {method: "POST", body: {nom: `Stratégie de test ${Atelier.ctx.application || Atelier.ctx.projet || ""}`.trim(),
+      application: Atelier.ctx.application || Atelier.ctx.projet || "projet", version_application: Atelier.ctx.version || ""}});
+    return e;
+  }
+  window.Pilotage = {
+    /* une rubrique (objectifs, criteres, perimetre, environnements…) rendue dans el */
+    async rubrique(el, rub) { ZONE = el; R = rub; SEL = null; FILTRE = ""; TRI = null; await recharger(); },
+    /* couverture des exigences (premier onglet de Couverture, Application Intelligence) */
+    async couverture(el) { ZONE = el; R = "couverture"; E = E || await charger(); return couverture(el); },
+    /* décision humaine sur un candidat à l'automatisation (Automation Studio) */
+    async decider(c, apres) { E = await charger(); decider(c, apres); },
+    /* document de stratégie (impression / PDF), toujours calculé sur les données réelles du jour */
+    async exporter() { E = await charger(); exporterPDF(); },
+    async etat() { E = await charger(); return E; },
+  };
+
   async function recharger(etat) {
-    try { E = etat || await api("/api/strategie"); }
-    catch (e) { $(".corps-strat").innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; return; }
-    menu();
+    try { E = etat || await charger(); }
+    catch (e) { if (ZONE) ZONE.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; return; }
     rendre();
   }
 
@@ -60,107 +77,18 @@
     catch (e) { toast(e.message, "ko"); return false; }
   }
 
-  /* ------------------------------------------------------------------ menu latéral (complétude) */
-  function menu() {
-    const c = E.completude || {};
-    $(".menu-strat").innerHTML = `<div class="titre-carte">TEST STRATEGY</div><ol class="liste-strat">${MENU.map(([id, lib], i) => {
-      const p = c[id];
-      return `<li><button data-r="${id}" ${id === R ? 'aria-current="page"' : ""}><span class="num">${i + 1}</span><span class="item">${esc(lib)}</span>
-        ${p === undefined ? "" : `<span class="compl ${p >= 100 ? "ok" : p > 0 ? "warn" : ""}" title="Complétude ${p} %">${p >= 100 ? ico("check") : p + "%"}</span>`}</button></li>`; }).join("")}</ol>
-      ${E.existe ? `<div class="pied-strat">${statutPill(E.strategie.statut)} <span class="lib">version ${E.strategie.version}</span>
-        <div class="lib" style="margin-top:4px">Sauvegarde automatique · ${esc(heure(E.strategie.infos.modifie_le))}</div></div>` : ""}`;
-    $$(".menu-strat [data-r]").forEach(b => b.onclick = () => { location.hash = "strategie/" + b.dataset.r; });
-  }
-
   function rendre() {
-    const z = $(".corps-strat");
-    $(".panneau-strat").hidden = true;
-    if (!E.existe) return creation(z);
-    const vues = {vue, couverture: z => window.CoverageIntelligence(z, undefined, {exigences: couverture}), plan, validation, historique};
-    (vues[R] || rubrique)(z);
+    if (!ZONE || !ZONE.isConnected) return;  // composant affiché ailleurs depuis : rien à rafraîchir
+    const p = $(".panneau-strat");
+    if (p) p.hidden = true;
+    if (R === "couverture") return couverture(ZONE);
+    rubrique(ZONE);
   }
 
   const entete = (titre, actions = "") => `<h2 class="titre-carte">${esc(titre)}<span class="actions-titre">${actions}</span></h2>`;
 
   /* ------------------------------------------------------------------ état vide : création */
-  function creation(z) {
-    z.innerHTML = `${entete("Créer la stratégie de test")}<div class="corps-carte" style="max-width:620px">
-      <p>Aucune stratégie pour ce projet. Elle sert de référence aux autres espaces (objectifs, périmètre, critères, plan d'automatisation).</p>
-      <div class="grille-2"><div class="champ"><label for="cs-nom">Nom de la stratégie *</label><input class="in" id="cs-nom" placeholder="Stratégie de test ${esc(Atelier.ctx.application || "")}"></div>
-        <div class="champ"><label for="cs-app">Application / projet * (RG01)</label><input class="in" id="cs-app" value="${esc(Atelier.ctx.application || Atelier.ctx.projet || "")}"></div>
-        <div class="champ"><label for="cs-ver">Version</label><input class="in" id="cs-ver" value="${esc(Atelier.ctx.version || "")}"></div>
-        <div class="champ"><label for="cs-resp">Responsable QA</label><input class="in" id="cs-resp" value="${esc(Atelier.ctx.utilisateur || "")}"></div></div>
-      <button class="btn primaire" id="cs-ok">${ico("plus")}Créer la stratégie</button></div>`;
-    $("#cs-ok").onclick = () => operer("/api/strategie/creer", {nom: $("#cs-nom").value || $("#cs-nom").placeholder, application: $("#cs-app").value,
-      version_application: $("#cs-ver").value, responsable: $("#cs-resp").value}, "Stratégie créée (brouillon).");
-  }
-
   /* ------------------------------------------------------------------ 01 vue d'ensemble */
-  function vue(z) {
-    setTimeout(() => Promise.all([api("/api/testabilite/espaces"), api("/api/testabilite/sprints").catch(() => ({}))]).then(([c, sp]) => {
-      const b = $("#v-us");
-      if (!b) return;
-      const k = c.indicateurs;
-      b.querySelector("p").innerHTML = c.espaces.length
-        ? `Espaces Jira suivis : <b>${c.espaces.map(e => { const a = ((sp[e.projet_jira] || {}).sprints || []).find(s => s.etat === "active");
-             return esc(e.projet_jira) + (a ? ` (${esc(a.nom)} en cours)` : ""); }).join(", ")}</b> → tests dans ${esc([...new Set(c.espaces.map(e => e.projet_xray))].join(", "))}.
-           Le backlog de chaque sprint est le périmètre de test de l'itération.
-           ${k.us} US suivies, ${k.couvertes} couvertes${k.taux_couverture === null ? "" : ` (${String(k.taux_couverture).replace(".", ",")} %)`}, ${k.en_attente_reponse} en attente de réponse, ${k.non_testables} non testable(s). IA : ${esc(c.ia.fournisseur)}.`
-        : "Aucun espace Jira activé : chaque US des squads choisies devra être clarifiée puis couverte par des tests Xray. <a href='#conception/us'>Configurer</a>.";
-    }).catch(() => {}), 0);
-    const s = E.strategie, y = E.synthese, i = s.infos;
-    const bloc = (titre, cible, corps) => `<section class="bloc-strat"><h3>${titre}<button class="lien" data-aller="${cible}">Détails ${ico("ext")}</button></h3>${corps}</section>`;
-    const n = (v, l, c = "") => `<div class="chiffre"><b class="${c}">${v ?? "—"}</b><span>${l}</span></div>`;
-    const ind = y.indicateurs;
-    z.innerHTML = `${entete("Vue d'ensemble", `<button class="btn" id="v-modif">${ico("editeur")}Modifier</button><button class="btn" id="v-comp">Comparer les versions</button>
-        <button class="btn" id="v-pdf">${ico("export")}Exporter en PDF</button><button class="btn primaire" data-aller="validation">${ico("check")}Publier…</button>`)}
-      <div class="corps-carte"><section class="bloc-strat" id="v-us" style="margin-bottom:12px"><h3>Politique : testabilité des US<a class="lien" href="#conception/us">Ouvrir ${ico("ext")}</a></h3>
-        <p class="lib">Chargement…</p></section><div class="grille-strat">
-        ${bloc("A · Informations générales", "validation", `<dl class="props"><dt>Nom</dt><dd><b>${esc(i.nom)}</b></dd><dt>Application</dt><dd>${esc(i.application)}</dd>
-          <dt>Version</dt><dd>${esc(i.version_application || "—")}</dd><dt>Responsable QA</dt><dd>${esc(i.responsable)}</dd>
-          <dt>Créée le</dt><dd>${esc(i.cree_le.replace("T", " "))}</dd><dt>Modifiée le</dt><dd>${esc(i.modifie_le.replace("T", " "))}</dd>
-          <dt>Statut</dt><dd>${statutPill(s.statut)} <span class="lib">v${s.version}</span></dd></dl>`)}
-        ${bloc("B · Objectifs", "objectifs", `<div class="chiffres">${n(y.objectifs.total, "objectifs")}${n(y.objectifs.atteint, "atteints", "ok-t")}${n(y.objectifs["en cours"], "en cours", "info-t")}${n(y.objectifs["non atteint"], "non atteints", "ko-t")}</div>
-          ${y.objectifs["non mesurable"] ? `<p class="lib">${y.objectifs["non mesurable"]} objectif(s) non mesurable(s) faute de données.</p>` : ""}`)}
-        ${bloc("C · Périmètre", "perimetre", `<div class="chiffres">${n(y.perimetre.modules, "modules")}${n(y.perimetre.fonctionnalites, "fonctionnalités")}${n(y.perimetre.exigences, "exigences")}${n(y.perimetre.interfaces, "interfaces")}</div>
-          <p class="lib">${y.perimetre.exclus} élément(s) exclu(s).</p>`)}
-        ${bloc("D · Types de tests", "types_tests", `<div class="chiffres">${n(y.types.total, "types actifs")}${n(y.types.manuels, "manuels")}${n(y.types.automatises, "automatisés")}${n(y.types.mixtes, "mixtes")}</div>
-          <p class="lib">Taux d'automatisation cible moyen : <b>${fmt(y.types.cible_auto_moyenne, "%")}</b></p>`)}
-        ${bloc("E · Couverture des exigences", "couverture", `<div class="chiffres">${n(y.couverture.couvertes, "couvertes", "ok-t")}${n(y.couverture.partielles, "partielles", "warn-t")}${n(y.couverture.non_couvertes, "non couvertes", "ko-t")}</div>
-          <p class="lib">${esc(y.couverture.definition)}</p>`)}
-        ${bloc("F · Risques", "risques", `<div class="chiffres">${n(y.risques.critique, "critiques", "ko-t")}${n(y.risques["élevé"], "élevés", "warn-t")}${n(y.risques.moyen, "moyens", "info-t")}${n(y.risques.faible, "faibles")}</div>`)}
-      </div>
-      <section class="bloc-strat" style="margin-top:12px"><h3>G · Indicateurs (calculés : Xray, dépôt Robot, historique des runs)</h3>
-        <div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">${Object.values(ind).map(k => `<div class="kpi" title="${esc(k.definition)}">
-          <div class="v">${fmt(k.valeur, k.unite)}</div><div class="l">${esc(k.libelle)}</div><div class="lib" style="font-size:11px">${esc(k.detail || "aucune donnée")}</div></div>`).join("")}</div></section>
-      ${resumeControles()}</div>`;
-    lierAller(z);
-    $("#v-modif").onclick = modifierInfos;
-    $("#v-comp").onclick = () => comparer();
-    $("#v-pdf").onclick = exporterPDF;
-  }
-
-  function resumeControles() {
-    const err = E.controles.filter(c => c.gravite === "erreur"), av = E.controles.filter(c => c.gravite !== "erreur");
-    if (!E.controles.length) return `<p class="ok-t" style="margin-top:12px">${ico("check")} Aucun contrôle en défaut : la stratégie est cohérente.</p>`;
-    return `<section class="bloc-strat" style="margin-top:12px"><h3>Contrôles de complétude et de cohérence <span class="pill ko">${err.length} bloquant(s)</span> <span class="pill warn">${av.length} avertissement(s)</span></h3>
-      <ul class="liste">${E.controles.slice(0, 8).map(c => `<li><span class="pill ${c.gravite === "erreur" ? "ko" : "warn"}">${esc(c.gravite)}</span>
-        <button class="lien item" data-aller="${c.rubrique}">${esc(c.message)}</button><span class="lib">${esc(nomRub(c.rubrique))}</span></li>`).join("")}</ul></section>`;
-  }
-
-  const lierAller = r => $$("[data-aller]", r).forEach(b => b.onclick = () => { location.hash = "strategie/" + b.dataset.aller; });
-
-  function modifierInfos() {
-    const i = E.strategie.infos;
-    const m = modale("Informations générales", `<div class="grille-2">${[["nom", "Nom *"], ["application", "Application / projet *"], ["version_application", "Version"], ["responsable", "Responsable QA"]]
-      .map(([k, l]) => `<div class="champ"><label for="mi-${k}">${l}</label><input class="in" id="mi-${k}" value="${esc(i[k] || "")}"></div>`).join("")}</div>
-      ${E.strategie.statut === "Published" ? `<p class="warn-t">La version ${E.strategie.version} est publiée : cette modification ouvrira la version ${E.strategie.version + 1} (RG12).</p>` : ""}`,
-      `<button class="btn primaire" id="mi-ok">Enregistrer</button>`);
-    $("#mi-ok", m.el).onclick = async () => {
-      const b = Object.fromEntries(["nom", "application", "version_application", "responsable"].map(k => [k, $("#mi-" + k, m.el).value]));
-      if (await operer("/api/strategie/infos", b)) m.fermer();
-    };
-  }
 
   /* ------------------------------------------------------------------ rubriques génériques (02 à 10) */
   function valeurCellule(rub, x, col) {
@@ -220,7 +148,7 @@
           <div class="carte" style="position:absolute;z-index:20;padding:8px;min-width:200px;margin-top:4px">${valeurs.map(v => `<label class="lib" style="display:block;white-space:nowrap">
             <input type="checkbox" data-fm="${esc(c.nom)}" value="${esc(v)}" ${sel.includes(v) ? "checked" : ""}> ${esc(v)}</label>`).join("")}</div></details>`; }).join("")}
         ${nbActifs ? `<button class="btn petit" id="r-fm-x">Effacer les filtres (${nbActifs})</button>` : ""}</div>` : "";
-    z.innerHTML = `${entete(`${MENU.findIndex(m => m[0] === rub) + 1}. ${sc.titre}`, `${extra}<input type="search" class="in" id="r-filtre" placeholder="Filtrer…" value="${esc(FILTRE)}" style="width:170px">
+    z.innerHTML = `${entete(sc.titre, `${extra}<input type="search" class="in" id="r-filtre" placeholder="Filtrer…" value="${esc(FILTRE)}" style="width:170px">
         <button class="btn primaire" id="r-ajout">${ico("plus")}Ajouter</button>`)}
       <div class="corps-carte">${barreFiltres}${{niveaux: pyramide(), risques: matrice()}[rub] || ""}
         ${liste.length ? `<table class="table-strat"><tr>${cols.map(c => `<th data-tri="${c}" class="${TRI?.col === c ? "trie" : ""}">${esc(libCol(rub, c))}</th>`).join("")}<th></th></tr>
@@ -369,8 +297,9 @@
     SEL = id;
     const sc = schema(rub), x = id ? elements(rub).find(e => e.id === id) : null;
     if (id && !x) return;
-    const p = $(".panneau-strat");
-    p.hidden = false;
+    let p = $(".panneau-strat"), m = null;
+    if (p) p.hidden = false;
+    else { m = modale(x ? "Propriétés" : `Ajouter · ${sc.titre}`, '<div id="pil-form"></div>'); p = $("#pil-form", m.el); }  // écran hôte sans panneau latéral
     const defauts = {inclus: true, actif: true, obligatoire: true, comparateur: ">=", statut: "Ouvert"};
     const val = c => x ? x[c.nom] : defauts[c.nom];
     p.innerHTML = `${entete(x ? "Propriétés" : `Ajouter · ${sc.titre}`, `<button class="icone" id="f-fermer" aria-label="Fermer">${ico("x")}</button>`)}
@@ -380,7 +309,7 @@
         ${x?.validation ? `<p class="lib">Validé par ${esc(x.validation.par)} le ${esc(x.validation.date)} : ${esc(x.validation.preuve)}</p>` : ""}
         <div class="btns"><button class="btn primaire" id="f-ok">${ico("check")}Enregistrer</button>${x ? `<button class="btn danger" id="f-suppr">Supprimer</button>` : ""}</div></div>`;
     $$("tr[data-id]").forEach(tr => tr.classList.toggle("sel", tr.dataset.id === id));
-    $("#f-fermer").onclick = () => { SEL = null; p.hidden = true; $$("tr.sel").forEach(t => t.classList.remove("sel")); };
+    $("#f-fermer").onclick = () => { SEL = null; if (m) m.fermer(); else p.hidden = true; $$("tr.sel").forEach(t => t.classList.remove("sel")); };
     $("#f-ok").onclick = async () => {
       const el = {id: id || undefined};
       for (const c of sc.champs) {
@@ -405,9 +334,9 @@
   /* Test Xray ↔ Story / Requirement (liens natifs) ; Epics / Features = agrégation. 4 indicateurs distincts. */
   const FC = {version: "", plateforme: "", niveau: "macro", ouverts: new Set(), liste: "sans_test"};
   async function couverture(z) {
-    z.innerHTML = `${entete("11. Couverture et traçabilité")}<div class="corps-carte">${vide("Calcul de la couverture…")}</div>`;
+    z.innerHTML = `${entete("Couverture des exigences")}<div class="corps-carte">${vide("Calcul de la couverture…")}</div>`;
     const c = await api(`/api/couverture?version=${encodeURIComponent(FC.version)}&plateforme=${encodeURIComponent(FC.plateforme)}`).catch(e => ({erreur: e.message}));
-    if (c.erreur) { z.innerHTML = `${entete("11. Couverture et traçabilité")}<div class="corps-carte"><p class="ko-t">${esc(c.erreur)}</p></div>`; return; }
+    if (c.erreur) { z.innerHTML = `${entete("Couverture des exigences")}<div class="corps-carte"><p class="ko-t">${esc(c.erreur)}</p></div>`; return; }
     const g = c.global, D = c.definitions, pc = v => fmt(v, "%");
     const barre = v => `<span style="display:inline-block;width:70px;height:6px;border-radius:3px;background:var(--line);vertical-align:middle;margin-right:6px"><span style="display:block;height:100%;width:${v || 0}%;border-radius:3px;background:${v >= 80 ? "var(--ok)" : v >= 50 ? "var(--warn)" : "var(--ko)"}"></span></span>`;
     const ind = (v, t) => `<td title="${esc(t)}">${barre(v)}${pc(v)}</td>`;
@@ -491,25 +420,7 @@
   }
 
   /* ------------------------------------------------------------------ 12 plan d'automatisation */
-  async function plan(z) {
-    z.innerHTML = `${entete("12. Plan d'automatisation")}<div class="corps-carte">${vide("Analyse du portefeuille Xray…")}</div>`;
-    PLAN = await api("/api/strategie/plan-automatisation").catch(e => { toast(e.message, "ko"); return []; });
-    if (R !== "plan") return;
-    const cpt = s => PLAN.filter(c => c.statut_plan === s).length;
-    z.innerHTML = `${entete("12. Plan d'automatisation", `<a class="btn" href="#rapports/candidats">Analyse détaillée des candidats</a>`)}
-      <div class="corps-carte"><p class="lib">Candidats calculés depuis l'instantané Xray et le dépôt Robot. Aucun score inventé : critères explicables (criticité, type, données manquantes, dernier résultat). Chaque décision est humaine et journalisée ; les candidats approuvés passent à Construction BDD (Test Design).</p>
-        <div class="btns" style="margin-bottom:10px">${E.statuts_plan.map(s => `<span class="pill ${s === "Automatisé" ? "ok" : s === "Approuvé" ? "violet" : s === "Rejeté" ? "ko" : ""}">${esc(s)} ${cpt(s)}</span>`).join("")}</div>
-        ${PLAN.length ? `<table class="table-strat"><tr><th>Clé Xray</th><th>Test</th><th>Module</th><th>Type</th><th>Criticité</th><th>Dernier résultat</th><th>Justification / manques</th><th>Statut</th><th>Décision</th></tr>
-          ${PLAN.map(c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume || "")}</td><td>${esc(c.module || "")}</td><td>${esc(c.type || "")}</td><td>${esc(c.criticite || "")}</td>
-            <td>${c.dernier_resultat ? `<span class="pill ${c.dernier_resultat === "PASS" ? "ok" : "ko"}">${esc(c.dernier_resultat)}</span>` : "—"}</td>
-            <td class="lib">${esc([...(c.justification || []), ...(c.donnees_manquantes || []).map(x => "manque : " + x)].join(" · "))}${c.decision?.commentaire ? `<br><i>${esc(c.decision.commentaire)}</i>` : ""}</td>
-            <td><span class="pill ${c.statut_plan === "Automatisé" ? "ok" : c.statut_plan === "Approuvé" ? "violet" : c.statut_plan === "Rejeté" ? "ko" : ""}">${esc(c.statut_plan)}</span>${c.decision?.framework ? `<div class="lib">${esc(c.decision.framework)} · ${esc(c.decision.effort || "")}</div>` : ""}</td>
-            <td>${c.automatise ? "" : `<button class="btn petit" data-decider="${esc(c.cle)}">Décider</button>`}${c.statut_plan === "Approuvé" ? ` <a class="btn petit" href="#bdd">${ico("bdd")}Scénario BDD</a>` : ""}</td></tr>`).join("")}</table>`
-          : vide("Aucun instantané Xray", `<a href="#rapports/patrimoine">Importer le patrimoine Xray</a> pour analyser le portefeuille.`)}</div>`;
-    $$("[data-decider]", z).forEach(b => b.onclick = () => decider(PLAN.find(c => c.cle === b.dataset.decider)));
-  }
-
-  function decider(c) {
+  function decider(c, apres) {
     const d = c.decision || {};
     const m = modale(`Décision · ${c.cle}`, `<p><b>${esc(c.resume || "")}</b> <span class="lib">${esc(c.module || "")} · ${esc(c.type || "")} · criticité ${esc(c.criticite || "—")}</span></p>
       <div class="grille-2"><div class="champ"><label for="d-st">Statut</label><select class="in" id="d-st">${E.decisions_plan.map(s => `<option ${s === (d.statut || "À analyser") ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
@@ -519,86 +430,12 @@
       `<button class="btn primaire" id="d-ok">Enregistrer la décision</button>`);
     $("#d-ok", m.el).onclick = async () => {
       if (await operer("/api/strategie/plan-automatisation", {cle: c.cle, statut: $("#d-st", m.el).value, framework: $("#d-fw", m.el).value,
-        effort: $("#d-ef", m.el).value, commentaire: $("#d-co", m.el).value}, "Décision enregistrée (journalisée).")) { m.fermer(); plan($(".corps-strat")); }
+        effort: $("#d-ef", m.el).value, commentaire: $("#d-co", m.el).value}, "Décision enregistrée (journalisée).")) { m.fermer(); if (apres) apres(); }
     };
   }
 
   /* ------------------------------------------------------------------ 13 validation et publication */
-  function validation(z) {
-    const s = E.strategie, st = s.statut;
-    const etapes = ["Draft", "In Review", "Approved", "Published", "Archived"];
-    const actions = {Draft: [["soumettre", "Soumettre en revue", "primaire"]],
-      "In Review": [["demander_modifications", "Demander des modifications", ""], ["approuver", "Approuver", "succes"]],
-      Approved: [["publier", `Publier la version ${s.version}`, "publier"]], Published: [["archiver", "Archiver", "danger"]], Archived: []}[st];
-    const err = E.controles.filter(c => c.gravite === "erreur");
-    z.innerHTML = `${entete("13. Validation et publication")}
-      <div class="corps-carte"><ol class="workflow">${etapes.map((e, i) => `<li class="${e === st ? "actif" : etapes.indexOf(st) > i ? "fait" : ""}">${esc(E.libelles_statut[e])}</li>`).join("")}</ol>
-        <p>Version de travail <b>v${s.version}</b> · ${statutPill(st)} ${s.approbation ? `<span class="lib">approuvée par ${esc(s.approbation.par)} le ${esc(s.approbation.date)}</span>` : ""}</p>
-        <div class="champ"><label for="w-com">Commentaire de l'action</label><textarea class="in" id="w-com" rows="2" placeholder="Obligatoire pour une demande de modifications"></textarea></div>
-        <div class="btns">${actions.map(([a, l, c]) => `<button class="btn ${c === "publier" ? "btn-publier" : c}" data-action="${a}" ${["soumettre", "approuver", "publier"].includes(a) && err.length ? "disabled title='Contrôles bloquants à corriger'" : ""}>${esc(l)}</button>`).join("")}
-          <span class="lib">La publication crée un instantané immuable ; la version précédente est archivée, jamais écrasée.</span></div>
-        <div class="grille-2" style="margin-top:14px"><section class="bloc-strat"><h3>Contrôle de complétude</h3><ul class="liste">${MENU.filter(([id]) => id in E.completude).map(([id, l]) =>
-          `<li><button class="lien item" data-aller="${id}">${esc(l)}</button><div class="barre" style="width:90px"><i style="width:${E.completude[id]}%"></i></div><span class="compte">${E.completude[id]} %</span></li>`).join("")}</ul></section>
-          <section class="bloc-strat"><h3>Incohérences et liens <span class="pill ${err.length ? "ko" : "ok"}">${err.length} bloquant(s)</span></h3><ul class="liste">${E.controles.map(c => `<li><span class="pill ${c.gravite === "erreur" ? "ko" : "warn"}">${esc(c.gravite)}</span><button class="lien item" data-aller="${c.rubrique}">${esc(c.message)}</button></li>`).join("") || "<li class='ok-t'>Aucun</li>"}</ul></section></div>
-        <section class="bloc-strat" style="margin-top:12px"><h3>Commentaires</h3><ul class="liste">${s.commentaires.slice().reverse().map(c => `<li><span class="mono lib">${esc(c.date.replace("T", " "))}</span><span class="item">${esc(c.texte)}</span><span class="lib">${esc(c.auteur)} · v${c.version}</span></li>`).join("") || "<li class='lib'>Aucun commentaire.</li>"}</ul>
-          <div class="btns" style="margin-top:8px"><input class="in" id="w-c2" placeholder="Ajouter un commentaire" style="flex:1"><button class="btn" id="w-c2-ok">Commenter</button></div></section>
-        <p class="lib" style="margin-top:10px">Rôles (QA Manager, Test Lead…) : non gérés dans l'interface locale sans authentification ; l'auteur journalisé est le compte du poste.</p></div>`;
-    lierAller(z);
-    $$("[data-action]", z).forEach(b => b.onclick = () => {
-      const a = b.dataset.action;
-      if (["publier", "archiver"].includes(a) && !confirm(a === "publier" ? `Publier la version ${s.version} ? Elle deviendra la version active, non modifiable.` : "Archiver la stratégie publiée ?")) return;
-      operer("/api/strategie/transition", {action: a, commentaire: $("#w-com").value}, "Statut mis à jour.");
-    });
-    $("#w-c2-ok").onclick = () => operer("/api/strategie/commentaires", {texte: $("#w-c2").value}, "Commentaire ajouté.");
-  }
-
   /* ------------------------------------------------------------------ 14 historique des versions */
-  async function historique(z) {
-    const v = E.versions;
-    const j = await api("/api/strategie/journal").catch(() => []);
-    if (R !== "historique") return;
-    z.innerHTML = `${entete("14. Historique des versions", `<button class="btn" id="h-comp">Comparer deux versions</button>`)}
-      <div class="corps-carte">${v.length ? `<table class="table-strat"><tr><th>Version</th><th>Statut</th><th>Date</th><th>Auteur</th><th>Approbateur</th><th>Modifications</th><th>Commentaire</th><th></th></tr>
-        ${v.slice().reverse().map(x => `<tr><td><b>v${x.version}</b></td><td>${statutPill(x.statut)}${x.remplacee_par ? `<div class="lib">remplacée par v${x.remplacee_par}</div>` : ""}</td><td class="mono">${esc(x.date.replace("T", " "))}</td>
-          <td>${esc(x.auteur)}</td><td>${esc(x.approbateur || "—")}</td><td class="lib">${esc(x.modifications)}</td><td>${esc(x.commentaire || "")}</td>
-          <td class="btns"><button class="btn petit" data-voir="${x.version}">Consulter</button><button class="btn petit" data-diff="${x.version}">Comparer à la courante</button><button class="btn petit" data-rest="${x.version}">Restaurer</button></td></tr>`).join("")}</table>`
-        : vide("Aucune version publiée", "Les versions apparaissent ici à chaque publication (Validation et publication).")}
-        <h3 class="lib" style="margin:16px 0 6px">JOURNAL D'AUDIT</h3>
-        <ul class="liste">${j.slice(0, 80).map(x => `<li><span class="mono lib">${esc(x.date.replace("T", " "))}</span><span class="item">${esc(x.op.replace(/_/g, " "))}${x.rubrique ? ` · ${esc(nomRub(x.rubrique))}` : ""}${x.cle ? ` · ${esc(x.cle)} → ${esc(x.statut)}` : ""}${x.commentaire ? ` · « ${esc(x.commentaire)} »` : ""}</span><span class="lib">${esc(x.auteur)} · v${x.version ?? "—"}</span></li>`).join("") || "<li class='lib'>Vide.</li>"}</ul></div>`;
-    $("#h-comp").onclick = () => comparer();
-    $$("[data-voir]", z).forEach(b => b.onclick = () => voirVersion(+b.dataset.voir));
-    $$("[data-diff]", z).forEach(b => b.onclick = () => comparer(b.dataset.diff, "courante"));
-    $$("[data-rest]", z).forEach(b => b.onclick = () => confirm(`Restaurer le contenu de la v${b.dataset.rest} dans la version de travail ? (journalisé, rien n'est supprimé)`)
-      && operer("/api/strategie/restaurer", {version: +b.dataset.rest}, "Version restaurée dans la version de travail."));
-  }
-
-  async function voirVersion(n) {
-    const v = await api("/api/strategie/versions/" + n).catch(e => toast(e.message, "ko"));
-    if (!v) return;
-    modale(`Version ${n} · ${v.infos.nom}`, documentStrategie(v, false));
-  }
-
-  async function comparer(a, b) {
-    const ops = ["courante", ...E.versions.map(v => String(v.version))];
-    if (!a) {
-      const m = modale("Comparer deux versions", `<div class="grille-2"><div class="champ"><label for="c-a">De</label><select class="in" id="c-a">${ops.map(o => `<option ${o === ops[1] ? "selected" : ""}>${o}</option>`).join("")}</select></div>
-        <div class="champ"><label for="c-b">Vers</label><select class="in" id="c-b">${ops.map(o => `<option>${o}</option>`).join("")}</select></div></div>`,
-        `<button class="btn primaire" id="c-ok">Comparer</button>`);
-      if (ops.length < 2) $(".corps-carte", m.el).insertAdjacentHTML("beforeend", `<p class="lib">Aucune version publiée : rien à comparer pour l'instant.</p>`);
-      $("#c-ok", m.el).onclick = () => { m.fermer(); comparer($("#c-a", m.el).value, $("#c-b", m.el).value); };
-      return;
-    }
-    const d = await api(`/api/strategie/comparer?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`).catch(e => toast(e.message, "ko"));
-    if (!d) return;
-    const val = v => esc(Array.isArray(v) ? v.join(", ") : v === undefined || v === null || v === "" ? "∅" : typeof v === "object" ? JSON.stringify(v) : String(v));
-    const corps = Object.entries(d.rubriques).map(([r, x]) => `<h3>${esc(nomRub(r))}</h3><ul class="liste">
-      ${x.ajoutes.map(t => `<li><span class="pill ok">ajouté</span>${esc(t)}</li>`).join("")}${x.supprimes.map(t => `<li><span class="pill ko">supprimé</span>${esc(t)}</li>`).join("")}
-      ${x.modifies.map(mo => `<li><span class="pill warn">modifié</span><div class="item"><b>${esc(mo.element)}</b>${Object.entries(mo.champs).map(([k, [o, n]]) => `<div class="lib">${esc(k)} : <s>${val(o)}</s> → ${val(n)}</div>`).join("")}</div></li>`).join("")}</ul>`).join("")
-      + (Object.keys(d.infos).length ? `<h3>Informations générales</h3><ul class="liste">${Object.entries(d.infos).map(([k, [o, n]]) => `<li>${esc(k)} : <s>${val(o)}</s> → ${val(n)}</li>`).join("")}</ul>` : "")
-      + (d.plan_automatisation ? `<h3>Plan d'automatisation</h3><ul class="liste">${Object.entries(d.plan_automatisation).map(([k, [o, n]]) => `<li>${esc(k)} : ${val(o)} → ${val(n)}</li>`).join("")}</ul>` : "");
-    modale(`Différences v${a} → ${b === "courante" ? "version de travail" : "v" + b}`, corps || "<p>Aucune différence.</p>");
-  }
-
   /* ------------------------------------------------------------------ export PDF (impression du navigateur) */
   function documentStrategie(s, complet = true) {
     const sec = (r) => { const sc = schema(r.id), l = s.rubriques[r.id] || [];

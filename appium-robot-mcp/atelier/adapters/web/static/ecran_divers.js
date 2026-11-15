@@ -58,8 +58,8 @@
               <td>${r.statut === "échec" ? `<span class="ko-t">${ico("aide")}</span>` : r.statut === "réussi" ? `<span class="ok-t">${ico("check")}</span>` : ""}</td></tr>`; }).join("")}</table>`
             : vide("Aucun run", "Les exécutions lancées depuis l'atelier apparaissent ici.")}</div></section>
         ${strat?.existe ? (() => { const y = strat.synthese, PE = {"atteint": "ok", "en cours": "info", "non atteint": "ko", "non mesurable": ""};
-          return `<section class="carte s12"><h2 class="titre-carte">Stratégie de test · ${esc(strat.strategie.infos.nom)} <span class="pill">${esc(strat.libelles_statut[strat.strategie.statut])} v${strat.strategie.version}</span>
-            <span class="actions-titre"><a class="btn" href="#strategie">Test Strategy ${ico("ext")}</a></span></h2><div class="corps-carte" style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+          return `<section class="carte s12"><h2 class="titre-carte">Objectifs et critères
+            <span class="actions-titre"><a class="btn" href="#gouvernance/objectifs">Objectifs et critères ${ico("ext")}</a></span></h2><div class="corps-carte" style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
             <table><tr><th>Objectif</th><th>Indicateur</th><th>Cible</th><th>Actuel</th><th>État</th></tr>${y.objectifs.liste.map(o => `<tr><td>${esc(o.nom)}</td>
               <td class="lib">${esc(strat.indicateurs_disponibles[o.indicateur] || "")}</td><td>${esc(o.comparateur || ">=")} ${esc(o.cible)}</td>
               <td>${o.valeur ?? "—"}</td><td><span class="pill ${PE[o.etat]}">${esc(o.etat)}</span></td></tr>`).join("") || "<tr><td colspan='5' class='lib'>Aucun objectif.</td></tr>"}</table>
@@ -160,7 +160,8 @@
   }
 
   /* ================================================================== Paramètres (section à part) */
-  const SECTIONS = [["projets", "Projets"], ["connexions", "Connexions"], ["agents", "Cursor / Claude"], ["applications", "Applications"], ["configuration", "Configuration"], ["apparence", "Apparence"]];
+  const SECTIONS = [["projets", "Projets"], ["connexions", "Connexions"], ["agents", "Cursor / Claude"], ["applications", "Applications"], ["configuration", "Configuration"],
+    ["perimetre", "Périmètre"], ["apparence", "Apparence"]];
   Atelier.enregistrer("parametres", {
     afficher(zone, sous) {
       const s = SECTIONS.some(x => x[0] === sous) ? sous : "projets";
@@ -170,7 +171,9 @@
         <section class="carte"><h2 class="titre-carte">${esc(SECTIONS.find(x => x[0] === s)[1])}</h2><div class="corps-carte" id="p-corps">${vide("Chargement…")}</div></section>`;
       $$("[data-p]", zone).forEach(li => li.onclick = () => { location.hash = "parametres/" + li.dataset.p; });
       const corps = $("#p-corps");
-      Promise.resolve().then(() => ({projets, connexions, agents, applications, configuration, apparence})[s](corps)).catch(e => {
+      Promise.resolve().then(() => ({projets, connexions, agents, applications, configuration, apparence,
+        perimetre: x => { x.insertAdjacentHTML("beforebegin", '<p class="lib" style="margin:0 16px">Squads, modules et exigences du périmètre : un élément exclu ne compte pas dans la couverture ; la criticité d\'un module pèse sur le risque (Quality Governance).</p>');
+          return window.Pilotage.rubrique(x, "perimetre"); }})[s](corps)).catch(e => {
         corps.innerHTML = `<p><span class="pill ko">Erreur</span> ${esc(e.message)}</p><p class="lib">${/Not Found|404/.test(e.message)
           ? "Le serveur ne connaît pas cette fonction : il tourne sans doute avec une version précédente. Arrêter le serveur (Ctrl+C), relancer « python web/app.py », puis recharger la page (Ctrl+F5)."
           : "Message complet dans le terminal du serveur."}</p>`;

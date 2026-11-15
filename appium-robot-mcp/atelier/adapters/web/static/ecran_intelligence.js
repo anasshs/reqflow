@@ -10,6 +10,7 @@
     ["vue", "Cerveau", [["vue", "Cerveau"]], "Ce que l'atelier sait de l'application, d'où, depuis quand, ce qui manque et quoi faire"],
     ["exigences", "Connaissance", [["exigences", "Exigences et règles"], ["ecrans", "Écrans et parcours"], ["api", "API"], ["graphe", "Knowledge Graph"]],
       "Ce qui est demandé (Jira) et ce qui existe (écrans, parcours, API), reliés dans un seul graphe"],
+    ["couverture", "Couverture", [["couverture", "Couverture"]], "Couverture des exigences et Coverage Intelligence : documentation, reconstruction, liens, tests manquants et orphelins"],
     ["a_valider", "À valider", [["a_valider", "À valider"]], "Toutes les propositions en attente : Discovery, Cursor, graphe, Coverage Intelligence"],
     ["historique", "Historique", [["historique", "Historique"]], "Changements détectés, journal des connaissances et versions du graphe"]];
   const ALIAS = {jira: "exigences", regles: "exigences", parcours: "ecrans", validation: "a_valider", changements: "historique", parametres: "vue"};
@@ -21,9 +22,9 @@
   Atelier.enregistrer("intelligence", {
     async afficher(zone, sous) {
       if (sous === "exploration") { location.hash = "discovery"; return; }  // l'exploration, c'est Discovery
-      if (sous === "reconstruction") {  // Coverage Intelligence vit dans Test Strategy
+      if (sous === "reconstruction") {  // onglet de Coverage Intelligence (Couverture)
         try { sessionStorage.setItem("ci-onglet", "reconstruction"); } catch (e) { /* facultatif */ }
-        location.hash = "strategie/coverage"; return;
+        sous = "couverture"; history.replaceState(null, "", "#intelligence/couverture");
       }
       sous = ALIAS[sous] || sous;
       R = MENU.some(m => m[0] === sous) || GRAPHE[sous] ? sous : "vue";
@@ -33,7 +34,7 @@
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques Application Intelligence"><div class="titre-carte">APPLICATION INTELLIGENCE</div>
         <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span><span class="compl" data-compte="${id}"></span></button></li>`).join("")}</ol>
         <div class="pied-strat lib">Jira dit ce qui est demandé, l'application montre ce qui existe, Xray comment vérifier, Git l'automatisation : le cerveau relie les quatre, application par application.
-          <br><a href="#discovery" title="Explorer l'application (device, émulateur ou navigateur)">Explorer (Discovery)</a> · <a href="#strategie/coverage" title="Couverture, reconstruction fonctionnelle, liens Jira / Xray">Coverage Intelligence</a></div></nav>
+          <br><a href="#discovery" title="Explorer l'application (device, émulateur ou navigateur)">Explorer (Discovery)</a> · <a href="#intelligence/couverture" title="Couverture, reconstruction fonctionnelle, liens Jira / Xray">Coverage Intelligence</a></div></nav>
         <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}${GRAPHE[id] ? " ↗" : ""}</button>`).join("")}</div>` : ""}
           <div id="ai-contenu"><div class="corps-carte">${vide("Chargement…")}</div></div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "intelligence/" + b.dataset.r; });
@@ -41,6 +42,7 @@
       api("/api/cerveau/a-valider").then(l => { const c = $('[data-compte="a_valider"]', zone); if (c && l.length) c.textContent = l.length; }).catch(() => {});
       const z = $("#ai-contenu");
       try { await ({vue, exigences, ecrans: ecransParcours, a_valider: aValider, historique,
+        couverture: x => window.CoverageIntelligence(x, undefined, {exigences: window.Pilotage.couverture}),
         api: liste("api", "API", "Endpoints et entités déclarés ou importés depuis les contrats OpenAPI / Swagger du projet (api/*.yaml|json ; module par tag, stories par x-jira).")}[R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
@@ -58,13 +60,13 @@
   async function aValider(z) {
     const l = await api("/api/cerveau/a-valider");
     const sources = [...new Set(l.map(x => x.source))];
-    z.innerHTML = `${entete("À valider", `<a class="btn" href="#strategie/coverage" title="Coverage Intelligence : proposer des Stories, analyser les liens exigence ↔ test">Coverage Intelligence</a>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("À valider", `<a class="btn" href="#intelligence/couverture" title="Coverage Intelligence : proposer des Stories, analyser les liens exigence ↔ test">Coverage Intelligence</a>`)}<div class="corps-carte">
       <p class="lib">Toutes les propositions en attente, quelle que soit leur origine (Discovery, Cursor, relations déduites du graphe, Coverage Intelligence). Rien n'est utilisé ni écrit dans Jira / Xray avant validation ; un rejet est motivé et définitif.</p>
       <div class="btns" style="margin-bottom:8px">${["", ...sources].map(x => `<button class="btn petit ${x ? "" : "primaire"}" data-src="${esc(x)}" title="Filtrer par origine">${esc(x || "Tout")} (${x ? l.filter(y => y.source === x).length : l.length})</button>`).join("")}</div>
       ${l.length ? `<table class="table-strat" id="av-t"><tr><th>Origine</th><th>Proposition</th><th>Type</th><th>Justification / source</th><th>Confiance</th><th></th></tr>
         ${l.map((x, i) => `<tr data-s="${esc(x.source)}"><td><span class="pill">${esc(x.source)}</span></td><td><b>${esc(x.libelle)}</b></td><td>${esc(x.type)}</td><td class="lib">${esc(x.detail || "")}</td>
           <td>${x.confiance === null || x.confiance === undefined ? "—" : esc(String(x.confiance > 1 ? x.confiance : Math.round(x.confiance * 100))) + " %"}</td>
-          <td style="white-space:nowrap">${x.decision === "ci" ? `<a class="btn petit" href="#strategie/coverage" title="Ouvrir le détail (critères, observations, synchronisation) dans Coverage Intelligence">Détail</a>` : ""}
+          <td style="white-space:nowrap">${x.decision === "ci" ? `<a class="btn petit" href="#intelligence/couverture" title="Ouvrir le détail (critères, observations, synchronisation) dans Coverage Intelligence">Détail</a>` : ""}
             <button class="btn petit succes" data-av="${i}" data-v="1" title="Valider">Valider</button><button class="btn petit danger" data-av="${i}" data-v="0" title="Rejeter (motif obligatoire, définitif)">Rejeter</button></td></tr>`).join("")}</table>`
         : vide("Rien à valider", "Aucune proposition en attente.")}</div>`;
     $$("[data-src]", z).forEach(b => b.onclick = () => { $$("[data-src]", z).forEach(x => x.classList.toggle("primaire", x === b));
@@ -144,7 +146,7 @@
     const r = d.resume;
     p.innerHTML = `${entete(d.module, `<button class="icone" id="md-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
       <div class="btns" style="margin-bottom:8px"><button class="btn petit" id="md-kg" title="Knowledge Graph centré sur ce module">${ico("graphe")}Graphe</button>
-        <a class="btn petit" href="#strategie/couverture" title="Couverture des exigences (Test Strategy)">Couverture</a><a class="btn petit" href="#studio/direct" title="Faire construire les tests manquants par Cursor">Construire avec Cursor</a></div>
+        <a class="btn petit" href="#intelligence/couverture" title="Couverture des exigences">Couverture</a><a class="btn petit" href="#studio/direct" title="Faire construire les tests manquants par Cursor">Construire avec Cursor</a></div>
       <p class="lib">${r.ecrans} écran(s) · ${r.parcours} parcours · ${r.regles} règle(s) · ${r.exigences} exigence(s) · ${r.us_sans_test} US sans test · ${r.tests_a_automatiser} à automatiser · ${d.echecs.length} en échec</p>
       <h3 class="lib">PISTES</h3>${d.pistes.length ? `<ul class="liste">${d.pistes.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "<p class='lib'>Rien à signaler.</p>"}
       <h3 class="lib">ÉCRANS</h3>${d.ecrans.map(e => `<div><b>${esc(e.nom)}</b> <span class="lib">${e.elements} élément(s) · ${e.tests_robot} test(s) Robot · Xray ${esc(e.tests_xray.join(", ") || "—")}</span>
@@ -165,7 +167,7 @@
     const cr = await api("/api/intelligence/criteres").catch(() => []);
     z.innerHTML = `${entete("Exigences Jira", `<a class="btn" href="#rapports/patrimoine">Synchroniser (JQL)</a><button class="btn primaire" id="ji-an">Proposer les règles métier</button>`)}<div class="corps-carte">
       <p class="lib">Tickets de l'instantané Jira / Xray, hiérarchie Epic → Story et tests Xray associés (traçabilité dans les deux sens). Critères d'acceptation structurés et règles candidates extraits par motifs explicites (sans IA)
-        depuis les descriptions et le champ JIRA_CHAMP_CRITERES ; chaque proposition passe par « À valider », un rejet est définitif. Stories mal documentées et fonctionnalités observées sans exigence : <a href="#strategie/coverage">Coverage Intelligence</a>.</p>
+        depuis les descriptions et le champ JIRA_CHAMP_CRITERES ; chaque proposition passe par « À valider », un rejet est définitif. Stories mal documentées et fonctionnalités observées sans exigence : <a href="#intelligence/couverture">Coverage Intelligence</a>.</p>
       ${l.length ? `<table class="table-strat"><tr><th>Ticket</th><th>Type</th><th>Statut</th><th>Module</th><th>Tests Xray</th></tr>${racines.map(e => ligne(e, 0)).join("")}</table>` : vide("Aucun ticket", "Importer l'instantané Xray / synchroniser Jira.")}
       <h3 class="lib" style="margin-top:14px">CRITÈRES D'ACCEPTATION STRUCTURÉS (motifs explicites, sans IA)</h3>
       ${cr.length ? `<table class="table-strat"><tr><th>Ticket</th><th>Critère</th><th>Condition</th><th>Action</th><th>Résultat attendu</th><th>Règle candidate</th></tr>${cr.map(c => `<tr><td class="cle-xray">${esc(c.ticket)}</td><td>${esc(c.texte)}</td>

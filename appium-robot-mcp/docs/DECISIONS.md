@@ -216,3 +216,17 @@ Une ligne datée par décision d'architecture ou de conception.
   (anciennes adresses redirigées) ; leurs anciens écrans Discovery, devenus inaccessibles, sont supprimés du code.
 - Le nommage des écrans (« à nommer »), qui n'existait que dans l'ancienne Discovery Validation, est désormais dans
   Application Intelligence › Écrans (nom métier + module, journalisé).
+
+## 2026-11-15 — Suppression du module Test Strategy (éléments déplacés, export conservé)
+- Constat : sur 14 rubriques, seules quelques-unes servaient à un calcul ; le reste était documentaire et les objectifs /
+  critères doublaient les seuils de Quality Governance. Décision de l'utilisateur : supprimer le module, déplacer l'utile.
+- Déplacements (même stockage `strategie/`, données existantes conservées, référentiel créé au premier usage) :
+  couverture → Application Intelligence › Couverture ; périmètre (exclusions, criticité) → Paramètres › Périmètre ;
+  environnements (vérification utilisée avant run) → Execution Center › Infrastructure › Environnements ;
+  objectifs et critères d'entrée / sortie → Quality Governance › Release Readiness (les critères de sortie y sont affichés
+  et un critère obligatoire non satisfait déconseille la livraison) ; décisions du plan d'automatisation → Automation Studio ›
+  À automatiser (« Décider »).
+- Export du document de stratégie (PDF, données réelles du jour) : Quality Governance › Rapports.
+- Abandonnés comme écrans : types et niveaux de tests, risques, données, outils, workflow versions / publication
+  (les données restent dans le fichier et apparaissent dans l'export). Anciennes adresses #strategie/… redirigées.
+- Le score de Release Readiness n'est pas modifié : l'état des critères de sortie est affiché à côté, comme alerte.

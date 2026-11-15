@@ -10,7 +10,8 @@
       "Lancer une fois des tests choisis ou un run paramétré, suivre la file et le run en cours"],
     ["resultats", "Résultats", [["resultats", "Résultats"], ["historique", "Historique"], ["preuves", "Preuves"], ["xray", "Synchronisation Xray"]],
       "Résultats et comparaison des runs, historique avec contexte figé, preuves, envois vers Xray"],
-    ["devices", "Infrastructure", [["devices", "Appareils"], ["runners", "Runners"], ["parametres", "Réglages"]], "Appareils et navigateurs, machines d'exécution, réglages"]];
+    ["devices", "Infrastructure", [["environnements", "Environnements"], ["devices", "Appareils"], ["runners", "Runners"], ["parametres", "Réglages"]],
+      "Environnements de test (URL, JDD, vérification de disponibilité), appareils et navigateurs, machines d'exécution, réglages"]];
   const MENU = GROUPES.flatMap(g => g[2]);
   const groupeDe = r => GROUPES.find(g => g[2].some(o => o[0] === r)) || GROUPES[0];
   const ROLE = {vue: "Tableau de bord des Exécutions (Test Executions Xray) : réussite, bugs, statuts modifiables",
@@ -21,7 +22,8 @@
     devices: "Émulateurs, appareils et navigateurs disponibles", runners: "Machines qui exécutent les runs",
     resultats: "Résultats des runs de l'atelier, comparaison de deux runs, lien vers l'Exécution Xray",
     preuves: "Captures, logs et rapports de chaque run", historique: "Historique des runs avec leur contexte figé (environnement, commit, version) ; export CSV",
-    xray: "Envois vers Xray de chaque run : en attente, en erreur, à rejouer", parametres: "Réglages de l'Execution Center"};
+    xray: "Envois vers Xray de chaque run : en attente, en erreur, à rejouer", parametres: "Réglages de l'Execution Center",
+    environnements: "Environnements de test : URL, plateforme, JDD, accès (référence au secret) ; « Vérifier » enregistre la disponibilité utilisée avant chaque run"};
   const ST = {"réussi": "ok", "échec": "ko", "en cours": "info", "arrêté": "warn", "bloqué données": "warn", "erreur": "ko"};
   let R = "vue", SEL = new Set(), F = {}, desabo = [];
 
@@ -40,7 +42,8 @@
       $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = b.dataset.onglet === "live" ? "execution" : "centre/" + b.dataset.onglet; });
       const z = $("#ce-contenu");
       api("/api/centre/file").then(f => { if ($("#ce-nfile")) $("#ce-nfile").textContent = f.attente.length || ""; }).catch(() => {});
-      const rendre = () => Promise.resolve().then(() => ({vue, campagnes, selection, configuration, file, devices, runners, resultats, preuves, historique, xray, parametres}[R])(z, arg))
+      const rendre = () => Promise.resolve().then(() => ({vue, campagnes, selection, configuration, file, devices, runners, resultats, preuves, historique, xray, parametres,
+        environnements: x => window.Pilotage.rubrique(x, "environnements")}[R])(z, arg))
         .catch(e => { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; });
       desabo = [Atelier.on("file_execution", e => { $("#ce-nfile") && ($("#ce-nfile").textContent = e.file.length || ""); if (["file", "vue"].includes(R)) rendre(); }),
         Atelier.on("run_bilan", () => { if (["file", "vue", "historique"].includes(R)) rendre(); })];

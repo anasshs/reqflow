@@ -10,7 +10,7 @@ Phase 1 : 1.1, 1.2, 1.3 faites ; 1.4 : schéma Xray vérifié conforme par intro
 (docs/XRAY_API_resultat.md) ; essai réel d'écriture réussi (statut, heures, commentaire, captures, artefacts).
 Espaces de travail (docs/ESPACES_DE_TRAVAIL.md) : MVP livré (3 graphes + impact, page /plateforme) ;
 la deuxième phase des espaces n'est pas commencée.
-Test Strategy : phases 1, 2, 5 et une partie de la 4 livrées (voir ROADMAP) ; projet de démonstration
+Test Strategy : module supprimé comme écran le 2026-11-15 (référentiel de pilotage, voir DECISIONS) ; projet de démonstration
 `demo/banque_connexion/` (application web fictive, exécutions réelles).
 Test Design : couche de conception autour de Xray (voir docs/TEST_DESIGN_ECARTS.md) ; publication du Gherkin (modes B / C) branchée, schéma `createTest` conforme (essai réel à faire).
 Automation Studio et Execution Center : voir docs/AUTOMATION_EXECUTION_ECARTS.md (file d'exécution : atelier/execution/centre.py).
