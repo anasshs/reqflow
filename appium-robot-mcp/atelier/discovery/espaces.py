@@ -60,12 +60,53 @@ def patrimoine_lie(g) -> set[str]:
     return garde | modules
 
 
+TYPES_PERIMETRE = ("module", "parcours", "fonctionnalite", "epic", "user_story")
+
+
+def perimetres() -> dict:
+    """Périmètres proposés pour réduire les graphes : modules, parcours, fonctionnalités, epics, US (avec le nombre
+    d'éléments qu'ils contiennent)."""
+    g = _graphe()
+    out = {t: [] for t in TYPES_PERIMETRE}
+    for n in g.noeuds.values():
+        if n.type in out:
+            out[n.type].append({"id": n.id, "libelle": n.libelle, "statut": n.statut,
+                                "elements": len([r for r in g.sortants(n.id) if r.type == "contient"])})
+    for t in out:
+        out[t].sort(key=lambda x: x["libelle"].lower())
+    return out
+
+
+def ids_perimetre(g, nid: str) -> set[str]:
+    """Le périmètre et tout ce qu'il contient (relations « contient », propositions comprises), puis un pas de
+    voisinage depuis chacun (locators, tests, exigences, règles…) pour garder le contexte ; la navigation n'est
+    gardée qu'entre écrans du périmètre."""
+    if nid not in g.noeuds:
+        raise KeyError(f"Périmètre inconnu : {nid}")
+    coeur = g.atteignables(nid, "aval", {"contient"}, fiables=False)
+    if g.noeuds[nid].type in ("epic", "user_story", "fonctionnalite", "parcours"):  # tests et écrans liés à l'exigence
+        for i in list(coeur):
+            coeur |= {r.vers for r in g.sortants(i) if r.type in ("teste_par", "impacte", "utilise")}
+    garde = set(coeur)
+    for r in g.relations.values():
+        if r.type == "navigue_vers":  # navigation : seulement à l'intérieur du périmètre
+            continue
+        if r.de in coeur:
+            garde.add(r.vers)
+        elif r.vers in coeur and r.type != "contient":  # pas de remontée vers les autres modules / l'application
+            garde.add(r.de)
+    return garde
+
+
 def vue_connaissance(types: list[str] | None = None, categories: list[str] | None = None, plateforme: str = "",
-                     recherche: str = "", centre: str = "", profondeur: int = 1, patrimoine: str = "lie") -> dict:
+                     recherche: str = "", centre: str = "", profondeur: int = 1, patrimoine: str = "lie",
+                     perimetre: str = "") -> dict:
     """patrimoine « lie » (défaut) : la connaissance de l'application et les seuls tickets Jira / Xray qui s'y
     rattachent ; « tout » : toute la copie locale Jira / Xray. Un centre ou une recherche montrent toujours tout."""
     g = _graphe()
     masques = 0
+    if perimetre:
+        g = g.sous_graphe(ids_perimetre(g, perimetre))
     if centre:
         if centre not in g.noeuds:
             raise KeyError(f"Élément inconnu : {centre}")

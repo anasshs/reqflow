@@ -1009,9 +1009,28 @@ def graphes_referentiel():
 
 @app.get("/api/graphes/connaissance")
 async def graphe_connaissance(types: str = "", categories: str = "", plateforme: str = "", recherche: str = "",
-                              centre: str = "", profondeur: int = 1, patrimoine: str = "lie"):
+                              centre: str = "", profondeur: int = 1, patrimoine: str = "lie", perimetre: str = ""):
     return await asyncio.to_thread(_call, espaces.vue_connaissance, _liste(types), _liste(categories), plateforme,
-                                   recherche, centre, profondeur, patrimoine)
+                                   recherche, centre, profondeur, patrimoine, perimetre)
+
+
+@app.get("/api/graphes/perimetres")
+async def graphes_perimetres():
+    return await asyncio.to_thread(_call, espaces.perimetres)
+
+
+@app.get("/api/graphes/parcours-ordonne")
+async def graphes_parcours_ordonne(id: str):
+    from atelier.generation import parcours_bdd
+
+    return await asyncio.to_thread(_call, parcours_bdd.etapes_parcours, id)
+
+
+@app.get("/api/graphes/plan-de-test")
+async def graphes_plan_de_test(module: str):
+    from atelier.intelligence import plan_test
+
+    return await asyncio.to_thread(_call, plan_test.plan, module)
 
 
 @app.get("/api/graphes/couverture")

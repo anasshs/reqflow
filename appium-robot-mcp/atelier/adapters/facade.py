@@ -509,6 +509,17 @@ def discovery_parcours_vers_bdd(ecrans: list | None = None, parcours: str = "", 
 
 
 @outil
+def plan_de_test(module: str) -> dict:
+    """Résumé d'un module pour dresser son plan de test (au lieu du graphe brut) : écrans (et locators fragiles),
+    parcours, fonctionnalités, règles, exigences Jira avec leurs tests Xray (automatisés ou non, dernier statut),
+    ce qui n'est pas couvert, actions sensibles, endpoints, et des pistes. module : nom (« Virements ») ou
+    identifiant (« module:Virements »)."""
+    from atelier.intelligence import plan_test
+
+    return plan_test.plan(module)
+
+
+@outil
 def discovery_terminer() -> dict:
     """Termine la session Discovery en cours : résultats (nouveaux écrans, transitions, comportements, endpoints,
     actions refusées) et propositions en attente de validation."""

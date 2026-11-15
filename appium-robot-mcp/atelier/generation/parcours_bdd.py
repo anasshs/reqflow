@@ -73,6 +73,26 @@ def ordonner(ids: list[str], plateforme: str = "") -> list[str]:
     return ordre
 
 
+def etapes_parcours(nid: str, plateforme: str = "") -> dict:
+    """Parcours ordonné pour l'affichage : écrans dans l'ordre et actions entre eux (chemin le plus fiable)."""
+    from atelier.discovery import carte
+
+    ids = ecrans_du_parcours(nid)
+    plat = plateforme or (carte.config_app().get("plateformes") or ["web"])[0]
+    seq = [carte.ecran(i) for i in ids]
+    etapes = [{"ecran": _ref(seq[0]), "libelle": _lisible(seq[0]), "action": ""}]
+    for a, b in zip(seq, seq[1:]):
+        trajet = carte.chemin(a["id"], b["id"], plat)
+        if trajet is None:
+            etapes.append({"ecran": _ref(b), "libelle": _lisible(b), "action": "", "inconnu": True})
+            continue
+        for t in trajet:
+            act = t.get("action") or {}
+            v = carte.ecran(t["vers"])
+            etapes.append({"ecran": _ref(v), "libelle": _lisible(v), "action": act.get("libelle") or act.get("cle") or act.get("type", "")})
+    return {"parcours": nid, "etapes": etapes}
+
+
 def ecrans_de_session(sid: str) -> list[str]:
     from atelier.discovery import sessions_discovery
 

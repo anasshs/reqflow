@@ -16,10 +16,17 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   const RELATIONS = {contient: "Contient", navigue_vers: "Navigue vers", depend_de: "Dépend de", appelle: "Appelle", verifie: "Vérifie",
     couvre: "Couvre", implemente_par: "Est implémenté par", teste_par: "Est testé par", execute_par: "Est exécuté par", impacte: "Impacte", utilise: "Utilise"};
   let S, G, desabo = [];
+  /* périmètre (module, parcours, fonctionnalité, epic, US) commun aux vues, gardé quand on change de vue */
+  const VUES_PERIMETRE = ["connaissance", "fonctionnel", "technique", "parcours", "impact"];
+  const perim = {
+    lire() { try { return sessionStorage.getItem("kg-perimetre") || ""; } catch (e) { return ""; } },
+    ecrire(v) { try { v ? sessionStorage.setItem("kg-perimetre", v) : sessionStorage.removeItem("kg-perimetre"); } catch (e) { /* stockage indisponible */ } },
+  };
 
   const E = {
     afficher(zone, sous) {
       S = {vue: "connaissance", params: {}, data: null, selection: null, famillesMasquees: new Set(), statut: ""};
+      if (perim.lire()) S.params.perimetre = perim.lire();
       if (sous === "bdd") { location.hash = "bdd"; return; }
       if (VUES.some(v => v[0] === sous)) S.vue = sous;
       zone.className = "g-kg";
@@ -135,9 +142,12 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   function options() {
     const o = $("#kg-options");
     if (["connaissance", "impact", "parcours", "fonctionnel", "technique"].includes(S.vue)) {
-      o.innerHTML = S.vue === "connaissance" ? `<button class="btn" id="kg-src">${ico("donnee")}Sources du graphe</button><button class="btn primaire" id="kg-disc">${ico("recherche")}Lancer une Discovery</button>` : "";
+      o.innerHTML = `<select class="in" id="kg-perim" style="width:auto;max-width:240px" aria-label="Périmètre"><option value="">Toute l'application</option></select>
+        <button class="btn" id="kg-plan" hidden>${ico("bdd")}Plan de test</button>`
+        + (S.vue === "connaissance" ? `<button class="btn" id="kg-src">${ico("donnee")}Sources du graphe</button><button class="btn primaire" id="kg-disc">${ico("recherche")}Lancer une Discovery</button>` : "");
       if ($("#kg-src")) $("#kg-src").onclick = sourcesGraphe;
       if ($("#kg-disc")) $("#kg-disc").onclick = () => DiscoveryFlottant.ouvrir();
+      remplirPerimetres();
     } else if (S.vue === "couverture") {
       o.innerHTML = `<select class="in" id="kg-module" style="width:auto" aria-label="Module"><option value="">Tous les modules</option></select>
         <select class="in" id="kg-afficher" style="width:auto" aria-label="Tests affichés"><option value="tous">Manuels et automatisés</option><option value="manuels">Tests manuels</option><option value="automatises">Tests automatisés</option></select>`;
@@ -147,6 +157,55 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       o.innerHTML = `<select class="in" id="kg-cible" style="width:auto;max-width:280px" aria-label="Test"><option value="">Tout le patrimoine automatisé</option></select>`;
       $("#kg-cible").onchange = e => { S.params.cible = e.target.value; charger(); };
     }
+  }
+
+  async function remplirPerimetres() {
+    const sel = $("#kg-perim");
+    if (!sel) return;
+    const p = await api("/api/graphes/perimetres").catch(() => ({}));
+    const groupes = [["module", "Modules"], ["parcours", "Parcours"], ["fonctionnalite", "Fonctionnalités"], ["epic", "Epics"], ["user_story", "User Stories"]];
+    sel.innerHTML = `<option value="">Toute l'application</option>` + groupes.filter(([k]) => (p[k] || []).length).map(([k, lib]) => `<optgroup label="${lib}">${p[k].map(x =>
+      `<option value="${esc(x.id)}" ${S.params.perimetre === x.id ? "selected" : ""}>${esc(x.libelle)}${x.statut === "à valider" ? " (à valider)" : ""}</option>`).join("")}</optgroup>`).join("");
+    if (S.params.perimetre && sel.value !== S.params.perimetre) { delete S.params.perimetre; perim.ecrire(""); }  // périmètre disparu
+    sel.onchange = () => { if (sel.value) S.params.perimetre = sel.value; else delete S.params.perimetre; perim.ecrire(sel.value); delete S.params.centre; majPerimetre(); charger(); };
+    majPerimetre();
+  }
+
+  /* outils du périmètre : plan de test d'un module, parcours ordonné et « Du parcours au test » */
+  async function majPerimetre() {
+    const id = S.params.perimetre || "", b = $("#kg-plan");
+    if (b) { b.hidden = !id.startsWith("module:"); b.onclick = () => planDeTest(id); }
+    $("#kg-bande")?.remove();
+    if (!id.startsWith("parcours:")) return;
+    const zone = $("#kg-zone");
+    if (!zone) return;
+    const bande = document.createElement("div");
+    bande.id = "kg-bande";
+    bande.className = "lib";
+    bande.style.cssText = "padding:6px 10px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px;align-items:center";
+    zone.before(bande);
+    try {
+      const r = await api("/api/graphes/parcours-ordonne?id=" + encodeURIComponent(id));
+      bande.innerHTML = `<b>Parcours :</b> ${r.etapes.map((e, i) => `${i ? `<span>→${e.action ? ` <i>${esc(e.action)}</i> →` : e.inconnu ? " <span class='warn-t'>(chemin inconnu)</span> →" : ""}</span>` : ""}<span class="pill">${esc(e.libelle)}</span>`).join(" ")}
+        <button class="btn petit primaire" id="kg-pbdd" style="margin-left:auto">Du parcours au test</button>`;
+      $("#kg-pbdd").onclick = () => window.DiscoveryVersBdd ? window.DiscoveryVersBdd({parcours: id}) : toast("Onglet Discovery non chargé.", "ko");
+    } catch (e) { bande.innerHTML = `<span class="warn-t">${esc(e.message)}</span>`; }
+  }
+
+  async function planDeTest(id) {
+    try {
+      const p = await api("/api/graphes/plan-de-test?module=" + encodeURIComponent(id)), r = p.resume;
+      const ligneEx = e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}</td><td><span class="pill ${e.couverture === "aucun test" ? "ko" : e.couverture.startsWith("auto") || e.couverture.startsWith("via") ? "ok" : "warn"}">${esc(e.couverture)}</span></td>
+        <td class="lib">${e.tests.map(t => `${esc(t.cle)}${t.statut_xray ? " " + esc(t.statut_xray) : ""}`).join(", ")}</td></tr>`;
+      modale(`Plan de test · ${p.module}`, `<div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">${[[r.ecrans, "écrans"], [r.parcours, "parcours"], [r.exigences, "exigences"], [r.regles, "règles"],
+          [r.us_sans_test, "US sans test"], [r.ecrans_sans_test, "écrans sans test"], [r.tests_a_automatiser, "tests à automatiser"], [r.actions_sensibles, "actions sensibles"]]
+          .map(([v, l]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("")}</div>
+        <h3 class="lib">PISTES</h3><ul class="liste">${p.pistes.map(x => `<li>${esc(x)}</li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul>
+        <h3 class="lib">EXIGENCES</h3>${p.exigences.length ? `<table class="table-strat"><tr><th>Clé</th><th>Résumé</th><th>Couverture</th><th>Tests</th></tr>${p.exigences.map(ligneEx).join("")}</table>` : "<p class='lib'>Aucune exigence rattachée (synchroniser Jira, ou confirmer les liens dans Discovery › Correlation).</p>"}
+        <h3 class="lib">ÉCRANS</h3><table class="table-strat"><tr><th>Écran</th><th>Tests</th><th>Locators fragiles</th><th>Actions sensibles</th></tr>${p.ecrans.map(e => `<tr><td>${esc(e.nom)}</td><td>${e.tests_robot} Robot · ${e.tests_xray.length} Xray</td>
+          <td class="lib">${esc(e.locators_fragiles.join(", ") || "—")}</td><td class="lib">${esc(e.actions_sensibles.join(", ") || "—")}</td></tr>`).join("")}</table>
+        <p class="lib">Le même résumé est disponible pour Cursor / Claude avec l'outil MCP plan_de_test(« ${esc(p.module)} »).</p>`);
+    } catch (e) { toast(e.message, "ko"); }
   }
 
   /* ------------------------------------------------------------------ chargement */

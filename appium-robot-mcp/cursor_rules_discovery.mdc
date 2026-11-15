@@ -36,6 +36,10 @@ Ce que tu proposes (discovery_proposer), écran par écran :
 N'invente rien : uniquement ce que tu as vu à l'écran ou lu dans une exigence. Un doute = une question à
 l'automaticien, pas une proposition.
 
+Plan de test d'un module : plan_de_test("Virements") donne écrans, parcours, règles, exigences et leurs tests
+(automatisés ou non, dernier statut), ce qui n'est pas couvert, actions sensibles et pistes : s'en servir plutôt que du
+graphe brut pour proposer le plan (US sans test d'abord, puis parcours sans test, puis tests manuels à automatiser).
+
 Du parcours au test : pour un parcours validé (ou une suite d'écrans), discovery_parcours_vers_bdd crée dans Test Design
 un brouillon de scénario BDD relié aux écrans, locators et données du jeu ; l'automaticien le relit et le valide avant
 la génération Robot, les exécutions stables, la merge request et la publication Xray.
