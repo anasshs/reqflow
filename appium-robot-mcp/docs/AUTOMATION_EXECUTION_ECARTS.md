@@ -58,3 +58,17 @@ jamais transformé silencieusement en réussite.
   automatiques, lint, écriture sans écrasement, entrée en revue « Generated ») ; Git local encadré (branche de travail,
   commit des seules suites approuvées / publiées, refus sur main / master / develop / production, aucun push).
 - Restent : runners distants, réservation de devices, notifications, merge request (API GitLab), blocs If / For / Try.
+
+## Automation Studio — troisième passe (2026-11-15)
+- 🆕 Navigation simplifiée : 16 entrées regroupées en 7 étapes de travail (Tableau de bord · 1 À automatiser ·
+  2 Construire · 3 Revue et publication · Socle technique · Environnement · Historique) ; les anciens écrans sont des
+  onglets, leurs adresses restent valides ; Application Knowledge et Code Editor deviennent des liens (Knowledge Graph
+  central, éditeur) au lieu d'écrans de renvoi.
+- 🆕 Tableau de bord : parcours candidats → construire → revue → publier → à corriger, chaque étape cliquable.
+- 🆕 Revue : action « Refuser » (commentaire obligatoire, resoumission possible) ; journal avec avant → après et
+  commentaire (écart de l'audit « revue sans Refuser ; historique sans avant / après »).
+- 🆕 Candidats : « Créer le BDD » / Mapping / Graphe centré sur le test (plus de « scénario introuvable »).
+- 🆕 Rôle de chaque entrée et de chaque bouton au survol ; Réglages à jour (push et merge request GitLab existent).
+- ⏳ Restent : courbes de couverture dans le temps, blocs If / For / Try et exécution d'une étape isolée dans le
+  Builder, secours de locator réellement utilisé à l'exécution et correction assistée, factorisation IA des
+  keywords, import CSV / JSON et API de préparation des données, rôles et droits.

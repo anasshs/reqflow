@@ -3,27 +3,39 @@
    techniques, le mapping BDD → socle et la revue technique des scripts. */
 "use strict";
 (() => {
-  const MENU = [["vue", "Overview"], ["candidats", "Automation Candidates"], ["espaces", "Automation Projects"], ["mapping", "BDD to Automation"],
-    ["builder", "Automation Builder"], ["knowledge", "Application Knowledge"], ["locators", "Locators Repository"], ["keywords", "Keywords Repository"],
-    ["pages", "Page Objects"], ["donnees", "Test Data & Configuration"], ["frameworks", "Framework Management"], ["code", "Code Editor"],
-    ["git", "Git Repository"], ["revue", "Automation Review"], ["historique", "Automation History"], ["parametres", "Settings"]];
+  /* 7 entrées qui suivent le travail de l'automaticien ; les anciens écrans deviennent des onglets (adresses inchangées) */
+  const GROUPES = [
+    ["vue", "Tableau de bord", [["vue", "Tableau de bord"]], "Où en est l'automatisation et quoi faire ensuite"],
+    ["candidats", "1 · À automatiser", [["candidats", "Candidats"]], "Tests Xray retenus pour l'automatisation : créer leur BDD, voir leur mapping ou leur graphe"],
+    ["mapping", "2 · Construire", [["mapping", "BDD → Robot (mapping)"], ["builder", "Assembler un test (palette)"]], "Transformer un scénario BDD en test Robot avec les keywords du socle"],
+    ["revue", "3 · Revue et publication", [["revue", "Revue technique"], ["git", "Git et merge request"]], "Contrôler, approuver ou refuser les scripts, puis commit et merge request"],
+    ["locators", "Socle technique", [["locators", "Locators"], ["keywords", "Keywords"], ["pages", "Page Objects"], ["donnees", "Données de test"]], "Référentiels réutilisés par tous les tests : locators, keywords, page objects, données"],
+    ["espaces", "Environnement", [["espaces", "Espaces d'automatisation"], ["frameworks", "Frameworks"], ["parametres", "Réglages"]], "Espaces techniques, frameworks installés et conventions"],
+    ["historique", "Historique", [["historique", "Historique"]], "Journal des revues, vérifications de locators et opérations (avant → après)"]];
+  const MENU = GROUPES.flatMap(g => g[2]);
+  const groupeDe = r => GROUPES.find(g => g[2].some(o => o[0] === r)) || GROUPES[0];
   const PILL = {Stable: "ok", Reliable: "info", Fragile: "warn", Obsolete: "ko", Missing: "ko",
-    Generated: "", "Technical Review": "info", "Changes Requested": "warn", Approved: "violet", Published: "ok"};
-  const LIB = {Generated: "Généré / non revu", "Technical Review": "Revue technique", "Changes Requested": "Modifs demandées", Approved: "Approuvé", Published: "Publié"};
+    Generated: "", "Technical Review": "info", "Changes Requested": "warn", Approved: "violet", Published: "ok", Rejected: "ko"};
+  const LIB = {Generated: "Généré / non revu", "Technical Review": "Revue technique", "Changes Requested": "Modifs demandées", Approved: "Approuvé", Published: "Publié", Rejected: "Refusé"};
   let R = "vue", F = {};
 
   Atelier.enregistrer("studio", {
     async afficher(zone, sous) {
       const [r, arg] = (sous || "").split("/");
       if (r === "code") { location.hash = "editeur"; return; }
+      if (r === "knowledge") { location.hash = "graphe"; return; }  // pas de second graphe : Knowledge Graph central
       R = MENU.some(m => m[0] === r) ? r : "vue";
+      const G = groupeDe(R);
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques Automation Studio"><div class="titre-carte">AUTOMATION STUDIO</div>
-        <ol class="liste-strat">${MENU.map(([id, lib], i) => `<li><button data-r="${id}" ${id === R ? 'aria-current="page"' : ""}><span class="num">${i + 1}</span><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
-        <div class="pied-strat lib">L'IA propose, l'automaticien valide. Projet : <b>${esc(Atelier.ctx.projet || "")}</b> (header).</div></nav>
-        <section class="carte corps-strat"><div class="corps-carte">${vide("Chargement…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
+        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
+        <div class="pied-strat lib">L'IA propose, l'automaticien valide. Projet : <b>${esc(Atelier.ctx.projet || "")}</b> (header).
+          <br><a href="#graphe" title="Knowledge Graph central : écrans, locators, keywords, tests et impacts">Knowledge Graph</a> · <a href="#editeur" title="Éditeur de code du dépôt Robot : historique, diff, lint">Éditeur de code</a></div></nav>
+        <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}</button>`).join("")}</div>` : ""}
+          <div id="st-contenu"><div class="corps-carte">${vide("Chargement…")}</div></div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "studio/" + b.dataset.r; });
-      const z = $(".corps-strat");
+      $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = "studio/" + b.dataset.onglet; });
+      const z = $("#st-contenu");
       try { await ({vue, candidats, espaces, mapping, builder, knowledge, locators, keywords, pages, donnees, frameworks, git, revue, historique, parametres}[R])(z, arg); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
@@ -41,12 +53,17 @@
   async function vue(z) {
     const v = await api("/api/studio/vue"), k = v.kpi;
     const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
-    z.innerHTML = `${entete("Overview", `<a class="btn primaire" href="#studio/mapping">${ico("bdd")}Générer des tests</a><a class="btn" href="#studio/candidats">Analyser les candidats</a>
-        <a class="btn" href="#studio/locators">Vérifier les locators</a><a class="btn" href="#studio/revue">Scripts en attente</a><a class="btn" href="#studio/frameworks">Vérification technique</a>`)}
-      <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px">
-        ${kpi(k.scenarios_bdd, "scénarios BDD")}${kpi(k.candidats, "candidats à automatiser", "warn-t")}${kpi(k.tests_automatises, "tests automatisés", "ok")}
-        ${kpi(k.en_revue, "scripts en revue", "info")}${kpi(k.approuves, "scripts approuvés", "violet")}${kpi(k.locators_a_corriger, "locators à corriger", "ko")}
-        ${kpi(k.keywords, "keywords réutilisables")}${kpi(k.couverture_automatisee === null ? null : String(k.couverture_automatisee).replace(".", ",") + " %", "couverture automatisée")}
+    const etape = (n, titre, val, lib, href, role, cls = "") => `<a class="bloc-strat" href="${href}" title="${esc(role)}" style="flex:1;text-decoration:none;color:inherit">
+      <div class="lib">${n}</div><b>${esc(titre)}</b><div class="v ${cls}" style="font-size:22px;font-weight:600">${val ?? "—"}</div><div class="lib">${esc(lib)}</div></a>`;
+    z.innerHTML = `${entete("Tableau de bord")}
+      <div class="corps-carte"><div style="display:flex;gap:8px;align-items:stretch;margin-bottom:14px">
+        ${etape("1", "À automatiser", k.candidats, "candidats", "#studio/candidats", "Tests Xray retenus : créer leur scénario BDD", "warn-t")}
+        ${etape("2", "Construire", k.scenarios_bdd, "scénarios BDD", "#studio/mapping", "Mapping étape → keyword, prévisualisation et écriture du test Robot")}
+        ${etape("3", "Revue", k.en_revue, "scripts en revue", "#studio/revue", "Contrôles automatiques puis décision : approuver, demander des modifications ou refuser", "info")}
+        ${etape("4", "Publier", k.approuves, "approuvés à publier", "#studio/revue", "Un script approuvé est publié vers l'Execution Center, puis commit et merge request", "violet")}
+        ${etape("!", "À corriger", k.locators_a_corriger, "locators fragiles / obsolètes", "#studio/locators", "Locators à fiabiliser dans le socle", "ko-t")}</div>
+        <div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px">
+        ${kpi(k.tests_automatises, "tests automatisés", "ok")}${kpi(k.keywords, "keywords réutilisables")}${kpi(k.couverture_automatisee === null ? null : String(k.couverture_automatisee).replace(".", ",") + " %", "couverture automatisée")}
         ${kpi(k.derniere_generation ? k.derniere_generation.slice(0, 16).replace("T", " ") : null, "dernière génération")}${kpi(k.derniere_execution ? k.derniere_execution.slice(0, 16).replace("T", " ") : null, "dernière exécution")}</div>
         <div class="grille-strat">${barres("Locators par état", v.locators_par_etat)}${barres("Scripts par statut de revue", v.scripts_par_statut)}
           ${barres("Tests par plateforme", v.tests_par_plateforme)}${barres("Réutilisation des keywords", v.keywords_reutilisation)}
@@ -78,7 +95,7 @@
   /* ------------------------------------------------------------------ 3 espaces */
   async function espaces(z) {
     const l = await api("/api/studio/espaces");
-    z.innerHTML = `${entete("Automation Projects", `<button class="btn primaire" id="es-n">${ico("plus")}Créer un espace</button>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Automation Projects", `<button class="btn primaire" id="es-n" title="Déclarer un périmètre technique (ex. Web, Android, API) : plateformes, framework, répertoire, dépôt">${ico("plus")}Créer un espace</button>`)}<div class="corps-carte">
       <p class="lib">Un espace d'automatisation est un périmètre technique du projet actif (ex. Web, Android, API), pas un nouveau projet.</p>
       ${l.length ? `<table class="table-strat"><tr><th>Espace</th><th>Application</th><th>Plateformes</th><th>Framework</th><th>Répertoire</th><th>Dépôt Git</th><th>Convention</th><th>Statut</th></tr>
         ${l.map(e => `<tr class="cliquable" data-id="${esc(e.id)}"><td><b>${esc(e.nom)}</b></td><td>${esc(e.application)}</td><td>${esc(e.plateformes.join(", "))}</td><td>${esc(e.framework)}</td>
@@ -90,7 +107,7 @@
         .map(([k, l]) => `<div class="champ"><label for="es-${k}">${l}</label><input class="in" id="es-${k}" value="${esc(e[k] || "")}"></div>`).join("")}
         <div class="champ"><label>Plateformes</label><div class="btns">${["web", "android", "ios", "api"].map(x => `<label><input type="checkbox" data-pl="${x}" ${e.plateformes.includes(x) ? "checked" : ""}> ${x}</label>`).join("")}</div></div>
         <div class="champ"><label for="es-statut">Statut</label><select class="in" id="es-statut">${["Actif", "Archivé"].map(x => `<option ${x === e.statut ? "selected" : ""}>${x}</option>`).join("")}</select></div>
-        <button class="btn primaire" id="es-ok">Enregistrer</button>`);
+        <button class="btn primaire" id="es-ok" title="Enregistre l'espace d'automatisation">Enregistrer</button>`);
       $("#es-ok", p).onclick = async () => {
         const b = {id: e.id, statut: $("#es-statut", p).value, plateformes: $$("[data-pl]", p).filter(x => x.checked).map(x => x.dataset.pl)};
         ["nom", "application", "framework", "repertoire", "depot_git", "convention"].forEach(k => { b[k] = $("#es-" + k, p).value; });
@@ -115,7 +132,7 @@
     }
     const etatsLoc = x => `<span class="pill ${PILL[x.etat] || ""}" title="${esc(x.etat)}">${esc(x.id)}</span>`;
     z.innerHTML = `${entete("BDD to Automation", `<select class="in" id="mp-cle" style="width:auto">${l.map(b => `<option ${b.cle === cle ? "selected" : ""}>${esc(b.cle)}</option>`).join("")}</select>
-        <a class="btn" href="#bdd/${encodeURIComponent(cle)}">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn primaire" id="mp-gen">${ico("play")}Prévisualiser le Robot</button>`)}
+        <a class="btn" href="#bdd/${encodeURIComponent(cle)}" title="Ouvre le scénario dans Construction BDD pour corriger les étapes ou le mapping (propositions IA par étape)">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn primaire" id="mp-gen" title="Montre le test Robot qui serait généré ; rien n'est écrit">${ico("play")}Prévisualiser le Robot</button>`)}
       <div class="corps-carte"><p><b>${esc(m.cle)}</b> · ${esc(m.titre)} · JDD <span class="mono">${esc(m.jdd || "—")}</span> · BDD ${esc(m.statut_bdd)} ·
         <span class="pill ok">${m.existants} étape(s) reliée(s) au socle</span> <span class="pill ${m.a_creer ? "warn" : ""}">${m.a_creer} keyword(s) à créer</span></p>
       ${m.scenarios.map(s => `<h3 class="lib" style="margin:12px 0 6px">${esc(s.type === "principal" ? "SCÉNARIO" : "BRANCHE " + s.type.toUpperCase())} · ${esc(s.nom)}</h3>
@@ -147,7 +164,7 @@
       $$("[data-bas]").forEach(x => x.onclick = () => { const n = +x.dataset.bas; if (n < ETAPES.length - 1) [ETAPES[n + 1], ETAPES[n]] = [ETAPES[n], ETAPES[n + 1]]; rendre(); });
       $$("[data-suppr]").forEach(x => x.onclick = () => { ETAPES.splice(+x.dataset.suppr, 1); rendre(); });
     };
-    z.innerHTML = `${entete("Automation Builder", `<a class="btn" href="#bdd">Construction BDD</a>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Automation Builder", `<a class="btn" href="#bdd" title="Construire un test à partir d'un scénario BDD (Gherkin) plutôt que par la palette">Construction BDD</a>`)}<div class="corps-carte">
       <div style="display:grid;grid-template-columns:280px minmax(0,1fr);gap:12px">
         <section class="bloc-strat"><h3>Palette · keywords du socle</h3><input class="in" id="bd-q" placeholder="Filtrer…" style="margin-bottom:8px">
           <div id="bd-palette">${cats.map(c => `<div class="lib" style="margin:8px 0 4px">${esc(c)}</div>${kws.filter(k => k.categorie === c).map(k => `<button class="btn petit bd-kw" data-kw="${esc(k.nom)}" title="${esc(k.documentation || "")}" style="margin:2px;text-align:left">${esc(k.nom)}</button>`).join("")}`).join("")}</div></section>
@@ -157,7 +174,7 @@
             <div class="champ"><label for="bd-tags">Tags</label><input class="in" id="bd-tags" placeholder="smoke, e2e"></div></div>
           <p class="lib">INITIALISATION (Initialiser Le Test + JDD) ajoutée automatiquement ; seules les étapes Gherkin se composent ici.</p>
           <ol class="liste" id="bd-etapes"></ol>
-          <div class="btns"><button class="btn" id="bd-prev">${ico("editeur")}Prévisualiser</button><button class="btn primaire" id="bd-ecrire">${ico("disque")}Écrire le test</button></div><div id="bd-res"></div></section></div>
+          <div class="btns"><button class="btn" id="bd-prev" title="Affiche le fichier Robot et le résultat du lint ; rien n'est écrit">${ico("editeur")}Prévisualiser</button><button class="btn primaire" id="bd-ecrire" title="Écrit le test dans le dépôt (jamais d'écrasement) ; il entre en revue technique « Généré »">${ico("disque")}Écrire le test</button></div><div id="bd-res"></div></section></div>
       <p class="lib" style="margin-top:10px">Le Builder n'assemble que des keywords existants (réutilisation, pas de wrapper 1:1) ; un keyword manquant se crée d'abord dans le socle (Code Editor ou génération BDD). Blocs If / For / Try : à venir.</p></div>`;
     $$(".bd-kw", z).forEach(b => b.onclick = () => { ETAPES.push({mot: ETAPES.length ? "When" : "Given", keyword: b.dataset.kw}); rendre(); });
     $("#bd-q").oninput = e => $$(".bd-kw", z).forEach(b => { b.hidden = !b.dataset.kw.toLowerCase().includes(e.target.value.toLowerCase()); });
@@ -175,9 +192,9 @@
 
   async function knowledge(z) {
     const po = await api("/api/studio/page-objects");
-    z.innerHTML = `${entete("Application Knowledge", `<a class="btn primaire" href="#graphe">${ico("graphe")}Ouvrir le Knowledge Graph central</a>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Application Knowledge", `<a class="btn primaire" href="#graphe" title="Knowledge Graph central">${ico("graphe")}Ouvrir le Knowledge Graph central</a>`)}<div class="corps-carte">
       <p>Pas de second graphe : Automation Studio consomme le Knowledge Graph central (application → module → écran → composant → locator, keywords, tests). Il s'enrichit par l'exploration (carte) et par les exécutions.</p>
-      <div class="btns"><a class="btn" href="#graphe/impact">Scénarios impactés par un élément</a><a class="btn" href="#graphe/anomalies">Locators manquants et anomalies</a><a class="btn" href="#studio/pages">Comparer Android / iOS (Page Objects)</a></div>
+      <div class="btns"><a class="btn" href="#graphe/impact" title="Quels tests sont touchés si un écran, un locator ou un keyword change">Scénarios impactés par un élément</a><a class="btn" href="#graphe/anomalies" title="Locators référencés mais non définis, doublons, trous de couverture">Locators manquants et anomalies</a><a class="btn" href="#studio/pages" title="Clés métier présentes sur une plateforme et absentes d'une autre">Comparer Android / iOS (Page Objects)</a></div>
       <p class="lib" style="margin-top:10px">${po.length} écran(s) avec locators dans le dépôt.</p></div>`;
   }
 
@@ -192,7 +209,7 @@
         ${l.filter(f).map(x => `<tr><td class="mono">${esc(x.cle)}</td><td>${esc(x.ecran)}</td><td>${esc(x.plateforme || "—")}</td><td>${esc(x.strategie)}</td><td class="mono">${esc(x.valeur || "—")}</td>
           <td>${pill(x.etat)}</td><td class="lib">${esc(x.secours.join(" || ") || "—")}</td><td>${x.utilisations}</td>
           <td class="lib">${x.derniere_verification ? `${esc(x.derniere_verification.date.slice(0, 16).replace("T", " "))} · ${x.derniere_verification.trouve ? "trouvé" : "introuvable"}` : "—"}</td>
-          <td>${x.valeur ? `<button class="btn petit" data-test="${esc(x.id)}" data-val="${esc(x.valeur)}">Tester</button>` : ""} ${x.fichier ? `<a class="btn petit" href="#editeur/${encodeURIComponent(x.fichier)}">Fichier</a>` : ""}</td></tr>`).join("")}</table>
+          <td>${x.valeur ? `<button class="btn petit" data-test="${esc(x.id)}" data-val="${esc(x.valeur)}" title="Cherche ce locator sur la session ouverte (device ou navigateur) ; résultat journalisé">Tester</button>` : ""} ${x.fichier ? `<a class="btn petit" href="#editeur/${encodeURIComponent(x.fichier)}" title="Ouvre le fichier de locators dans l'éditeur">Fichier</a>` : ""}</td></tr>`).join("")}</table>
         <p class="lib" style="margin-top:10px">État : Stable (identifiant technique), Reliable (css, rôle, prédicat), Fragile (texte, xpath, index), Obsolete (écran cartographié où la valeur n'est plus observée), Missing (référencé dans un keyword mais non défini).
           Tester = sur la session ouverte (device ou navigateur), journalisé. Utilisation des secours à l'exécution et correction assistée : phase 7 (validation humaine obligatoire).</p></div>`;
     $("#lo-e").onchange = e => { F.etat = e.target.value; locators(z); };
@@ -225,7 +242,7 @@
   }
 
   function donnees(z) {
-    z.innerHTML = `${entete("Test Data & Configuration", `<a class="btn" href="#conception/jdd">Jeux de données</a>`)}<div class="corps-carte"><ul class="liste">
+    z.innerHTML = `${entete("Test Data & Configuration", `<a class="btn" href="#conception/jdd" title="Jeux de données par environnement (YAML, requêtes SELECT en liste blanche)">Jeux de données</a>`)}<div class="corps-carte"><ul class="liste">
       <li>JDD : data/jdd/&lt;environnement&gt;.yaml ; secrets par {{env:VAR}}, masqués dans les logs et l'interface.</li>
       <li>Base Oracle : requêtes SELECT en liste blanche (data/jdd/requetes.yaml), paramètres liés, délai et nombre de lignes plafonnés, compte en lecture seule.</li>
       <li>Fichier de variables résolues : écrit dans le dossier du run uniquement, jamais dans le dépôt.</li>
@@ -249,9 +266,9 @@
       <div class="grille-2"><section class="bloc-strat"><h3>Commits récents</h3><ul class="liste">${g.commits.map(c => `<li><span class="mono">${esc(c.hash)}</span><span class="item">${esc(c.message)}</span><span class="lib">${esc(c.auteur)} · ${esc(c.date.slice(0, 10))}</span></li>`).join("")}</ul></section>
         <section class="bloc-strat"><h3>Modifications locales</h3><ul class="liste">${g.modifications.map(m => `<li class="mono">${esc(m)}</li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul>
           <h3 style="margin-top:12px">Branches</h3><p class="mono">${esc(g.branches.join(", "))}</p></section></div>`}
-      ${g.depot ? `<section class="bloc-strat" style="margin-top:12px"><h3>Branche et commit locaux</h3><div class="btns"><input class="in" id="gi-br" placeholder="automatisation/connexion" style="width:240px"><button class="btn" id="gi-br-ok">Créer la branche</button></div>
+      ${g.depot ? `<section class="bloc-strat" style="margin-top:12px"><h3>Branche et commit locaux</h3><div class="btns"><input class="in" id="gi-br" placeholder="automatisation/connexion" style="width:240px"><button class="btn" id="gi-br-ok" title="Crée et bascule sur une branche de travail (branches protégées refusées)">Créer la branche</button></div>
         <div class="champ" style="margin-top:8px"><label>Fichiers à valider (suites approuvées / publiées uniquement)</label>${g.modifications.map(m => { const f = m.slice(3); return `<label class="lib" style="display:block"><input type="checkbox" data-fic="${esc(f)}"> ${esc(m)}</label>`; }).join("") || "<span class='lib'>Aucune modification.</span>"}</div>
-        <div class="btns"><input class="in" id="gi-msg" placeholder="Message de commit" style="flex:1"><button class="btn primaire" id="gi-ok">Commit local</button></div></section>` : ""}
+        <div class="btns"><input class="in" id="gi-msg" placeholder="Message de commit" style="flex:1"><button class="btn primaire" id="gi-ok" title="Commit local des fichiers cochés : seulement des suites approuvées ou publiées">Commit local</button></div></section>` : ""}
       <section class="bloc-strat" style="margin-top:12px"><h3>GitLab · merge request</h3>${!gl.configure ? `<p class="lib">${esc(gl.message)} <a href="#parametres/projets">Paramètres › Projets</a></p>`
         : gl.erreur ? `<p><span class="pill ko">GitLab indisponible</span> ${esc(gl.erreur)}</p>`
         : `<p>Connecté en <b>${esc(gl.utilisateur.login)}</b> · projet <a href="${esc(gl.projet.url)}" target="_blank" rel="noopener">${esc(gl.projet.chemin)}</a> · branche par défaut <span class="mono">${esc(gl.projet.branche_defaut)}</span></p>
@@ -259,8 +276,8 @@
           : `<div class="champ"><label for="mr-t">Titre</label><input class="in" id="mr-t" placeholder="Automatisation : connexion (DEMO-301)"></div>
             <div class="grille-2"><div class="champ"><label for="mr-c">Branche cible</label><input class="in" id="mr-c" value="${esc(gl.projet.branche_defaut || "")}"></div>
               <div class="champ"><label for="mr-d">Description (complétée automatiquement : fichiers, revues, stabilité, tests Xray)</label><textarea class="in" id="mr-d" rows="2"></textarea></div></div>
-            <div class="btns"><button class="btn primaire" id="mr-ok">${ico("git")}Pousser la branche et créer la merge request</button></div>`}
-          <button class="btn petit" id="gl-com" style="margin-top:8px">Commits GitLab des 14 derniers jours</button><div id="gl-com-l"></div>`}</section>
+            <div class="btns"><button class="btn primaire" id="mr-ok" title="Pousse la branche vers GitLab et ouvre la merge request (suites approuvées et stables ; dérogation justifiée sinon)">${ico("git")}Pousser la branche et créer la merge request</button></div>`}
+          <button class="btn petit" id="gl-com" style="margin-top:8px" title="Liste les commits du projet GitLab des 14 derniers jours">Commits GitLab des 14 derniers jours</button><div id="gl-com-l"></div>`}</section>
       <p class="lib" style="margin-top:10px">Commit refusé sur main / master / develop / production et pour toute suite non approuvée. Merge request : suites approuvées ET stables sur leurs 3 dernières exécutions réelles (sinon dérogation justifiée, écrite dans la MR) ; l'atelier ne fusionne jamais.</p></div>`;
     if ($("#mr-ok")) $("#mr-ok").onclick = async () => {
       if (!confirm(`Pousser la branche « ${gl.branche} » vers GitLab et créer la merge request vers « ${$("#mr-c").value} » ?`)) return;
@@ -303,12 +320,17 @@
 
   async function detailRevue(f, z) {
     const r = await api("/api/studio/revue?fichier=" + encodeURIComponent(f));
-    const A = {Generated: [["soumettre", "Soumettre à la revue", "primaire"]], "Changes Requested": [["soumettre", "Resoumettre", "primaire"]],
-      "Technical Review": [["demander_modifications", "Demander des modifications", ""], ["approuver", "Approuver", "succes"]], Approved: [["publier", "Publier vers Execution Center", "btn-publier"]], Published: []}[r.statut];
+    const REFUS = ["refuser", "Refuser", "danger", "Écarte ce script (commentaire obligatoire) ; il pourra être resoumis"];
+    const A = {Generated: [["soumettre", "Soumettre à la revue", "primaire", "Passe le script en revue technique"], REFUS],
+      "Changes Requested": [["soumettre", "Resoumettre", "primaire", "Les modifications sont faites : retour en revue technique"], REFUS],
+      "Technical Review": [["demander_modifications", "Demander des modifications", "", "Renvoie à l'automaticien avec le commentaire (obligatoire)"],
+        ["approuver", "Approuver", "succes", "Valide le script (refusé si un contrôle bloquant échoue)"], REFUS],
+      Approved: [["publier", "Publier vers Execution Center", "btn-publier", "Rend le script disponible sans avertissement dans l'Execution Center"]], Published: [],
+      Rejected: [["soumettre", "Resoumettre", "primaire", "Remet le script refusé en revue technique"]]}[r.statut] || [];
     const G = {ok: ["ok", "check"], haute: ["ko", "x"], moyenne: ["warn", "aide"], basse: ["", "aide"]};
     const p = panneau(f, `<p>${pill(r.statut)}</p><h3 class="lib">POINTS DE CONTRÔLE</h3><ul class="liste checklist">${r.controles.map(c => `<li><span class="${G[c.gravite][0]}-t">${ico(G[c.gravite][1])}</span><span class="item">${esc(c.message)}</span></li>`).join("")}</ul>
       <div class="champ"><label for="rv-c">Commentaire</label><textarea class="in" id="rv-c" rows="2"></textarea></div>
-      <div class="btns">${A.map(([a, l, c]) => `<button class="btn ${c}" data-a="${a}">${esc(l)}</button>`).join("")}<a class="btn" href="#editeur/${encodeURIComponent(f)}">${ico("editeur")}Code et historique (diff)</a></div>
+      <div class="btns">${A.map(([a, l, c, t]) => `<button class="btn ${c}" data-a="${a}" title="${esc(t)}">${esc(l)}</button>`).join("")}<a class="btn" href="#editeur/${encodeURIComponent(f)}" title="Ouvre le script dans l'éditeur : code, historique des versions et diff">${ico("editeur")}Code et historique (diff)</a></div>
       <h3 class="lib" style="margin-top:12px">HISTORIQUE</h3><ul class="liste">${r.historique.slice().reverse().map(h => `<li><span class="mono lib">${esc(h.date.slice(5, 16).replace("T", " "))}</span><span class="item">${esc(LIB[h.de])} → ${esc(LIB[h.vers])}${h.commentaire ? " · « " + esc(h.commentaire) + " »" : ""}</span><span class="lib">${esc(h.auteur)}</span></li>`).join("") || "<li class='lib'>Aucune décision.</li>"}</ul>`);
     $$("[data-a]", p).forEach(b => b.onclick = async () => {
       try { await api("/api/studio/revue", {method: "POST", body: {fichier: f, action: b.dataset.a, commentaire: $("#rv-c").value}}); toast("Décision enregistrée.", "ok"); await revue(z); detailRevue(f, z); }
@@ -320,7 +342,7 @@
     const j = await api("/api/studio/journal");
     z.innerHTML = `${entete("Automation History")}<div class="corps-carte"><table class="table-strat"><tr><th>Date</th><th>Auteur</th><th>Opération</th><th>Objet</th><th>Résultat</th></tr>
       ${j.map(x => `<tr><td class="mono">${esc(x.date.replace("T", " "))}</td><td>${esc(x.auteur)}</td><td>${esc(x.op.replace(/_/g, " "))}</td><td class="mono">${esc(x.fichier || x.locator || x.nom || x.id || "")}</td>
-        <td>${esc(x.vers ? LIB[x.vers] || x.vers : x.trouve === undefined ? "" : x.trouve ? "trouvé" : "introuvable")}</td></tr>`).join("") || "<tr><td colspan='5' class='lib'>Aucune opération.</td></tr>"}</table>
+        <td>${x.vers ? `${x.de ? `${pill(x.de)} → ` : ""}${pill(x.vers)}${x.commentaire ? `<div class="lib">« ${esc(x.commentaire)} »</div>` : ""}` : esc(x.trouve === undefined ? "" : x.trouve ? "trouvé" : "introuvable")}</td></tr>`).join("") || "<tr><td colspan='5' class='lib'>Aucune opération.</td></tr>"}</table>
       <p class="lib" style="margin-top:10px">Modifications de fichiers : historique et diff par fichier dans le Code Editor. Générations BDD → Robot : Construction BDD.</p></div>`;
   }
 
@@ -329,7 +351,7 @@
       <section class="bloc-strat"><h3>Conventions (projet)</h3><ul class="liste"><li>Gherkin français, Page Object Model, séparation locators / keywords / scénarios.</li>
         <li>INITIALISATION avec &amp;{JDD_&lt;NOM&gt;} ; tags clé Xray + tags fonctionnels ; pas de donnée littérale.</li><li>Dossiers : tests/, resources/socle, resources/locators, data/jdd.</li></ul></section>
       <section class="bloc-strat"><h3>IA, Git, Xray</h3><dl class="props"><dt>IA</dt><dd>${Atelier.ctx.agent_integre ? "clé présente (CLAUDE_MODEL)" : "désactivée"} · validation humaine obligatoire</dd>
-        <dt>Git</dt><dd>création de branche et commit local (branches protégées refusées, suites approuvées uniquement) ; aucun push ; merge request : à venir</dd><dt>Xray</dt><dd><a href="#conception/mapping">Mapping (Test Design)</a></dd>
+        <dt>Git</dt><dd>branche et commit local (branches protégées refusées, suites approuvées uniquement) ; push et merge request GitLab depuis « Revue et publication › Git et merge request » (suites approuvées et stables, dérogation justifiée sinon)</dd><dt>Xray</dt><dd><a href="#conception/mapping">Mapping (Test Design)</a></dd>
         <dt>Connexions communes</dt><dd><a href="#parametres">Paramètres globaux</a></dd></dl></section></div></div>`;
   }
 })();

@@ -21,11 +21,12 @@ import yaml
 from atelier.domain import projet
 from atelier.intelligence.strategie import _auteur, _ecrire_atomique, _maintenant
 
-STATUTS_REVUE = ["Generated", "Technical Review", "Changes Requested", "Approved", "Published"]
+STATUTS_REVUE = ["Generated", "Technical Review", "Changes Requested", "Approved", "Published", "Rejected"]
 LIBELLES_REVUE = {"Generated": "Généré / non revu", "Technical Review": "Revue technique", "Changes Requested": "Modifications demandées",
-                  "Approved": "Approuvé", "Published": "Publié (Execution Center)"}
-TRANSITIONS = {"soumettre": (("Generated", "Changes Requested"), "Technical Review"),
+                  "Approved": "Approuvé", "Published": "Publié (Execution Center)", "Rejected": "Refusé"}
+TRANSITIONS = {"soumettre": (("Generated", "Changes Requested", "Rejected"), "Technical Review"),
                "demander_modifications": (("Technical Review",), "Changes Requested"),
+               "refuser": (("Generated", "Technical Review", "Changes Requested"), "Rejected"),  # script écarté, justifié
                "approuver": (("Technical Review",), "Approved"), "publier": (("Approved",), "Published")}
 SECRET = re.compile(r"(?i)\b(password|passwd|mot_de_passe|mdp|token|secret|api[_-]?key)\b\s*[=:]\s*(?!\$\{|\{\{env:)[^\s$]{4,}")
 ASSERTION = re.compile(r"(?i)^(then|alors|et|and)\b|should|doit|vérifier|verifier|le texte doit")
@@ -272,6 +273,8 @@ def transition_script(fichier: str, action: str, commentaire: str = "") -> dict:
         raise ValueError(f"« {action} » impossible depuis {LIBELLES_REVUE[actuel['statut']]}.")
     if action == "demander_modifications" and not commentaire.strip():
         raise ValueError("Préciser les modifications demandées.")
+    if action == "refuser" and not commentaire.strip():
+        raise ValueError("Un refus doit être justifié.")
     if action in ("approuver", "publier"):
         bloquants = [c["message"] for c in actuel["controles"] if c["gravite"] == "haute"]
         if bloquants:
@@ -283,7 +286,7 @@ def transition_script(fichier: str, action: str, commentaire: str = "") -> dict:
     if vers in ("Approved", "Published"):
         r["empreinte"] = _empreinte(fichier)  # toute modification ultérieure renvoie en revue
     _ecrire_atomique(_dossier() / "revues_scripts.json", json.dumps(st, ensure_ascii=False, indent=1))
-    _journaliser("revue_script", fichier=fichier, action=action, vers=vers)
+    _journaliser("revue_script", fichier=fichier, action=action, de=actuel["statut"], vers=vers, commentaire=commentaire.strip())
     return revue_script(fichier)
 
 

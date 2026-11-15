@@ -216,3 +216,17 @@ def test_etat_xray_abandons_non_synced(demo):
     j.marquer(ev["cle"], "ignore", "ticket cible de type Test")
     e = centre.etat_xray("RUN-20261114-120000")
     assert e["statut"] == "Failed" and e["abandonnes"] == 1 and "Test" in e["erreurs_definitives"][0]
+
+
+def test_refuser_un_script_justifie_puis_resoumettre(demo):
+    from atelier.generation import studio
+
+    f = "tests/connexion.robot"
+    with pytest.raises(ValueError, match="justifié"):
+        studio.transition_script(f, "refuser")
+    assert studio.transition_script(f, "refuser", "doublon de la suite smoke")["statut"] == "Rejected"
+    with pytest.raises(ValueError, match="impossible"):
+        studio.transition_script(f, "approuver")  # un script refusé ne s'approuve pas directement
+    assert studio.transition_script(f, "soumettre")["statut"] == "Technical Review"
+    j = [x for x in studio.journal() if x["op"] == "revue_script"]
+    assert (j[1]["de"], j[1]["vers"], j[1]["commentaire"]) == ("Generated", "Rejected", "doublon de la suite smoke")  # avant → après
