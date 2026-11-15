@@ -5,10 +5,16 @@
   /* Écrans, composants et validation se consultent dans Application Intelligence (une seule liste d'écrans, une seule
      boîte « À valider ») : ces anciennes adresses y mènent. */
   const VERS_AI = {ecrans: "intelligence/ecrans", composants: "intelligence/ecrans", validation: "intelligence/a_valider"};
-  const MENU = [["vue", "Discovery Overview"], ["sessions", "Discovery Sessions"], ["studio", "Discovery Studio"], ["navigation", "Navigation Explorer"], ["comportements", "Behavioral Intelligence"],
-    ["api", "API Observation"], ["resultats", "Discovery Results"], ["correlation", "Correlation Jira / Xray / GitLab"],
-    ["historique", "Discovery History"],
-    ["parametres", "Settings"]];
+  /* 5 entrées : explorer, puis consulter ce qui a été observé ; les anciens écrans deviennent des onglets (adresses inchangées) */
+  const GROUPES = [
+    ["vue", "Vue d'ensemble", [["vue", "Vue d'ensemble"]], "Ce que la Discovery connaît de l'application et quoi explorer ensuite"],
+    ["studio", "Explorer", [["studio", "Explorer"], ["sessions", "Sessions"]], "Lancer ou reprendre une exploration (device, émulateur, navigateur), guidée, assistée ou par Cursor"],
+    ["resultats", "Résultats", [["resultats", "Synthèse"], ["navigation", "Navigation"], ["comportements", "Comportements"], ["api", "API observées"]],
+      "Ce qui a été observé : parcours, transitions, comportements, appels réseau"],
+    ["correlation", "Corrélation", [["correlation", "Jira / Xray / GitLab"]], "Rapprocher les écrans observés des exigences, tests et commits"],
+    ["historique", "Historique et réglages", [["historique", "Historique"], ["parametres", "Réglages"]], "Journal des sessions et réglages de l'exploration (liste rouge, limites)"]];
+  const MENU = GROUPES.flatMap(g => g[2]);
+  const groupeDe = r => GROUPES.find(g => g[2].some(o => o[0] === r)) || GROUPES[0];
   const MODES = {guidee: "Guided Discovery", assistee: "AI Assisted Discovery", autonome: "Autonomous Discovery", tests: "Test-Based Discovery"};
   const ST = {"Préparée": "", "En cours": "ok", "En pause": "warn", "Terminée": "info"};
   let R = "vue", ECRAN = null, SESSION = null, minuteur = null;
@@ -21,15 +27,19 @@
         location.hash = VERS_AI[sous]; return;
       }
       R = MENU.some(m => m[0] === sous) ? sous : "vue";
+      const G = groupeDe(R);
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Application Discovery"><div class="titre-carte">APPLICATION DISCOVERY</div>
-        <ol class="liste-strat">${MENU.map(([id, lib], i) => `<li><button data-r="${id}" ${id === R ? 'aria-current="page"' : ""}><span class="num">${i + 1}</span><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
-        <div class="pied-strat lib">Le Discovery observe l'application réelle ; Jira, Xray et GitLab enrichissent ensuite.</div></nav>
-        <section class="carte corps-strat"><div class="corps-carte">${vide("Chargement…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
+        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
+        <div class="pied-strat lib">Le Discovery observe l'application réelle ; Jira, Xray et GitLab enrichissent ensuite.
+          <br><a href="#intelligence/ecrans" title="Écrans, composants, locators et leur fiabilité ; nommer un écran">Écrans observés</a> · <a href="#intelligence/a_valider" title="Toutes les propositions en attente">À valider</a></div></nav>
+        <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}</button>`).join("")}</div>` : ""}
+          <div id="di-contenu"><div class="corps-carte">${vide("Chargement…")}</div></div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "discovery/" + b.dataset.r; });
-      const z = $(".corps-strat");
-      const garde = setTimeout(() => { const c = $(".corps-strat .corps-carte"); if (c && c.textContent.includes("Chargement…")) c.innerHTML = vide("Toujours en calcul…", "Le serveur n'a pas encore répondu : voir la console du serveur (python web/app.py)."); }, 30000);
-      try { await ({vue, sessions, studio, ecrans, composants, navigation, comportements, apiObs, resultats, validation, correlation, historique, parametres}[R === "api" ? "apiObs" : R])(z); }
+      $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = "discovery/" + b.dataset.onglet; });
+      const z = $("#di-contenu");
+      const garde = setTimeout(() => { const c = $("#di-contenu .corps-carte"); if (c && c.textContent.includes("Chargement…")) c.innerHTML = vide("Toujours en calcul…", "Le serveur n'a pas encore répondu : voir la console du serveur (python web/app.py)."); }, 30000);
+      try { await ({vue, sessions, studio, navigation, comportements, apiObs, resultats, correlation, historique, parametres}[R === "api" ? "apiObs" : R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
       finally { clearTimeout(garde); }
     },
@@ -48,8 +58,8 @@
 
   async function vue(z) {
     const v = await apiDelai("/api/discovery/vue?graphe=0", 60000), k = v.kpi;
-    if (!v.app) { z.innerHTML = entete("Discovery Overview") + pas("Aucune application", `<a href="#parametres/applications">Déclarer l'application</a> (Paramètres › Applications), puis lancer une session.`); return; }
-    z.innerHTML = `${entete("Discovery Overview", `${v.active ? `<a class="btn" href="#discovery/studio">Reprendre ${esc(v.active.id)}</a>` : ""}<button class="btn primaire" id="dv-new">${ico("plus")}Démarrer une Discovery</button>`)}<div class="corps-carte">
+    if (!v.app) { z.innerHTML = entete("Vue d'ensemble") + pas("Aucune application", `<a href="#parametres/applications">Déclarer l'application</a> (Paramètres › Applications), puis lancer une session.`); return; }
+    z.innerHTML = `${entete("Vue d'ensemble", `${v.active ? `<a class="btn" href="#discovery/studio">Reprendre ${esc(v.active.id)}</a>` : ""}<button class="btn primaire" id="dv-new">${ico("plus")}Démarrer une Discovery</button>`)}<div class="corps-carte">
       <h3 class="lib">CARTE DE L'APPLICATION</h3>${kpis([[k.ecrans, "écrans"], [k.transitions, "transitions"], [k.actions, "actions observées"], [k.composants, "composants"], [k.locators, "locators"], [v.sessions, "sessions"]])}
       ${kpis([[k.sans_locator_stable, "interactifs sans locator stable", k.sans_locator_stable ? "warn-t" : ""], [k.ecrans_avec_variantes, "écrans avec variantes"], [k.ecrans_modifies, "écrans modifiés", k.ecrans_modifies ? "warn-t" : ""], [k.a_nommer, "écrans à nommer", k.a_nommer ? "warn-t" : ""]])}
       <h3 class="lib">KNOWLEDGE GRAPH</h3><div id="dv-kg"><p class="lib">Calcul du graphe (dépôt Robot, copie Jira / Xray, JDD, OpenAPI)… <span id="dv-t">0</span> s</p></div>
@@ -71,7 +81,7 @@
   /* ------------------------------------------------------------------ 2 sessions */
   async function sessions(z) {
     const l = await api("/api/discovery/sessions");
-    z.innerHTML = `${entete("Discovery Sessions", `<button class="btn primaire" id="ds-new">${ico("plus")}Démarrer une Discovery</button>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Sessions", `<button class="btn primaire" id="ds-new">${ico("plus")}Démarrer une Discovery</button>`)}<div class="corps-carte">
       ${l.length ? `<table class="table-strat"><tr><th>Session</th><th>Application</th><th>Mode</th><th>Plateforme</th><th>Environnement</th><th>Statut</th><th>Début</th><th>Nouveaux écrans</th><th>Transitions</th><th>Par</th></tr>
         ${l.map(s => `<tr class="cliquable" data-s="${esc(s.id)}"><td class="mono">${esc(s.id)}</td><td>${esc(s.config.app_nom)}${s.config.build ? ` <span class="lib">${esc(s.config.build)}</span>` : ""}</td>
           <td>${esc(MODES[s.config.mode])}</td><td>${esc(s.config.plateforme)}</td><td>${esc(s.config.environnement || "—")}</td><td><span class="pill ${ST[s.statut]}">${esc(s.statut)}</span></td>
@@ -86,7 +96,7 @@
     const l = await api("/api/discovery/sessions");
     const s0 = l.find(s => s.id === SESSION) || l.find(s => ["En cours", "En pause"].includes(s.statut)) || l[0];
     const ouvrir = `<button class="btn primaire" id="st-ouvrir">${ico("recherche")}${s0 && ["En cours", "En pause"].includes(s0.statut) ? "Reprendre dans la fenêtre Discovery" : "Démarrer une Discovery"}</button>`;
-    if (!s0) { z.innerHTML = entete("Discovery Studio", ouvrir) + pas("Aucune session", "La fenêtre Discovery propose l'émulateur, l'appareil branché ou le navigateur, puis démarre en un clic."); $("#st-ouvrir").onclick = () => DiscoveryFlottant.ouvrir(); return; }
+    if (!s0) { z.innerHTML = entete("Explorer", ouvrir) + pas("Aucune session", "La fenêtre Discovery propose l'émulateur, l'appareil branché ou le navigateur, puis démarre en un clic."); $("#st-ouvrir").onclick = () => DiscoveryFlottant.ouvrir(); return; }
     SESSION = s0.id;
     const s = await api("/api/discovery/sessions/" + SESSION), c = s.config;
     z.innerHTML = `${entete(`Discovery Studio · ${s.id}`, ouvrir)}<div class="corps-carte">
@@ -111,41 +121,11 @@
   const pillClasse = k => `<span class="pill ${(CL[k] || ["", k])[0]}">${(CL[k] || ["", k])[1]}</span>`;
 
   /* ------------------------------------------------------------------ 4 écrans, 5 composants */
-  async function ecrans(z) {
-    const g = await api("/api/carte/graphe");
-    z.innerHTML = `${entete("Screen Inventory", `<a class="btn" href="#graphe/connaissance">Knowledge Graph</a>`)}<div class="corps-carte">
-      ${g.nodes.length ? `<table class="table-strat"><tr><th>Écran</th><th>Module</th><th>Plateformes</th><th>Composants</th><th>Sans locator stable</th><th>États</th><th>État</th><th>Couvert</th><th>Découvert le</th></tr>
-        ${g.nodes.map(n => `<tr class="cliquable" data-e="${esc(n.id)}"><td><b>${esc(n.nom || n.titre || n.id)}</b>${n.nom ? "" : ' <span class="pill warn">à nommer</span>'}</td><td>${esc(n.module || "—")}</td>
-          <td>${n.plateformes.map(p => `<span class="pill">${esc(p)}</span>`).join(" ")}</td><td>${n.nb_elements}</td><td>${n.sans_id ? `<span class="warn-t">${n.sans_id}</span>` : 0}</td><td>${n.etats}</td>
-          <td>${n.a_revoir ? '<span class="pill warn">modifié</span>' : '<span class="pill ok">connu</span>'}</td><td>${n.couvert ? '<span class="pill ok">oui</span>' : '<span class="pill">non</span>'}</td><td class="mono">${date(n.cree)}</td></tr>`).join("")}</table>`
-        : vide("Aucun écran", "Lancer une session Discovery : les écrans sont identifiés par leur empreinte (identifiants, textes fixes, structure ; données dynamiques normalisées).")}</div>`;
-    $$("[data-e]", z).forEach(tr => tr.onclick = () => { ECRAN = tr.dataset.e; location.hash = "discovery/composants"; });
-    recherche(z);
-  }
-
-  async function composants(z) {
-    const g = await api("/api/carte/graphe");
-    ECRAN = ECRAN || g.nodes[0]?.id;
-    if (!ECRAN) { z.innerHTML = entete("Component Inspector") + pas("Aucun écran", "Lancer une session Discovery."); return; }
-    const e = await api("/api/carte/ecran/" + encodeURIComponent(ECRAN));
-    const statut = locs => { const l = locs || []; return !l.length ? ["ko", "Missing"] : /^(id=|accessibility_id=|data-testid=)/.test(l[0]) ? ["ok", "Stable"] : /xpath=\/\//.test(l[0]) || /^text=/.test(l[0]) ? ["warn", "Fragile"] : ["info", "Reliable"]; };
-    z.innerHTML = `${entete("Component Inspector", `<select class="in" id="ci-e" style="width:auto">${g.nodes.map(n => `<option value="${esc(n.id)}" ${n.id === ECRAN ? "selected" : ""}>${esc(n.nom || n.titre || n.id)}</option>`).join("")}</select>`)}<div class="corps-carte">
-      <p><b>${esc(e.nom || e.titre || e.id)}</b> <span class="lib mono">${esc(e.id)}</span>${(e.etats || []).length ? ` · ${e.etats.length} état(s)` : ""}${(e.changements || []).length ? ` · <span class="warn-t">${e.changements.length} changement(s) détecté(s)</span>` : ""}</p>
-      <table class="table-strat"><tr><th>Clé</th><th>Type</th><th>Libellé</th><th>Plateforme</th><th>Locator principal</th><th>Secours</th><th>Fiabilité</th></tr>
-      ${Object.entries(e.elements || {}).flatMap(([k, el]) => Object.entries(el.locators || {}).map(([p, l]) => { const [c, t] = statut(l);
-        return `<tr><td class="mono">${esc(k)}</td><td>${esc(el.type || "")}</td><td>${esc(el.libelle || "")}</td><td>${esc(p)}</td><td class="mono">${esc(l[0] || "—")}</td><td class="lib mono">${esc(l.slice(1).join(" | ") || "—")}</td><td><span class="pill ${c}">${t}</span></td></tr>`; })).join("")
-        || "<tr><td colspan='7' class='lib'>Aucun composant.</td></tr>"}</table>
-      <p class="lib" style="margin-top:8px">Priorités : web data-testid › id › rôle / libellé › texte › CSS › XPath ; Android resource-id › accessibility id › UiAutomator › texte › XPath ; iOS accessibility id › predicate › class chain › XPath.
-        Renommer, définir le locator principal ou un secours : <a href="/" target="_blank" rel="noopener">carte de l'écran en direct</a> ; référentiel complet : <a href="#studio/locators">Automation Studio › Locators</a>.</p></div>`;
-    $("#ci-e").onchange = ev => { ECRAN = ev.target.value; composants(z); };
-    recherche(z);
-  }
-
   /* ------------------------------------------------------------------ 6 navigation */
   async function navigation(z) {
     const n = await api("/api/discovery/navigation");
     const liste = l => l.length ? l.map(x => `<span class="pill">${esc(x.nom)}</span>`).join(" ") : "<span class='lib'>aucun</span>";
-    z.innerHTML = `${entete("Navigation Explorer")}<div class="corps-carte">
+    z.innerHTML = `${entete("Navigation")}<div class="corps-carte">
       ${kpis([[n.transitions.length, "transitions"], [n.impasses.length, "impasses", n.impasses.length ? "warn-t" : ""], [n.isoles.length, "écrans isolés", n.isoles.length ? "warn-t" : ""], [n.instables.length, "transitions instables", n.instables.length ? "warn-t" : ""]])}
       <dl class="props"><dt>Écran de départ</dt><dd>${esc((n.noms || {})[n.depart] || "—")}</dd><dt>Impasses (aucune sortie)</dt><dd>${liste(n.impasses)}</dd><dt>Isolés (aucune entrée)</dt><dd>${liste(n.isoles)}</dd></dl>
       <div class="btns" style="margin:10px 0"><label class="lib" for="nv-v">Chemin le plus fiable vers</label><select class="in" id="nv-v" style="width:auto">${Object.entries(n.noms || {}).map(([i, nom]) => `<option value="${esc(i)}">${esc(nom)}</option>`).join("")}</select>
@@ -176,7 +156,7 @@
     const [s, v] = await Promise.all([SESSION ? api("/api/discovery/sessions/" + SESSION) : null, api("/api/intelligence/validation").catch(() => [])]);
     const obs = (s?.timeline || []).filter(e => e.type === "comportement");
     const regles = v.filter(x => x.type === "regle");
-    z.innerHTML = `${entete("Behavioral Intelligence", l.length ? `<select class="in" id="bi-s" style="width:auto">${l.map(x => `<option ${x.id === SESSION ? "selected" : ""}>${esc(x.id)}</option>`).join("")}</select>` : "")}<div class="corps-carte">
+    z.innerHTML = `${entete("Comportements", l.length ? `<select class="in" id="bi-s" style="width:auto">${l.map(x => `<option ${x.id === SESSION ? "selected" : ""}>${esc(x.id)}</option>`).join("")}</select>` : "")}<div class="corps-carte">
       <p class="lib">Après chaque action déclenchée depuis le Studio, l'écran avant / après est comparé : messages apparus (erreur, champ obligatoire, confirmation…), éléments apparus ou disparus. Chaque message devient une règle <b>proposée</b> au Knowledge Graph, à valider.</p>
       <h3 class="lib">COMPORTEMENTS OBSERVÉS ${SESSION ? "· " + esc(SESSION) : ""} (${obs.length})</h3>
       ${obs.length ? `<table class="table-strat"><tr><th>Heure</th><th>Comportement</th><th>Écran</th></tr>${obs.slice().reverse().map(e => `<tr><td class="mono">${esc(String(e.date).slice(11, 19))}</td><td>${esc(e.detail)}</td><td class="lib mono">${esc(e.ecran || "")}</td></tr>`).join("")}</table>`
@@ -194,7 +174,7 @@
       ${eps.map(e => `<tr><td><span class="pill">${esc(e.methode)}</span></td><td class="mono">${esc(e.chemin)}</td><td class="lib">${esc(e.hote)}</td><td>${e.appels}</td>
         <td>${e.statuts.map(x => `<span class="pill ${x >= 400 ? "ko" : "ok"}">${x}</span>`).join(" ")}</td><td class="lib mono">${esc(e.parametres.join(", "))}</td>
         <td>${e.connu ? `<span class="pill ok">documenté</span> <span class="lib">${esc(e.connu)}</span>` : '<span class="pill warn">non documenté</span>'}</td></tr>`).join("")}</table>` : "<p class='lib'>Aucun appel observé.</p>"}`;
-    z.innerHTML = `${entete("API Observation")}<div class="corps-carte">
+    z.innerHTML = `${entete("API observées")}<div class="corps-carte">
       <p class="lib">Web : le navigateur de l'atelier note les appels XHR / fetch de l'application (méthode, chemin, noms des paramètres, statut). Les valeurs, corps et en-têtes (jetons, cookies) ne sont jamais conservés ; les identifiants des chemins sont normalisés ({id}). En fin de session, les endpoints non documentés sont proposés au Knowledge Graph (à valider). Mobile : nécessite un proxy de test, non branché (rien n'est simulé).</p>
       ${tab(r.endpoints || [], `SESSION EN COURS${r.session ? " · " + esc(r.session) : " (aucune)"}`)}
       ${fin ? tab(fin.resultats.endpoints, `DERNIÈRE SESSION TERMINÉE AVEC DES APPELS · ${esc(fin.id)}`) : ""}
@@ -207,7 +187,7 @@
   /* ------------------------------------------------------------------ corrélation Jira / Xray / GitLab */
   async function correlation(z) {
     const s = await api("/api/discovery/correlation");
-    z.innerHTML = `${entete("Correlation Jira / Xray / GitLab")}<div class="corps-carte">
+    z.innerHTML = `${entete("Corrélation Jira / Xray / GitLab")}<div class="corps-carte">
       <p class="lib">Liens établis par le Knowledge Graph (locators du dépôt → tests Robot → clés Xray en tag → exigences Jira de la copie locale) et liens proposés par les mots communs entre l'écran et les exigences (à confirmer). ${s.copie_jira ? "" : '<b class="warn-t">Aucune copie locale Jira : synchroniser d\'abord (Rapports › Patrimoine).</b>'}</p>
       ${kpis([[s.ecrans.length, "écrans"], [s.sans_test, "écrans sans test", s.sans_test ? "warn-t" : ""], [s.sans_exigence, "écrans sans exigence", s.sans_exigence ? "warn-t" : ""], [s.ecrans.reduce((a, x) => a + x.proposees, 0), "liens proposés"]])}
       ${s.ecrans.length ? `<table class="table-strat"><tr><th>Écran</th><th>Module</th><th>Exigences Jira</th><th>Tests Xray</th><th>Tests Robot</th><th>Fichiers</th><th>Proposés</th></tr>
@@ -242,9 +222,9 @@
   async function resultats(z) {
     const l = await api("/api/discovery/sessions");
     SESSION = SESSION && l.some(s => s.id === SESSION) ? SESSION : l[0]?.id;
-    if (!SESSION) { z.innerHTML = entete("Discovery Results") + pas("Aucune session"); return; }
+    if (!SESSION) { z.innerHTML = entete("Synthèse des résultats") + pas("Aucune session"); return; }
     const s = await api("/api/discovery/sessions/" + SESSION), r = s.resultats;
-    z.innerHTML = `${entete("Discovery Results", `<select class="in" id="rs-s" style="width:auto">${l.map(x => `<option ${x.id === SESSION ? "selected" : ""}>${esc(x.id)}</option>`).join("")}</select>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Synthèse des résultats", `<select class="in" id="rs-s" style="width:auto">${l.map(x => `<option ${x.id === SESSION ? "selected" : ""}>${esc(x.id)}</option>`).join("")}</select>`)}<div class="corps-carte">
       <p>${esc(s.config.app_nom)} ${esc(s.config.build || "")} · ${esc(s.config.plateforme)} · ${esc(MODES[s.config.mode])} · <span class="pill ${ST[s.statut]}">${esc(s.statut)}</span> · ${date(s.debut)} → ${date(s.fin)}</p>
       ${r ? `${kpis([[r.ecrans_visites, "écrans visités"], [r.nouveaux_ecrans, "nouveaux écrans"], [r.ecrans_modifies, "écrans modifiés"], [r.composants_ajoutes, "composants ajoutés"], [r.nouvelles_transitions, "nouvelles transitions"], [r.actions, "actions"], [r.comportements ?? 0, "comportements"], [(r.endpoints || []).length, "endpoints observés"]])}
         <div class="grille-2"><section class="bloc-strat"><h3>Nouveaux écrans</h3><ul class="liste">${r.nouveaux.map(e => `<li><button class="lien item" data-e="${esc(e.id)}">${esc(e.nom)}</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul></section>
@@ -258,37 +238,11 @@
   }
 
   /* ------------------------------------------------------------------ 10 validation */
-  async function validation(z) {
-    const [v, g, props] = await Promise.all([api("/api/intelligence/validation").catch(() => []), api("/api/carte/graphe"), api("/api/discovery/propositions").catch(() => [])]);
-    const nomPropose = id => props.find(p => p.objet === "nom_ecran" && p.ecran === id);
-    const anommer = g.nodes.filter(n => !n.nom);
-    z.innerHTML = `${entete("Discovery Validation")}<div class="corps-carte">
-      <h3 class="lib">ÉCRANS À NOMMER (${anommer.length})</h3>${anommer.length ? `<table class="table-strat"><tr><th>Écran proposé</th><th>Nom métier</th><th>Module</th><th></th></tr>${anommer.map(n => `<tr>
-        <td>${esc(n.titre || n.id)}</td><td><input class="in" data-nom="${esc(n.id)}" placeholder="virement_saisie" value="${esc((nomPropose(n.id)?.libelle || "").split(" → ")[1]?.split(" (")[0] || "")}">${nomPropose(n.id) ? `<br><span class="lib">proposé par ${esc(nomPropose(n.id).source)}</span>` : ""}</td><td><input class="in" data-mod="${esc(n.id)}" placeholder="Virements"></td>
-        <td><button class="btn petit primaire" data-ok="${esc(n.id)}">Valider</button></td></tr>`).join("")}</table>` : "<p class='lib'>Aucun.</p>"}
-      <h3 class="lib" style="margin-top:12px">APPRIS PAR LA DISCOVERY (${props.length})</h3>
-      ${props.length ? `<table class="table-strat"><tr><th>Nature</th><th>Proposition</th><th>Source</th><th></th></tr>${props.map(p => `<tr><td><span class="pill">${esc(p.type)}</span></td><td>${esc(p.libelle)}</td>
-        <td class="lib">${esc(p.source || "")}</td><td class="btns"><button class="btn petit primaire" data-pok="${esc(p.id)}">Valider</button><button class="btn petit" data-pko="${esc(p.id)}">Rejeter</button></td></tr>`).join("")}</table>`
-        : "<p class='lib'>Aucune : Cursor / Claude déposent leurs propositions avec l'outil MCP discovery_proposer.</p>"}
-      <h3 class="lib" style="margin-top:12px">PROPOSITIONS DU KNOWLEDGE GRAPH (${v.length})</h3>
-      <p class="lib">Éléments et relations déduits (exploration, IA, extraction) : valider ou rejeter (définitif), dans <a href="#intelligence/validation">Application Intelligence › Knowledge Validation</a>.</p>
-      ${v.length ? `<ul class="liste">${v.slice(0, 15).map(x => `<li><span class="pill">${esc(x.objet)}</span><span class="item">${esc(x.libelle)}</span><span class="lib">${esc(x.provenance)}</span></li>`).join("")}</ul>` : ""}</div>`;
-    $$("[data-pok],[data-pko]", z).forEach(b => b.onclick = async () => {
-      try { await api("/api/discovery/propositions/decider", {method: "POST", body: {id: b.dataset.pok || b.dataset.pko, valider: !!b.dataset.pok}}); toast(b.dataset.pok ? "Validé." : "Rejeté (jamais reproposé).", "ok"); validation(z); }
-      catch (e) { toast(e.message, "ko"); }
-    });
-    $$("[data-ok]", z).forEach(b => b.onclick = async () => {
-      const id = b.dataset.ok, nom = $(`[data-nom="${id}"]`, z).value.trim();
-      if (!nom) { toast("Nom obligatoire.", "ko"); return; }
-      try { await api("/api/carte/renommer", {method: "POST", body: {id, nom, module: $(`[data-mod="${id}"]`, z).value.trim() || null}}); toast("Écran nommé.", "ok"); validation(z); } catch (e) { toast(e.message, "ko"); }
-    });
-  }
-
   /* ------------------------------------------------------------------ 11 historique, 12 paramètres */
   async function historique(z) {
     const l = await api("/api/discovery/sessions");
     const opts = sel => l.map((s, i) => `<option ${i === sel ? "selected" : ""}>${esc(s.id)}</option>`).join("");
-    z.innerHTML = `${entete("Discovery History")}<div class="corps-carte">
+    z.innerHTML = `${entete("Historique")}<div class="corps-carte">
       ${l.length > 1 ? `<div class="btns"><select class="in" id="hi-a" style="width:auto">${opts(1)}</select><span>→</span><select class="in" id="hi-b" style="width:auto">${opts(0)}</select><button class="btn" id="hi-go">Comparer</button></div><div id="hi-res"></div>` : "<p class='lib'>Comparaison possible à partir de deux sessions.</p>"}
       <table class="table-strat" style="margin-top:10px"><tr><th>Session</th><th>Application</th><th>Mode</th><th>Statut</th><th>Début</th><th>Fin</th><th>Nouveaux écrans</th><th>Transitions</th><th>Annotations</th></tr>
       ${l.map(s => `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.config.app_nom)} ${esc(s.config.build || "")}</td><td>${esc(MODES[s.config.mode])}</td><td><span class="pill ${ST[s.statut]}">${esc(s.statut)}</span></td>
@@ -306,7 +260,7 @@
       return `<tr><td><input class="in" data-env value="${esc(env)}" placeholder="recette"></td>${["safe", "controlled", "sensitive"].map(k => `<td><input type="checkbox" data-cl="${k}" ${classes.includes(k) ? "checked" : ""} aria-label="${CL[k][1]}"></td>`).join("")}
         <td><label class="lib"><input type="checkbox" data-agent ${ag ? "checked" : ""}> autorisé</label>${ag ? `<div class="lib" style="font-size:11px">par ${esc(ag.par)} le ${esc(String(ag.date).slice(0, 10))}</div>` : ""}</td>
         <td><select class="in" multiple size="3" data-leves aria-label="Motifs de la liste rouge levés">${rouge.map(m => `<option ${leves.includes(m) ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></td></tr>`; };
-    z.innerHTML = `${entete("Discovery Settings")}<div class="corps-carte">${!app ? vide("Aucune application") : `
+    z.innerHTML = `${entete("Réglages")}<div class="corps-carte">${!app ? vide("Aucune application") : `
       <p>Application active : <b>${esc(app.nom)}</b> (${esc(app.type)})</p>
       <h3 class="lib">CLASSEMENT DES ACTIONS</h3>
       <dl class="props"><dt>${pillClasse("safe")}</dt><dd>Navigation (bouton, lien, onglet) : seule classe touchée par l'exploration autonome et les suggestions.</dd>

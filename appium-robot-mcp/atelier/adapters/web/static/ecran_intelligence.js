@@ -188,13 +188,21 @@
     const l = await api("/api/intelligence/ecrans");
     const fiab = locs => { const v = (locs || [])[0] || ""; return !v ? ["ko", "Missing"] : /^(id=|accessibility_id=|data-testid=|resource-id)/.test(v) ? ["ok", "Stable"] : /^\/\/|xpath|^text=/.test(v) ? ["warn", "Fragile"] : ["info", "Reliable"]; };
     z.innerHTML = `${entete("Écrans observés", `<a class="btn" href="#discovery" title="Explorer pour compléter la carte">Explorer (Discovery)</a>`)}<div class="corps-carte">${l.map(e => `<section class="bloc-strat" style="margin-bottom:12px" id="ec-${esc(e.id || e.nom)}">
-        <h3>${esc(e.nom)}${e.nom && e.nom !== e.id && e.nom !== "(sans nom)" ? "" : ' <span class="pill warn" title="Écran sans nom métier : le nommer dans Discovery">à nommer</span>'} <span class="lib">${esc(e.module || "")} · ${esc(e.titre || "")}</span>${e.a_revoir ? ' <span class="pill warn">à revoir</span>' : ""}</h3>
+        <h3>${esc(e.nom)}${e.nom && e.nom !== e.id && e.nom !== "(sans nom)" ? "" : ' <span class="pill warn" title="Écran sans nom métier">à nommer</span>'} <span class="lib">${esc(e.module || "")} · ${esc(e.titre || "")}</span>${e.a_revoir ? ' <span class="pill warn">à revoir</span>' : ""}</h3>
+        ${e.nom && e.nom !== e.id && e.nom !== "(sans nom)" ? "" : `<div class="btns" style="margin-bottom:8px"><input class="in mono" data-nom="${esc(e.id)}" placeholder="Nom métier (ex. virement_saisie)" style="width:240px">
+          <input class="in" data-mod="${esc(e.id)}" placeholder="Module" value="${esc(e.module || "")}" style="width:160px">
+          <button class="btn petit primaire" data-nommer="${esc(e.id)}" title="Donne un nom métier à l'écran (carte de l'application, journalisé)">Nommer l'écran</button></div>`}
         <div style="display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px">${e.vignettes.map(v => `<img src="/api/carte/vignette/${encodeURIComponent(v)}" alt="${esc(e.nom)}" style="max-width:200px;border-radius:8px">`).join("") || "<div></div>"}
         <div><table><tr><th>Composant</th><th>Type</th>${Object.keys(e.plateformes).map(p => `<th>${esc(p)}</th>`).join("")}</tr>${e.elements.map(x => `<tr><td>${esc(x.cle)}<div class="lib">${esc(x.libelle || "")}</div></td><td>${esc(x.type || "")}</td>
           ${Object.keys(e.plateformes).map(p => { const [c, t] = fiab(x.locators[p]); return `<td class="mono">${esc((x.locators[p] || []).join(" | ") || "—")} <span class="pill ${c}" title="Fiabilité du locator principal">${t}</span></td>`; }).join("")}</tr>`).join("")}</table>
           <p class="lib">Contexte : ${esc(Object.entries(e.plateformes).map(([p, d]) => `${p} ${d.contexte || ""} (vu le ${(d.vu_le || "").slice(0, 10)}${d.vu_build ? ", build " + d.vu_build : ""})`).join(" · "))}
             · précédents : ${esc(e.depuis.join(", ") || "—")} · suivants : ${esc(e.vers.join(", ") || "—")} · états : ${esc(e.etats.join(", ") || "—")}</p>
           <p class="lib">Tests utilisant cet écran : ${esc(e.tests.join(", ") || "aucun")}</p></div></div></section>`).join("") || vide("Aucun écran", "Cartographier l'application (session + « Où suis-je ? » ou exploration).")}</div>`;
+    $$("[data-nommer]", z).forEach(btn => btn.onclick = async () => {
+      const id = btn.dataset.nommer, nom = $(`[data-nom="${id}"]`, z).value.trim();
+      if (!nom) { toast("Nom obligatoire.", "ko"); return; }
+      try { await api("/api/carte/renommer", {method: "POST", body: {id, nom, module: $(`[data-mod="${id}"]`, z).value.trim() || null}}); toast("Écran nommé.", "ok"); ecrans(z); }
+      catch (e) { toast(e.message, "ko"); } });
     let cible = null;  // écran demandé depuis Discovery (ex-Component Inspector)
     try { cible = sessionStorage.getItem("ai-ecran"); sessionStorage.removeItem("ai-ecran"); } catch (e) { /* facultatif */ }
     const sec = cible && document.getElementById("ec-" + cible);

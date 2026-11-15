@@ -209,3 +209,10 @@ Une ligne datée par décision d'architecture ou de conception.
   (Release Readiness, Recommandations) · Tendances et risques (Tendances, Risques applicatifs, Stabilité, Santé de
   l'automatisation) · Rapports (Rapports, Réglages). Module en lecture seule : les indicateurs reprennent les données
   des autres modules (Couverture, Studio, Failure Analysis), sans les recalculer ailleurs. Adresses et titres en français.
+
+## 2026-11-15 — Discovery simplifié (5 entrées) ; nommer un écran dans Application Intelligence
+- Discovery : Vue d'ensemble · Explorer (Explorer, Sessions) · Résultats (Synthèse, Navigation, Comportements, API observées) ·
+  Corrélation · Historique et réglages. Écrans, composants et validation restent consultés dans Application Intelligence
+  (anciennes adresses redirigées) ; leurs anciens écrans Discovery, devenus inaccessibles, sont supprimés du code.
+- Le nommage des écrans (« à nommer »), qui n'existait que dans l'ancienne Discovery Validation, est désormais dans
+  Application Intelligence › Écrans (nom métier + module, journalisé).
