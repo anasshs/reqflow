@@ -811,3 +811,56 @@ def coverage_proposer_lien(exigence: str, test: str, score: int, justification: 
 
 
 __all__ = [f.__name__ for f in OUTILS]
+
+
+# =========================================================================== parcours de fonctionnalité (V2, phase 1)
+@outil
+def parcours_lister() -> list[dict]:
+    """Parcours de fonctionnalité du projet (statut, avancement, étape courante). Un parcours suit le cycle de vie
+    d'une fonctionnalité : Discovery → reconstruction → couverture → Test Design → validation → génération →
+    qualification → exécution → Failure Analysis → synchronisation Xray / Knowledge Graph."""
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return pf.lister()
+
+
+@outil
+def parcours_initialiser(fonctionnalite: str, libelle: str = "", jira: list[str] | None = None) -> dict:
+    """Crée (ou retrouve, s'il est déjà ouvert) le parcours d'une fonctionnalité. fonctionnalite : nœud du Knowledge
+    Graph (« module:Connexion », « fonctionnalite:… ») ou nom du module ; jira : clés des US / exigences liées."""
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return pf.creer(fonctionnalite, libelle, jira or [], origine="mcp")
+
+
+@outil
+def parcours_etat(parcours_id: str) -> dict:
+    """État complet d'un parcours : étapes (statut, références, validation, à revoir), dépendances bloquantes,
+    indices constatés dans les modules, écran de l'atelier et outils MCP utiles pour chaque étape, historique."""
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return pf.obtenir(parcours_id)
+
+
+@outil
+def parcours_etape(parcours_id: str, etape: str, action: str, commentaire: str = "",
+                   reference_type: str = "", reference_id: str = "", reference_libelle: str = "") -> dict:
+    """Agit sur une étape (etape : discovery, reconstruction, couverture, conception, validation, generation,
+    qualification, execution, analyse, synchronisation). action : demarrer · referencer (relier un objet produit :
+    reference_type ex. session_discovery, exigence, scenario_bdd, suite, run, echec, execution_xray + reference_id) ·
+    soumettre · valider · sauter (justification obligatoire) · echouer / bloquer (motif) · revenir (relancer l'étape ;
+    les suivantes restent, marquées à revoir). Les étapes « validation », « qualification » et « synchronisation » ne
+    se valident que dans l'atelier : depuis ici elles passent en attente de validation."""
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    ref = {"type": reference_type, "id": reference_id, "libelle": reference_libelle} if reference_id else None
+    return pf.agir(parcours_id, etape, action, commentaire, ref, origine="mcp")
+
+
+@outil
+def parcours_reprendre(parcours_id: str, action: str = "reprendre", motif: str = "") -> dict:
+    """Suspend, reprend ou abandonne un parcours (action : suspendre · reprendre · abandonner, avec motif). Rien
+    n'est perdu : les étapes, références et validations sont conservées."""
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return pf.changer_etat(parcours_id, action, motif, origine="mcp")

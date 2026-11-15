@@ -249,3 +249,11 @@ Une ligne datée par décision d'architecture ou de conception.
   (`cursor_rules_*.mdc`, section « Actions soumises à validation ») ; à réinstaller depuis Paramètres › Cursor / Claude.
 - Interface web : les écrans de l'atelier (Execution Center, Failure Analysis…) gardent leurs propres circuits de
   confirmation ; seule l'entrée MCP est concernée.
+
+## 2026-11-15 — V2 phase 1 : parcours de fonctionnalité
+- Workflow léger (pas d'agent) : le parcours relie les modules existants, référence leurs objets et garde états,
+  validations, historique et versions (`docs/V2_PHASE1_PARCOURS.md`). Onglet principal « Parcours ».
+- 5 outils MCP ajoutés (`parcours_*`), 81 au total ; aucun outil existant modifié.
+- Décision humaine imposée côté serveur pour la validation des scénarios, la qualification et la synchronisation
+  Xray (depuis Cursor : mise en attente de validation ; dans l'atelier : rôle relecteur).
+- Stockage dans `<projet>/parcours/` (état de travail de l'atelier, ignoré par les contrôles Git du Studio).

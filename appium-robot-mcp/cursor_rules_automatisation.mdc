@@ -78,3 +78,10 @@ chercher de contournement :
 - `run_robot` avec `jira_transition_*` : les transitions deviennent des demandes après le run ;
 - `name_screen` vers un nom déjà pris (fusion d'écrans) ; `add_screen_locator` qui remplace une valeur existante.
 `tap` / `type_text` sont classés côté serveur même hors session Discovery : liste rouge et actions sensibles refusées.
+
+## Parcours de fonctionnalité
+Pour une fonctionnalité à traiter de bout en bout, commencer par `parcours_initialiser` (ou `parcours_lister`), puis
+suivre `parcours_etat` : chaque étape indique l'écran de l'atelier et les outils MCP à utiliser. Relier ce que tu
+produis avec `parcours_etape(..., action="referencer", reference_type=…, reference_id=…)`, puis `soumettre` ou
+`valider`. Les étapes « validation », « qualification » et « synchronisation » ne se valident que dans l'atelier.
+Ne jamais sauter une étape sans justification réelle.

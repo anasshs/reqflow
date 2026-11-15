@@ -2929,6 +2929,52 @@ async def cerveau_module(module: str):
     return await asyncio.to_thread(_call, plan_test.plan, module)
 
 
+@app.get("/api/parcours")
+def parcours_liste():
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return _call(pf.lister)
+
+
+@app.post("/api/parcours")
+async def parcours_creer(req: Request):
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, pf.creer, b.get("fonctionnalite", ""), b.get("libelle", ""), b.get("jira") or [], b.get("responsable", ""))
+
+
+@app.get("/api/parcours/{pid}")
+def parcours_detail(pid: str):
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return _call(pf.obtenir, pid)
+
+
+@app.post("/api/parcours/{pid}/etape")
+async def parcours_etape(pid: str, req: Request):
+    """Action sur une étape depuis l'atelier (validation humaine possible ici)."""
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, pf.agir, pid, b.get("etape", ""), b.get("action", ""), b.get("commentaire", ""), b.get("reference"))
+
+
+@app.post("/api/parcours/{pid}/etat")
+async def parcours_etat(pid: str, req: Request):
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, pf.changer_etat, pid, b.get("action", ""), b.get("motif", ""))
+
+
+@app.get("/api/parcours/{pid}/comparer")
+def parcours_comparer(pid: str, a: int, b: str = ""):
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return _call(pf.comparer, pid, a, int(b) if b else None)
+
+
 @app.get("/api/demandes")
 def demandes_liste(statut: str = ""):
     from atelier.domain import demandes

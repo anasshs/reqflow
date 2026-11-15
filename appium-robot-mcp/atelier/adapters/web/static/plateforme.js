@@ -110,7 +110,7 @@ const vide = (titre, texte = "") => `<div class="vide"><b>${esc(titre)}</b>${tex
 /* ======================================================================== application */
 const Atelier = {
   ctx: {}, ecrans: {}, ecranCourant: null, ws: null, abonnes: new Map(), plateforme: "", env: "",
-  ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"],
+  ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"], ["parcours", "Parcours", "historique"],
     ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["centre", "Execution Center", "execution"],
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]],
   /* écrans de travail rattachés à un module (l'onglet du module reste actif) */
