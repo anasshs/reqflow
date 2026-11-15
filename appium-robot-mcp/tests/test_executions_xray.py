@@ -145,3 +145,43 @@ def test_periode_import_conserve_et_filtre(projet):
     assert centre.vue_xray()["kpi"]["executions"] == 2
     with pytest.raises(ValueError, match="AAAA-MM-JJ"):
         projet.importer_executions("DEMO", faux([]), depuis="01/11/2026")
+
+
+def test_identifiant_du_run_lu_si_expose():
+    schema = {**SCHEMA, "TestRun": {"id": [], "status": [], "test": [], "finishedOn": []}}
+    e = _exec("DEMO-90", {"DEMO-1": "FAILED"})
+    e["testRuns"]["results"][0]["id"] = "run-abc"
+    x = FauxSchema(schema, [{"total": 1, "results": [e]}])
+    r = x.executions("DEMO")
+    assert "testRuns(limit: 100) { total results { id " in x.requetes[0][0] and r["executions"][0]["runs"]["DEMO-1"]["id"] == "run-abc"
+
+
+def test_changer_statut_depuis_le_tableau_de_bord(projet):
+    from atelier.execution import centre
+
+    projet._fusionner_executions(d := projet.charger(), {"executions": [
+        {"cle": "DEMO-90", "resume": "TNR", "statut": "En cours", "cree": "2026-11-10", "environnements": [], "tests": ["DEMO-1", "DEMO-2"], "tests_total": 2,
+         "runs": {"DEMO-1": {"statut": "FAILED", "id": "r1"}, "DEMO-2": {"statut": "TO DO", "id": ""}}}]})
+    projet.enregistrer(d, "test")
+    date = projet.charger()["executions_xray"]["date"]
+
+    class Faux:
+        appels = []
+
+        def set_status(self, run_id, statut):
+            self.appels.append((run_id, statut))
+
+    x = Faux()
+    r = projet.changer_statut_run("DEMO-90", "DEMO-1", "PASSED", xray=x)
+    assert x.appels == [("r1", "PASSED")] and r["avant"] == "FAILED"
+    d = projet.charger()
+    assert next(t for t in d["tests"] if t["cle"] == "DEMO-1")["statut_xray"]["statut"] == "PASSED" and d["executions_xray"]["date"] == date
+    det = centre.detail_execution_xray("DEMO-90")
+    assert [(r["test"], r["statut"], r["modifiable"], r["automatise"]) for r in det["runs"]] == [("DEMO-1", "PASSED", True, True), ("DEMO-2", "TO DO", False, True)]
+    with pytest.raises(ValueError, match="Actualiser"):
+        projet.changer_statut_run("DEMO-90", "DEMO-2", "PASSED", xray=x)  # import ancien : pas d'identifiant, rien n'est écrit
+    with pytest.raises(KeyError):
+        projet.changer_statut_run("DEMO-99", "DEMO-1", "PASSED", xray=x)
+    assert len(x.appels) == 1
+    projet.maj_statut_execution("DEMO-90", "Terminé")
+    assert centre.detail_execution_xray("DEMO-90")["statut"] == "Terminé"

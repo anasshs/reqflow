@@ -351,6 +351,51 @@ def _fusionner_executions(data: dict, r: dict, conserver: bool = False):
                                "absents": r.get("absents", []), "limite": limite_executions()}
 
 
+def statuts_runs(projet_cle: str = "", xray=None) -> list[str]:
+    """Statuts de test run du projet Xray (getStatuses) : PASSED, FAILED, TO DO, EXECUTING… et statuts personnalisés."""
+    from atelier.domain import projets
+    from atelier.integrations.xray import XrayClient
+
+    xray = xray or XrayClient()
+    cle = (projet_cle or projets.cle_xray() or (charger() or {}).get("projet") or "").upper()
+    return [s["name"] for s in xray.statuts(xray.id_projet(cle))]
+
+
+def changer_statut_run(execution: str, test: str, statut: str, xray=None) -> dict:
+    """Change dans Xray le statut du test run (execution, test), puis dans la copie locale (dernier statut du test
+    recalculé). Écriture explicite depuis le tableau de bord ; jamais automatique."""
+    from atelier.integrations.xray import XrayClient
+
+    data = charger() or {}
+    e = next((x for x in data.get("executions") or [] if x["cle"] == execution), None)
+    if not e:
+        raise KeyError(f"Exécution {execution} absente de la copie locale : « Actualiser depuis Xray ».")
+    run = (e.get("runs") or {}).get(test)
+    if not run:
+        raise KeyError(f"{test} n'a pas de test run dans {execution}.")
+    if not run.get("id"):
+        raise ValueError("Identifiant du test run inconnu (import ancien) : « Actualiser depuis Xray » puis recommencer.")
+    if not statut.strip():
+        raise ValueError("Statut obligatoire.")
+    (xray or XrayClient()).set_status(run["id"], statut.strip())
+    avant = run.get("statut")
+    run["statut"] = statut.strip()
+    meta = dict(data.get("executions_xray") or {})
+    _fusionner_executions(data, {"executions": data["executions"]})  # recalcule le dernier statut de chaque test
+    data["executions_xray"] = meta  # date et volume de la dernière lecture Xray inchangés
+    enregistrer(data, data.get("source") or "Xray")
+    return {"execution": execution, "test": test, "avant": avant, "statut": statut.strip()}
+
+
+def maj_statut_execution(execution: str, statut: str):
+    """Statut Jira de l'exécution dans la copie locale, après une transition faite depuis le tableau de bord."""
+    data = charger() or {}
+    for e in data.get("executions") or []:
+        if e["cle"] == execution:
+            e["statut"] = statut
+    enregistrer(data, data.get("source") or "Xray")
+
+
 def importer_executions(projet_cle: str = "", xray=None, depuis: str = "", jusqu: str = "") -> dict:
     """Actualise seulement les Test Executions de la copie locale (plus rapide que l'import des définitions)."""
     from atelier.domain import projets

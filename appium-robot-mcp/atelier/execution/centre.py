@@ -610,7 +610,23 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
                     "part_automatisee": round(100 * sum(x["automatises"] for x in execs) / max(1, sum(x["tests"] for x in execs)), 1) if execs else None},
             "par_statut": dict(sorted(par_statut.items(), key=lambda kv: -kv[1])),
             "tendance": [{"cle": x["cle"], "reussi": x["reussi"], "echec": x["echec"], "non_execute": x["non_execute"]} for x in reversed(execs[:limite])],
-            "recentes": execs[:10]}
+            "recentes": execs}
+
+
+def detail_execution_xray(cle: str) -> dict:
+    """Une Test Execution de la copie locale : ses test runs (statut, fin), avec résumé du test, automatisé ou non."""
+    from atelier.execution.depot_robot import lire_depot
+    from atelier.intelligence import patrimoine_xray
+
+    pat = patrimoine_xray.charger() or {}
+    e = next((x for x in pat.get("executions") or [] if x["cle"] == cle), None)
+    if not e:
+        raise KeyError(f"Exécution {cle} absente de la copie locale.")
+    resumes = {t["cle"]: t.get("resume") or "" for t in pat.get("tests") or []}
+    automatises = {c for t in lire_depot()["tests"].values() for c in t.get("cles_xray") or []}
+    return {**{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests_total", "incomplete")},
+            "runs": [{"test": k, "resume": resumes.get(k, ""), "statut": r.get("statut", ""), "fin": r.get("fin", ""), "modifiable": bool(r.get("id")),
+                      "automatise": k in automatises} for k, r in sorted((e.get("runs") or {}).items())]}
 
 
 def rejouer_xray(run_id: str) -> dict:

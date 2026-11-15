@@ -49,7 +49,7 @@
     const max = Math.max(1, ...v.tendance.map(t => t.passes + t.echecs));
     z.innerHTML = `${entete("Overview", `<a class="btn primaire" href="#centre/campagnes">${ico("plus")}Nouvelle campagne</a><a class="btn" href="#centre/selection">Exécution ponctuelle</a>
         <a class="btn" href="#execution">Rejouer les échecs / en cours</a><a class="btn" href="#centre/devices">Devices</a>`)}
-      <div class="corps-carte"><h3 class="lib">RUNS LANCÉS PAR L'ATELIER</h3><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px">
+      <div class="corps-carte"><div id="vx-zone"></div><details class="bloc-strat" style="margin-top:12px"><summary class="lib">Runs Robot locaux de l'atelier (avant publication dans Xray)</summary><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px">
         ${kpi(k.executions, "exécutions")}${kpi(k.en_cours, "en cours", "info")}${kpi(k.en_file, "en file d'attente", "warn-t")}${kpi(k.passes, "tests réussis", "ok")}${kpi(k.echecs, "tests échoués", "ko")}
         ${kpi(k.taux_reussite === null ? null : String(k.taux_reussite).replace(".", ",") + " %", "taux de réussite")}${kpi(k.duree_moyenne_s === null ? null : k.duree_moyenne_s + " s", "durée moyenne")}
         ${kpi(k.instables.valeur === null ? null : k.instables.valeur + " %", "tests instables")}${kpi(k.runners_actifs, "runner actif (local)")}${kpi("—", "bloqués / ignorés (non distingués par Robot ici)")}</div>
@@ -59,7 +59,7 @@
           <section class="bloc-strat"><h3>Par plateforme</h3>${Object.entries(v.par_plateforme).map(([p, n]) => `<div>${esc(p)} <b>${n}</b></div>`).join("") || "—"}<h3 style="margin-top:10px">Par statut</h3>${Object.entries(v.par_statut).map(([p, n]) => `<div>${statut(p)} <b>${n}</b></div>`).join("") || "—"}</section></div>
         <section class="bloc-strat" style="margin-top:12px"><h3>Activité récente</h3><table><tr><th>Run</th><th>Suite</th><th>Campagne</th><th>Plateforme</th><th>Environnement</th><th>Statut</th><th>Durée</th></tr>
           ${v.recents.map(r => `<tr class="cliquable" data-run="${esc(r.id)}"><td class="cle-xray">${esc(r.id)}</td><td>${esc(r.suite || "")}</td><td>${esc(r.campagne || "—")}</td><td>${esc(r.plateforme)}</td>
-            <td>${esc(r.contexte?.environnement || "—")}</td><td>${statut(r.statut)}</td><td class="mono">${duree(r)}</td></tr>`).join("")}</table></section></div>`;
+            <td>${esc(r.contexte?.environnement || "—")}</td><td>${statut(r.statut)}</td><td class="mono">${duree(r)}</td></tr>`).join("")}</table></section></details></div>`;
     $$("[data-run]", z).forEach(tr => tr.onclick = () => { location.hash = "execution/" + tr.dataset.run; });
     vueXray(z);
   }
@@ -70,13 +70,30 @@
   const bornes = () => PERIODE.choix === "tout" ? {depuis: "", jusqu: ""} : PERIODE.choix === "periode" ? {depuis: PERIODE.depuis, jusqu: PERIODE.jusqu}
     : {depuis: jourIso(+PERIODE.choix), jusqu: ""};
 
-  async function vueXray(z) {
-    const bloc = document.createElement("section");
+  const LU = {};  // période -> horodatage de la dernière lecture Xray faite par cet écran
+  const FRAIS_MS = 10 * 60 * 1000;
+  let TOUTES = false;
+
+  /* lecture Xray de la période si jamais lue, ou plus vieille que 10 min ; erreur affichée, jamais bloquante */
+  async function lireXray(forcer = false) {
+    const b = bornes(), cle = JSON.stringify(b);
+    if (!forcer && LU[cle] && Date.now() - LU[cle] < FRAIS_MS) return null;
+    LU[cle] = Date.now();
+    return api("/api/centre/executions-xray/actualiser", {method: "POST", body: b});
+  }
+
+  async function vueXray(z, auto = true) {
+    const bloc = $("#vx-zone", z);
+    if (!bloc) return;
     bloc.className = "bloc-strat";
-    bloc.style.marginTop = "12px";
-    $(".corps-carte", z).appendChild(bloc);
+    let erreurLecture = "";
+    if (auto) {
+      bloc.innerHTML = `<h3>Exécutions Xray (Test Executions)</h3><p class="lib">Lecture des Test Executions depuis Xray…</p>`;
+      try { await lireXray(); } catch (e) { erreurLecture = e.message; }
+      if (!document.body.contains(bloc)) return;
+    }
     const b0 = bornes();
-    const x = await api(`/api/centre/vue-xray?depuis=${b0.depuis}&jusqu=${b0.jusqu}`).catch(e => ({erreur: e.message}));
+    const x = await api(`/api/centre/vue-xray?depuis=${b0.depuis}&jusqu=${b0.jusqu}&limite=20`).catch(e => ({erreur: e.message}));
     if (x.erreur) { bloc.innerHTML = `<h3>Exécutions Xray</h3><p class="lib">${esc(x.erreur)}</p>`; return; }
     const k = x.kpi, imp = x.import;
     const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
@@ -84,13 +101,14 @@
     const max = Math.max(1, ...x.tendance.map(t => t.reussi + t.echec + t.non_execute));
     const classe = st => /PASS/i.test(st) ? "ok" : /FAIL|ABORT|BLOCK/i.test(st) ? "ko" : "";
     bloc.innerHTML = `<h3 style="display:flex;align-items:center;gap:8px">Exécutions Xray (Test Executions)
-        <span class="lib" style="font-weight:normal">${imp.date ? `${imp.nombre} lue(s) le ${esc(imp.date.slice(0, 16).replace("T", " "))}, tests de l'application sélectionnée` : "pas encore importées"}</span>
+        <span class="lib" style="font-weight:normal">${imp.date ? `lues dans Xray le ${esc(imp.date.slice(0, 16).replace("T", " "))}, quelle que soit leur origine · tests de l'application sélectionnée` : "pas encore lues"}</span>
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><select class="in" id="vx-per" style="width:auto" aria-label="Période">
           ${[["7", "7 derniers jours"], ["30", "30 derniers jours"], ["90", "90 derniers jours"], ["365", "12 derniers mois"], ["tout", "Tout l'importé"], ["periode", "Période…"]]
             .map(([v, l]) => `<option value="${v}" ${PERIODE.choix === v ? "selected" : ""}>${l}</option>`).join("")}</select>
           <span id="vx-dates" ${PERIODE.choix === "periode" ? "" : "hidden"}><input class="in" type="date" id="vx-d" value="${PERIODE.depuis}" style="width:auto" aria-label="Du">
             <input class="in" type="date" id="vx-f" value="${PERIODE.jusqu}" style="width:auto" aria-label="Au"></span>
           <button class="btn petit" id="vx-actu">${ico("rejouer")}Actualiser depuis Xray</button></span></h3>
+      ${erreurLecture ? `<p class="warn-t">Lecture Xray impossible : ${esc(erreurLecture.replace(/\.+$/, ""))}. Affichage de la dernière copie locale.</p>` : ""}
       ${x.incompletes?.length ? `<p class="warn-t">Exécution(s) de plus de 100 tests lues en partie (schéma Xray sans pagination des runs) : ${esc(x.incompletes.join(", "))}.</p>` : ""}
       ${imp.erreur ? `<p class="warn-t">${esc(imp.erreur)}</p>` : ""}${imp.absents.length ? `<p class="lib">Non exposé par le schéma Xray : ${esc(imp.absents.join(", "))}.</p>` : ""}
       ${!imp.date ? "<p class='lib'>Cliquer « Actualiser depuis Xray » pour lire les Test Executions du projet (les plus récentes).</p>" : `
@@ -99,20 +117,61 @@
         ${kpi(k.tests_en_echec, "tests en échec (dernier statut)", "ko")}${kpi(k.tests_reussis, "tests réussis (dernier statut)", "ok")}
         ${kpi(k.tests_jamais_executes, "tests de l'app jamais exécutés")}${kpi(pct(k.part_automatisee), "part des runs automatisés")}</div>
       <div class="grille-strat"><section class="bloc-strat" style="grid-column:span 2"><h3>Par exécution (20 dernières)</h3><div style="display:flex;align-items:flex-end;gap:6px;height:110px">${x.tendance.map(t => `
-          <div title="${esc(t.cle)} : ${t.reussi} réussi(s), ${t.echec} échec(s), ${t.non_execute} non exécuté(s)" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+          <div title="${esc(t.cle)} : ${t.reussi} réussi(s), ${t.echec} échec(s), ${t.non_execute} non exécuté(s)" style="flex:1;max-width:48px;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
             <span style="background:var(--muted);opacity:.35;height:${t.non_execute / max * 100}%"></span><span style="background:var(--ko);height:${t.echec / max * 100}%"></span><span style="background:var(--ok);height:${t.reussi / max * 100}%"></span></div>`).join("") || "<p class='lib'>Aucune exécution pour cette application.</p>"}</div></section>
         <section class="bloc-strat"><h3>Statuts Xray des runs</h3>${Object.entries(x.par_statut).map(([st, n]) => `<div><span class="pill ${classe(st)}">${esc(st)}</span> <b>${n}</b></div>`).join("") || "—"}</section></div>
-      <table class="table-strat" style="margin-top:10px"><tr><th>Exécution</th><th>Résumé</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th></th></tr>
-        ${x.recentes.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}<div class="lib">${esc((e.cree || "").slice(0, 10))}</div></td><td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}${e.incomplete ? ` <span class="pill warn" title="${e.tests_total} tests dans Xray">/${e.tests_total}</span>` : ""}</td>
+      <h3 style="margin-top:12px">Test Executions de la période (${x.recentes.length}) <span class="lib" style="font-weight:normal">cliquer une ligne pour voir ses tests et changer les statuts</span></h3>
+      <table class="table-strat"><tr><th>Exécution</th><th>Résumé</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th></th></tr>
+        ${(TOUTES ? x.recentes : x.recentes.slice(0, 20)).map(e => `<tr class="cliquable" data-vx="${esc(e.cle)}"><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}<div class="lib">${esc((e.cree || "").slice(0, 10))}</div></td><td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}${e.incomplete ? ` <span class="pill warn" title="${e.tests_total} tests dans Xray">/${e.tests_total}</span>` : ""}</td>
           <td class="ok-t">${e.reussi}</td><td class="ko-t">${e.echec}</td><td>${e.non_execute}</td><td>${pct(e.taux) ?? "—"}</td><td><span class="pill">${esc(e.statut)}</span></td>
-          <td><a class="btn petit" href="#centre/selection" data-exe="${esc(e.cle)}">Rejouer les échecs</a></td></tr>`).join("")}</table>`}`;
-    const recharger = () => { bloc.remove(); vueXray(z); };
+          <td>${e.echec ? `<a class="btn petit" href="#centre/selection" data-exe="${esc(e.cle)}">Rejouer les échecs</a>` : ""}</td></tr>`).join("")}</table>
+      ${!TOUTES && x.recentes.length > 20 ? `<button class="btn petit" id="vx-toutes" style="margin-top:6px">Afficher les ${x.recentes.length} exécutions</button>` : ""}`}`;
+    const recharger = (auto = true) => vueXray(z, auto);
     $("#vx-per", bloc).onchange = e => { PERIODE.choix = e.target.value; if (PERIODE.choix !== "periode") recharger(); else $("#vx-dates", bloc).hidden = false; };
     if ($("#vx-d", bloc)) { $("#vx-d", bloc).onchange = e => { PERIODE.depuis = e.target.value; recharger(); }; $("#vx-f", bloc).onchange = e => { PERIODE.jusqu = e.target.value; recharger(); }; }
     $("#vx-actu", bloc).onclick = async () => { const b = $("#vx-actu", bloc); b.disabled = true; b.textContent = "Lecture des exécutions Xray…";
-      try { const r = await api("/api/centre/executions-xray/actualiser", {method: "POST", body: bornes()}); toast(`${r.lues} exécution(s) Xray lue(s) sur la période (${r.nombre} au total dans la copie locale).`, "ok"); recharger(); }
+      try { const r = await lireXray(true); toast(`${r.lues} exécution(s) Xray lue(s) sur la période (${r.nombre} au total dans la copie locale).`, "ok"); recharger(false); }
       catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Actualiser depuis Xray"; } };
-    $$("[data-exe]", bloc).forEach(a => a.onclick = () => { F.exec = a.dataset.exe; });
+    $$("[data-exe]", bloc).forEach(a => a.onclick = ev => { ev.stopPropagation(); F.exec = a.dataset.exe; });
+    if ($("#vx-toutes", bloc)) $("#vx-toutes", bloc).onclick = () => { TOUTES = true; recharger(false); };
+    $$("[data-vx]", bloc).forEach(tr => tr.onclick = () => detailXray(tr.dataset.vx, () => recharger(false)));
+  }
+
+  /* détail d'une Test Execution : statut de chaque test run et statut Jira de l'exécution, modifiables */
+  let STATUTS = null;
+  const STATUTS_DEFAUT = ["TO DO", "EXECUTING", "PASSED", "FAILED", "ABORTED"];
+  async function detailXray(cle, apres) {
+    const m = modale(`Test Execution ${cle}`, `<p class="lib">Chargement…</p>`);
+    const corps = $(".corps-carte", m.el);
+    let change = false;
+    m.el.addEventListener("click", e => { if (change && (e.target === m.el || e.target.closest("[data-fermer]"))) apres(); });
+    const [d, sts, trs] = await Promise.all([
+      api(`/api/centre/xray/execution/${encodeURIComponent(cle)}`).catch(e => ({erreur: e.message})),
+      STATUTS ? Promise.resolve(STATUTS) : api("/api/centre/xray/statuts").then(l => (STATUTS = l.length ? l : null) || STATUTS_DEFAUT).catch(() => STATUTS_DEFAUT),
+      api(`/api/centre/xray/execution/${encodeURIComponent(cle)}/transitions`).catch(e => ({erreur: e.message}))]);
+    if (d.erreur) { corps.innerHTML = `<p class="ko-t">${esc(d.erreur)}</p>`; return; }
+    const classe = st => /PASS/i.test(st) ? "ok" : /FAIL|ABORT|BLOCK/i.test(st) ? "ko" : "";
+    const options = st => [...new Set([...(st ? [st] : []), ...sts])].map(v => `<option ${v === st ? "selected" : ""}>${esc(v)}</option>`).join("");
+    corps.innerHTML = `<p><b>${esc(d.resume || "")}</b> <span class="lib">${esc((d.cree || "").slice(0, 10))} · ${esc((d.environnements || []).join(", ") || "sans environnement")}</span></p>
+      <p style="display:flex;gap:8px;align-items:center">Statut Jira de l'exécution : <span class="pill" id="vx-st">${esc(d.statut || "—")}</span>
+        ${trs.erreur ? `<span class="lib">transitions indisponibles (${esc(trs.erreur)})</span>` : trs.length ? `<select class="in" id="vx-tr" style="width:auto" aria-label="Transition Jira"><option value="">Changer…</option>
+          ${trs.map(t => `<option value="${esc(t.transition)}">${esc(t.transition)}${t.statut_cible && t.statut_cible !== t.transition ? ` → ${esc(t.statut_cible)}` : ""}</option>`).join("")}</select>` : `<span class="lib">aucune transition possible</span>`}</p>
+      ${d.incomplete ? `<p class="warn-t">${d.runs.length} test runs lus sur ${d.tests_total} (schéma Xray sans pagination des runs).</p>` : ""}
+      <table class="table-strat"><tr><th>Test</th><th>Résumé</th><th>Auto.</th><th>Fin</th><th>Statut du run (Xray)</th></tr>
+        ${d.runs.map(r => `<tr><td class="cle-xray">${esc(r.test)}</td><td>${esc(r.resume)}</td><td>${r.automatise ? "oui" : "—"}</td><td class="lib">${esc((r.fin || "").slice(0, 16).replace("T", " "))}</td>
+          <td>${r.modifiable ? `<select class="in" data-run-st="${esc(r.test)}" style="width:auto" aria-label="Statut de ${esc(r.test)}">${options(r.statut)}</select>`
+            : `<span class="pill ${classe(r.statut)}">${esc(r.statut || "—")}</span> <span class="lib" title="Relire depuis Xray pour obtenir l'identifiant du run">non modifiable</span>`}</td></tr>`).join("") || "<tr><td colspan=5 class='lib'>Aucun test run.</td></tr>"}</table>
+      <p class="lib">Chaque changement est écrit tout de suite dans Xray (statut du test run) ou dans Jira (transition de l'exécution).</p>`;
+    $$("[data-run-st]", corps).forEach(sel => { let avant = sel.value; sel.onchange = async () => {
+      sel.disabled = true;
+      try { await api("/api/centre/xray/run-statut", {method: "POST", body: {execution: cle, test: sel.dataset.runSt, statut: sel.value}});
+        toast(`${sel.dataset.runSt} : ${avant} → ${sel.value} dans Xray.`, "ok"); avant = sel.value; change = true; }
+      catch (e) { toast(e.message, "ko"); sel.value = avant; }
+      sel.disabled = false; }; });
+    if ($("#vx-tr", corps)) $("#vx-tr", corps).onchange = async e => { const t = e.target.value; if (!t) return; e.target.disabled = true;
+      try { const r = await api(`/api/centre/xray/execution/${encodeURIComponent(cle)}/transition`, {method: "POST", body: {transition: t}});
+        $("#vx-st", corps).textContent = r.statut; toast(`${cle} : ${r.statut} dans Jira.`, "ok"); change = true; m.fermer(); apres(); }
+      catch (err) { toast(err.message, "ko"); e.target.value = ""; e.target.disabled = false; } };
   }
 
   /* ------------------------------------------------------------------ 2 campagnes */

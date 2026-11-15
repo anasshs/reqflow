@@ -783,6 +783,53 @@ async def centre_vue_xray(depuis: str = "", jusqu: str = ""):
     return await asyncio.to_thread(_call, centre.vue_xray, 20, depuis, jusqu)
 
 
+@app.get("/api/centre/xray/execution/{cle}")
+async def centre_xray_execution(cle: str):
+    return await asyncio.to_thread(_call, centre.detail_execution_xray, cle)
+
+
+@app.get("/api/centre/xray/statuts")
+async def centre_xray_statuts():
+    """Statuts de test run du projet (Xray) ; mis en cache pour la session."""
+    from atelier.intelligence import patrimoine_xray
+
+    cle = projets.cle_xray()
+    cache = state.setdefault("statuts_xray", {})
+    if cle not in cache:
+        cache[cle] = await asyncio.to_thread(_call, patrimoine_xray.statuts_runs)
+    return cache[cle]
+
+
+@app.post("/api/centre/xray/run-statut")
+async def centre_xray_run_statut(req: Request):
+    """Change le statut d'un test run dans Xray (action explicite depuis le tableau de bord)."""
+    from atelier.intelligence import patrimoine_xray
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, patrimoine_xray.changer_statut_run, b.get("execution", ""), b.get("test", ""), b.get("statut", ""))
+    emit({"type": "xray_change", **r})
+    return r
+
+
+@app.get("/api/centre/xray/execution/{cle}/transitions")
+async def centre_xray_transitions(cle: str):
+    from atelier.integrations.jira import JiraClient
+
+    return await asyncio.to_thread(_call, lambda: JiraClient().transitions(cle))
+
+
+@app.post("/api/centre/xray/execution/{cle}/transition")
+async def centre_xray_transition(cle: str, req: Request):
+    """Statut Jira (workflow) de la Test Execution : transition explicite depuis le tableau de bord."""
+    from atelier.integrations.jira import JiraClient
+    from atelier.intelligence import patrimoine_xray
+
+    nom = (await req.json()).get("transition", "")
+    statut = await asyncio.to_thread(_call, lambda: JiraClient().transition(cle, nom))
+    _call(patrimoine_xray.maj_statut_execution, cle, statut or nom)
+    return {"execution": cle, "statut": statut or nom}
+
+
 @app.get("/api/centre/executions-xray")
 async def centre_executions_xray():
     return await asyncio.to_thread(_call, centre.executions_xray)
