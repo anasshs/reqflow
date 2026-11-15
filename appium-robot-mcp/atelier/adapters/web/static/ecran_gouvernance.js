@@ -98,7 +98,7 @@
   async function stabilite(z) {
     const s = await api("/api/gouvernance/stabilite");
     const C = {"Potentially flaky": "warn", "Constamment en échec": "ko", Stable: "ok", "À surveiller": "info"};
-    z.innerHTML = `${entete("Test Stability", `<a class="btn" href="#echecs/inbox">Failure Analysis</a>`)}<div class="corps-carte"><p class="lib">${esc(s.definition)}</p>
+    z.innerHTML = `${entete("Test Stability", `<a class="btn" href="#echecs/inbox">Échecs à traiter (Failure Analysis)</a>`)}<div class="corps-carte"><p class="lib">${esc(s.definition)}</p>
       <p>Potentiellement flaky : <b>${s.flaky.length}</b> · passés au second essai (retry) : <b>${s.instables_retry.length}</b>${s.instables_retry.length ? " (" + esc(s.instables_retry.join(", ")) + ")" : ""}</p>
       <table class="table-strat"><tr><th>Test</th><th>Exécutions</th><th>Séquence (récente à droite)</th><th>Changements</th><th>Réussite</th><th>Durées (s)</th><th>Classification</th></tr>
         ${s.tests.map(t => `<tr><td>${esc(t.test)}</td><td>${t.executions}</td><td>${t.sequence.map(x => `<span class="pill ${x === "PASS" ? "ok" : "ko"}">${x === "PASS" ? "P" : "F"}</span>`).join("")}</td><td>${t.transitions}</td>

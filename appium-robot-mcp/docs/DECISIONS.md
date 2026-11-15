@@ -193,3 +193,13 @@ Une ligne datée par décision d'architecture ou de conception.
 - Écrans en double retirés, adresses conservées : Exigences & import → Test Strategy › Couverture ; Traçabilité →
   Knowledge Graph (couverture) ; Réutilisables → Studio › Keywords ; Jeux de données → Studio › Données de test
   (la liste des jeux y est désormais affichée).
+
+## 2026-11-15 — Failure Analysis et Execution Center simplifiés (5 entrées chacun)
+- Failure Analysis : Vue d'ensemble (avec les tendances) · Échecs à traiter · Investigation (Diagnostic et preuves,
+  Anomalie Jira, Retests et clôture) · Causes et corrections (Causes racines, Corrections recommandées, Locators en cause) ·
+  Réglages. AI Diagnosis et Evidence Viewer étaient déjà l'investigation ; Failure Trends rejoint la vue d'ensemble.
+- Execution Center : Vue d'ensemble · Campagnes · Lancer (Choisir des tests, Paramétrer un run, File d'attente, En direct) ·
+  Résultats (Résultats, Historique, Preuves, Synchronisation Xray) · Infrastructure (Appareils, Runners, Réglages).
+- Les preuves d'un run restent à un seul endroit (Execution Center › Résultats › Preuves) ; Failure Analysis les montre
+  dans le contexte de l'échec. Le retest d'un échec (clôture) reste distinct de « Qualifier » du Studio (3 runs d'une suite).
+- Anciennes adresses conservées ; titres d'écrans en français.
