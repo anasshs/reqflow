@@ -101,3 +101,47 @@ def test_indicateurs_xray_de_la_vue_d_ensemble(projet):
     assert (k["tests_en_echec"], k["tests_reussis"]) == (2, 1)
     assert [e["cle"] for e in v["recentes"]] == ["DEMO-90", "DEMO-80"] and v["recentes"][0]["taux"] == 50.0 and v["recentes"][0]["automatises"] == 2
     assert [t["cle"] for t in v["tendance"]] == ["DEMO-80", "DEMO-90"] and v["par_statut"]["PASSED"] == 2
+
+
+def test_plus_de_100_tests_pagination_des_runs():
+    class Pagine(FauxSchema):
+        def gql(self, query, variables=None):
+            self.requetes.append((query, variables))
+            if "getTestRuns" in query:  # pages suivantes : 250 runs au total
+                s = variables["s"]
+                return {"getTestRuns": {"total": 250, "results": [{"status": {"name": "PASSED"}, "test": {"jira": {"key": f"DEMO-{i}"}}}
+                                                                   for i in range(s, min(s + 100, 250))]}}
+            runs = [{"status": {"name": "FAILED"}, "test": {"jira": {"key": f"DEMO-{i}"}}} for i in range(100)]
+            return {"getTestExecutions": {"total": 1, "results": [{"issueId": "9", "jira": {"key": "DEMO-900", "created": "2026-11-10"},
+                                                                    "tests": {"total": 250, "results": []}, "testRuns": {"total": 250, "results": runs}}]}}
+
+    schema = {**SCHEMA, "Query": {"getTestExecutions": ["jql", "limit", "start"], "getTestRuns": ["testExecIssueIds", "limit", "start"]}}
+    x = Pagine(schema, [])
+    r = x.executions("DEMO", 50, depuis="2026-11-01", jusqu="2026-11-30")
+    assert 'created >= "2026-11-01"' in x.requetes[0][1]["jql"] and 'created <= "2026-11-30 23:59"' in x.requetes[0][1]["jql"]
+    e = r["executions"][0]
+    assert len(e["runs"]) == 250 and len(e["tests"]) == 250 and not e["incomplete"]
+    # schéma sans pagination des runs : exécution marquée incomplète, jamais complétée en silence
+    x2 = Pagine({**SCHEMA}, [])
+    e2 = x2.executions("DEMO")["executions"][0]
+    assert e2["incomplete"] and len(e2["runs"]) == 100
+
+
+def test_periode_import_conserve_et_filtre(projet):
+    from atelier.execution import centre
+
+    def faux(execs):
+        class F:
+            def executions(self, projet_cle, limite, depuis="", jusqu=""):
+                return {"executions": execs, "absents": []}
+        return F()
+
+    e = lambda cle, jour, st: {"cle": cle, "resume": cle, "statut": "Done", "cree": jour, "environnements": [], "tests": ["DEMO-1"],  # noqa: E731
+                               "tests_total": 1, "runs": {"DEMO-1": {"statut": st}}}
+    projet.importer_executions("DEMO", faux([e("DEMO-80", "2026-09-01T10:00", "PASSED")]))
+    r = projet.importer_executions("DEMO", faux([e("DEMO-90", "2026-11-10T10:00", "FAILED")]), depuis="2026-11-01")
+    assert r["lues"] == 1 and r["nombre"] == 2  # l'ancienne exécution, hors période, est conservée
+    assert centre.vue_xray(depuis="2026-11-01")["kpi"]["executions"] == 1
+    assert centre.vue_xray()["kpi"]["executions"] == 2
+    with pytest.raises(ValueError, match="AAAA-MM-JJ"):
+        projet.importer_executions("DEMO", faux([]), depuis="01/11/2026")

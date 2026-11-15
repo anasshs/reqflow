@@ -565,7 +565,7 @@ def _classe_xray(statut: str) -> str:
     return "autre"
 
 
-def vue_xray(limite: int = 20) -> dict:
+def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
     """Indicateurs des Test Executions Xray (copie locale : import des définitions ou « Actualiser depuis Xray »),
     limités aux tests de l'application sélectionnée : statuts des test runs, taux de réussite, dernier statut de
     chaque test, tendance par exécution, tests automatisés ou non. Rien n'est estimé."""
@@ -579,6 +579,9 @@ def vue_xray(limite: int = 20) -> dict:
     automatises = {c for t in lire_depot()["tests"].values() for c in t.get("cles_xray") or []}
     execs, par_statut, dernier = [], {}, {}
     for e in sorted(pat.get("executions") or [], key=lambda x: x.get("cree") or "", reverse=True):  # du plus récent au plus ancien
+        jour = (e.get("cree") or "")[:10]
+        if (depuis and (not jour or jour < depuis)) or (jusqu and (not jour or jour > jusqu)):
+            continue
         runs = {k: r for k, r in (e.get("runs") or {}).items() if not filtre or k in tests_app}
         if filtre and not runs and not any(k in tests_app for k in e.get("tests") or []):
             continue
@@ -592,11 +595,14 @@ def vue_xray(limite: int = 20) -> dict:
         executes = n["reussi"] + n["echec"]
         execs.append({"cle": e["cle"], "resume": e.get("resume", ""), "cree": e.get("cree", ""), "environnements": e.get("environnements") or [],
                       "statut": e.get("statut", ""), "tests": len(runs), **n, "taux": round(100 * n["reussi"] / executes, 1) if executes else None,
-                      "automatises": sum(1 for k in runs if k in automatises)})
+                      "automatises": sum(1 for k in runs if k in automatises), "incomplete": bool(e.get("incomplete")),
+                      "tests_total": e.get("tests_total") or len(runs)})
     tot = {k: sum(x[k] for x in execs) for k in ("reussi", "echec", "non_execute")}
     executes = tot["reussi"] + tot["echec"]
     imp = pat.get("executions_xray") or {}
-    return {"import": {"date": imp.get("date"), "nombre": imp.get("nombre"), "erreur": imp.get("erreur"), "absents": imp.get("absents") or []},
+    return {"import": {"date": imp.get("date"), "nombre": imp.get("nombre"), "erreur": imp.get("erreur"), "absents": imp.get("absents") or [],
+                       "periode": imp.get("periode") or {}}, "periode": {"depuis": depuis, "jusqu": jusqu},
+            "incompletes": [x["cle"] for x in execs if x["incomplete"]],
             "kpi": {"executions": len(execs), "runs": sum(x["tests"] for x in execs), **tot,
                     "taux_reussite": round(100 * tot["reussi"] / executes, 1) if executes else None,
                     "tests_en_echec": sum(1 for v in dernier.values() if v == "echec"), "tests_reussis": sum(1 for v in dernier.values() if v == "reussi"),

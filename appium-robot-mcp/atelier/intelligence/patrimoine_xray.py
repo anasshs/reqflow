@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -327,11 +328,16 @@ def limite_executions() -> int:
         return 200
 
 
-def _fusionner_executions(data: dict, r: dict):
+def _fusionner_executions(data: dict, r: dict, conserver: bool = False):
     """Exécutions dans l'instantané ; sur chaque test : ses exécutions et son dernier statut Xray (exécution la
-    plus récente qui le contient avec un statut)."""
-    execs = r["executions"]
-    data["executions"] = [{k: e[k] for k in ("cle", "resume", "statut", "cree", "environnements", "tests", "tests_total", "runs")} for e in execs]
+    plus récente qui le contient avec un statut). conserver : les exécutions déjà importées absentes de cette lecture
+    (hors période demandée) sont gardées, celles relues sont mises à jour."""
+    lues = [{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests", "tests_total", "runs", "incomplete")} for e in r["executions"]]
+    if conserver:
+        cles = {e["cle"] for e in lues}
+        lues += [e for e in data.get("executions") or [] if e.get("cle") not in cles]
+    execs = sorted(lues, key=lambda e: e.get("cree") or "", reverse=True)
+    data["executions"] = execs
     par_test: dict = {}
     for e in execs:  # du plus récent au plus ancien
         for k in e["tests"]:
@@ -341,10 +347,11 @@ def _fusionner_executions(data: dict, r: dict):
         dernier = next(((e["cle"], e["runs"][t["cle"]]) for e in execs if t["cle"] in e["runs"] and e["runs"][t["cle"]].get("statut")), None)
         t["statut_xray"] = {"execution": dernier[0], **dernier[1]} if dernier else None
     data["executions_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "nombre": len(execs),
+                               "lues": len(r["executions"]), "periode": r.get("periode") or {},
                                "absents": r.get("absents", []), "limite": limite_executions()}
 
 
-def importer_executions(projet_cle: str = "", xray=None) -> dict:
+def importer_executions(projet_cle: str = "", xray=None, depuis: str = "", jusqu: str = "") -> dict:
     """Actualise seulement les Test Executions de la copie locale (plus rapide que l'import des définitions)."""
     from atelier.domain import projets
     from atelier.integrations.xray import XrayClient
@@ -356,7 +363,13 @@ def importer_executions(projet_cle: str = "", xray=None) -> dict:
     projet_cle = (projet_cle or projets.cle_xray() or data.get("projet") or "").upper()
     if not projet_cle:
         raise ValueError("Projet Xray inconnu (Paramètres › Projets).")
-    _fusionner_executions(data, (xray or XrayClient()).executions(projet_cle, limite_executions()))
+    for d in (depuis, jusqu):
+        if d and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+            raise ValueError("Dates attendues au format AAAA-MM-JJ.")
+    r = (xray or XrayClient()).executions(projet_cle, limite_executions(), depuis, jusqu) if (depuis or jusqu) else \
+        (xray or XrayClient()).executions(projet_cle, limite_executions())
+    r["periode"] = {"depuis": depuis, "jusqu": jusqu}
+    _fusionner_executions(data, r, conserver=True)
     enregistrer(data, data.get("source") or f"Xray : project = {projet_cle}")
     return data["executions_xray"]
 

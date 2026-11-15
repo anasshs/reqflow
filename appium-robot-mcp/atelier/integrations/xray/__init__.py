@@ -184,7 +184,7 @@ class XrayClient:
                                      "tests_total": tests.get("total")})
         return out
 
-    def executions(self, projet: str, limite: int = 200) -> dict:
+    def executions(self, projet: str, limite: int = 200, depuis: str = "", jusqu: str = "") -> dict:
         """Test Executions du projet, les plus récentes d'abord : clé, résumé, statut Jira, environnements, tests et
         statut de chaque test run (lecture seule). Requête et champs choisis par introspection (getTestExecutions,
         TestExecution.tests / testRuns / testEnvironments, TestRun.status / test / finishedOn) : un champ absent du
@@ -218,7 +218,8 @@ class XrayClient:
              f"{{ total results {{ {' '.join(sel)} }} }} }}")
         debut, brut = 0, []
         while len(brut) < limite:
-            page = self.gql(q, {"jql": f'project = "{projet}" ORDER BY created DESC', "l": min(100, limite), **({"s": debut} if pagine else {})})["getTestExecutions"]
+            jql = f'project = "{projet}"' + (f' AND created >= "{depuis}"' if depuis else "") + (f' AND created <= "{jusqu} 23:59"' if jusqu else "")
+            page = self.gql(q, {"jql": jql + " ORDER BY created DESC", "l": min(100, limite), **({"s": debut} if pagine else {})})["getTestExecutions"]
             brut += page["results"]
             debut += 100
             if not pagine or not page["results"] or debut >= (page.get("total") or 0):
@@ -235,7 +236,39 @@ class XrayClient:
                                       "cree": j.get("created") or "", "issueId": x.get("issueId"), "environnements": x.get("testEnvironments") or [],
                                       "tests": [(t_.get("jira") or {}).get("key") for t_ in tests.get("results") or []] or sorted(runs),
                                       "tests_total": tests.get("total") or (x.get("testRuns") or {}).get("total"), "runs": runs})
+        self._completer_runs(out, requete)
         return out
+
+    def _completer_runs(self, out: dict, requete: dict):
+        """Exécutions de plus de 100 tests : runs suivants lus par pages de 100 avec getTestRuns(testExecIssueIds,
+        limit, start), si le schéma l'expose (introspection) ; sinon l'exécution est marquée incomplète."""
+        a_completer = [e for e in out["executions"] if (e.get("tests_total") or 0) > len(e["runs"])]
+        if not a_completer:
+            return
+        args = (requete.get("getTestRuns") or {}).get("args") or {}
+        run = self._type_champs("TestRun")
+        if not {"testExecIssueIds", "limit", "start"} <= set(args) or not {"status", "test"} <= set(run):
+            out["absents"].append("getTestRuns(testExecIssueIds, limit, start) : exécutions de plus de 100 tests incomplètes")
+            for e in a_completer:
+                e["incomplete"] = True
+            return
+        t = "Int!" if args.get("limit") else "Int"
+        fin = " finishedOn" if "finishedOn" in run else ""
+        q = (f'query($e: [String], $l: {t}, $s: Int) {{ getTestRuns(testExecIssueIds: $e, limit: $l, start: $s) '
+             f'{{ total results {{ status {{ name }} test {{ jira(fields: ["key"]) }}{fin} }} }} }}')
+        for e in a_completer:
+            debut = 0
+            while True:
+                page = self.gql(q, {"e": [e["issueId"]], "l": 100, "s": debut})["getTestRuns"]
+                for r in page.get("results") or []:
+                    cle = ((r.get("test") or {}).get("jira") or {}).get("key")
+                    if cle:
+                        e["runs"][cle] = {"statut": (r.get("status") or {}).get("name", ""), "fin": r.get("finishedOn") or ""}
+                debut += 100
+                if not page.get("results") or debut >= (page.get("total") or 0) or debut >= 5000:
+                    break
+            e["tests"] = sorted(set(e["tests"]) | set(e["runs"]))
+            e["incomplete"] = len(e["runs"]) < (e.get("tests_total") or 0)
 
     def definitions_tests(self, cles: list[str] | None = None, jql: str = "", limite: int = 2000) -> dict:
         """Définitions Xray (type, étapes, Gherkin, définition Generic, dossier, préconditions) des tests donnés

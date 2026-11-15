@@ -779,8 +779,8 @@ async def apps_creer(req: Request):
 
 
 @app.get("/api/centre/vue-xray")
-async def centre_vue_xray():
-    return await asyncio.to_thread(_call, centre.vue_xray)
+async def centre_vue_xray(depuis: str = "", jusqu: str = ""):
+    return await asyncio.to_thread(_call, centre.vue_xray, 20, depuis, jusqu)
 
 
 @app.get("/api/centre/executions-xray")
@@ -789,10 +789,11 @@ async def centre_executions_xray():
 
 
 @app.post("/api/centre/executions-xray/actualiser")
-async def centre_executions_actualiser():
+async def centre_executions_actualiser(req: Request):
     from atelier.intelligence import patrimoine_xray
 
-    return await asyncio.to_thread(_call, patrimoine_xray.importer_executions)
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, patrimoine_xray.importer_executions, "", None, b.get("depuis", ""), b.get("jusqu", ""))
 
 
 @app.get("/api/conception/repository")

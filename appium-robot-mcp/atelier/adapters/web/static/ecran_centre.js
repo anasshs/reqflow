@@ -65,12 +65,18 @@
   }
 
   /* indicateurs des Test Executions Xray (copie locale, tests de l'application sélectionnée) */
+  const PERIODE = {choix: "30", depuis: "", jusqu: ""};
+  const jourIso = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+  const bornes = () => PERIODE.choix === "tout" ? {depuis: "", jusqu: ""} : PERIODE.choix === "periode" ? {depuis: PERIODE.depuis, jusqu: PERIODE.jusqu}
+    : {depuis: jourIso(+PERIODE.choix), jusqu: ""};
+
   async function vueXray(z) {
     const bloc = document.createElement("section");
     bloc.className = "bloc-strat";
     bloc.style.marginTop = "12px";
     $(".corps-carte", z).appendChild(bloc);
-    const x = await api("/api/centre/vue-xray").catch(e => ({erreur: e.message}));
+    const b0 = bornes();
+    const x = await api(`/api/centre/vue-xray?depuis=${b0.depuis}&jusqu=${b0.jusqu}`).catch(e => ({erreur: e.message}));
     if (x.erreur) { bloc.innerHTML = `<h3>Exécutions Xray</h3><p class="lib">${esc(x.erreur)}</p>`; return; }
     const k = x.kpi, imp = x.import;
     const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
@@ -79,7 +85,13 @@
     const classe = st => /PASS/i.test(st) ? "ok" : /FAIL|ABORT|BLOCK/i.test(st) ? "ko" : "";
     bloc.innerHTML = `<h3 style="display:flex;align-items:center;gap:8px">Exécutions Xray (Test Executions)
         <span class="lib" style="font-weight:normal">${imp.date ? `${imp.nombre} lue(s) le ${esc(imp.date.slice(0, 16).replace("T", " "))}, tests de l'application sélectionnée` : "pas encore importées"}</span>
-        <button class="btn petit" id="vx-actu" style="margin-left:auto">${ico("rejouer")}Actualiser depuis Xray</button></h3>
+        <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><select class="in" id="vx-per" style="width:auto" aria-label="Période">
+          ${[["7", "7 derniers jours"], ["30", "30 derniers jours"], ["90", "90 derniers jours"], ["365", "12 derniers mois"], ["tout", "Tout l'importé"], ["periode", "Période…"]]
+            .map(([v, l]) => `<option value="${v}" ${PERIODE.choix === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+          <span id="vx-dates" ${PERIODE.choix === "periode" ? "" : "hidden"}><input class="in" type="date" id="vx-d" value="${PERIODE.depuis}" style="width:auto" aria-label="Du">
+            <input class="in" type="date" id="vx-f" value="${PERIODE.jusqu}" style="width:auto" aria-label="Au"></span>
+          <button class="btn petit" id="vx-actu">${ico("rejouer")}Actualiser depuis Xray</button></span></h3>
+      ${x.incompletes?.length ? `<p class="warn-t">Exécution(s) de plus de 100 tests lues en partie (schéma Xray sans pagination des runs) : ${esc(x.incompletes.join(", "))}.</p>` : ""}
       ${imp.erreur ? `<p class="warn-t">${esc(imp.erreur)}</p>` : ""}${imp.absents.length ? `<p class="lib">Non exposé par le schéma Xray : ${esc(imp.absents.join(", "))}.</p>` : ""}
       ${!imp.date ? "<p class='lib'>Cliquer « Actualiser depuis Xray » pour lire les Test Executions du projet (les plus récentes).</p>" : `
       <div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin:8px 0">${kpi(k.executions, "exécutions Xray")}${kpi(k.runs, "test runs")}${kpi(pct(k.taux_reussite), "taux de réussite (runs exécutés)")}
@@ -91,11 +103,14 @@
             <span style="background:var(--muted);opacity:.35;height:${t.non_execute / max * 100}%"></span><span style="background:var(--ko);height:${t.echec / max * 100}%"></span><span style="background:var(--ok);height:${t.reussi / max * 100}%"></span></div>`).join("") || "<p class='lib'>Aucune exécution pour cette application.</p>"}</div></section>
         <section class="bloc-strat"><h3>Statuts Xray des runs</h3>${Object.entries(x.par_statut).map(([st, n]) => `<div><span class="pill ${classe(st)}">${esc(st)}</span> <b>${n}</b></div>`).join("") || "—"}</section></div>
       <table class="table-strat" style="margin-top:10px"><tr><th>Exécution</th><th>Résumé</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th></th></tr>
-        ${x.recentes.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}</td><td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}</td>
+        ${x.recentes.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}<div class="lib">${esc((e.cree || "").slice(0, 10))}</div></td><td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}${e.incomplete ? ` <span class="pill warn" title="${e.tests_total} tests dans Xray">/${e.tests_total}</span>` : ""}</td>
           <td class="ok-t">${e.reussi}</td><td class="ko-t">${e.echec}</td><td>${e.non_execute}</td><td>${pct(e.taux) ?? "—"}</td><td><span class="pill">${esc(e.statut)}</span></td>
           <td><a class="btn petit" href="#centre/selection" data-exe="${esc(e.cle)}">Rejouer les échecs</a></td></tr>`).join("")}</table>`}`;
+    const recharger = () => { bloc.remove(); vueXray(z); };
+    $("#vx-per", bloc).onchange = e => { PERIODE.choix = e.target.value; if (PERIODE.choix !== "periode") recharger(); else $("#vx-dates", bloc).hidden = false; };
+    if ($("#vx-d", bloc)) { $("#vx-d", bloc).onchange = e => { PERIODE.depuis = e.target.value; recharger(); }; $("#vx-f", bloc).onchange = e => { PERIODE.jusqu = e.target.value; recharger(); }; }
     $("#vx-actu", bloc).onclick = async () => { const b = $("#vx-actu", bloc); b.disabled = true; b.textContent = "Lecture des exécutions Xray…";
-      try { const r = await api("/api/centre/executions-xray/actualiser", {method: "POST", body: {}}); toast(`${r.nombre} exécution(s) Xray lue(s).`, "ok"); bloc.remove(); vueXray(z); }
+      try { const r = await api("/api/centre/executions-xray/actualiser", {method: "POST", body: bornes()}); toast(`${r.lues} exécution(s) Xray lue(s) sur la période (${r.nombre} au total dans la copie locale).`, "ok"); recharger(); }
       catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Actualiser depuis Xray"; } };
     $$("[data-exe]", bloc).forEach(a => a.onclick = () => { F.exec = a.dataset.exe; });
   }
