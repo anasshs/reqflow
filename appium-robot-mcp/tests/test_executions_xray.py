@@ -20,7 +20,7 @@ class FauxSchema(XrayClient):
 
 SCHEMA = {"Query": {"getTestExecutions": ["jql", "limit", "start"]},
           "TestExecution": {"issueId": [], "jira": ["fields"], "tests": ["limit"], "testRuns": ["limit"], "testEnvironments": [], "testPlans": ["limit"]},
-          "TestRun": {"status": [], "test": [], "finishedOn": []}}
+          "TestRun": {"status": [], "test": [], "finishedOn": [], "defects": []}}
 
 
 def _exec(cle, runs, envs=("recette",)):
@@ -204,3 +204,37 @@ def test_plan_assigne_et_fin_de_l_execution(projet):
     assert v["fin"] == "2026-11-10T10:00"  # fin du dernier test run, à défaut date de résolution Jira
     det = centre.detail_execution_xray("DEMO-90")
     assert det["plan"] == "DEMO-50" and det["assigne"] == "Testeur A"
+
+
+def test_bugs_des_executions_ouverts_et_fermes(projet):
+    from atelier.execution import centre
+
+    schema = {**SCHEMA, "TestRun": {**SCHEMA["TestRun"], "defects": []}}
+    e = _exec("DEMO-90", {"DEMO-1": "FAILED", "DEMO-2": "FAILED"})
+    e["testRuns"]["results"][0]["defects"] = ["1001", "1002"]
+    e["testRuns"]["results"][1]["defects"] = ["1002"]
+    x = FauxSchema(schema, [{"total": 1, "results": [e]}])
+
+    class Jira:
+        enabled = True
+
+        def rechercher(self, jql, champs, limite):
+            assert jql == "id in (1001, 1002)"
+            return [{"id": "1001", "key": "DEMO-501", "fields": {"summary": "Crash", "status": {"name": "Open", "statusCategory": {"key": "new"}}}},
+                    {"id": "1002", "key": "DEMO-502", "fields": {"summary": "Libellé", "status": {"name": "Done", "statusCategory": {"key": "done"}}}}]
+
+    r = x.executions("DEMO")
+    assert " defects" in x.requetes[0][0] and r["executions"][0]["runs"]["DEMO-1"]["defauts"] == ["1001", "1002"]
+    assert projet.resoudre_bugs(r["executions"], Jira()) == ""
+    assert [b["cle"] for b in r["executions"][0]["bugs"]] == ["DEMO-501", "DEMO-502"]  # un bug lié à deux runs compté une fois
+    projet._fusionner_executions(d := projet.charger(), r)
+    projet.enregistrer(d, "test")
+    v = centre.vue_xray()
+    assert v["bugs"] == {"ouverts": ["DEMO-501"], "fermes": ["DEMO-502"]}
+    assert v["recentes"][0]["bugs_ouverts"] == ["DEMO-501"] and v["recentes"][0]["bugs_fermes"] == ["DEMO-502"]
+
+    class JiraEnPanne(Jira):
+        def rechercher(self, *a):
+            raise RuntimeError("503")
+
+    assert "Bugs non lus" in projet.resoudre_bugs(r["executions"], JiraEnPanne())  # Jira en panne : signalé, jamais bloquant

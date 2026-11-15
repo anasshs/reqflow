@@ -656,13 +656,17 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
         titres = {p["cle"]: p.get("resume") for p in e.get("plans") or []}
         x["plans"] = [{"cle": k, "resume": titres.get(k) or (plans_connus.get(k) or {}).get("resume") or ""} for k in dict.fromkeys(cles)]
         x["plan"] = x["plans"][0]["cle"] if x["plans"] else ""
+        x["bugs_ouverts"] = [b["cle"] for b in e.get("bugs") or [] if not b.get("ferme")]
+        x["bugs_fermes"] = [b["cle"] for b in e.get("bugs") or [] if b.get("ferme")]
         fins = [r.get("fin") for r in (e.get("runs") or {}).values() if r.get("fin")]
         x["assigne"] = e.get("assigne") or ""
         x["fin"] = max(fins) if fins else (e.get("resolu") or "")
     tot = {k: sum(x[k] for x in execs) for k in ("reussi", "echec", "non_execute")}
     executes = tot["reussi"] + tot["echec"]
     imp = pat.get("executions_xray") or {}
-    return {"filtre_executions": "jql" if par_jql else "tests", "import": {"date": imp.get("date"), "nombre": imp.get("nombre"), "erreur": imp.get("erreur"), "absents": imp.get("absents") or [],
+    bugs = {"ouverts": sorted({k for x in execs for k in x["bugs_ouverts"]}), "fermes": sorted({k for x in execs for k in x["bugs_fermes"]})}
+    return {"bugs": bugs, "bugs_lus": "TestRun.defects" not in (imp.get("absents") or []), "avert_bugs": imp.get("bugs") or "",
+            "filtre_executions": "jql" if par_jql else "tests", "import": {"date": imp.get("date"), "nombre": imp.get("nombre"), "erreur": imp.get("erreur"), "absents": imp.get("absents") or [],
                        "periode": imp.get("periode") or {}}, "periode": {"depuis": depuis, "jusqu": jusqu},
             "incompletes": [x["cle"] for x in execs if x["incomplete"]],
             "kpi": {"executions": len(execs), "runs": sum(x["tests"] for x in execs), **tot,
@@ -712,7 +716,10 @@ def vue_plans() -> dict:
         for k in ("reussi", "echec", "non_execute"):
             tot[k] += n[k]
         tot["tests"] += len(tests)
-        plans.append({"cle": p["cle"], "resume": p.get("resume", ""), "statut": p.get("statut", ""), "cree": p.get("cree", ""),
+        bugs_plan = {b["cle"]: b for e in es for b in e.get("bugs") or []}
+        plans.append({"bugs_ouverts": sorted(k for k, b in bugs_plan.items() if not b.get("ferme")),
+                      "bugs_fermes": sorted(k for k, b in bugs_plan.items() if b.get("ferme")),
+                      "cle": p["cle"], "resume": p.get("resume", ""), "statut": p.get("statut", ""), "cree": p.get("cree", ""),
                       "campagne": noms.get(p["cle"], ""), "tests": len(tests), "tests_total": p.get("tests_total") or len(tests),
                       "executions": [e["cle"] for e in es], "executions_inconnues": len([k for k in cles_exe if k not in execs]),
                       "source_executions": "xray" if p.get("executions") is not None else "runs de l'atelier",

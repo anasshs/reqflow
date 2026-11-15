@@ -224,8 +224,9 @@ class XrayClient:
             out["absents"].append("TestExecution.tests")
         if "testRuns" in champs:
             run = self._type_champs("TestRun")
-            sel_run = [x for x, c in (("id", "id"), ("status { name }", "status"), ('test { jira(fields: ["key"]) }', "test"), ("finishedOn", "finishedOn")) if c in run]
-            out["absents"] += [f"TestRun.{c}" for c in ("status", "test", "finishedOn") if c not in run]
+            sel_run = [x for x, c in (("id", "id"), ("status { name }", "status"), ('test { jira(fields: ["key"]) }', "test"), ("finishedOn", "finishedOn"),
+                                      ("defects", "defects")) if c in run]
+            out["absents"] += [f"TestRun.{c}" for c in ("status", "test", "finishedOn", "defects") if c not in run]
             if "status" in run and "test" in run:
                 sel.append(("testRuns(limit: 100) " if "limit" in champs["testRuns"]["args"] else "testRuns ") + "{ total results { " + " ".join(sel_run) + " } }")
         else:
@@ -250,7 +251,8 @@ class XrayClient:
             for r in (x.get("testRuns") or {}).get("results") or []:
                 cle = ((r.get("test") or {}).get("jira") or {}).get("key")
                 if cle:
-                    runs[cle] = {"statut": (r.get("status") or {}).get("name", ""), "fin": r.get("finishedOn") or "", "id": r.get("id") or ""}
+                    runs[cle] = {"statut": (r.get("status") or {}).get("name", ""), "fin": r.get("finishedOn") or "", "id": r.get("id") or "",
+                                 **({"defauts": [str(d) for d in r.get("defects") or []]} if r.get("defects") else {})}
             out["executions"].append({"cle": j.get("key"), "resume": j.get("summary") or "", "statut": (j.get("status") or {}).get("name", ""),
                                       "cree": j.get("created") or "", "issueId": x.get("issueId"), "environnements": x.get("testEnvironments") or [],
                                       "tests": [(t_.get("jira") or {}).get("key") for t_ in tests.get("results") or []] or sorted(runs),
@@ -275,7 +277,7 @@ class XrayClient:
                 e["incomplete"] = True
             return
         t = "Int!" if args.get("limit") else "Int"
-        fin = (" finishedOn" if "finishedOn" in run else "") + (" id" if "id" in run else "")
+        fin = (" finishedOn" if "finishedOn" in run else "") + (" id" if "id" in run else "") + (" defects" if "defects" in run else "")
         q = (f'query($e: [String], $l: {t}, $s: Int) {{ getTestRuns(testExecIssueIds: $e, limit: $l, start: $s) '
              f'{{ total results {{ status {{ name }} test {{ jira(fields: ["key"]) }}{fin} }} }} }}')
         for e in a_completer:
@@ -285,7 +287,8 @@ class XrayClient:
                 for r in page.get("results") or []:
                     cle = ((r.get("test") or {}).get("jira") or {}).get("key")
                     if cle:
-                        e["runs"][cle] = {"statut": (r.get("status") or {}).get("name", ""), "fin": r.get("finishedOn") or "", "id": r.get("id") or ""}
+                        e["runs"][cle] = {"statut": (r.get("status") or {}).get("name", ""), "fin": r.get("finishedOn") or "", "id": r.get("id") or "",
+                                          **({"defauts": [str(d) for d in r.get("defects") or []]} if r.get("defects") else {})}
                 debut += 100
                 if not page.get("results") or debut >= (page.get("total") or 0) or debut >= 5000:
                     break

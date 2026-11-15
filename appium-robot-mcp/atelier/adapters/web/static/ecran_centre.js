@@ -67,6 +67,12 @@
   /* indicateurs des Test Executions Xray (copie locale, tests de l'application sélectionnée) */
   const PERIODE = {choix: "30", depuis: "", jusqu: ""};
   const jour = d => (d || "").slice(0, 16).replace("T", " ");
+  /* nombre de bugs cliquable : ouvre le filtre Jira « key in (…) » dans un nouvel onglet */
+  const filtreJira = cles => `${Atelier.ctx?.jira_url || ""}/issues/?jql=${encodeURIComponent(`key in (${cles.join(", ")}) ORDER BY status, key`)}`;
+  const nbBugs = (cles, cls, libelle = "") => !cles.length ? `<span class="lib">0${libelle}</span>`
+    : Atelier.ctx?.jira_url ? `<a class="${cls}" href="${esc(filtreJira(cles))}" target="_blank" rel="noopener" data-bugs title="${esc(cles.join(", "))}"><b>${cles.length}</b>${libelle}</a>`
+    : `<b class="${cls}" title="${esc(cles.join(", "))} (URL Jira non configurée)">${cles.length}</b>${libelle}`;
+  const celluleBugs = e => `${nbBugs(e.bugs_ouverts, "ko-t", " ouvert(s)")}<br>${nbBugs(e.bugs_fermes, "ok-t", " fermé(s)")}`;
   const jourIso = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
   const bornes = () => PERIODE.choix === "tout" ? {depuis: "", jusqu: ""} : PERIODE.choix === "periode" ? {depuis: PERIODE.depuis, jusqu: PERIODE.jusqu}
     : {depuis: jourIso(+PERIODE.choix), jusqu: ""};
@@ -113,23 +119,26 @@
       ${x.incompletes?.length ? `<p class="warn-t">Exécution(s) de plus de 100 tests lues en partie (schéma Xray sans pagination des runs) : ${esc(x.incompletes.join(", "))}.</p>` : ""}
       ${imp.erreur ? `<p class="warn-t">${esc(imp.erreur)}</p>` : ""}${imp.absents.length ? `<p class="lib">Non exposé par le schéma Xray : ${esc(imp.absents.join(", "))}.</p>` : ""}
       ${!imp.date ? "<p class='lib'>Cliquer « Actualiser depuis Xray » pour lire les Test Executions du projet (les plus récentes).</p>" : `
-      <div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin:8px 0">${kpi(k.executions, "exécutions Xray")}${kpi(k.runs, "test runs")}${kpi(pct(k.taux_reussite), "taux de réussite (runs exécutés)")}
+      <div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:8px 0">${kpi(k.executions, "exécutions Xray")}${kpi(k.runs, "test runs")}${kpi(pct(k.taux_reussite), "taux de réussite (runs exécutés)")}
         ${kpi(k.reussi, "runs réussis", "ok")}${kpi(k.echec, "runs en échec", "ko")}${kpi(k.non_execute, "runs non exécutés", "warn-t")}
         ${kpi(k.tests_en_echec, "tests en échec (dernier statut)", "ko")}${kpi(k.tests_reussis, "tests réussis (dernier statut)", "ok")}
-        ${kpi(k.tests_jamais_executes, "tests de l'app jamais exécutés")}${kpi(pct(k.part_automatisee), "part des runs automatisés")}</div>
+        ${kpi(k.tests_jamais_executes, "tests de l'app jamais exécutés")}${kpi(pct(k.part_automatisee), "part des runs automatisés")}
+        <div class="kpi"><div class="v">${nbBugs(x.bugs.ouverts, "ko-t")}</div><div class="l">bugs ouverts${x.bugs_lus ? "" : " (non exposés par Xray)"}</div></div>
+        <div class="kpi"><div class="v">${nbBugs(x.bugs.fermes, "ok-t")}</div><div class="l">bugs fermés</div></div></div>
+      ${x.avert_bugs ? `<p class="warn-t">${esc(x.avert_bugs)}</p>` : ""}
       <div class="grille-strat"><section class="bloc-strat" style="grid-column:span 2"><h3>Par exécution (20 dernières)</h3><div style="display:flex;align-items:flex-end;gap:6px;height:110px">${x.tendance.map(t => `
           <div data-barre="${esc(t.cle)}" class="cliquable" title="${esc(t.cle)} : ${t.reussi} réussi(s), ${t.echec} échec(s), ${t.non_execute} non exécuté(s)" style="flex:1;max-width:48px;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
             <span style="background:var(--muted);opacity:.35;height:${t.non_execute / max * 100}%"></span><span style="background:var(--ko);height:${t.echec / max * 100}%"></span><span style="background:var(--ok);height:${t.reussi / max * 100}%"></span></div>`).join("") || "<p class='lib'>Aucune exécution pour cette application.</p>"}</div></section>
         <section class="bloc-strat"><h3>Statuts Xray des runs</h3>${Object.entries(x.par_statut).map(([st, n]) => `<div><span class="pill ${classe(st)}">${esc(st)}</span> <b>${n}</b></div>`).join("") || "—"}</section></div>
       <h3 style="margin-top:12px">Exécutions de la période (${x.recentes.length}) <span class="lib" style="font-weight:normal">une Exécution = une Test Execution Xray · cliquer une ligne pour ses tests, ses statuts et ses runs</span></h3>
-      <table class="table-strat"><tr><th>Exécution</th><th>Résumé</th><th>Test Plan · Campagne</th><th>Assigné à</th><th>Créée → Fin</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th></th></tr>
+      <table class="table-strat"><tr><th>Exécution</th><th>Résumé</th><th>Test Plan · Campagne</th><th>Assigné à</th><th>Créée → Fin</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th>Bugs</th><th></th></tr>
         ${(TOUTES ? x.recentes : x.recentes.slice(0, 20)).map(e => `<tr class="cliquable" data-vx="${esc(e.cle)}"><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}</td>
           <td>${e.plans.length ? e.plans.map(p => `<div><span class="cle-xray">${esc(p.cle)}</span> ${esc(p.resume)}</div>`).join("") : '<span class="lib">sans Test Plan</span>'}
             <div class="lib">${e.campagne_nom ? `campagne ${esc(e.campagne_nom)} · ${e.runs_atelier} run(s) atelier` : "hors atelier"}</div></td>
           <td>${esc(e.assigne || "—")}</td>
           <td class="lib" style="white-space:nowrap">${esc(jour(e.cree))}<br>→ ${e.fin ? esc(jour(e.fin)) : "en cours / non exécutée"}</td>
           <td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}${e.incomplete ? ` <span class="pill warn" title="${e.tests_total} tests dans Xray">/${e.tests_total}</span>` : ""}</td>
-          <td class="ok-t">${e.reussi}</td><td class="ko-t">${e.echec}</td><td>${e.non_execute}</td><td>${pct(e.taux) ?? "—"}</td><td><span class="pill">${esc(e.statut)}</span></td>
+          <td class="ok-t">${e.reussi}</td><td class="ko-t">${e.echec}</td><td>${e.non_execute}</td><td>${pct(e.taux) ?? "—"}</td><td><span class="pill">${esc(e.statut)}</span></td><td style="white-space:nowrap">${celluleBugs(e)}</td>
           <td>${e.echec ? `<button class="btn petit" data-relance="${esc(e.cle)}" title="Nouveau run qui écrit dans ${esc(e.cle)}">${ico("rejouer")}Relancer les échecs</button>` : ""}</td></tr>`).join("")}</table>
       ${!TOUTES && x.recentes.length > 20 ? `<button class="btn petit" id="vx-toutes" style="margin-top:6px">Afficher les ${x.recentes.length} exécutions</button>` : ""}`}`;
     const recharger = (auto = true) => vueXray(z, auto);
@@ -149,6 +158,7 @@
       catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Actualiser depuis Xray"; } };
     $$("[data-relance]", bloc).forEach(bt => bt.onclick = ev => { ev.stopPropagation(); relancer(bt.dataset.relance, true); });
     if ($("#vx-toutes", bloc)) $("#vx-toutes", bloc).onclick = () => { TOUTES = true; recharger(false); };
+    $$("[data-bugs]", bloc).forEach(a => a.addEventListener("click", ev => ev.stopPropagation()));
     $$("[data-vx]", bloc).forEach(tr => tr.onclick = () => detailXray(tr.dataset.vx, () => recharger(false)));
   }
 
@@ -237,13 +247,14 @@
       ${(v.import.absents || []).includes("TestPlan.testExecutions") ? `<p class="lib">Xray n'expose pas les exécutions d'un plan : seules celles lancées par l'atelier sont comptées.</p>` : ""}
       ${v.plans.length ? `<div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:8px 0">${kpi(k.plans, "Test Plans")}${kpi(k.plans_ouverts, "ouverts")}${kpi(k.tests, "tests planifiés")}
         ${kpi(pct(k.avancement), "avancement (tests exécutés)")}${kpi(pct(k.taux_reussite), "taux de réussite", "ok")}${kpi(k.echec, "tests en échec", "ko")}</div>
-      <table class="table-strat"><tr><th>Test Plan</th><th>Statut</th><th>Campagne</th><th>Tests</th><th>Exécutions</th><th>Avancement</th><th>Réussite</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th></tr>
+      <table class="table-strat"><tr><th>Test Plan</th><th>Statut</th><th>Campagne</th><th>Tests</th><th>Exécutions</th><th>Avancement</th><th>Réussite</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Bugs</th></tr>
         ${v.plans.map(p => `<tr class="cliquable" data-plan="${esc(p.cle)}"><td><span class="cle-xray">${esc(p.cle)}</span> ${esc(p.resume)}<div class="lib">${esc((p.cree || "").slice(0, 10))}</div></td>
           <td><span class="pill">${esc(p.statut || "—")}</span></td><td>${esc(p.campagne || "—")}</td><td>${p.tests}${p.tests_total > p.tests ? ` <span class="pill warn">/${p.tests_total}</span>` : ""}</td>
           <td>${p.executions.length}${p.executions_inconnues ? ` <span class="lib">(+${p.executions_inconnues} non lues)</span>` : ""}<div class="lib">${esc(p.derniere_execution || "")}</div></td>
-          <td>${barre(p)}<div class="lib">${pct(p.avancement)}</div></td><td><b>${pct(p.taux_reussite)}</b></td><td class="ok-t">${p.reussi}</td><td class="ko-t">${p.echec}</td><td>${p.non_execute}</td></tr>`).join("")}</table>`
+          <td>${barre(p)}<div class="lib">${pct(p.avancement)}</div></td><td><b>${pct(p.taux_reussite)}</b></td><td class="ok-t">${p.reussi}</td><td class="ko-t">${p.echec}</td><td>${p.non_execute}</td><td style="white-space:nowrap">${celluleBugs(p)}</td></tr>`).join("")}</table>`
         : "<p class='lib'>Aucun Test Plan pour cette application (JQL des Test Plans : Paramètres › Configuration).</p>"}`;
     $("#pl-actu", bloc).onclick = () => { PLANS_LUS = 0; vuePlans(z); };
+    $$("[data-bugs]", bloc).forEach(a => a.addEventListener("click", ev => ev.stopPropagation()));
     $$("[data-plan]", bloc).forEach(tr => tr.onclick = () => detailPlan(v.plans.find(x => x.cle === tr.dataset.plan)));
   }
 

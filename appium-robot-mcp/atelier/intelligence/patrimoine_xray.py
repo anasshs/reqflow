@@ -333,7 +333,7 @@ def _fusionner_executions(data: dict, r: dict, conserver: bool = False):
     plus récente qui le contient avec un statut). conserver : les exécutions déjà importées absentes de cette lecture
     (hors période demandée) sont gardées, celles relues sont mises à jour."""
     lues = [{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests", "tests_total", "runs", "incomplete", "applications",
-                                   "assigne", "resolu", "plans") if k not in ("applications", "plans") or e.get(k) is not None} for e in r["executions"]]
+                                   "assigne", "resolu", "plans", "bugs") if k not in ("applications", "plans", "bugs") or e.get(k) is not None} for e in r["executions"]]
     if conserver:
         cles = {e["cle"] for e in lues}
         avant = {e["cle"]: e.get("applications") or [] for e in data.get("executions") or []}
@@ -354,6 +354,35 @@ def _fusionner_executions(data: dict, r: dict, conserver: bool = False):
     data["executions_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "nombre": len(execs),
                                "lues": len(r["executions"]), "periode": r.get("periode") or {},
                                "absents": r.get("absents", []), "limite": limite_executions()}
+
+
+def resoudre_bugs(executions: list[dict], jira=None) -> str:
+    """Bugs (défauts) liés aux test runs de chaque exécution (TestRun.defects : identifiants Jira) : clé, résumé, statut
+    et ouvert / fermé (catégorie de statut Jira « Terminé »). Lecture seule ; Jira indisponible : message renvoyé,
+    les exécutions gardent leurs bugs connus."""
+    from atelier.integrations.jira import JiraClient
+
+    ids = sorted({d for e in executions for r in (e.get("runs") or {}).values() for d in r.get("defauts") or []})
+    if not ids:
+        for e in executions:
+            e["bugs"] = []
+        return ""
+    jira = jira or JiraClient()
+    if not getattr(jira, "enabled", True):
+        return "Jira non configuré : bugs des exécutions non lus."
+    infos: dict = {}
+    try:
+        for i in range(0, len(ids), 100):
+            for t in jira.rechercher(f"id in ({', '.join(ids[i:i + 100])})", ["summary", "status"], 100):
+                st = (t.get("fields") or {}).get("status") or {}
+                infos[str(t.get("id"))] = {"cle": t.get("key"), "resume": (t.get("fields") or {}).get("summary") or "", "statut": st.get("name", ""),
+                                           "ferme": (st.get("statusCategory") or {}).get("key") == "done"}
+    except Exception as ex:  # noqa: BLE001 — Jira ne bloque jamais la lecture des exécutions
+        return f"Bugs non lus (Jira : {str(ex)[:200]})."
+    for e in executions:
+        vus = dict.fromkeys(d for r in (e.get("runs") or {}).values() for d in r.get("defauts") or [])
+        e["bugs"] = [infos[d] for d in vus if d in infos]
+    return ""
 
 
 def statuts_runs(projet_cle: str = "", xray=None) -> list[str]:
@@ -427,8 +456,10 @@ def importer_executions(projet_cle: str = "", xray=None, depuis: str = "", jusqu
     if slug:  # chaque exécution porte les applications qui l'ont lue (filtre du tableau de bord)
         for e in r["executions"]:
             e["applications"] = [slug]
+    avert_bugs = resoudre_bugs(r["executions"])
     r["periode"] = {"depuis": depuis, "jusqu": jusqu}
     _fusionner_executions(data, r, conserver=True)
+    data["executions_xray"]["bugs"] = avert_bugs
     enregistrer(data, data.get("source") or f"Xray : project = {projet_cle}")
     return data["executions_xray"]
 
@@ -471,6 +502,7 @@ def importer_plans(xray=None) -> dict:
         for e in ex["executions"]:
             if slug:
                 e["applications"] = [slug]
+        resoudre_bugs(ex["executions"])
         lues += len(ex["executions"])
         meta = data.get("executions_xray")
         _fusionner_executions(data, ex, conserver=True)
