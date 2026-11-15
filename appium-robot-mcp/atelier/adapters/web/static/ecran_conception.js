@@ -508,12 +508,35 @@
       <div class="champ"><label for="pr-rev">Réviseur</label><input class="in" id="pr-rev" value="${esc(r.reviseur || "")}" placeholder="ex. Test Lead"></div>
       <div class="champ"><label for="pr-com">Commentaire</label><textarea class="in" id="pr-com" rows="2" placeholder="Obligatoire pour une demande de modifications"></textarea></div>
       <div class="btns">${actions.map(([a, l, c]) => `<button class="btn ${c}" data-a="${a}">${esc(l)}</button>`).join("")}</div>
+      <div id="pr-cycle"></div>
       <h3 class="lib" style="margin:14px 0 4px">HISTORIQUE DES DÉCISIONS</h3><ul class="liste">${r.historique.slice().reverse().map(h => `<li><span class="mono lib">${esc(h.date.slice(5, 16).replace("T", " "))}</span>
         <span class="item">${esc(LIB_REVUE[h.de])} → ${esc(LIB_REVUE[h.vers])}${h.commentaire ? ` · « ${esc(h.commentaire)} »` : ""}</span><span class="lib">${esc(h.auteur)}</span></li>`).join("") || "<li class='lib'>Aucune décision.</li>"}</ul></div>`;
     $("#pr-x").onclick = () => { p.hidden = true; SEL = null; };
+    cycleVie(cle);
     $$("[data-a]", p).forEach(b => b.onclick = async () => {
       try { await api("/api/conception/revue/" + encodeURIComponent(cle), {method: "POST", body: {action: b.dataset.a, commentaire: $("#pr-com").value, reviseur: $("#pr-rev").value}});
         toast("Décision enregistrée.", "ok"); revue($(".corps-strat"), cle); }
+      catch (e) { toast(e.message, "ko"); }
+    });
+  }
+
+  /* cycle de vie du test (workflow Jira) : étape, conditions de la suivante, transitions possibles */
+  async function cycleVie(cle) {
+    const z = $("#pr-cycle");
+    if (!z) return;
+    const c = await api("/api/conception/cycle-vie/" + encodeURIComponent(cle)).catch(e => ({erreur: e.message}));
+    if (c.erreur) { z.innerHTML = `<p class="lib">${esc(c.erreur)}</p>`; return; }
+    const LIB = {brouillon: "Brouillon", redige: "Rédigé", a_automatiser: "À automatiser", en_automatisation: "En cours d'automatisation", automatise: "Automatisé"};
+    z.innerHTML = `<h3 class="lib" style="margin:14px 0 4px">CYCLE DE VIE (WORKFLOW JIRA)</h3>
+      <p><span class="pill info">${esc(c.libelle)}</span>${c.statuts_jira[c.etape] ? ` <span class="lib">Jira : ${esc(c.statuts_jira[c.etape])}</span>` : ""}</p>
+      ${c.suivante ? `<p class="lib">Pour passer à « ${esc(LIB[c.suivante])} » :</p><ul class="liste checklist">${c.gardes_suivante.map(g => `<li><span class="${g.ok ? "ok" : "ko"}-t">${ico(g.ok ? "check" : "x")}</span><span class="item">${esc(g.message)}</span></li>`).join("") || "<li class='lib'>aucune condition</li>"}</ul>` : ""}
+      ${c.conseil ? `<p class="lib">${esc(c.conseil)}</p>` : ""}
+      <div class="btns">${c.possibles.map(v => `<button class="btn ${v === c.suivante ? "primaire" : ""}" data-cvv="${v}" ${v === c.suivante && c.gardes_suivante.some(g => !g.ok) ? "disabled" : ""}>${v === c.suivante ? "→ " : "← "}${esc(LIB[v])}</button>`).join("")}</div>`;
+    $$("[data-cvv]", z).forEach(b => b.onclick = async () => {
+      const vers = b.dataset.cvv;
+      if (vers === "a_automatiser" && !confirm("Marquer le test candidat à l'automatisation (champ Jira mis à vrai) et le passer « À automatiser » ?")) return;
+      try { const r = await api("/api/conception/cycle-vie/" + encodeURIComponent(cle), {method: "POST", body: {vers, commentaire: $("#pr-com")?.value || ""}});
+        toast(`${cle} : ${r.libelle}${r.avertissement ? " · " + r.avertissement : " (Jira mis à jour)"}`, r.avertissement ? "" : "ok"); cycleVie(cle); }
       catch (e) { toast(e.message, "ko"); }
     });
   }
@@ -549,6 +572,7 @@
     const [m, t, sante, hist, apps, repo] = await Promise.all([api("/api/conception/mapping"), api("/api/conception/mapping/tester"), api("/api/sante").catch(() => []),
       api("/api/conception/sync-historique").catch(() => []), api("/api/apps").catch(() => ({applications: []})),
       api("/api/conception/repository").catch(() => ({dossiers: [], applications: [], definitions_importees: false, tests_sans_dossier: 0, tests: 0}))]);
+    const cv = await api("/api/conception/cycle-vie").catch(() => null);
     const optDossiers = choisis => repo.dossiers.map(d => `<option value="${esc(d.chemin)}" ${choisis.includes(d.chemin) ? "selected" : ""}>${"\u00a0\u00a0".repeat(d.profondeur)}${esc(d.chemin === "/" ? "/ (tout le repository)" : d.chemin.split("/").pop())} (${d.tests})</option>`).join("");
     const ap = m.application || {champ: "composant", champ_jira: ""};
     const valeursApp = a => (a.tests_xray?.valeurs || [a.tests_xray?.composant, a.tests_xray?.libelle].filter(Boolean)).join(", ");
@@ -593,6 +617,14 @@
       <p class="lib">Aucun équivalent n'est supposé : chaque statut interne doit être relié explicitement à un statut du workflow Jira. <span id="mp-wf">Lecture des statuts du workflow Test dans Jira…</span></p>
       <table class="table-strat"><tr><th>Statut interne</th><th>Statut externe (Jira / Xray)</th></tr>${m.statuts.map((s, i) => `<tr><td>${esc(m.libelles_revue[s.interne] || s.interne)}</td>
         <td><input class="in" data-st="${i}" value="${esc(s.externe || "")}" placeholder="À configurer"></td></tr>`).join("")}</table>
+      ${cv ? `<h3 class="lib" style="margin-top:14px">CYCLE DE VIE DU TEST (workflow Jira)</h3>
+      <p class="lib">Brouillon → Rédigé → À automatiser → En cours d'automatisation → Automatisé. Chaque étape est reliée à un statut du workflow Jira ; le passage à « À automatiser » met d'abord le champ « candidat auto » à la valeur vraie.
+        « Automatisé » exige un script Robot portant la clé, 3 exécutions stables et la revue du script.</p>
+      <table class="table-strat"><tr><th>Étape</th><th>Statut Jira</th><th>Tests suivis</th></tr>${cv.etapes.map(e => `<tr><td>${esc(cv.libelles[e])}</td>
+        <td><input class="in" data-cv="${e}" value="${esc(cv.statuts[e] || "")}" placeholder="À configurer"></td><td>${(cv.etapes_n || {})[e] ?? ""}</td></tr>`).join("")}</table>
+      <div class="grille-2" style="max-width:700px"><div class="champ"><label for="cv-champ">Champ « candidat auto » (Jira)</label><input class="in mono" id="cv-champ" value="${esc(cv.champ_candidat)}" placeholder="customfield_10070"></div>
+        <div class="champ"><label for="cv-val">Valeur « vrai »</label><input class="in mono" id="cv-val" value="${esc(cv.valeur_candidat)}" placeholder="true">
+          <span class="lib">true (case à cocher), option:Oui (liste), options:Oui (liste multiple) ou texte</span></div></div>` : ""}
       <h3 class="lib" style="margin-top:14px">APPLICATIONS ↔ TESTS XRAY</h3>
       <p class="lib">Un projet Xray peut contenir plusieurs applications : choisir le champ Jira qui indique l'application d'un test, puis la ou les valeurs de chaque application. Les écrans n'affichent ensuite que les tests de l'application active (header).</p>
       <div class="btns" style="margin-bottom:8px"><label class="lib" for="mp-apc">Champ Jira de l'application</label>
@@ -611,11 +643,11 @@
     api("/api/conception/mapping/statuts-jira?projet=" + encodeURIComponent(m.projet_jira || "")).then(w => {
       $("#mp-wf").innerHTML = w.type_trouve ? `Statuts du workflow <b>${esc(w.type)}</b> du projet <span class="cle-xray">${esc(w.projet)}</span> lus dans Jira.`
         : `<span class="warn-t">Type « ${esc(w.type)} » introuvable dans ${esc(w.projet)} (types : ${esc((w.types_disponibles || []).join(", "))}) : statuts de tous les types proposés (XRAY_TEST_ISSUE_TYPE).</span>`;
-      $$("[data-st]").forEach(inp => {
+      $$("[data-st], [data-cv]").forEach(inp => {
         const v = inp.value;
         const sel = document.createElement("select");
         sel.className = "in";
-        sel.dataset.st = inp.dataset.st;
+        if (inp.dataset.st !== undefined) sel.dataset.st = inp.dataset.st; else sel.dataset.cv = inp.dataset.cv;
         sel.innerHTML = `<option value="">À configurer</option>${w.statuts.map(x => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("")}`
           + (v && !w.statuts.includes(v) ? `<option selected value="${esc(v)}">${esc(v)} (absent du workflow)</option>` : "");
         inp.replaceWith(sel);
@@ -634,6 +666,8 @@
       try {  // valeurs par application d'abord, puis le mapping (qui recharge l'écran)
         for (const i of $$("[data-apv]", z)) await api("/api/apps/maj", {method: "POST", body: {slug: i.dataset.apv, tests_xray: {valeurs: i.value.split(",").map(x => x.trim()).filter(Boolean)}}});
         for (const sel of $$("[data-apd]", z)) await api("/api/apps/maj", {method: "POST", body: {slug: sel.dataset.apd, tests_xray: {dossiers: [...sel.selectedOptions].map(o => o.value)}}});
+        if (cv) await api("/api/conception/cycle-vie", {method: "POST", body: {statuts: Object.fromEntries($$("[data-cv]", z).map(e => [e.dataset.cv, e.value])),
+          champ_candidat: $("#cv-champ").value, valeur_candidat: $("#cv-val").value}});
         await sauver(collecter()); Atelier.chargerContexte();
       } catch (e) { toast(e.message, "ko"); }
     };

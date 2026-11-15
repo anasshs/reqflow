@@ -44,6 +44,12 @@ class JiraClient:
         possibles = ", ".join(t["name"] for t in transitions) or "aucune"
         raise RuntimeError(f"Transition « {name} » indisponible sur {key} (possibles : {possibles})")
 
+    def maj_champs(self, key: str, champs: dict):
+        """Met à jour des champs d'un ticket (PUT /rest/api/3/issue/{key}), ex. {"customfield_10070": True}."""
+        if not self.enabled:
+            raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")
+        http("PUT", f"{self.base}/rest/api/3/issue/{key}", json.dumps({"fields": champs}).encode(), self._h())
+
     def get(self, path: str):
         if not self.enabled:
             raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")

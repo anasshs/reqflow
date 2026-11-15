@@ -314,7 +314,10 @@ def mapping() -> dict:
 
 
 def enregistrer_mapping(m: dict) -> dict:
-    propre = {k: m[k] for k in ("objets", "champs", "statuts", "types", "projet_jira", "dossier_repository", "mode", "application") if k in m}
+    propre = {k: m[k] for k in ("objets", "champs", "statuts", "types", "projet_jira", "dossier_repository", "mode", "application", "cycle_vie") if k in m}
+    cc = ((propre.get("cycle_vie") or {}).get("champ_candidat") or "").strip()
+    if cc and not re.fullmatch(r"customfield_\d+", cc):
+        raise ValueError("Champ « candidat auto » : identifiant customfield_<numéro> attendu (ex. customfield_10070).")
     if "application" in propre:
         a = propre["application"] or {}
         if a.get("champ") not in CHAMPS_APPLICATION:

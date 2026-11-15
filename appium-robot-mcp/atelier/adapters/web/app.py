@@ -1976,6 +1976,37 @@ async def conception_revue_action(cle: str, req: Request):
     return await asyncio.to_thread(_call, conception.transition_revue, cle, b.get("action", ""), b.get("commentaire", ""), b.get("reviseur", ""))
 
 
+@app.get("/api/conception/cycle-vie")
+def conception_cycle_vie_config():
+    from atelier.generation import cycle_vie
+
+    return {**_call(cycle_vie.config), "etapes": cycle_vie.ETAPES, "libelles": cycle_vie.LIBELLES,
+            "etapes_n": {x["etape"]: x["tests"] for x in _call(cycle_vie.synthese)["etapes"]}}
+
+
+@app.post("/api/conception/cycle-vie")
+async def conception_cycle_vie_maj(req: Request):
+    from atelier.generation import cycle_vie
+
+    b = await req.json()
+    return _call(cycle_vie.maj_config, b.get("statuts"), b.get("champ_candidat"), b.get("valeur_candidat"))
+
+
+@app.get("/api/conception/cycle-vie/{cle}")
+async def conception_cycle_vie_etat(cle: str):
+    from atelier.generation import cycle_vie
+
+    return await asyncio.to_thread(_call, cycle_vie.etat, cle)
+
+
+@app.post("/api/conception/cycle-vie/{cle}")
+async def conception_cycle_vie_avancer(cle: str, req: Request):
+    from atelier.generation import cycle_vie
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, cycle_vie.avancer, cle, b.get("vers", ""), b.get("commentaire", ""))
+
+
 @app.get("/api/conception/baselines")
 def conception_baselines():
     return _call(conception.baselines)
