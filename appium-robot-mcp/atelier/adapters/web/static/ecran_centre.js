@@ -120,11 +120,13 @@
           <div title="${esc(t.cle)} : ${t.reussi} réussi(s), ${t.echec} échec(s), ${t.non_execute} non exécuté(s)" style="flex:1;max-width:48px;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
             <span style="background:var(--muted);opacity:.35;height:${t.non_execute / max * 100}%"></span><span style="background:var(--ko);height:${t.echec / max * 100}%"></span><span style="background:var(--ok);height:${t.reussi / max * 100}%"></span></div>`).join("") || "<p class='lib'>Aucune exécution pour cette application.</p>"}</div></section>
         <section class="bloc-strat"><h3>Statuts Xray des runs</h3>${Object.entries(x.par_statut).map(([st, n]) => `<div><span class="pill ${classe(st)}">${esc(st)}</span> <b>${n}</b></div>`).join("") || "—"}</section></div>
-      <h3 style="margin-top:12px">Test Executions de la période (${x.recentes.length}) <span class="lib" style="font-weight:normal">cliquer une ligne pour voir ses tests et changer les statuts</span></h3>
-      <table class="table-strat"><tr><th>Exécution</th><th>Résumé</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th></th></tr>
-        ${(TOUTES ? x.recentes : x.recentes.slice(0, 20)).map(e => `<tr class="cliquable" data-vx="${esc(e.cle)}"><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}<div class="lib">${esc((e.cree || "").slice(0, 10))}</div></td><td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}${e.incomplete ? ` <span class="pill warn" title="${e.tests_total} tests dans Xray">/${e.tests_total}</span>` : ""}</td>
+      <h3 style="margin-top:12px">Exécutions de la période (${x.recentes.length}) <span class="lib" style="font-weight:normal">une Exécution = une Test Execution Xray · cliquer une ligne pour ses tests, ses statuts et ses runs</span></h3>
+      <table class="table-strat"><tr><th>Exécution</th><th>Résumé</th><th>Campagne · Test Plan</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th></th></tr>
+        ${(TOUTES ? x.recentes : x.recentes.slice(0, 20)).map(e => `<tr class="cliquable" data-vx="${esc(e.cle)}"><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}<div class="lib">${esc((e.cree || "").slice(0, 10))}</div></td>
+          <td>${e.campagne_nom ? esc(e.campagne_nom) : '<span class="lib">hors atelier</span>'}${e.plan ? `<div class="cle-xray">${esc(e.plan)}</div>` : ""}${e.runs_atelier ? `<div class="lib">${e.runs_atelier} run(s) atelier</div>` : ""}</td>
+          <td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}${e.incomplete ? ` <span class="pill warn" title="${e.tests_total} tests dans Xray">/${e.tests_total}</span>` : ""}</td>
           <td class="ok-t">${e.reussi}</td><td class="ko-t">${e.echec}</td><td>${e.non_execute}</td><td>${pct(e.taux) ?? "—"}</td><td><span class="pill">${esc(e.statut)}</span></td>
-          <td>${e.echec ? `<a class="btn petit" href="#centre/selection" data-exe="${esc(e.cle)}">Rejouer les échecs</a>` : ""}</td></tr>`).join("")}</table>
+          <td>${e.echec ? `<button class="btn petit" data-relance="${esc(e.cle)}" title="Nouveau run qui écrit dans ${esc(e.cle)}">${ico("rejouer")}Relancer les échecs</button>` : ""}</td></tr>`).join("")}</table>
       ${!TOUTES && x.recentes.length > 20 ? `<button class="btn petit" id="vx-toutes" style="margin-top:6px">Afficher les ${x.recentes.length} exécutions</button>` : ""}`}`;
     const recharger = (auto = true) => vueXray(z, auto);
     $("#vx-per", bloc).onchange = e => { PERIODE.choix = e.target.value; if (PERIODE.choix !== "periode") recharger(); else $("#vx-dates", bloc).hidden = false; };
@@ -132,16 +134,27 @@
     $("#vx-actu", bloc).onclick = async () => { const b = $("#vx-actu", bloc); b.disabled = true; b.textContent = "Lecture des exécutions Xray…";
       try { const r = await lireXray(true); toast(`${r.lues} exécution(s) Xray lue(s) sur la période (${r.nombre} au total dans la copie locale).`, "ok"); recharger(false); }
       catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Actualiser depuis Xray"; } };
-    $$("[data-exe]", bloc).forEach(a => a.onclick = ev => { ev.stopPropagation(); F.exec = a.dataset.exe; });
+    $$("[data-relance]", bloc).forEach(bt => bt.onclick = ev => { ev.stopPropagation(); relancer(bt.dataset.relance, true); });
     if ($("#vx-toutes", bloc)) $("#vx-toutes", bloc).onclick = () => { TOUTES = true; recharger(false); };
     $$("[data-vx]", bloc).forEach(tr => tr.onclick = () => detailXray(tr.dataset.vx, () => recharger(false)));
   }
 
-  /* détail d'une Test Execution : statut de chaque test run et statut Jira de l'exécution, modifiables */
+  /* nouveau run dans la même Exécution (même Test Execution Xray) : échecs ou tous les tests automatisés */
+  async function relancer(cle, echecs, plateforme = "") {
+    try { const r = await api(`/api/centre/xray/execution/${encodeURIComponent(cle)}/relancer`, {method: "POST", body: {echecs, plateforme}});
+      toast(`${r.run_id} ${r.etat === "Queued" ? "en file d'attente" : "démarré"} dans ${cle} : ${r.tests.length} test(s)${r.non_automatises.length ? ` ; non automatisés, ignorés : ${r.non_automatises.join(", ")}` : ""}.`, "ok");
+      return r; }
+    catch (e) {
+      if (/Plateforme à préciser/.test(e.message)) { const p = prompt("Plateforme du run (web, android, ios, api) :", "web"); if (p) return relancer(cle, echecs, p.trim()); }
+      else toast(e.message, "ko");
+      return null; }
+  }
+
+  /* détail d'une Exécution (Test Execution Xray) : statut de chaque test run et statut Jira, runs de l'atelier, relance */
   let STATUTS = null;
   const STATUTS_DEFAUT = ["TO DO", "EXECUTING", "PASSED", "FAILED", "ABORTED"];
   async function detailXray(cle, apres) {
-    const m = modale(`Test Execution ${cle}`, `<p class="lib">Chargement…</p>`);
+    const m = modale(`Exécution ${cle}`, `<p class="lib">Chargement…</p>`);
     const corps = $(".corps-carte", m.el);
     let change = false;
     m.el.addEventListener("click", e => { if (change && (e.target === m.el || e.target.closest("[data-fermer]"))) apres(); });
@@ -152,7 +165,11 @@
     if (d.erreur) { corps.innerHTML = `<p class="ko-t">${esc(d.erreur)}</p>`; return; }
     const classe = st => /PASS/i.test(st) ? "ok" : /FAIL|ABORT|BLOCK/i.test(st) ? "ko" : "";
     const options = st => [...new Set([...(st ? [st] : []), ...sts])].map(v => `<option ${v === st ? "selected" : ""}>${esc(v)}</option>`).join("");
+    const nbEchecs = d.runs.filter(r => /FAIL|ABORT|BLOCK/i.test(r.statut)).length;
     corps.innerHTML = `<p><b>${esc(d.resume || "")}</b> <span class="lib">${esc((d.cree || "").slice(0, 10))} · ${esc((d.environnements || []).join(", ") || "sans environnement")}</span></p>
+      <p class="lib">Test Execution Xray <span class="cle-xray">${esc(cle)}</span>${d.plan ? ` · Test Plan <span class="cle-xray">${esc(d.plan)}</span>` : ""} · ${d.campagne_nom ? `campagne <b>${esc(d.campagne_nom)}</b>` : "lancée hors atelier ou hors campagne"}</p>
+      <div class="btns" style="margin-bottom:8px"><button class="btn petit primaire" id="vx-rel-e" ${nbEchecs ? "" : "disabled"}>${ico("rejouer")}Relancer les échecs (${nbEchecs})</button>
+        <button class="btn petit" id="vx-rel-t">${ico("play")}Relancer tous les tests automatisés</button><span class="lib">nouveau run, résultats écrits dans cette même exécution</span></div>
       <p style="display:flex;gap:8px;align-items:center">Statut Jira de l'exécution : <span class="pill" id="vx-st">${esc(d.statut || "—")}</span>
         ${trs.erreur ? `<span class="lib">transitions indisponibles (${esc(trs.erreur)})</span>` : trs.length ? `<select class="in" id="vx-tr" style="width:auto" aria-label="Transition Jira"><option value="">Changer…</option>
           ${trs.map(t => `<option value="${esc(t.transition)}">${esc(t.transition)}${t.statut_cible && t.statut_cible !== t.transition ? ` → ${esc(t.statut_cible)}` : ""}</option>`).join("")}</select>` : `<span class="lib">aucune transition possible</span>`}</p>
@@ -161,7 +178,14 @@
         ${d.runs.map(r => `<tr><td class="cle-xray">${esc(r.test)}</td><td>${esc(r.resume)}</td><td>${r.automatise ? "oui" : "—"}</td><td class="lib">${esc((r.fin || "").slice(0, 16).replace("T", " "))}</td>
           <td>${r.modifiable ? `<select class="in" data-run-st="${esc(r.test)}" style="width:auto" aria-label="Statut de ${esc(r.test)}">${options(r.statut)}</select>`
             : `<span class="pill ${classe(r.statut)}">${esc(r.statut || "—")}</span> <span class="lib" title="Relire depuis Xray pour obtenir l'identifiant du run">non modifiable</span>`}</td></tr>`).join("") || "<tr><td colspan=5 class='lib'>Aucun test run.</td></tr>"}</table>
-      <p class="lib">Chaque changement est écrit tout de suite dans Xray (statut du test run) ou dans Jira (transition de l'exécution).</p>`;
+      <p class="lib">Chaque changement est écrit tout de suite dans Xray (statut du test run) ou dans Jira (transition de l'exécution).</p>
+      <h3 style="margin-top:10px">Runs de l'atelier dans cette exécution (${d.runs_atelier.length})</h3>
+      ${d.runs_atelier.length ? `<table><tr><th>Run</th><th>Début</th><th>Plateforme</th><th>Statut</th><th>Réussis</th><th>Échecs</th></tr>${d.runs_atelier.map(r => `<tr class="cliquable" data-run-at="${esc(r.id)}">
+        <td class="cle-xray">${esc(r.id)}</td><td class="lib">${esc((r.debut || "").slice(0, 16).replace("T", " "))}</td><td>${esc(r.plateforme || "—")}</td><td>${statut(r.statut)}</td><td class="ok-t">${r.passes ?? "—"}</td><td class="ko-t">${r.echecs ?? "—"}</td></tr>`).join("")}</table>`
+        : "<p class='lib'>Aucun : exécution manuelle ou lancée par un autre outil.</p>"}`;
+    $$("[data-run-at]", corps).forEach(tr => tr.onclick = () => { m.fermer(); location.hash = "execution/" + tr.dataset.runAt; });
+    $("#vx-rel-e", corps).onclick = async () => { if (await relancer(cle, true)) m.fermer(); };
+    $("#vx-rel-t", corps).onclick = async () => { if (await relancer(cle, false)) m.fermer(); };
     $$("[data-run-st]", corps).forEach(sel => { let avant = sel.value; sel.onchange = async () => {
       sel.disabled = true;
       try { await api("/api/centre/xray/run-statut", {method: "POST", body: {execution: cle, test: sel.dataset.runSt, statut: sel.value}});
@@ -178,10 +202,12 @@
   async function campagnes(z) {
     const l = await api("/api/centre/campagnes");
     z.innerHTML = `${entete("Test Campaigns", `<button class="btn primaire" id="ca-n">${ico("plus")}Créer une campagne</button>`)}<div class="corps-carte">
-      ${l.length ? `<table class="table-strat"><tr><th>Campagne</th><th>Type</th><th>Plateformes</th><th>Environnement</th><th>Tests</th><th>Priorité</th><th>Dernière exécution</th><th>Réussite</th><th>Statut</th><th></th></tr>
+      ${l.length ? `<table class="table-strat"><tr><th>Campagne</th><th>Type</th><th>Plateformes</th><th>Environnement</th><th>Tests</th><th>Priorité</th><th>Test Plan · Exécutions</th><th>Dernier run</th><th>Réussite</th><th>Statut</th><th></th></tr>
         ${l.map(c => `<tr><td class="cliquable" data-ed="${esc(c.id)}"><b>${esc(c.nom)}</b><div class="lib">${esc(c.id)} · ${esc(c.cible)}</div></td><td>${esc(c.type)}</td><td>${esc(c.plateformes.join(", "))}</td>
           <td>${esc(c.environnement || "—")}</td><td class="lib">${esc([...c.tests, ...c.tags].join(", ") || "toute la cible")}${(c.exclus || []).length ? `<div class="warn-t">exclus : ${esc(c.exclus.join(", "))}</div>` : ""}
             ${c.planning?.type && c.planning.type !== "aucun" ? `<div>${ico("historique")} ${esc(c.planning.type)} ${esc(c.planning.type === "intervalle" ? c.planning.minutes + " min" : c.planning.heure)}</div>` : ""}</td><td>${esc(c.priorite)}</td>
+          <td>${c.plan_xray ? `<span class="cle-xray">${esc(c.plan_xray)}</span>` : ""}${c.execution_xray ? `<div class="lib">Exécution réutilisée <span class="cle-xray">${esc(c.execution_xray)}</span></div>` : ""}${c.plan_xray || c.execution_xray ? "" : c.xray_ticket ? `<span class="lib">ticket ${esc(c.xray_ticket)}</span>` : '<span class="lib">sans Xray</span>'}
+            ${(c.executions || []).length ? `<div class="lib">${c.executions.slice(0, 3).map(k => `<a href="#centre/vue" data-ouvrir-exe="${esc(k)}" class="cle-xray">${esc(k)}</a>`).join(", ")}${c.executions.length > 3 ? ` +${c.executions.length - 3}` : ""}</div>` : ""}</td>
           <td>${c.derniere_execution ? `${esc(c.derniere_execution.slice(0, 16).replace("T", " "))} ${statut(c.dernier_statut)}` : "—"}</td><td>${c.taux_reussite === null ? "—" : c.taux_reussite + " %"}</td><td>${esc(c.statut)}</td>
           <td class="btns">${c.statut === "Active" ? `<button class="btn petit primaire" data-ex="${esc(c.id)}">${ico("play")}Exécuter</button><button class="btn petit" data-dry="${esc(c.id)}">Dry run</button>` : ""}
             <button class="btn petit" data-dup="${esc(c.id)}">Dupliquer</button>${c.runs.length >= 2 ? `<button class="btn petit" data-cmp="${esc(c.runs[1])}|${esc(c.runs[0])}">Comparer</button>` : ""}</td></tr>`).join("")}</table>`
@@ -242,6 +268,7 @@
     };
     $("#ca-n").onclick = () => form();
     $$("[data-ed]", z).forEach(t => t.onclick = () => form(l.find(c => c.id === t.dataset.ed)));
+    $$("[data-ouvrir-exe]", z).forEach(a => a.onclick = ev => { ev.preventDefault(); detailXray(a.dataset.ouvrirExe, () => {}); });
     $$("[data-dup]", z).forEach(b => b.onclick = () => { const c = l.find(x => x.id === b.dataset.dup); form({...c, id: undefined, nom: c.nom + " (copie)"}); });
     const executer = async (id, dry) => {
       try { const r = await api(`/api/centre/campagnes/${encodeURIComponent(id)}/executer`, {method: "POST", body: {dry_run: dry}});

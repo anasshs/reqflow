@@ -788,6 +788,16 @@ async def centre_xray_execution(cle: str):
     return await asyncio.to_thread(_call, centre.detail_execution_xray, cle)
 
 
+@app.post("/api/centre/xray/execution/{cle}/relancer")
+async def centre_xray_relancer(cle: str, req: Request):
+    """Nouveau run dans la même Exécution (Test Execution Xray) : tous ses tests automatisés, ou ses échecs."""
+    b = await req.json()
+    r = _call(centre.params_relance, cle, bool(b.get("echecs")), b.get("plateforme", ""))
+    job = await asyncio.to_thread(_call, _mettre_en_file, r["params"], b.get("priorite") or "Normal", r["campagne"],
+                                  f"{cle} · {'échecs' if b.get('echecs') else 'tous les tests'}")
+    return {**job, "tests": r["tests"], "non_automatises": r["non_automatises"]}
+
+
 @app.get("/api/centre/xray/statuts")
 async def centre_xray_statuts():
     """Statuts de test run du projet (Xray) ; mis en cache pour la session."""

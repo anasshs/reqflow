@@ -48,7 +48,7 @@ def lister(limite: int = 50) -> list[dict]:
         out.append({"id": d["id"], "suite": (d.get("params") or {}).get("target"), "debut": d.get("debut"),
                     "fin": d.get("fin"), "statut": statut, "passes": r.get("passes"), "echecs": r.get("echecs"),
                     "plateforme": ((d.get("params") or {}).get("variables") or {}).get("PLATFORM", ""),
-                    "xray": (b.get("xray") or {}).get("execution"), "dry_run": bool((d.get("params") or {}).get("dry_run")),
+                    "xray": (b.get("xray") or {}).get("execution"), "xray_plan": (b.get("xray") or {}).get("plan"), "dry_run": bool((d.get("params") or {}).get("dry_run")),
                     "campagne": (d.get("params") or {}).get("campagne", ""), "priorite": (d.get("params") or {}).get("priorite", ""),
                     "contexte": (d.get("params") or {}).get("contexte") or {},
                     "tentatives": len(b.get("tentatives") or []) or (1 if "resultat" in b else 0), "instables": b.get("instables") or []})

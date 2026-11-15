@@ -270,13 +270,14 @@ def campagnes() -> list[dict]:
         c["dernier_statut"] = mes[0]["statut"] if mes else ""
         c["taux_reussite"] = round(100 * p / (p + e), 1) if p + e else None
         c["runs"] = [r["id"] for r in mes]
+        c["executions"] = list(dict.fromkeys(r["xray"] for r in mes if r.get("xray")))  # Test Executions Xray, plus récente d'abord
     return l
 
 
 def _ecrire_campagnes(l: list[dict]):
     from atelier.intelligence.strategie import _ecrire_atomique
 
-    propres = [{k: v for k, v in c.items() if k not in ("derniere_execution", "dernier_statut", "taux_reussite", "runs")} for c in l]
+    propres = [{k: v for k, v in c.items() if k not in ("derniere_execution", "dernier_statut", "taux_reussite", "runs", "executions")} for c in l]
     _ecrire_atomique(_fichier_campagnes(), yaml.safe_dump(propres, allow_unicode=True, sort_keys=False))
 
 
@@ -640,6 +641,9 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
                       "statut": e.get("statut", ""), "tests": len(runs), **n, "taux": round(100 * n["reussi"] / executes, 1) if executes else None,
                       "automatises": sum(1 for k in runs if k in automatises), "incomplete": bool(e.get("incomplete")),
                       "tests_total": e.get("tests_total") or len(runs)})
+    liens = runs_par_execution()
+    for x in execs:
+        x.update({k: liens.get(x["cle"], {}).get(k) for k in ("campagne", "campagne_nom", "plan")}, runs_atelier=len(liens.get(x["cle"], {}).get("runs") or []))
     tot = {k: sum(x[k] for x in execs) for k in ("reussi", "echec", "non_execute")}
     executes = tot["reussi"] + tot["echec"]
     imp = pat.get("executions_xray") or {}
@@ -656,6 +660,56 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
             "recentes": execs}
 
 
+def runs_par_execution(limite: int = 500) -> dict:
+    """Lien Exécution de l'atelier = Test Execution Xray : {clé: {runs, campagne, campagne_nom, plan}} à partir des runs
+    Robot qui y ont écrit (un run = un lancement ; plusieurs runs peuvent alimenter la même exécution : relance des
+    échecs, nouvelle tentative)."""
+    from atelier.execution import historique
+
+    noms = {}
+    try:
+        f = _fichier_campagnes()
+        noms = {c["id"]: c["nom"] for c in (yaml.safe_load(f.read_text("utf-8")) or [])} if f.exists() else {}
+    except (OSError, yaml.YAMLError):
+        pass
+    out: dict = {}
+    for r in historique.lister(limite):  # du plus récent au plus ancien
+        if not r.get("xray"):
+            continue
+        e = out.setdefault(r["xray"], {"runs": [], "campagne": "", "campagne_nom": "", "plan": ""})
+        e["runs"].append({k: r.get(k) for k in ("id", "debut", "fin", "statut", "plateforme", "passes", "echecs", "dry_run")})
+        e["campagne"] = e["campagne"] or r.get("campagne") or ""
+        e["campagne_nom"] = e["campagne_nom"] or noms.get(r.get("campagne") or "", "")
+        e["plan"] = e["plan"] or r.get("xray_plan") or ""
+    return out
+
+
+def params_relance(cle: str, echecs: bool = False, plateforme: str = "") -> dict:
+    """Paramètres d'un nouveau run qui écrit dans la même Exécution (Test Execution Xray) : tous ses tests, ou ceux en
+    échec. Reprend le dernier run de l'atelier dans cette exécution (suite, plateforme, environnement, campagne) ;
+    seuls les tests automatisés (présents dans le dépôt Robot) sont lancés, les autres sont signalés."""
+    from atelier.execution import historique
+    from atelier.execution.depot_robot import lire_depot
+
+    d = detail_execution_xray(cle)
+    voulus = [r["test"] for r in d["runs"] if not echecs or _classe_xray(r["statut"]) == "echec"]
+    automatises = {c for t in lire_depot()["tests"].values() for c in t.get("cles_xray") or []}
+    lances = [k for k in voulus if k in automatises]
+    if not lances:
+        raise ValueError("Aucun test automatisé à relancer dans cette exécution" + (" (aucun échec)." if echecs and not voulus else "."))
+    base: dict = {}
+    if d["runs_atelier"]:
+        f = historique.dossier(d["runs_atelier"][0]["id"]) / "bilan.json"
+        base = (json.loads(f.read_text("utf-8")).get("params") or {}) if f.exists() else {}
+    plat = plateforme or ((base.get("variables") or {}).get("PLATFORM")) or next((e for e in d.get("environnements") or [] if e in PLATEFORMES), "")
+    if plat not in PLATEFORMES:
+        raise ValueError(f"Plateforme à préciser : {', '.join(PLATEFORMES)}.")
+    p = {"target": base.get("target") or "tests", "variables": {**(base.get("variables") or {}), "PLATFORM": plat},
+         "include_tags": lances, "xray_ticket": cle, "jdd_env": base.get("jdd_env") or ""}
+    return {"params": {k: v for k, v in p.items() if v}, "campagne": d.get("campagne") or "", "tests": lances,
+            "non_automatises": [k for k in voulus if k not in automatises]}
+
+
 def detail_execution_xray(cle: str) -> dict:
     """Une Test Execution de la copie locale : ses test runs (statut, fin), avec résumé du test, automatisé ou non."""
     from atelier.execution.depot_robot import lire_depot
@@ -667,7 +721,10 @@ def detail_execution_xray(cle: str) -> dict:
         raise KeyError(f"Exécution {cle} absente de la copie locale.")
     resumes = {t["cle"]: t.get("resume") or "" for t in pat.get("tests") or []}
     automatises = {c for t in lire_depot()["tests"].values() for c in t.get("cles_xray") or []}
+    lien = runs_par_execution().get(cle, {})
     return {**{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests_total", "incomplete")},
+            "campagne": lien.get("campagne", ""), "campagne_nom": lien.get("campagne_nom", ""), "plan": lien.get("plan", ""),
+            "runs_atelier": lien.get("runs") or [],
             "runs": [{"test": k, "resume": resumes.get(k, ""), "statut": r.get("statut", ""), "fin": r.get("fin", ""), "modifiable": bool(r.get("id")),
                       "automatise": k in automatises} for k, r in sorted((e.get("runs") or {}).items())]}
 

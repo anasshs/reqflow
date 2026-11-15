@@ -128,3 +128,7 @@ Une ligne datée par décision d'architecture ou de conception.
   plan, ou réutilise une Test Execution donnée.
 - Configuration de l'application : JQL des Test Plans et JQL des Test Executions (vide = tout le projet Xray) ; le
   tableau de bord ne lit dans Xray que les Test Executions de cette JQL.
+- Vocabulaire de l'atelier : Campagne ↔ Test Plan ; Exécution ↔ Test Execution ; Run = un lancement Robot qui
+  écrit dans une Exécution. Plusieurs runs peuvent alimenter la même Exécution (relance des échecs, relance
+  complète, retry) ; une campagne lancée sur deux plateformes crée une Exécution par plateforme (environnement
+  Xray distinct). Le lien Exécution ↔ runs ↔ campagne est calculé à partir des runs, jamais stocké à part.
