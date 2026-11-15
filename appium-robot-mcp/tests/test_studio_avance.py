@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import pointer_projet
+from tests.conftest import pointer_projet, run_reussi
 
 DEMO = Path(__file__).resolve().parents[1] / "demo" / "banque_connexion"
 
@@ -31,6 +31,7 @@ def test_roles_mode_ouvert_puis_droits_et_quatre_yeux(demo, monkeypatch):
     roles.definir({moi: "responsable", "b.relecteur": "relecteur"})
     f = "tests/connexion.robot"
     studio.transition_script(f, "soumettre")
+    run_reussi(f)
     with pytest.raises(PermissionError, match="Quatre yeux"):
         studio.transition_script(f, "approuver")  # soumis et approuvé par la même personne
     monkeypatch.setattr(roles, "utilisateur", lambda: "b.relecteur")
@@ -280,9 +281,69 @@ def test_cursor_corrige_un_locator_et_les_suites_repassent_en_revue(demo):
 
     f = "tests/connexion.robot"
     studio.transition_script(f, "soumettre")
-    studio.transition_script(f, "approuver")
+    studio.transition_script(f, "approuver", derogation="suite de démonstration, run hors poste")
     assert studio.revue_script(f)["statut"] == "Approved"
     r = facade.studio_corriger_locator("connexion.bouton_connexion@web", "data-testid=login")
     assert r["suites_en_revue"] == [f] and studio.revue_script(f)["statut"] == "Technical Review"  # le fichier de la suite n'a pas changé
     j = next(x for x in studio.journal() if x["op"] == "correction_locator")
     assert j["origine"] == "cursor"
+
+
+# --------------------------------------------------------------------------- revue plus sûre, pilotage, sessions
+def test_revue_ecart_avec_version_approuvee_et_derogation(demo):
+    from atelier.generation import studio
+
+    f = "tests/connexion.robot"
+    studio.transition_script(f, "soumettre")
+    r = studio.transition_script(f, "approuver", derogation="validé sur le poste de recette")
+    assert "dérogation (sans run réussi) : validé sur le poste de recette" in r["historique"][-1]["commentaire"] and r["version_approuvee"]
+    p = demo / f
+    p.write_text(p.read_text("utf-8").replace("*** Test Cases ***", "*** Test Cases ***\n# modifié par Cursor"), "utf-8")
+    r = studio.revue_script(f)
+    assert r["statut"] == "Technical Review" and "+# modifié par Cursor" in r["diff_version_approuvee"]
+    assert r["dernier_run"] is None and not r["run_valide"]
+    run_reussi(f)
+    assert studio.revue_script(f)["run_valide"]
+
+
+def test_session_agent_enregistree_et_liee_au_script(demo):
+    from datetime import datetime, timedelta
+
+    from atelier.generation import sessions_agent, studio
+
+    t0 = datetime.now() - timedelta(minutes=5)
+    sessions_agent.enregistrer_appel({"nom": "start_session", "etat": "debut", "famille": "ecran", "args": {"platform": "web"}}, t0)
+    sessions_agent.enregistrer_appel({"nom": "start_session", "etat": "fin", "famille": "ecran", "duree": 1.2, "resultat": "statut : ouverte"}, t0)
+    sessions_agent.enregistrer_image(b"\x89PNG-1", "start_session", t0)
+    sessions_agent.enregistrer_appel({"nom": "studio_construire_test", "etat": "fin", "famille": "ecriture", "resultat": "fichier : tests/connexion.robot"}, t0)
+    studio.entrer_en_revue("tests/connexion.robot", "cursor")
+    sid = studio.revue_script("tests/connexion.robot")["session_agent"]
+    assert sid and sessions_agent.lister()[0]["ecrits"] == ["tests/connexion.robot"]
+    d = sessions_agent.detail(sid)
+    assert d["etapes"][0]["nom"] == "start_session" and d["etapes"][0]["args"] == {"platform": "web"} and d["etapes"][0]["image"] == "img_0001.png"
+    assert sessions_agent.image(sid, "img_0001.png") == b"\x89PNG-1"
+    with pytest.raises(ValueError):
+        sessions_agent.image(sid, "../../revues_scripts.json")
+    autre = sessions_agent.session_courante(t0 + timedelta(hours=2))  # plus de 30 min sans appel : nouvelle session
+    assert autre != sid
+
+
+def test_pause_et_arret_de_l_agent(monkeypatch):
+    pytest.importorskip("mcp")
+    from atelier.adapters import facade
+    from atelier.adapters.mcp import server
+    from atelier.integrations import interface_web
+
+    etats = iter(["pause", "pause", "actif"])
+    monkeypatch.setattr(facade, "WEB_EVENTS_URL", "http://127.0.0.1:8765/api/events")
+    monkeypatch.setattr(interface_web, "appeler", lambda *a, **k: {"etat": next(etats)})
+    server._attendre_autorisation("tap", delai=0)  # attend la reprise
+    monkeypatch.setattr(interface_web, "appeler", lambda *a, **k: {"etat": "arret"})
+    with pytest.raises(RuntimeError, match="Arrêté par l'automaticien"):
+        server._suivre_projet(lambda key: None)("bouton")
+
+    def injoignable(*a, **k):
+        raise OSError("atelier fermé")
+
+    monkeypatch.setattr(interface_web, "appeler", injoignable)
+    server._attendre_autorisation("tap", delai=0)  # atelier injoignable : l'outil continue

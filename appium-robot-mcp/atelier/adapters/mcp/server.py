@@ -60,6 +60,36 @@ def _envoyer_image(nom: str):
         pass
 
 
+PAUSE_MAX_S = 900
+
+
+def _attendre_autorisation(nom: str, delai: float = 1.5):
+    """Pilotage par l'automaticien (vue « Avec Cursor (en direct) ») : en pause, l'outil attend la reprise ; arrêté,
+    il échoue avec un message que l'agent lit. Atelier injoignable : l'outil continue (jamais bloqué par l'interface)."""
+    import time
+
+    if not facade.WEB_EVENTS_URL:
+        return
+    base = interface_web.base(facade.WEB_EVENTS_URL)
+    debut, annonce = time.time(), False
+    while True:
+        try:
+            etat = interface_web.appeler(base, "GET", "/api/mcp/controle", timeout=1).get("etat", "actif")
+        except Exception:  # noqa: BLE001
+            return
+        if etat == "actif":
+            return
+        if etat == "arret":
+            raise RuntimeError("Arrêté par l'automaticien dans l'atelier (Automation Studio › Construire) : ne rien faire de plus, "
+                               "attendre ses instructions dans le chat.")
+        if not annonce:
+            _publier_activite(nom, "pause")
+            annonce = True
+        if time.time() - debut > PAUSE_MAX_S:
+            raise RuntimeError("En pause depuis plus de 15 minutes dans l'atelier : attendre les instructions de l'automaticien.")
+        time.sleep(delai)
+
+
 def _suivre_projet(fn):
     """Avant chaque outil : projet actif de l'atelier et secrets du coffre (même signature et description que l'outil).
     Pendant : début et fin de l'appel publiés à l'atelier (temps réel), image du navigateur après une action."""
@@ -72,6 +102,7 @@ def _suivre_projet(fn):
             args = dict(inspect.signature(fn).bind_partial(*a, **k).arguments)
         except TypeError:
             args = dict(k)
+        _attendre_autorisation(fn.__name__)
         _publier_activite(fn.__name__, "debut", args)
         t0 = time.time()
         try:

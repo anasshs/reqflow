@@ -55,3 +55,15 @@ def projet(tmp_path, monkeypatch) -> Path:
 
 def lire_fixture(*parts: str) -> str:
     return FIXTURES.joinpath(*parts).read_text("utf-8")
+
+
+def run_reussi(fichier: str, dry_run: bool = True) -> str:
+    """Enregistre un run réussi de la suite, postérieur à sa dernière modification (préalable à l'approbation)."""
+    from datetime import datetime, timedelta
+
+    from atelier.execution import historique
+
+    rid = f"RUN-{datetime.now():%Y%m%d-%H%M%S}-{abs(hash(fichier)) % 1000}"
+    debut = (datetime.now() + timedelta(seconds=2)).isoformat(timespec="seconds")
+    historique.enregistrer(rid, {"target": fichier, "dry_run": dry_run}, {"resultat": {"passes": 1, "echecs": 0}}, debut, debut)
+    return rid

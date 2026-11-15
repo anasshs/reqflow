@@ -15,6 +15,7 @@ import json
 import re
 import secrets
 import shutil
+from datetime import datetime
 
 import yaml
 
@@ -275,15 +276,44 @@ def controles_script(fichier: str) -> list[dict]:
     return out
 
 
+def _version_approuvee(fichier: str):
+    return _dossier() / "versions" / (fichier.replace("/", "__") + ".approuve")
+
+
+def dernier_run(fichier: str) -> dict | None:
+    """Dernier run (réel ou dry run) qui couvrait cette suite, et s'il est postérieur à la dernière modification."""
+    from atelier.execution import historique
+
+    cible = projet.safe_path(fichier)
+    for r in historique.lister(200):
+        t = (r.get("suite") or "").rstrip("/")
+        if t and (t == fichier or fichier.startswith(t + "/")):
+            apres = bool(r.get("debut")) and datetime.fromisoformat(r["debut"][:19]).timestamp() >= cible.stat().st_mtime
+            return {**{k: r.get(k) for k in ("id", "debut", "statut", "passes", "echecs", "dry_run")}, "apres_modification": apres}
+    return None
+
+
 def revue_script(fichier: str) -> dict:
+    import difflib
+
+    from atelier.generation import sessions_agent
+
     projet.safe_path(fichier)
     r = revues_scripts().get(fichier)
     if r is None:
         raise KeyError(f"Suite inconnue : {fichier}")
-    return {**r, "fichier": fichier, "controles": controles_script(fichier)}
+    v = _version_approuvee(fichier)
+    diff = ""
+    if v.exists():
+        avant, apres = v.read_text("utf-8").splitlines(), projet.safe_path(fichier).read_text("utf-8").splitlines()
+        diff = "\n".join(list(difflib.unified_diff(avant, apres, "version approuvée", "version actuelle", lineterm="", n=2))[:400])
+    run = dernier_run(fichier)
+    return {**r, "fichier": fichier, "controles": controles_script(fichier), "version_approuvee": v.exists(), "diff_version_approuvee": diff,
+            "dernier_run": run, "run_valide": bool(run and run["apres_modification"] and run["statut"] == "réussi"),
+            "session_agent": sessions_agent.session_du_script(r.get("historique"))}
 
 
-def transition_script(fichier: str, action: str, commentaire: str = "") -> dict:
+def transition_script(fichier: str, action: str, commentaire: str = "", derogation: str = "") -> dict:
     if action not in TRANSITIONS:
         raise ValueError(f"Action inconnue : {action}")
     from atelier.domain import roles
@@ -305,12 +335,20 @@ def transition_script(fichier: str, action: str, commentaire: str = "") -> dict:
         bloquants = [c["message"] for c in actuel["controles"] if c["gravite"] == "haute"]
         if bloquants:
             raise ValueError("Contrôles bloquants : " + " ; ".join(bloquants))
+    if action == "approuver" and not actuel["run_valide"]:
+        if len(derogation.strip()) < 10:
+            raise ValueError("Approbation : lancer d'abord un dry run (ou un run) réussi de la suite depuis sa dernière modification, "
+                             "ou justifier une dérogation (10 caractères au moins).")
+        commentaire = (commentaire + " · " if commentaire.strip() else "") + f"dérogation (sans run réussi) : {derogation.strip()}"
     st = _stock()
     r = st.setdefault(fichier, {"statut": "Generated", "historique": []})
     r["historique"].append({"date": _maintenant(), "auteur": _auteur(), "de": actuel["statut"], "vers": vers, "commentaire": commentaire.strip()})
     r["statut"] = vers
     if vers in ("Approved", "Published"):
         r["empreinte"] = _empreinte(fichier)  # toute modification ultérieure renvoie en revue
+        v = _version_approuvee(fichier)  # base de l'écart affiché à la prochaine revue
+        v.parent.mkdir(parents=True, exist_ok=True)
+        v.write_text(projet.safe_path(fichier).read_text("utf-8"), "utf-8")
     _ecrire_atomique(_dossier() / "revues_scripts.json", json.dumps(st, ensure_ascii=False, indent=1))
     _journaliser("revue_script", fichier=fichier, action=action, de=actuel["statut"], vers=vers, commentaire=commentaire.strip())
     return revue_script(fichier)

@@ -59,5 +59,9 @@ Construire un test (Cursor écrit, l'automaticien valide dans l'atelier) :
    cas, les suites concernées repassent en revue : l'automaticien valide.
 L'automaticien voit en direct ton écran (device, émulateur ou navigateur) et chacun de tes appels d'outils dans
 Automation Studio › Construire › « Avec Cursor (en direct) » : annonce ce que tu fais, une étape à la fois.
+Il peut te mettre en pause (tes outils attendent) ou t'arrêter (un outil échoue avec « Arrêté par
+l'automaticien ») : dans ce cas ne relance rien, attends ses instructions. Pour une étape délicate, propose-la
+avec propose_step : il valide, corrige ou refuse depuis la même vue. Le relecteur verra toute ta session
+(appels et écrans) dans la revue du script : avant de soumettre, lance un dry run réussi de la suite.
 Toute suite écrite avec write_project_file entre aussi en revue : elle ne s'exécute (hors dry_run) qu'une
 fois approuvée.

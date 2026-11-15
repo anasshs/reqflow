@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import pointer_projet
+from tests.conftest import pointer_projet, run_reussi
 
 DEMO = Path(__file__).resolve().parents[1] / "demo" / "banque_connexion"
 
@@ -133,6 +133,9 @@ def test_revue_script_et_retour_en_revue_si_modifie(demo):
     with pytest.raises(ValueError):
         studio.transition_script(f, "approuver")
     studio.transition_script(f, "soumettre")
+    with pytest.raises(ValueError, match="dry run"):
+        studio.transition_script(f, "approuver")  # aucun run réussi depuis la dernière modification
+    run_reussi(f)
     studio.transition_script(f, "approuver")
     r = studio.transition_script(f, "publier", "OK pour la TNR")
     assert r["statut"] == "Published" and all(c["gravite"] == "ok" for c in r["controles"])

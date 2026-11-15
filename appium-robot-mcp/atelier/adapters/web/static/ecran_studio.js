@@ -43,6 +43,7 @@
   });
 
   const entete = (t, a = "") => `<h2 class="titre-carte">${esc(t)}<span class="actions-titre">${a}</span></h2>`;
+  const statut = s => `<span class="pill ${{"réussi": "ok", "échec": "ko", "erreur": "ko", "en cours": "info"}[s] || ""}">${esc(s)}</span>`;
   const pill = (s, lib) => `<span class="pill ${PILL[s] || ""}">${esc(lib || LIB[s] || s)}</span>`;
   const barres = (titre, d) => { const max = Math.max(1, ...Object.values(d)); return `<section class="bloc-strat"><h3>${esc(titre)}</h3>${Object.entries(d).map(([k, v]) =>
     `<div style="display:flex;gap:8px;align-items:center;margin:4px 0"><span style="width:140px" class="ellipse">${esc(LIB[k] || k)}</span><div class="barre" style="flex:1"><i style="width:${v / max * 100}%"></i></div><span class="mono">${v}</span></div>`).join("")}</section>`; };
@@ -86,7 +87,11 @@
         <button class="btn primaire" id="dr-dem" title="Demande prête à coller dans Cursor pour ce scénario">${ico("ia")}Demander à Cursor</button>`)}
       <div class="corps-carte">
         <ol class="workflow" style="margin-bottom:10px"><li>Vous demandez (bouton ci-dessus)</li><li>Cursor pilote l'écran et écrit le test : vous le voyez ici</li><li>Il le soumet en revue</li><li>Vous approuvez, demandez des modifications ou refusez</li></ol>
-        <div id="dr-etat" class="lib" style="margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span id="dr-etat" class="lib"></span>
+          <span style="margin-left:auto" class="btns"><button class="btn petit" data-pilote="pause" title="Cursor attend avant son prochain outil (jusqu'à la reprise)">⏸ Pause</button>
+            <button class="btn petit" data-pilote="actif" title="Cursor reprend">▶ Reprendre</button>
+            <button class="btn petit danger" data-pilote="arret" title="Le prochain outil de Cursor échoue avec « arrêté par l'automaticien » ; il attend vos instructions dans le chat">■ Arrêter</button></span></div>
+        <div id="dr-attente"></div>
         <div style="display:grid;grid-template-columns:minmax(260px,420px) minmax(0,1fr);gap:12px;align-items:start">
           <section class="bloc-strat"><h3>Écran piloté <span class="lib" id="dr-cible" style="font-weight:normal"></span></h3>
             <div id="dr-ecran" style="min-height:260px;display:flex;align-items:center;justify-content:center;background:var(--fond-2, #0001);border-radius:8px;overflow:hidden">
@@ -98,7 +103,13 @@
           ${parCursor.length ? `<table><tr><th>Suite</th><th>Statut</th><th>Dernière étape</th><th></th></tr>${parCursor.map(([f, r]) => { const h = (r.historique || []).slice(-1)[0] || {};
             return `<tr><td class="mono">${esc(f)}</td><td>${pill(r.statut)}</td><td class="lib">${esc((h.date || "").slice(0, 16).replace("T", " "))} · ${esc(h.commentaire || "")}</td>
               <td><a class="btn petit primaire" href="#studio/revue" data-revue="${esc(f)}" title="Ouvrir les contrôles et décider">Revoir</a></td></tr>`; }).join("")}</table>`
-            : "<p class='lib'>Rien en attente : les tests écrits par Cursor apparaîtront ici dès qu'il les écrit.</p>"}</section></div>`;
+            : "<p class='lib'>Rien en attente : les tests écrits par Cursor apparaîtront ici dès qu'il les écrit.</p>"}</section>
+        <section class="bloc-strat" style="margin-top:12px"><h3>Sessions passées de Cursor</h3><div id="dr-sess" class="lib">Chargement…</div></section></div>`;
+    api("/api/agent/sessions").then(l => { $("#dr-sess").innerHTML = l.length ? `<table><tr><th>Session</th><th>Appels</th><th>Erreurs</th><th>Écrans</th><th>Fichiers écrits</th><th></th></tr>${l.map(x => `<tr>
+        <td class="mono">${esc(x.debut.slice(0, 16).replace("T", " "))} → ${esc(x.fin.slice(11, 16))}</td><td>${x.appels}</td><td class="${x.erreurs ? "ko-t" : ""}">${x.erreurs}</td><td>${x.images}</td>
+        <td class="mono lib">${esc(x.ecrits.join(", ") || "—")}</td><td><button class="btn petit" data-rejouer-s="${esc(x.id)}" title="Revoir chaque appel et l'écran après chaque action">Revoir</button></td></tr>`).join("")}</table>`
+        : "Aucune session enregistrée.";
+      $$("[data-rejouer-s]", z).forEach(b => b.onclick = () => rejouerSession(b.dataset.rejouerS)); }).catch(e => { $("#dr-sess").textContent = e.message; });
     $("#dr-dem").onclick = () => { const cle = $("#dr-cle").value;
       demandeCursor(cle ? `Construis le test Robot du scénario BDD ${cle} avec le MCP de l'atelier : studio_socle, studio_scenario_bdd("${cle}"), ouvre la session (start_session) et vérifie chaque étape à l'écran, `
         + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants sans wrapper 1:1, corrige les locators fragiles (studio_corrections_locators, studio_corriger_locator), `
@@ -111,12 +122,30 @@
       ${e.etat === "debut" ? '<span class="pill info">en cours…</span>' : e.etat === "erreur" ? `<span class="pill ko">erreur</span> <span class="ko-t">${esc(e.message || "")}</span>`
         : `<span class="lib">${esc(e.duree ?? "")} s · ${esc(e.resultat || "")}</span>`}
       ${e.etat === "debut" && e.args && Object.keys(e.args).length ? `<div class="lib mono" style="font-size:11px">${esc(Object.entries(e.args).map(([k, v]) => k + "=" + v).join("  "))}</div>` : ""}</li>`;
+    let attenteVue = "";
     const rafraichir = async () => {
       if (!document.body.contains(z)) return clearInterval(minuteur);
       const a = await api("/api/mcp/activite").catch(() => null);
       if (!a) return;
+      $$("[data-pilote]", z).forEach(b => { b.disabled = b.dataset.pilote === a.controle; });
+      const at = a.attente;
+      if ((at?.id || "") !== attenteVue) {  // étape proposée par Cursor (propose_step) : réponse ici
+        attenteVue = at?.id || "";
+        $("#dr-attente").innerHTML = at && at.step ? `<section class="bloc-strat" style="border:2px solid var(--warn);margin-bottom:10px"><h3>Cursor attend votre réponse</h3>
+          <p><b class="mono">${esc(at.step.gherkin || "")}</b>${at.step.keyword ? ` · keyword <span class="mono">${esc(at.step.keyword)}</span>` : ""}${(at.step.locators || []).length ? ` · locators ${esc(at.step.locators.join(", "))}` : ""}</p>
+          ${at.step.commentaire ? `<p class="lib">${esc(at.step.commentaire)}</p>` : ""}
+          <div class="champ"><label for="dr-cor">Correction (pour « Corriger »)</label><input class="in" id="dr-cor" value="${esc(at.step.gherkin || "")}"></div>
+          <div class="btns"><button class="btn succes" data-rep="valider" title="Cursor garde ce step et continue">Valider</button>
+            <button class="btn" data-rep="corriger" title="Cursor applique votre correction avant de continuer">Corriger</button>
+            <button class="btn danger" data-rep="refuser" title="Cursor propose autre chose">Refuser</button></div></section>` : "";
+        $$("[data-rep]", z).forEach(b => b.onclick = async () => {
+          try { await api("/api/agent/reponse", {method: "POST", body: {id: at.id, decision: b.dataset.rep, texte: b.dataset.rep === "corriger" ? $("#dr-cor").value : ""}});
+            toast("Réponse envoyée à Cursor.", "ok"); attenteVue = ""; rafraichir(); } catch (e) { toast(e.message, "ko"); } });
+      }
       const depuis = a.dernier ? Math.round(Date.now() / 1000 - a.dernier) : null;
-      $("#dr-etat").innerHTML = a.actif ? `<span class="pill ok">Cursor actif</span> dernier appel il y a ${depuis} s`
+      $("#dr-etat").innerHTML = a.controle === "pause" ? '<span class="pill warn">Cursor en pause</span> il attend « Reprendre » avant son prochain outil'
+        : a.controle === "arret" ? '<span class="pill ko">Cursor arrêté</span> ses outils échouent jusqu\'à « Reprendre »'
+        : a.actif ? `<span class="pill ok">Cursor actif</span> dernier appel il y a ${depuis} s`
         : `<span class="pill">Cursor inactif</span> ${a.dernier ? `dernier appel il y a ${Math.round(depuis / 60)} min` : "aucun appel reçu : vérifier la liaison Cursor (Paramètres › Connexions)"}`;
       $("#dr-cible").textContent = a.flux?.platform ? `· ${a.flux.platform}${a.flux.udid ? " " + a.flux.udid : ""}` : "";
       const masquer = $("#dr-lect").checked;
@@ -131,6 +160,8 @@
           img.onload = () => $("#dr-ecran").replaceChildren(img); img.src = "/api/frame.png?t=" + Date.now(); }
       }
     };
+    $$("[data-pilote]", z).forEach(b => b.onclick = async () => {
+      try { await api("/api/agent/pilotage", {method: "POST", body: {etat: b.dataset.pilote}}); rafraichir(); } catch (e) { toast(e.message, "ko"); } });
     const minuteur = setInterval(rafraichir, 1500);
     rafraichir();
     $("#dr-lect").onchange = rafraichir;
@@ -510,14 +541,46 @@
       Approved: [["publier", "Publier vers Execution Center", "btn-publier", "Rend le script disponible sans avertissement dans l'Execution Center"]], Published: [],
       Rejected: [["soumettre", "Resoumettre", "primaire", "Remet le script refusé en revue technique"]]}[r.statut] || [];
     const G = {ok: ["ok", "check"], haute: ["ko", "x"], moyenne: ["warn", "aide"], basse: ["", "aide"]};
-    const p = panneau(f, `<p>${pill(r.statut)}</p><h3 class="lib">POINTS DE CONTRÔLE</h3><ul class="liste checklist">${r.controles.map(c => `<li><span class="${G[c.gravite][0]}-t">${ico(G[c.gravite][1])}</span><span class="item">${esc(c.message)}</span></li>`).join("")}</ul>
+    const run = r.dernier_run;
+    const p = panneau(f, `<p>${pill(r.statut)}${r.session_agent ? ` <button class="btn petit" id="rv-sess" title="Rejoue la session de Cursor qui a écrit ce script : chaque appel d'outil et l'écran après chaque action">${ico("ia")}Comment Cursor l'a construit</button>` : ""}</p>
+      <h3 class="lib">DERNIÈRE EXÉCUTION</h3>
+      <p>${run ? `${statut(run.statut)} ${run.dry_run ? '<span class="pill">dry run</span>' : ""} <span class="lib">${esc((run.debut || "").slice(0, 16).replace("T", " "))} · ${run.passes ?? "—"} réussi(s), ${run.echecs ?? "—"} échec(s)</span>
+          ${run.apres_modification ? "" : '<span class="pill warn" title="Le script a changé depuis ce run">avant la dernière modification</span>'}` : '<span class="lib">aucun run de cette suite</span>'}
+        <button class="btn petit" id="rv-dry" title="Vérifie la suite sans piloter l'application (syntaxe, keywords, variables) ; exigé avant d'approuver">${ico("play")}Lancer un dry run</button>
+        ${r.run_valide ? '<span class="pill ok" title="Run réussi depuis la dernière modification">prêt à approuver</span>' : '<span class="pill warn" title="Approuver demandera une dérogation justifiée">pas de run réussi depuis la modification</span>'}</p>
+      ${r.version_approuvee ? `<h3 class="lib">ÉCART AVEC LA VERSION APPROUVÉE</h3>${r.diff_version_approuvee ? `<pre class="code-bloc" style="max-height:220px;overflow:auto">${r.diff_version_approuvee.split("\n").map(l => `<span class="${/^\+(?!\+\+)/.test(l) ? "ok-t" : /^-(?!--)/.test(l) ? "ko-t" : ""}">${esc(l)}</span>`).join("\n")}</pre>` : "<p class='lib'>Identique à la version approuvée.</p>"}` : ""}
+      <h3 class="lib">POINTS DE CONTRÔLE</h3><ul class="liste checklist">${r.controles.map(c => `<li><span class="${G[c.gravite][0]}-t">${ico(G[c.gravite][1])}</span><span class="item">${esc(c.message)}</span></li>`).join("")}</ul>
       <div class="champ"><label for="rv-c">Commentaire</label><textarea class="in" id="rv-c" rows="2"></textarea></div>
       <div class="btns">${A.map(([a, l, c, t]) => `<button class="btn ${c}" data-a="${a}" title="${esc(t)}">${esc(l)}</button>`).join("")}<a class="btn" href="#editeur/${encodeURIComponent(f)}" title="Ouvre le script dans l'éditeur : code, historique des versions et diff">${ico("editeur")}Code et historique (diff)</a></div>
       <h3 class="lib" style="margin-top:12px">HISTORIQUE</h3><ul class="liste">${r.historique.slice().reverse().map(h => `<li><span class="mono lib">${esc(h.date.slice(5, 16).replace("T", " "))}</span><span class="item">${esc(LIB[h.de])} → ${esc(LIB[h.vers])}${h.commentaire ? " · « " + esc(h.commentaire) + " »" : ""}</span><span class="lib">${esc(h.auteur)}</span></li>`).join("") || "<li class='lib'>Aucune décision.</li>"}</ul>`);
     $$("[data-a]", p).forEach(b => b.onclick = async () => {
-      try { await api("/api/studio/revue", {method: "POST", body: {fichier: f, action: b.dataset.a, commentaire: $("#rv-c").value}}); toast("Décision enregistrée.", "ok"); await revue(z); detailRevue(f, z); }
+      let derogation = "";
+      if (b.dataset.a === "approuver" && !r.run_valide) {
+        derogation = prompt("Aucun run réussi depuis la dernière modification. Lancez un dry run, ou justifiez une dérogation (10 caractères au moins) :", "") || "";
+        if (!derogation.trim()) return;
+      }
+      try { await api("/api/studio/revue", {method: "POST", body: {fichier: f, action: b.dataset.a, commentaire: $("#rv-c").value, derogation}}); toast("Décision enregistrée.", "ok"); await revue(z); detailRevue(f, z); }
       catch (e) { toast(e.message, "ko"); }
     });
+    $("#rv-dry", p).onclick = async () => {
+      try { const x = await api("/api/run", {method: "POST", body: {target: f, dry_run: true, priorite: "High"}}); toast(`${x.run_id} : dry run ${x.etat === "Queued" ? "en file" : "lancé"} ; rouvrir la revue à la fin.`, "ok"); }
+      catch (e) { toast(e.message, "ko"); }
+    };
+    if ($("#rv-sess", p)) $("#rv-sess", p).onclick = () => rejouerSession(r.session_agent);
+  }
+
+  /* rejoue une session de l'agent : appels dans l'ordre, avec l'écran après chaque action */
+  async function rejouerSession(sid) {
+    const s = await api("/api/agent/sessions/" + encodeURIComponent(sid)).catch(e => ({erreur: e.message}));
+    if (s.erreur) return toast(s.erreur, "ko");
+    const img = n => `/api/agent/sessions/${encodeURIComponent(sid)}/${encodeURIComponent(n)}`;
+    const m = modale(`Session de Cursor ${sid}`, `<p class="lib">${s.etapes.length} appel(s) · ${s.etapes.filter(e => e.image).length} écran(s). Cliquer une image pour l'agrandir.</p>
+      <ol class="liste" style="max-height:60vh;overflow:auto">${s.etapes.map(e => `<li style="border-left:3px solid ${COUL[e.famille] || COUL.lecture};padding-left:8px;margin:6px 0;display:flex;gap:10px;align-items:flex-start">
+        <div style="flex:1"><span class="mono lib">${esc((e.date || "").slice(11, 19))}</span> <span class="pill">${esc(FAM[e.famille] || e.famille || "")}</span> <b class="mono">${esc(e.nom || "")}</b>
+          ${e.etat === "erreur" ? `<span class="pill ko">erreur</span> <span class="ko-t">${esc(e.message || "")}</span>` : e.etat === "pause" ? '<span class="pill warn">en pause</span>' : `<span class="lib">${esc(e.duree ?? "")} s · ${esc(e.resultat || "")}</span>`}
+          ${e.args && Object.keys(e.args).length ? `<div class="lib mono" style="font-size:11px">${esc(Object.entries(e.args).map(([k, v]) => k + "=" + v).join("  "))}</div>` : ""}</div>
+        ${e.image ? `<img src="${img(e.image)}" alt="Écran après ${esc(e.nom || "")}" data-grand="${esc(e.image)}" style="width:120px;border:1px solid var(--line);border-radius:4px;cursor:zoom-in">` : ""}</li>`).join("")}</ol>`);
+    $$("[data-grand]", m.el).forEach(i => i.onclick = () => modale("Écran", `<img src="${img(i.dataset.grand)}" alt="Écran" style="max-width:100%">`));
   }
 
   async function historique(z) {

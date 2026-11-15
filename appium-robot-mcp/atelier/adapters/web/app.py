@@ -45,6 +45,7 @@ from atelier.discovery import carte_outils, espaces, exploration, session  # noq
 from atelier.domain import declarations, evenements, projet  # noqa: E402
 from atelier.domain import projets  # noqa: E402
 from atelier.discovery import sessions_discovery  # noqa: E402  (abonne la timeline au bus d'événements)
+from atelier.generation import sessions_agent  # noqa: E402
 from atelier.execution import jdd  # noqa: E402
 from atelier.execution import centre, echecs, historique  # noqa: E402
 from atelier.discovery import intelligence_app  # noqa: E402
@@ -220,9 +221,12 @@ async def events(req: Request):
     ev = await req.json()
     if ev.get("source") == "mcp":
         state["dernier_mcp"] = time.time()
-    if ev.get("type") == "mcp_outil":  # activité de l'agent, gardée pour la vue « Cursor en direct »
+    if ev.get("type") == "mcp_outil":  # activité de l'agent, gardée pour la vue « Cursor en direct » et pour la revue
         ev = {**ev, "heure": time.strftime("%H:%M:%S")}
         state.setdefault("activite_mcp", collections.deque(maxlen=300)).append(ev)
+        _call_silencieux(sessions_agent.enregistrer_appel, ev)
+        if ev.get("etat") == "fin" and ev.get("famille") == "ecran" and state["flux"].get("platform") in ("android", "ios"):
+            asyncio.get_running_loop().run_in_executor(None, _tracer_ecran_mobile, ev.get("nom", ""))
     if ev.get("type") == "session" and ev.get("etat") == "ouverte":
         state["flux"] = {"platform": ev.get("platform"), "udid": ev.get("udid") or None}
     emit(ev)
@@ -582,8 +586,48 @@ async def mcp_image(req: Request):
     if not png or len(png) > 8_000_000:
         raise HTTPException(400, "Image absente ou trop grande.")
     state["image_mcp"] = {"png": png, "t": time.time(), "outil": b.get("outil", "")}
+    _call_silencieux(sessions_agent.enregistrer_image, png, b.get("outil", ""))
     emit({"type": "mcp_image", "outil": b.get("outil", "")})
     return {"ok": True}
+
+
+def _tracer_ecran_mobile(outil: str):
+    """Mobile : l'écran après une action de l'agent est lu sur le device (adb / simctl) et gardé dans sa session."""
+    png = _grab()
+    if png:
+        _call_silencieux(sessions_agent.enregistrer_image, png, outil)
+
+
+@app.get("/api/mcp/controle")
+def mcp_controle():
+    """Lu par le serveur MCP avant chaque outil : « actif », « pause » ou « arret » (décidé par l'automaticien)."""
+    return {"etat": state.get("controle_agent", "actif")}
+
+
+@app.post("/api/agent/pilotage")
+async def agent_pilotage(req: Request):
+    """Pause, arrêt ou reprise de l'agent (Cursor) depuis la vue en direct."""
+    etat = (await req.json()).get("etat", "")
+    if etat not in ("actif", "pause", "arret"):
+        raise HTTPException(400, "État : actif, pause ou arret.")
+    state["controle_agent"] = etat
+    emit({"type": "agent_pilotage", "etat": etat})
+    return {"etat": etat}
+
+
+@app.get("/api/agent/sessions")
+async def agent_sessions():
+    return await asyncio.to_thread(_call, sessions_agent.lister)
+
+
+@app.get("/api/agent/sessions/{sid}")
+async def agent_session(sid: str):
+    return await asyncio.to_thread(_call, sessions_agent.detail, sid)
+
+
+@app.get("/api/agent/sessions/{sid}/{nom}")
+async def agent_session_image(sid: str, nom: str):
+    return Response(_call(sessions_agent.image, sid, nom), media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/mcp/activite")
@@ -593,6 +637,7 @@ async def mcp_activite(depuis: int = 0):
     actif = time.time() - (state.get("dernier_mcp") or 0) < 120
     im = state.get("image_mcp")
     return {"actif": actif, "dernier": state.get("dernier_mcp"), "evenements": l[-max(1, min(300, depuis or 150)):],
+            "controle": state.get("controle_agent", "actif"), "attente": _attente_courante(),
             "flux": state["flux"], "image_agent": {"t": im["t"], "outil": im["outil"]} if im else None}
 
 
@@ -2473,7 +2518,8 @@ async def studio_revue(fichier: str):
 @app.post("/api/studio/revue")
 async def studio_revue_action(req: Request):
     b = await req.json()
-    return await asyncio.to_thread(_call, studio.transition_script, b.get("fichier", ""), b.get("action", ""), b.get("commentaire", ""))
+    return await asyncio.to_thread(_call, studio.transition_script, b.get("fichier", ""), b.get("action", ""), b.get("commentaire", ""),
+                                   b.get("derogation", ""))
 
 
 @app.get("/api/studio/mapping/{cle}")
