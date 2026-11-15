@@ -49,6 +49,18 @@
   }
 
   async function couverture(z) {
+    /* Une seule source de vérité : Test Strategy › Couverture. Ici, le résumé des 4 dimensions et le lien. */
+    const v = await api("/api/ci/vue").catch(e => ({erreur: e.message}));
+    if (!v.erreur) {
+      const pc = x => x === null || x === undefined ? "—" : String(x).replace(".", ",") + " %";
+      const k = (val, l, t) => `<div class="kpi" title="${esc(t)}"><div class="v">${val}</div><div class="l">${l}</div></div>`;
+      z.innerHTML = `${entete("Functional Coverage", `<a class="btn primaire" href="#strategie/couverture" title="Détail complet : exigences, documentation, reconstruction, liens, tests manquants et orphelins">Détail dans Test Strategy › Couverture</a>`)}
+        <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">${k(pc(v.documentaire.taux), "documentaire", v.documentaire.definition)}${k(pc(v.tracabilite.taux), "traçabilité", v.tracabilite.definition)}
+          ${k(pc(v.execution.taux), "exécution", v.execution.definition)}${k(pc(v.automatisation.taux), "automatisation", v.automatisation.definition)}${k(v.overview.ecarts, "écarts détectés", "Voir Test Strategy › Couverture")}</div>
+          <p class="lib" style="margin-top:10px">${v.tracabilite.exigences_sans_tests} exigence(s) sans test · ${v.tracabilite.tests_orphelins} test(s) sans exigence · ${v.documentaire.anomalies} anomalie(s) de documentation Jira.
+            La couverture n'est calculée qu'à un endroit (Test Strategy › Couverture) ; Quality Governance en reprend le résumé.</p></div>`;
+      return;
+    }
     const c = await api("/api/gouvernance/couverture");
     z.innerHTML = `${entete("Functional Coverage", `<a class="btn" href="#graphe/couverture">${ico("graphe")}Graphe de couverture</a>`)}<div class="corps-carte"><p class="lib">${esc(c.definition)} Source : ${esc(c.source)}.</p>
       <table class="table-strat"><tr><th>Exigence</th><th>Type</th><th>Module</th><th>Tests</th><th>Automatisés</th><th>Couverture</th></tr>${c.exigences.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.type)}</td><td>${esc(e.module || "—")}</td>

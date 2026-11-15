@@ -5,7 +5,7 @@
   const MENU = [["vue", "Vue d'ensemble"], ["objectifs", "Objectifs"], ["perimetre", "Périmètre"], ["types_tests", "Types de tests"],
     ["niveaux", "Niveaux de tests"], ["environnements", "Environnements"], ["criteres", "Critères d'entrée et de sortie"],
     ["risques", "Risques et contraintes"], ["donnees", "Données de test"], ["outils", "Outils et intégrations"],
-    ["couverture", "Couverture et traçabilité"], ["coverage", "Coverage Intelligence"], ["plan", "Plan d'automatisation"], ["validation", "Validation et publication"],
+    ["couverture", "Couverture (Coverage Intelligence)"], ["plan", "Plan d'automatisation"], ["validation", "Validation et publication"],
     ["historique", "Historique des versions"]];
   const COLONNES = {
     objectifs: ["nom", "categorie", "indicateur", "_cible", "_valeur", "_etat", "echeance", "responsable"],
@@ -27,6 +27,10 @@
 
   Atelier.enregistrer("strategie", {
     async afficher(zone, sous) {
+      if (sous === "coverage") {  // ancienne rubrique séparée : même page, onglet Overview
+        try { if (!sessionStorage.getItem("ci-onglet")) sessionStorage.setItem("ci-onglet", "overview"); } catch (e) { /* facultatif */ }
+        sous = "couverture";
+      }
       R = MENU.some(m => m[0] === sous) ? sous : "vue";
       SEL = null; FILTRE = ""; TRI = null;
       zone.className = "g-strat";
@@ -72,7 +76,7 @@
     const z = $(".corps-strat");
     $(".panneau-strat").hidden = true;
     if (!E.existe) return creation(z);
-    const vues = {vue, couverture, coverage: z => window.CoverageIntelligence(z), plan, validation, historique};
+    const vues = {vue, couverture: z => window.CoverageIntelligence(z, undefined, {exigences: couverture}), plan, validation, historique};
     (vues[R] || rubrique)(z);
   }
 

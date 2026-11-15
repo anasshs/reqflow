@@ -526,13 +526,20 @@ def tests_manquants() -> dict:
     """Diagnostic par exigence (couvert, aucun test, couverture à vérifier) et tests sans exigence identifiée."""
     from atelier.intelligence import couverture_exigences
 
+    from atelier.intelligence import testabilite_us
+
     c = couverture_exigences.calculer()
+    try:  # suivi dans Test Design › US à couvrir : une seule liste de travail, ici on n'en montre que l'état
+        suivis = testabilite_us._us()
+    except Exception:  # noqa: BLE001 — Test Design absent ou illisible : le diagnostic reste utile
+        suivis = {}
     lignes = []
     for x in c["exigences"]:
         n = len(x["tests"])
         diag = "aucun test associé" if not n else "couverture à vérifier" if (x["etat"] == "partielle" or (n == 1 and len(x["criteres"]) > 1)) else "couvert"
         lignes.append({"exigence": x["cle"], "resume": x["resume"], "fonctionnalite": x["fonctionnalite"], "tests": n, "diagnostic": diag,
-                       "criteres": len(x["criteres"])})
+                       "criteres": len(x["criteres"]), "suivi": ({"statut": suivis[x["cle"]].get("statut") or "Détectée",
+                                                                   "cas": len(suivis[x["cle"]].get("cas") or [])} if x["cle"] in suivis else None)})
     ordre = {"aucun test associé": 0, "couverture à vérifier": 1, "couvert": 2}
     return {"exigences": sorted(lignes, key=lambda x: (ordre[x["diagnostic"]], x["exigence"])), "tests_sans_exigence": c["tests_sans_exigence"]}
 

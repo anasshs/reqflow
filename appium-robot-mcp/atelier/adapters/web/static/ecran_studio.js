@@ -406,7 +406,9 @@
           <td>${x.valeur ? `<button class="btn petit" data-test="${esc(x.id)}" data-val="${esc(x.valeur)}" title="Cherche ce locator sur la session ouverte (device ou navigateur) ; résultat journalisé">Tester</button>` : ""} ${x.fichier ? `<a class="btn petit" href="#editeur/${encodeURIComponent(x.fichier)}" title="Ouvre le fichier de locators dans l'éditeur">Fichier</a>` : ""}</td></tr>`).join("")}</table>
         <p class="lib" style="margin-top:10px">État : Stable (identifiant technique), Reliable (css, rôle, prédicat), Fragile (texte, xpath, index), Obsolete (écran cartographié où la valeur n'est plus observée), Missing (référencé dans un keyword mais non défini).
           Tester = sur la session ouverte (device ou navigateur), journalisé.</p>
-        <section class="bloc-strat" style="margin-top:12px"><h3>Corrections proposées</h3><div id="lo-cor" class="lib">Analyse des runs et de la carte…</div></section></div>`;
+        <section class="bloc-strat" style="margin-top:12px"><h3>Corrections proposées</h3><div id="lo-cor" class="lib">Analyse des runs et de la carte…</div></section>
+        <section class="bloc-strat" style="margin-top:12px"><h3 title="Propositions créées depuis l'investigation d'un échec : revue, application, puis validation par retest">Corrections issues des échecs (Failure Analysis)</h3><div id="lo-fa"></div></section></div>`;
+    if (window.CorrectionsLocators) window.CorrectionsLocators($("#lo-fa", z), () => locators(z)).catch(e => { $("#lo-fa", z).textContent = e.message; });
     api("/api/studio/locators/corrections").then(c => {
       $("#lo-cor").innerHTML = c.length ? `<table><tr><th>Locator</th><th>Actuel</th><th>Proposé</th><th>Source</th><th></th></tr>${c.map((x, i) => `<tr><td class="mono">${esc(x.id)}</td>
         <td class="mono">${esc(x.valeur)} ${pill(x.etat)}</td><td>${x.proposition ? `<input class="in mono" data-prop="${i}" value="${esc(x.proposition)}" style="width:240px"> ${pill(x.fiabilite_proposee)}` : '<span class="lib">aucune source fiable : corriger dans l\'éditeur</span>'}</td>

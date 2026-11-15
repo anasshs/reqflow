@@ -183,7 +183,7 @@
     const [cfg, l] = await Promise.all([api("/api/testabilite/espaces?sprint=" + idSel), api(`/api/testabilite/file?sprint=${idSel}&espace=${espSel}`)]);
     const ind = cfg.indicateurs;
     const ETAT = {active: "actif", future: "à venir", closed: "fermé"};
-    z.innerHTML = `${entete("US à couvrir", `<a class="btn" href="#parametres/configuration" title="Politique des US de l'application : Paramètres › Configuration">Politique (espaces Jira)</a><button class="btn" id="us-rep">Relever les réponses</button>
+    z.innerHTML = `${entete("US à couvrir", `<a class="btn" href="#strategie/couverture" data-manquants="1" title="Entrée unique : Test Strategy › Couverture › Missing Tests (exigences sans test ou à vérifier). Ici, on conçoit et publie leurs cas.">Exigences sans test</a><a class="btn" href="#parametres/configuration" title="Politique des US de l'application : Paramètres › Configuration">Politique (espaces Jira)</a><button class="btn" id="us-rep">Relever les réponses</button>
         <button class="btn primaire" id="us-det">${ico("rejouer")}Détecter</button>`)}<div class="corps-carte">
       <div class="btns" style="margin-bottom:8px"><label class="lib" for="us-sp">Sprint</label><select class="in" id="us-sp" style="width:auto">
         <option value="">Toutes les US suivies</option>${options.map(s => `<option value="${esc(s.esp)}|${s.id}" ${SPRINT === `${s.esp}|${s.id}` ? "selected" : ""}>${esc(s.esp)} · ${esc(s.nom)} (${ETAT[s.etat] || s.etat})</option>`).join("")}</select>
@@ -218,6 +218,7 @@
       try { await api("/api/testabilite/sprints/figer", {method: "POST", body: {espace: espSel, sprint: idSel}}); toast("Périmètre du sprint figé.", "ok"); bilanSprint(espSel, idSel); } catch (e) { toast(e.message, "ko"); }
     };
     if ($("#us-bil")) $("#us-bil").onclick = () => bilanSprint(espSel, idSel);
+    $("[data-manquants]", z).onclick = () => { try { sessionStorage.setItem("ci-onglet", "manquants"); } catch (e) { /* facultatif */ } };
     $("#us-rep").onclick = async () => { try { const r = await api("/api/testabilite/reponses", {method: "POST", body: {}}); toast(`${r.nouvelles} réponse(s) nouvelle(s).`, "ok"); us(z); } catch (e) { toast(e.message, "ko"); } };
     $$("[data-us]", z).forEach(tr => tr.onclick = () => panneauUS(tr.dataset.us, z));
     recherche(z, "us");

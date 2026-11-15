@@ -158,26 +158,37 @@
     $$("[data-id]", z).forEach(b => b.onclick = () => ouvrir(b.dataset.id));
   }
 
-  async function corrections(z) {
-    const [l, props] = await Promise.all([api("/api/echecs"), api("/api/echecs/corrections")]);
-    const A = {Proposed: [["soumettre", "Soumettre à la revue"]], "Under Review": [["approuver", "Approuver"], ["rejeter", "Rejeter"]], Approved: [["appliquer", "Appliquer (éditeur)"], ["rejeter", "Rejeter"]],
-      Applied: [["valider", "Valider (retest réussi)"]], Validated: [], Rejected: []};
-    z.innerHTML = `${entete("Fix Recommendations")}<div class="corps-carte">
-      <h3 class="lib">PROPOSITIONS DE CORRECTION (Proposed → Under Review → Approved → Applied → Validated)</h3>
-      ${props.map(c => `<section class="bloc-strat" style="margin-bottom:10px"><h3>${esc(c.id)} · ${esc(c.cle)} <span class="pill ${c.statut === "Validated" ? "ok" : c.statut === "Rejected" ? "ko" : "info"}">${esc(c.statut)}</span></h3>
+  /* Un seul circuit de correction des locators : les propositions nées d'un échec (investigation Failure Analysis)
+     se gèrent dans Automation Studio › Socle › Locators, à côté des corrections calculées. Ce bloc y est affiché. */
+  const ACTIONS_COR = {Proposed: [["soumettre", "Soumettre à la revue"]], "Under Review": [["approuver", "Approuver"], ["rejeter", "Rejeter"]], Approved: [["appliquer", "Appliquer (éditeur)"], ["rejeter", "Rejeter"]],
+    Applied: [["valider", "Valider (retest réussi)"]], Validated: [], Rejected: []};
+  window.CorrectionsLocators = async (el, recharger) => {
+    const props = await api("/api/echecs/corrections");
+    el.innerHTML = props.map(c => `<section class="bloc-strat" style="margin-bottom:10px"><h3>${esc(c.id)} · ${esc(c.cle)} <span class="pill ${c.statut === "Validated" ? "ok" : c.statut === "Rejected" ? "ko" : "info"}">${esc(c.statut)}</span></h3>
         <p><code>${esc(c.avant_valeur)}</code> → <code>${esc(c.apres_valeur)}</code> · ${esc(c.fichier)} · ${c.impactes.length} test(s) impacté(s)${c.justification ? " · " + esc(c.justification) : ""}</p>
         <pre class="code-bloc">${esc(c.diff)}</pre><div class="btns"><input class="in" data-com="${esc(c.id)}" placeholder="Commentaire" style="flex:1">
-        ${A[c.statut].map(([a, lib]) => `<button class="btn ${a === "rejeter" ? "danger" : "primaire"}" data-cor="${esc(c.id)}|${a}">${lib}</button>`).join("")}</div></section>`).join("") || "<p class='lib'>Aucune proposition (bouton « Proposer une correction du locator » dans l'investigation).</p>"}
+        ${ACTIONS_COR[c.statut].map(([a, lib]) => `<button class="btn ${a === "rejeter" ? "danger" : "primaire"}" data-cor="${esc(c.id)}|${a}">${lib}</button>`).join("")}</div></section>`).join("")
+      || "<p class='lib'>Aucune proposition issue d'un échec (bouton « Proposer une correction du locator » dans l'investigation Failure Analysis).</p>";
+    $$("[data-cor]", el).forEach(b => b.onclick = async () => { const [id, action] = b.dataset.cor.split("|");
+      if (action === "appliquer" && !confirm("Appliquer la correction dans le fichier (historisé, revue technique du script à refaire) ?")) return;
+      try { await api("/api/echecs/corrections/action", {method: "POST", body: {id, action, commentaire: $(`[data-com="${id}"]`, el).value}}); toast("Correction : " + action, "ok"); (recharger || (() => window.CorrectionsLocators(el)))(); }
+      catch (e) { toast(e.message, "ko"); } });
+    return props;
+  };
+
+  async function corrections(z) {
+    const [l, props] = await Promise.all([api("/api/echecs"), api("/api/echecs/corrections")]);
+    const ouvertes = props.filter(c => !["Validated", "Rejected"].includes(c.statut)).length;
+    z.innerHTML = `${entete("Fix Recommendations", `<a class="btn primaire" href="#studio/locators" title="Les corrections de locators se gèrent à un seul endroit : Automation Studio › Socle › Locators">Gérer les corrections (Studio)</a>`)}<div class="corps-carte">
+      <p class="lib">${props.length} proposition(s) de correction de locator issue(s) des échecs, dont ${ouvertes} en cours (Proposed → Under Review → Approved → Applied → Validated).
+        Elles se revoient, s'appliquent et se valident dans <a href="#studio/locators">Automation Studio › Locators</a>, avec les corrections calculées sur les runs et la carte.</p>
       <h3 class="lib" style="margin-top:12px">RECOMMANDATIONS PAR ÉCHEC</h3><table class="table-strat"><tr><th>Échec</th><th>Cause</th><th>Correction recommandée</th><th>Où</th><th>Statut</th></tr>
       ${l.map(e => { const c = e.categorie_confirmee || e.categorie_probable; return `<tr class="cliquable" data-id="${esc(e.id)}"><td>${esc(e.nom)}<div class="lib">${esc(e.run)}</div></td><td>${cat(e)}</td><td>${esc(CORRECTION[c])}</td>
         <td>${c === "Application Defect" ? "Jira" : ["Locator Issue", "Automation Defect", "Timing Issue", "Framework Issue"].includes(c) ? "Automation Studio" : ["Assertion Issue", "Test Design Issue"].includes(c) ? "Test Design" : "Environnement / données"}</td><td>${statut(e.statut)}</td></tr>`; }).join("")}</table>
-      <p class="lib" style="margin-top:10px">Aucune correction n'est appliquée automatiquement : diff avant / après et validation dans le Code Editor, puis revue technique et retest. Propositions de code par IA : à venir.</p></div>`;
+      <p class="lib" style="margin-top:10px">Aucune correction n'est appliquée automatiquement : diff avant / après et validation dans le Code Editor, puis revue technique et retest.</p></div>`;
     $$("[data-id]", z).forEach(tr => tr.onclick = () => ouvrir(tr.dataset.id));
-    $$("[data-cor]", z).forEach(b => b.onclick = async () => { const [id, action] = b.dataset.cor.split("|");
-      if (action === "appliquer" && !confirm("Appliquer la correction dans le fichier (historisé, revue technique du script à refaire) ?")) return;
-      try { await api("/api/echecs/corrections/action", {method: "POST", body: {id, action, commentaire: $(`[data-com="${id}"]`).value}}); toast("Correction : " + action, "ok"); corrections(z); }
-      catch (e) { toast(e.message, "ko"); } });
   }
+
 
   async function retest(z) {
     const l = (await api("/api/echecs")).filter(e => e.retests.length);

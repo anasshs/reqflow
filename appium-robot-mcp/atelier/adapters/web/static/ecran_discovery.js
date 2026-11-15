@@ -2,9 +2,11 @@
    validation et historique. La carte de l'application est la mémoire ; le Knowledge Graph la lit (aucun second graphe). */
 "use strict";
 (() => {
-  const MENU = [["vue", "Discovery Overview"], ["sessions", "Discovery Sessions"], ["studio", "Discovery Studio"], ["ecrans", "Screen Inventory"],
-    ["composants", "Component Inspector"], ["navigation", "Navigation Explorer"], ["comportements", "Behavioral Intelligence"],
-    ["api", "API Observation"], ["resultats", "Discovery Results"], ["validation", "Discovery Validation"], ["correlation", "Correlation Jira / Xray / GitLab"],
+  /* Écrans, composants et validation se consultent dans Application Intelligence (une seule liste d'écrans, une seule
+     boîte « À valider ») : ces anciennes adresses y mènent. */
+  const VERS_AI = {ecrans: "intelligence/ecrans", composants: "intelligence/ecrans", validation: "intelligence/a_valider"};
+  const MENU = [["vue", "Discovery Overview"], ["sessions", "Discovery Sessions"], ["studio", "Discovery Studio"], ["navigation", "Navigation Explorer"], ["comportements", "Behavioral Intelligence"],
+    ["api", "API Observation"], ["resultats", "Discovery Results"], ["correlation", "Correlation Jira / Xray / GitLab"],
     ["historique", "Discovery History"],
     ["parametres", "Settings"]];
   const MODES = {guidee: "Guided Discovery", assistee: "AI Assisted Discovery", autonome: "Autonomous Discovery", tests: "Test-Based Discovery"};
@@ -14,6 +16,10 @@
   Atelier.enregistrer("discovery", {
     async afficher(zone, sous) {
       clearInterval(minuteur);
+      if (VERS_AI[sous]) {
+        if (ECRAN) { try { sessionStorage.setItem("ai-ecran", ECRAN); } catch (e) { /* facultatif */ } }
+        location.hash = VERS_AI[sous]; return;
+      }
       R = MENU.some(m => m[0] === sous) ? sous : "vue";
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Application Discovery"><div class="titre-carte">APPLICATION DISCOVERY</div>
@@ -47,7 +53,7 @@
       <h3 class="lib">CARTE DE L'APPLICATION</h3>${kpis([[k.ecrans, "écrans"], [k.transitions, "transitions"], [k.actions, "actions observées"], [k.composants, "composants"], [k.locators, "locators"], [v.sessions, "sessions"]])}
       ${kpis([[k.sans_locator_stable, "interactifs sans locator stable", k.sans_locator_stable ? "warn-t" : ""], [k.ecrans_avec_variantes, "écrans avec variantes"], [k.ecrans_modifies, "écrans modifiés", k.ecrans_modifies ? "warn-t" : ""], [k.a_nommer, "écrans à nommer", k.a_nommer ? "warn-t" : ""]])}
       <h3 class="lib">KNOWLEDGE GRAPH</h3><div id="dv-kg"><p class="lib">Calcul du graphe (dépôt Robot, copie Jira / Xray, JDD, OpenAPI)… <span id="dv-t">0</span> s</p></div>
-      <div class="btns"><a class="btn" href="#discovery/ecrans">Écrans découverts</a><a class="btn" href="#discovery/navigation">Transitions</a><a class="btn" href="#discovery/validation">Valider les propositions</a>
+      <div class="btns"><a class="btn" href="#intelligence/ecrans" title="Écrans découverts, composants, locators et leur fiabilité (Application Intelligence)">Écrans découverts</a><a class="btn" href="#discovery/navigation">Transitions</a><a class="btn" href="#intelligence/a_valider" title="Toutes les propositions en attente (Application Intelligence › À valider)">Valider les propositions</a>
         <a class="btn" href="#discovery/historique">Comparer deux sessions</a><a class="btn" href="#graphe/connaissance">Knowledge Graph</a></div>
       <p class="lib" style="margin-top:10px">Indicateurs calculés sur la carte de l'application <b>${esc(v.app)}</b> et le Knowledge Graph ; aucune valeur estimée.</p></div>`;
     $("#dv-new").onclick = () => DiscoveryFlottant.ouvrir();

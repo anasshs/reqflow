@@ -120,6 +120,8 @@ def test_manquants_orphelins_et_vue(ci):
     assert diag["DEMO-12"] == "aucun test associé" and diag["DEMO-11"] in ("couvert", "couverture à vérifier")
     us = ci.envoyer_vers_test_design("DEMO-12")
     assert us["cas"] and us["statut"] == "Cas proposés"  # workflow Test Design, aucun test Xray créé
+    suivi = {x["exigence"]: x["suivi"] for x in ci.tests_manquants()["exigences"]}
+    assert suivi["DEMO-12"] == {"statut": "Cas proposés", "cas": len(us["cas"])} and suivi["DEMO-13"] is None  # un seul lieu de travail
     o = {x["test"]: x for x in ci.orphelins()}
     assert "DEMO-101" not in o and o["DEMO-150"]["statut"] in ("orphelin", "candidat trouvé")
     with pytest.raises(ValueError, match="justification"):

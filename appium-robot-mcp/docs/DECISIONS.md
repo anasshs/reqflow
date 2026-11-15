@@ -160,3 +160,15 @@ Une ligne datée par décision d'architecture ou de conception.
   couverture, automatisation, échecs), lacunes avec l'action qui les comble, journal d'apprentissage, questions.
 - Les réponses ne s'appuient que sur ce que le cerveau sait (IA facultative, rédige à partir des faits fournis).
 - Cursor lit le cerveau avant de construire ou d'explorer (outils cerveau_application, cerveau_question).
+
+## 2026-11-15 — Un seul endroit par sujet entre les modules
+- **Couverture** : une seule rubrique, Test Strategy › Couverture (onglet « Couverture des exigences » + onglets Coverage
+  Intelligence). Quality Governance › Functional Coverage n'affiche plus qu'un résumé (4 dimensions) et un lien.
+  L'ancienne adresse `#strategie/coverage` mène à la même page (onglet Overview).
+- **Écrans** : Discovery explore, Application Intelligence consulte. Screen Inventory, Component Inspector et Discovery
+  Validation sortent du menu Discovery ; leurs adresses mènent à Application Intelligence › Écrans (fiabilité des
+  locators, « à nommer », défilement sur l'écran demandé) et › À valider.
+- **Corrections de locators** : un seul circuit, Automation Studio › Socle › Locators : corrections calculées + propositions
+  nées d'un échec (workflow Proposed → … → Validated inchangé). Failure Analysis › Fix Recommendations les compte et y renvoie.
+- **Exigences sans test** : Missing Tests est l'entrée (diagnostic + colonne « Suivi Test Design ») ; US à couvrir reste le
+  lieu de travail (conception, validation, publication). Plus de « Proposer » en double pour une exigence déjà suivie.

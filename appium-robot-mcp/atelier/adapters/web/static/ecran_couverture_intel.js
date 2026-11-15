@@ -15,21 +15,25 @@
   const ST = {proposee: ["info", "proposée"], validee: ["violet", "validée"], rejetee: ["ko", "rejetée"], synchronisee: ["ok", "synchronisée"], regroupee: ["", "regroupée"]};
   const pc = v => v === null || v === undefined ? "—" : String(v).replace(".", ",") + " %";
   const pillSt = s => `<span class="pill ${(ST[s] || [""])[0]}">${esc((ST[s] || ["", s])[1])}</span>`;
-  let ONGLET = "overview";
+  let ONGLET = "exigences", OPTIONS = {};
 
-  window.CoverageIntelligence = async (z, onglet) => {
+  /* options.exigences : page « Couverture des exigences » de Test Strategy (périmètre, import Jira, tableau par niveau,
+     instantanés), premier onglet : couverture et Coverage Intelligence ne font plus qu'une rubrique. */
+  window.CoverageIntelligence = async (z, onglet, options) => {
+    if (options) OPTIONS = options;
     if (!onglet) {  // ouvert depuis un autre module sur un onglet précis (ex. Application Intelligence › Reconstruction)
       try { onglet = sessionStorage.getItem("ci-onglet") || ""; sessionStorage.removeItem("ci-onglet"); } catch (e) { /* facultatif */ }
     }
     ONGLET = onglet || ONGLET;
+    if (ONGLET === "exigences" && !OPTIONS.exigences) ONGLET = "overview";
     if (ONGLET === "graphe") { location.hash = "graphe/couverture"; return; }
-    z.innerHTML = `<h2 class="titre-carte">Coverage Intelligence<span class="actions-titre">
-        <a class="btn" href="#strategie/couverture" title="Couverture des exigences : périmètre (JQL), import Jira, instantanés">Exigences et import Jira</a></span></h2>
-      <div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${ONGLETS.map(([id, l, t]) => `<button role="tab" data-ci="${id}" title="${esc(t)}" aria-selected="${id === ONGLET}">${esc(l)}</button>`).join("")}</div>
+    const onglets = (OPTIONS.exigences ? [["exigences", "Couverture des exigences", "Périmètre (JQL), import Jira, couverture par macro-fonctionnalité / fonctionnalité / exigence, versions, instantanés"]] : []).concat(ONGLETS);
+    z.innerHTML = `<h2 class="titre-carte">Couverture · Coverage Intelligence</h2>
+      <div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${onglets.map(([id, l, t]) => `<button role="tab" data-ci="${id}" title="${esc(t)}" aria-selected="${id === ONGLET}">${esc(l)}</button>`).join("")}</div>
       <div class="corps-carte" id="ci-c">${vide("Analyse…")}</div>`;
     $$("[data-ci]", z).forEach(b => b.onclick = () => window.CoverageIntelligence(z, b.dataset.ci));
     const c = $("#ci-c", z);
-    try { await ({overview, documentation, reconstruction, mapping, manquants, orphelins}[ONGLET])(c, z); }
+    try { await ({exigences: x => OPTIONS.exigences(x), overview, documentation, reconstruction, mapping, manquants, orphelins}[ONGLET])(c, z); }
     catch (e) { c.innerHTML = `<p class="ko-t">${esc(e.message)}</p>`; }
   };
   const recharger = z => window.CoverageIntelligence(z, ONGLET);
@@ -173,11 +177,13 @@
     const m = await api("/api/ci/manquants");
     const D = {"aucun test associé": "ko", "couverture à vérifier": "warn", "couvert": "ok"};
     c.innerHTML = `<p class="lib">Les cas sont conçus dans Test Design (« US à couvrir ») : proposés depuis les critères, revus, validés, puis publiés dans Xray selon le mapping. Rien n'est créé directement ici.</p>
-      <table class="table-strat"><tr><th>Fonctionnalité</th><th>Exigence</th><th>Tests associés</th><th>Diagnostic</th><th></th></tr>
+      <table class="table-strat"><tr><th>Fonctionnalité</th><th>Exigence</th><th>Tests associés</th><th>Diagnostic</th><th title="État dans Test Design › US à couvrir (là où les cas sont conçus et publiés)">Suivi Test Design</th><th></th></tr>
         ${m.exigences.map(x => `<tr><td class="lib">${esc(x.fonctionnalite || "—")}</td><td><span class="cle-xray">${esc(x.exigence)}</span> ${esc(x.resume)}</td><td>${x.tests}</td>
           <td><span class="pill ${D[x.diagnostic]}">${esc(x.diagnostic)}</span></td>
-          <td>${x.diagnostic !== "couvert" ? `<button class="btn petit primaire" data-td="${esc(x.exigence)}" title="Envoie l'exigence dans Test Design avec des cas proposés depuis ses critères (à revoir et valider)">Proposer des scénarios</button>` : ""}</td></tr>`).join("")}
-        ${m.tests_sans_exigence.length ? `<tr><td class="lib">—</td><td class="lib">Aucune</td><td>${m.tests_sans_exigence.length}</td><td><span class="pill warn">tests sans exigence identifiée</span></td><td><button class="btn petit" data-onglet-ci="orphelins">Voir</button></td></tr>` : ""}</table>`;
+          <td>${x.suivi ? `<a href="#conception/us" title="Ouvrir US à couvrir (Test Design)"><span class="pill info">${esc(x.suivi.statut)}</span></a> <span class="lib">${x.suivi.cas} cas</span>` : '<span class="lib">—</span>'}</td>
+          <td>${x.diagnostic !== "couvert" && !x.suivi ? `<button class="btn petit primaire" data-td="${esc(x.exigence)}" title="Envoie l'exigence dans Test Design avec des cas proposés depuis ses critères (à revoir et valider)">Proposer des scénarios</button>`
+            : x.suivi ? `<a class="btn petit" href="#conception/us" title="Les cas de cette exigence se travaillent dans US à couvrir">Continuer dans Test Design</a>` : ""}</td></tr>`).join("")}
+        ${m.tests_sans_exigence.length ? `<tr><td class="lib">—</td><td class="lib">Aucune</td><td>${m.tests_sans_exigence.length}</td><td><span class="pill warn">tests sans exigence identifiée</span></td><td></td><td><button class="btn petit" data-onglet-ci="orphelins">Voir</button></td></tr>` : ""}</table>`;
     $$("[data-td]", c).forEach(b => b.onclick = async () => {
       try { const r = await post("test-design", {cle: b.dataset.td}); toast(`${r.cas.length} cas proposé(s) pour ${b.dataset.td} : à revoir dans Test Design.`, "ok"); location.hash = "conception"; } catch (e) { toast(e.message, "ko"); } });
     $$("[data-onglet-ci]", c).forEach(b => b.onclick = () => window.CoverageIntelligence(c.closest(".corps-strat, #ai-contenu") || c.parentElement, "orphelins"));

@@ -186,14 +186,19 @@
 
   async function ecrans(z) {
     const l = await api("/api/intelligence/ecrans");
-    z.innerHTML = `${entete("Écrans observés", `<a class="btn" href="#discovery" title="Explorer pour compléter la carte">Explorer (Discovery)</a>`)}<div class="corps-carte">${l.map(e => `<section class="bloc-strat" style="margin-bottom:12px">
-        <h3>${esc(e.nom)} <span class="lib">${esc(e.module || "")} · ${esc(e.titre || "")}</span>${e.a_revoir ? ' <span class="pill warn">à revoir</span>' : ""}</h3>
+    const fiab = locs => { const v = (locs || [])[0] || ""; return !v ? ["ko", "Missing"] : /^(id=|accessibility_id=|data-testid=|resource-id)/.test(v) ? ["ok", "Stable"] : /^\/\/|xpath|^text=/.test(v) ? ["warn", "Fragile"] : ["info", "Reliable"]; };
+    z.innerHTML = `${entete("Écrans observés", `<a class="btn" href="#discovery" title="Explorer pour compléter la carte">Explorer (Discovery)</a>`)}<div class="corps-carte">${l.map(e => `<section class="bloc-strat" style="margin-bottom:12px" id="ec-${esc(e.id || e.nom)}">
+        <h3>${esc(e.nom)}${e.nom && e.nom !== e.id && e.nom !== "(sans nom)" ? "" : ' <span class="pill warn" title="Écran sans nom métier : le nommer dans Discovery">à nommer</span>'} <span class="lib">${esc(e.module || "")} · ${esc(e.titre || "")}</span>${e.a_revoir ? ' <span class="pill warn">à revoir</span>' : ""}</h3>
         <div style="display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px">${e.vignettes.map(v => `<img src="/api/carte/vignette/${encodeURIComponent(v)}" alt="${esc(e.nom)}" style="max-width:200px;border-radius:8px">`).join("") || "<div></div>"}
         <div><table><tr><th>Composant</th><th>Type</th>${Object.keys(e.plateformes).map(p => `<th>${esc(p)}</th>`).join("")}</tr>${e.elements.map(x => `<tr><td>${esc(x.cle)}<div class="lib">${esc(x.libelle || "")}</div></td><td>${esc(x.type || "")}</td>
-          ${Object.keys(e.plateformes).map(p => `<td class="mono">${esc((x.locators[p] || []).join(" | ") || "—")}</td>`).join("")}</tr>`).join("")}</table>
+          ${Object.keys(e.plateformes).map(p => { const [c, t] = fiab(x.locators[p]); return `<td class="mono">${esc((x.locators[p] || []).join(" | ") || "—")} <span class="pill ${c}" title="Fiabilité du locator principal">${t}</span></td>`; }).join("")}</tr>`).join("")}</table>
           <p class="lib">Contexte : ${esc(Object.entries(e.plateformes).map(([p, d]) => `${p} ${d.contexte || ""} (vu le ${(d.vu_le || "").slice(0, 10)}${d.vu_build ? ", build " + d.vu_build : ""})`).join(" · "))}
             · précédents : ${esc(e.depuis.join(", ") || "—")} · suivants : ${esc(e.vers.join(", ") || "—")} · états : ${esc(e.etats.join(", ") || "—")}</p>
           <p class="lib">Tests utilisant cet écran : ${esc(e.tests.join(", ") || "aucun")}</p></div></div></section>`).join("") || vide("Aucun écran", "Cartographier l'application (session + « Où suis-je ? » ou exploration).")}</div>`;
+    let cible = null;  // écran demandé depuis Discovery (ex-Component Inspector)
+    try { cible = sessionStorage.getItem("ai-ecran"); sessionStorage.removeItem("ai-ecran"); } catch (e) { /* facultatif */ }
+    const sec = cible && document.getElementById("ec-" + cible);
+    if (sec) { sec.scrollIntoView({block: "start"}); sec.style.outline = "2px solid var(--accent, #4f8cff)"; }
   }
 
   function liste(section, titre, aide) {
