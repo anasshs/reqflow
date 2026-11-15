@@ -49,7 +49,7 @@
     const max = Math.max(1, ...v.tendance.map(t => t.passes + t.echecs));
     z.innerHTML = `${entete("Overview", `<a class="btn primaire" href="#centre/campagnes">${ico("plus")}Nouvelle campagne</a><a class="btn" href="#centre/selection">Exécution ponctuelle</a>
         <a class="btn" href="#execution">Rejouer les échecs / en cours</a><a class="btn" href="#centre/devices">Devices</a>`)}
-      <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px">
+      <div class="corps-carte"><h3 class="lib">RUNS LANCÉS PAR L'ATELIER</h3><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px">
         ${kpi(k.executions, "exécutions")}${kpi(k.en_cours, "en cours", "info")}${kpi(k.en_file, "en file d'attente", "warn-t")}${kpi(k.passes, "tests réussis", "ok")}${kpi(k.echecs, "tests échoués", "ko")}
         ${kpi(k.taux_reussite === null ? null : String(k.taux_reussite).replace(".", ",") + " %", "taux de réussite")}${kpi(k.duree_moyenne_s === null ? null : k.duree_moyenne_s + " s", "durée moyenne")}
         ${kpi(k.instables.valeur === null ? null : k.instables.valeur + " %", "tests instables")}${kpi(k.runners_actifs, "runner actif (local)")}${kpi("—", "bloqués / ignorés (non distingués par Robot ici)")}</div>
@@ -61,6 +61,43 @@
           ${v.recents.map(r => `<tr class="cliquable" data-run="${esc(r.id)}"><td class="cle-xray">${esc(r.id)}</td><td>${esc(r.suite || "")}</td><td>${esc(r.campagne || "—")}</td><td>${esc(r.plateforme)}</td>
             <td>${esc(r.contexte?.environnement || "—")}</td><td>${statut(r.statut)}</td><td class="mono">${duree(r)}</td></tr>`).join("")}</table></section></div>`;
     $$("[data-run]", z).forEach(tr => tr.onclick = () => { location.hash = "execution/" + tr.dataset.run; });
+    vueXray(z);
+  }
+
+  /* indicateurs des Test Executions Xray (copie locale, tests de l'application sélectionnée) */
+  async function vueXray(z) {
+    const bloc = document.createElement("section");
+    bloc.className = "bloc-strat";
+    bloc.style.marginTop = "12px";
+    $(".corps-carte", z).appendChild(bloc);
+    const x = await api("/api/centre/vue-xray").catch(e => ({erreur: e.message}));
+    if (x.erreur) { bloc.innerHTML = `<h3>Exécutions Xray</h3><p class="lib">${esc(x.erreur)}</p>`; return; }
+    const k = x.kpi, imp = x.import;
+    const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
+    const pct = v => v === null || v === undefined ? null : String(v).replace(".", ",") + " %";
+    const max = Math.max(1, ...x.tendance.map(t => t.reussi + t.echec + t.non_execute));
+    const classe = st => /PASS/i.test(st) ? "ok" : /FAIL|ABORT|BLOCK/i.test(st) ? "ko" : "";
+    bloc.innerHTML = `<h3 style="display:flex;align-items:center;gap:8px">Exécutions Xray (Test Executions)
+        <span class="lib" style="font-weight:normal">${imp.date ? `${imp.nombre} lue(s) le ${esc(imp.date.slice(0, 16).replace("T", " "))}, tests de l'application sélectionnée` : "pas encore importées"}</span>
+        <button class="btn petit" id="vx-actu" style="margin-left:auto">${ico("rejouer")}Actualiser depuis Xray</button></h3>
+      ${imp.erreur ? `<p class="warn-t">${esc(imp.erreur)}</p>` : ""}${imp.absents.length ? `<p class="lib">Non exposé par le schéma Xray : ${esc(imp.absents.join(", "))}.</p>` : ""}
+      ${!imp.date ? "<p class='lib'>Cliquer « Actualiser depuis Xray » pour lire les Test Executions du projet (les plus récentes).</p>" : `
+      <div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin:8px 0">${kpi(k.executions, "exécutions Xray")}${kpi(k.runs, "test runs")}${kpi(pct(k.taux_reussite), "taux de réussite (runs exécutés)")}
+        ${kpi(k.reussi, "runs réussis", "ok")}${kpi(k.echec, "runs en échec", "ko")}${kpi(k.non_execute, "runs non exécutés", "warn-t")}
+        ${kpi(k.tests_en_echec, "tests en échec (dernier statut)", "ko")}${kpi(k.tests_reussis, "tests réussis (dernier statut)", "ok")}
+        ${kpi(k.tests_jamais_executes, "tests de l'app jamais exécutés")}${kpi(pct(k.part_automatisee), "part des runs automatisés")}</div>
+      <div class="grille-strat"><section class="bloc-strat" style="grid-column:span 2"><h3>Par exécution (20 dernières)</h3><div style="display:flex;align-items:flex-end;gap:6px;height:110px">${x.tendance.map(t => `
+          <div title="${esc(t.cle)} : ${t.reussi} réussi(s), ${t.echec} échec(s), ${t.non_execute} non exécuté(s)" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+            <span style="background:var(--muted);opacity:.35;height:${t.non_execute / max * 100}%"></span><span style="background:var(--ko);height:${t.echec / max * 100}%"></span><span style="background:var(--ok);height:${t.reussi / max * 100}%"></span></div>`).join("") || "<p class='lib'>Aucune exécution pour cette application.</p>"}</div></section>
+        <section class="bloc-strat"><h3>Statuts Xray des runs</h3>${Object.entries(x.par_statut).map(([st, n]) => `<div><span class="pill ${classe(st)}">${esc(st)}</span> <b>${n}</b></div>`).join("") || "—"}</section></div>
+      <table class="table-strat" style="margin-top:10px"><tr><th>Exécution</th><th>Résumé</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th></th></tr>
+        ${x.recentes.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}</td><td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}</td>
+          <td class="ok-t">${e.reussi}</td><td class="ko-t">${e.echec}</td><td>${e.non_execute}</td><td>${pct(e.taux) ?? "—"}</td><td><span class="pill">${esc(e.statut)}</span></td>
+          <td><a class="btn petit" href="#centre/selection" data-exe="${esc(e.cle)}">Rejouer les échecs</a></td></tr>`).join("")}</table>`}`;
+    $("#vx-actu", bloc).onclick = async () => { const b = $("#vx-actu", bloc); b.disabled = true; b.textContent = "Lecture des exécutions Xray…";
+      try { const r = await api("/api/centre/executions-xray/actualiser", {method: "POST", body: {}}); toast(`${r.nombre} exécution(s) Xray lue(s).`, "ok"); bloc.remove(); vueXray(z); }
+      catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Actualiser depuis Xray"; } };
+    $$("[data-exe]", bloc).forEach(a => a.onclick = () => { F.exec = a.dataset.exe; });
   }
 
   /* ------------------------------------------------------------------ 2 campagnes */

@@ -778,6 +778,11 @@ async def apps_creer(req: Request):
     return cfg
 
 
+@app.get("/api/centre/vue-xray")
+async def centre_vue_xray():
+    return await asyncio.to_thread(_call, centre.vue_xray)
+
+
 @app.get("/api/centre/executions-xray")
 async def centre_executions_xray():
     return await asyncio.to_thread(_call, centre.executions_xray)

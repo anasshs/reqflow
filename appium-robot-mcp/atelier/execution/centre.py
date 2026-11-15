@@ -554,6 +554,59 @@ def vue_ensemble() -> dict:
 
 
 
+def _classe_xray(statut: str) -> str:
+    s = (statut or "").upper()
+    if "PASS" in s:
+        return "reussi"
+    if any(x in s for x in ("FAIL", "ABORT", "BLOCK")):
+        return "echec"
+    if not s or s.replace(" ", "") in ("TODO", "EXECUTING"):
+        return "non_execute"
+    return "autre"
+
+
+def vue_xray(limite: int = 20) -> dict:
+    """Indicateurs des Test Executions Xray (copie locale : import des définitions ou « Actualiser depuis Xray »),
+    limités aux tests de l'application sélectionnée : statuts des test runs, taux de réussite, dernier statut de
+    chaque test, tendance par exécution, tests automatisés ou non. Rien n'est estimé."""
+    from atelier.execution.depot_robot import lire_depot
+    from atelier.intelligence import patrimoine_xray
+
+    pat = patrimoine_xray.charger() or {}
+    vue = patrimoine_xray.charger_vue() or {"tests": []}
+    tests_app = {t["cle"] for t in vue.get("tests") or []}
+    filtre = bool((vue.get("filtre_application") or {}).get("valeurs") or (vue.get("filtre_application") or {}).get("champ"))
+    automatises = {c for t in lire_depot()["tests"].values() for c in t.get("cles_xray") or []}
+    execs, par_statut, dernier = [], {}, {}
+    for e in sorted(pat.get("executions") or [], key=lambda x: x.get("cree") or "", reverse=True):  # du plus récent au plus ancien
+        runs = {k: r for k, r in (e.get("runs") or {}).items() if not filtre or k in tests_app}
+        if filtre and not runs and not any(k in tests_app for k in e.get("tests") or []):
+            continue
+        n = {"reussi": 0, "echec": 0, "non_execute": 0, "autre": 0}
+        for k, r in runs.items():
+            c = _classe_xray(r.get("statut"))
+            n[c] += 1
+            par_statut[r.get("statut") or "—"] = par_statut.get(r.get("statut") or "—", 0) + 1
+            if k not in dernier and c != "non_execute":
+                dernier[k] = c
+        executes = n["reussi"] + n["echec"]
+        execs.append({"cle": e["cle"], "resume": e.get("resume", ""), "cree": e.get("cree", ""), "environnements": e.get("environnements") or [],
+                      "statut": e.get("statut", ""), "tests": len(runs), **n, "taux": round(100 * n["reussi"] / executes, 1) if executes else None,
+                      "automatises": sum(1 for k in runs if k in automatises)})
+    tot = {k: sum(x[k] for x in execs) for k in ("reussi", "echec", "non_execute")}
+    executes = tot["reussi"] + tot["echec"]
+    imp = pat.get("executions_xray") or {}
+    return {"import": {"date": imp.get("date"), "nombre": imp.get("nombre"), "erreur": imp.get("erreur"), "absents": imp.get("absents") or []},
+            "kpi": {"executions": len(execs), "runs": sum(x["tests"] for x in execs), **tot,
+                    "taux_reussite": round(100 * tot["reussi"] / executes, 1) if executes else None,
+                    "tests_en_echec": sum(1 for v in dernier.values() if v == "echec"), "tests_reussis": sum(1 for v in dernier.values() if v == "reussi"),
+                    "tests_jamais_executes": len(tests_app - set(dernier)) if filtre else None,
+                    "part_automatisee": round(100 * sum(x["automatises"] for x in execs) / max(1, sum(x["tests"] for x in execs)), 1) if execs else None},
+            "par_statut": dict(sorted(par_statut.items(), key=lambda kv: -kv[1])),
+            "tendance": [{"cle": x["cle"], "reussi": x["reussi"], "echec": x["echec"], "non_execute": x["non_execute"]} for x in reversed(execs[:limite])],
+            "recentes": execs[:10]}
+
+
 def rejouer_xray(run_id: str) -> dict:
     """Renvoie les événements Xray restés en attente d'un run (même mécanisme que « python -m atelier xray-sync »)."""
     from atelier.execution import historique

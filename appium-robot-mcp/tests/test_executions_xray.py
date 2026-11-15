@@ -78,3 +78,26 @@ def test_import_et_rapprochement_depot(projet):
     assert e["automatises"] == ["DEMO-1", "DEMO-2"] and e["non_automatises"] == ["DEMO-3"] and e["echecs"] == ["DEMO-1", "DEMO-3"]
     ref = {t["cle_xray"]: t for t in centre.referentiel()}
     assert ref["DEMO-1"]["statut_xray"] == "FAILED" and "DEMO-90" in ref["DEMO-1"]["executions"]
+
+
+def test_indicateurs_xray_de_la_vue_d_ensemble(projet):
+    from atelier.execution import centre
+
+    class Faux:
+        def executions(self, projet_cle, limite):
+            return {"executions": [
+                {"cle": "DEMO-90", "resume": "TNR sprint 12", "statut": "Done", "cree": "2026-11-12", "environnements": ["recette"],
+                 "tests": ["DEMO-1", "DEMO-2", "DEMO-3"], "tests_total": 3,
+                 "runs": {"DEMO-1": {"statut": "FAILED"}, "DEMO-2": {"statut": "PASSED"}, "DEMO-3": {"statut": "TO DO"}}},
+                {"cle": "DEMO-80", "resume": "TNR sprint 11", "statut": "Done", "cree": "2026-11-01", "environnements": [],
+                 "tests": ["DEMO-1", "DEMO-3"], "tests_total": 2, "runs": {"DEMO-1": {"statut": "PASSED"}, "DEMO-3": {"statut": "ABORTED"}}}], "absents": []}
+
+    assert centre.vue_xray()["import"]["date"] is None  # rien d'importé : aucun chiffre inventé
+    projet.importer_executions("DEMO", Faux())
+    v = centre.vue_xray()
+    k = v["kpi"]
+    assert (k["executions"], k["runs"], k["reussi"], k["echec"], k["non_execute"]) == (2, 5, 2, 2, 1) and k["taux_reussite"] == 50.0
+    # dernier statut par test : l'exécution la plus récente qui l'a exécuté (DEMO-1 échoue en 12, DEMO-3 non exécuté en 12 -> ABORTED en 11)
+    assert (k["tests_en_echec"], k["tests_reussis"]) == (2, 1)
+    assert [e["cle"] for e in v["recentes"]] == ["DEMO-90", "DEMO-80"] and v["recentes"][0]["taux"] == 50.0 and v["recentes"][0]["automatises"] == 2
+    assert [t["cle"] for t in v["tendance"]] == ["DEMO-80", "DEMO-90"] and v["par_statut"]["PASSED"] == 2
