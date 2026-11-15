@@ -203,3 +203,9 @@ Une ligne datée par décision d'architecture ou de conception.
 - Les preuves d'un run restent à un seul endroit (Execution Center › Résultats › Preuves) ; Failure Analysis les montre
   dans le contexte de l'échec. Le retest d'un échec (clôture) reste distinct de « Qualifier » du Studio (3 runs d'une suite).
 - Anciennes adresses conservées ; titres d'écrans en français.
+
+## 2026-11-15 — Quality Governance simplifié (4 entrées)
+- Vue qualité (Vue qualité, Couverture fonctionnelle, Couverture d'automatisation, Efficacité des tests) · Release Readiness
+  (Release Readiness, Recommandations) · Tendances et risques (Tendances, Risques applicatifs, Stabilité, Santé de
+  l'automatisation) · Rapports (Rapports, Réglages). Module en lecture seule : les indicateurs reprennent les données
+  des autres modules (Couverture, Studio, Failure Analysis), sans les recalculer ailleurs. Adresses et titres en français.

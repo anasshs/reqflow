@@ -2,9 +2,16 @@
    risques, release readiness, recommandations explicables, rapports. */
 "use strict";
 (() => {
-  const MENU = [["vue", "Quality Overview"], ["couverture", "Functional Coverage"], ["automatisation", "Automation Coverage"], ["efficacite", "Test Effectiveness"],
-    ["sante", "Automation Health"], ["stabilite", "Test Stability"], ["risques", "Application Risk"], ["release", "Release Readiness"],
-    ["tendances", "Quality Trends"], ["recommandations", "Recommendations"], ["rapports", "Reports"], ["parametres", "Governance Settings"]];
+  /* 4 entrées (module en lecture seule) ; les anciens écrans deviennent des onglets (adresses inchangées) */
+  const GROUPES = [
+    ["vue", "Vue qualité", [["vue", "Vue qualité"], ["couverture", "Couverture fonctionnelle"], ["automatisation", "Couverture d'automatisation"], ["efficacite", "Efficacité des tests"]],
+      "Indicateurs clés, couverture fonctionnelle et d'automatisation, efficacité des tests"],
+    ["release", "Release Readiness", [["release", "Release Readiness"], ["recommandations", "Recommandations"]], "Peut-on livrer ? Critères, blocages et recommandations justifiées"],
+    ["tendances", "Tendances et risques", [["tendances", "Tendances"], ["risques", "Risques applicatifs"], ["stabilite", "Stabilité"], ["sante", "Santé de l'automatisation"]],
+      "Évolution des indicateurs, modules à risque, tests instables, santé du socle"],
+    ["rapports", "Rapports", [["rapports", "Rapports"], ["parametres", "Réglages"]], "Rapports exportables, instantanés et seuils"]];
+  const MENU = GROUPES.flatMap(g => g[2]);
+  const groupeDe = r => GROUPES.find(g => g[2].some(o => o[0] === r)) || GROUPES[0];
   const ETAT = {satisfaisante: ["ok", "satisfaisante"], partielle: ["warn", "partielle"], insuffisante: ["ko", "insuffisante"], indisponible: ["", "indisponible"]};
   const NIV = {LOW: "ok", MEDIUM: "warn", HIGH: "ko"};
   const REL = {Ready: "ok", "Ready with Risks": "warn", "Not Ready": "ko", "Insufficient Data": ""};
@@ -13,13 +20,16 @@
   Atelier.enregistrer("gouvernance", {
     async afficher(zone, sous) {
       R = MENU.some(m => m[0] === sous) ? sous : "vue";
+      const G = groupeDe(R);
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques Quality Governance"><div class="titre-carte">QUALITY GOVERNANCE</div>
-        <ol class="liste-strat">${MENU.map(([id, lib], i) => `<li><button data-r="${id}" ${id === R ? 'aria-current="page"' : ""}><span class="num">${i + 1}</span><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
+        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
         <div class="pied-strat lib">Aucun score sans définition ni méthode ; un indicateur sans donnée est affiché « indisponible ».</div></nav>
-        <section class="carte corps-strat"><div class="corps-carte">${vide("Calcul des indicateurs…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
+        <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}</button>`).join("")}</div>` : ""}
+          <div id="qg-contenu"><div class="corps-carte">${vide("Calcul des indicateurs…")}</div></div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "gouvernance/" + b.dataset.r; });
-      const z = $(".corps-strat");
+      $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = "gouvernance/" + b.dataset.onglet; });
+      const z = $("#qg-contenu");
       try { await ({vue, couverture, automatisation, efficacite, sante, stabilite, risques, release, tendances, recommandations, rapports, parametres}[R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
@@ -35,7 +45,7 @@
 
   async function vue(z) {
     const v = await api("/api/gouvernance/vue");
-    z.innerHTML = `${entete("Quality Overview", `<span class="lib">calculé le ${date(v.date)}</span><button class="btn" id="qo-snap">Enregistrer un instantané</button><a class="btn" href="#gouvernance/rapports">Rapports</a>`)}
+    z.innerHTML = `${entete("Vue qualité", `<span class="lib">calculé le ${date(v.date)}</span><button class="btn" id="qo-snap">Enregistrer un instantané</button><a class="btn" href="#gouvernance/rapports">Rapports</a>`)}
       <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px">${v.kpis.map(kpiCarte).join("")}</div>
       <div class="grille-strat">
         <section class="bloc-strat"><h3>Couverture par module</h3>${v.modules.map(m => `<div style="display:flex;gap:8px;align-items:center;margin:4px 0"><span style="width:110px">${esc(m.module)}</span>${barre(m.pct)}<span>${val(m.pct, "%")}</span> ${etat(m.etat)}</div>`).join("") || "<p class='lib'>Aucune exigence.</p>"}</section>
@@ -54,7 +64,7 @@
     if (!v.erreur) {
       const pc = x => x === null || x === undefined ? "—" : String(x).replace(".", ",") + " %";
       const k = (val, l, t) => `<div class="kpi" title="${esc(t)}"><div class="v">${val}</div><div class="l">${l}</div></div>`;
-      z.innerHTML = `${entete("Functional Coverage", `<a class="btn primaire" href="#strategie/couverture" title="Détail complet : exigences, documentation, reconstruction, liens, tests manquants et orphelins">Détail dans Test Strategy › Couverture</a>`)}
+      z.innerHTML = `${entete("Couverture fonctionnelle", `<a class="btn primaire" href="#strategie/couverture" title="Détail complet : exigences, documentation, reconstruction, liens, tests manquants et orphelins">Détail dans Test Strategy › Couverture</a>`)}
         <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">${k(pc(v.documentaire.taux), "documentaire", v.documentaire.definition)}${k(pc(v.tracabilite.taux), "traçabilité", v.tracabilite.definition)}
           ${k(pc(v.execution.taux), "exécution", v.execution.definition)}${k(pc(v.automatisation.taux), "automatisation", v.automatisation.definition)}${k(v.overview.ecarts, "écarts détectés", "Voir Test Strategy › Couverture")}</div>
           <p class="lib" style="margin-top:10px">${v.tracabilite.exigences_sans_tests} exigence(s) sans test · ${v.tracabilite.tests_orphelins} test(s) sans exigence · ${v.documentaire.anomalies} anomalie(s) de documentation Jira.
@@ -62,7 +72,7 @@
       return;
     }
     const c = await api("/api/gouvernance/couverture");
-    z.innerHTML = `${entete("Functional Coverage", `<a class="btn" href="#graphe/couverture">${ico("graphe")}Graphe de couverture</a>`)}<div class="corps-carte"><p class="lib">${esc(c.definition)} Source : ${esc(c.source)}.</p>
+    z.innerHTML = `${entete("Couverture fonctionnelle", `<a class="btn" href="#graphe/couverture">${ico("graphe")}Graphe de couverture</a>`)}<div class="corps-carte"><p class="lib">${esc(c.definition)} Source : ${esc(c.source)}.</p>
       <table class="table-strat"><tr><th>Exigence</th><th>Type</th><th>Module</th><th>Tests</th><th>Automatisés</th><th>Couverture</th></tr>${c.exigences.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.type)}</td><td>${esc(e.module || "—")}</td>
         <td>${esc(e.tests.join(", ") || "—")}</td><td>${e.automatises}/${e.tests.length}</td><td>${etat(e.etat)}</td></tr>`).join("")}</table>
       <p style="margin-top:10px"><b>Tests sans exigence :</b> ${esc(c.sans_exigence.join(", ") || "aucun")}</p>
@@ -71,7 +81,7 @@
 
   async function automatisation(z) {
     const a = await api("/api/gouvernance/automatisation");
-    z.innerHTML = `${entete("Automation Coverage", `<a class="btn" href="#studio/candidats">Candidats (Automation Studio)</a>`)}<div class="corps-carte"><p class="lib">${esc(a.definition)}</p>
+    z.innerHTML = `${entete("Couverture d'automatisation", `<a class="btn" href="#studio/candidats">Candidats (Automation Studio)</a>`)}<div class="corps-carte"><p class="lib">${esc(a.definition)}</p>
       <table class="table-strat"><tr><th>Module</th><th>Total</th><th>Manuels</th><th>Automatisés</th><th>Couverture</th><th>Plateformes automatisées</th></tr>${a.modules.map(m => `<tr><td>${esc(m.module)}</td><td>${m.total}</td><td>${m.manuels}</td><td>${m.automatises}</td>
         <td><div style="display:flex;gap:8px;align-items:center">${barre(m.couverture)}${val(m.couverture, "%")}</div></td><td>${Object.entries(m.plateformes).map(([p, n]) => `${esc(p)} ${n}`).join(" · ") || "—"}</td></tr>`).join("")}</table>
       <div class="grille-2" style="margin-top:12px"><section class="bloc-strat"><h3>Tests Xray automatisés par plateforme</h3>${Object.entries(a.par_plateforme).map(([p, n]) => `<div>${esc(p)} <b>${n}</b></div>`).join("")}</section>
@@ -80,7 +90,7 @@
 
   async function efficacite(z) {
     const e = await api("/api/gouvernance/efficacite");
-    z.innerHTML = `${entete("Test Effectiveness")}<div class="corps-carte"><p>Défauts applicatifs confirmés : <b>${e.defauts_confirmes}</b> · échecs confirmés sans défaut applicatif : <b>${e.echecs_sans_defaut}</b> · échecs par module : ${Object.entries(e.echecs_par_module).map(([m, n]) => `${esc(m)} ${n}`).join(", ") || "—"}</p>
+    z.innerHTML = `${entete("Efficacité des tests")}<div class="corps-carte"><p>Défauts applicatifs confirmés : <b>${e.defauts_confirmes}</b> · échecs confirmés sans défaut applicatif : <b>${e.echecs_sans_defaut}</b> · échecs par module : ${Object.entries(e.echecs_par_module).map(([m, n]) => `${esc(m)} ${n}`).join(", ") || "—"}</p>
       <table class="table-strat"><tr><th>Test</th><th>Clé</th><th>Exécutions</th><th>Échecs</th><th>Taux d'échec</th></tr>${e.tests.map(t => `<tr><td>${esc(t.test)}</td><td class="cle-xray">${esc(t.cle_xray || "—")}</td><td>${t.executions}</td><td>${t.echecs}</td><td>${val(t.taux_echec, "%")}</td></tr>`).join("")}</table>
       <p style="margin-top:10px"><b>Tests redondants (candidats) :</b> ${esc(e.redondances.map(r => r.tests.join(" ≈ ")).join(" ; ") || "aucun")}</p><p class="lib">${esc(e.note)} Défauts après livraison : indisponible (Jira non connecté).</p></div>`;
   }
@@ -88,7 +98,7 @@
   async function sante(z) {
     const s = await api("/api/gouvernance/sante"), i = s.indicateurs;
     const k = (v, l, u = "") => `<div class="kpi"><div class="v">${val(v, u)}</div><div class="l">${l}</div></div>`;
-    z.innerHTML = `${entete("Automation Health", `<a class="btn" href="#studio/locators">Locators</a><a class="btn" href="#studio/keywords">Keywords</a><a class="btn" href="#graphe/flux">Graphe de dépendances</a>`)}
+    z.innerHTML = `${entete("Santé de l'automatisation", `<a class="btn" href="#studio/locators">Locators</a><a class="btn" href="#studio/keywords">Keywords</a><a class="btn" href="#graphe/flux">Graphe de dépendances</a>`)}
       <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:12px">${k(i.score, "score de santé", "/100")}${k(i.locators_sains, "locators stables ou fiables", "%")}
         ${k(i.conformite_revue, "conformité de revue", "%")}${k(i.reutilisation_keywords, "keywords réutilisés", "%")}${k(i.keywords_doublons, "keywords en doublon")}${k(i.keywords_inutilises, "keywords inutilisés")}
         ${k(i.scripts_jamais_executes, "tests jamais exécutés")}${k(i.backlog_maintenance, "corrections en attente")}</div><p class="lib">${esc(s.definition)}</p>
@@ -98,7 +108,7 @@
   async function stabilite(z) {
     const s = await api("/api/gouvernance/stabilite");
     const C = {"Potentially flaky": "warn", "Constamment en échec": "ko", Stable: "ok", "À surveiller": "info"};
-    z.innerHTML = `${entete("Test Stability", `<a class="btn" href="#echecs/inbox">Échecs à traiter (Failure Analysis)</a>`)}<div class="corps-carte"><p class="lib">${esc(s.definition)}</p>
+    z.innerHTML = `${entete("Stabilité", `<a class="btn" href="#echecs/inbox">Échecs à traiter (Failure Analysis)</a>`)}<div class="corps-carte"><p class="lib">${esc(s.definition)}</p>
       <p>Potentiellement flaky : <b>${s.flaky.length}</b> · passés au second essai (retry) : <b>${s.instables_retry.length}</b>${s.instables_retry.length ? " (" + esc(s.instables_retry.join(", ")) + ")" : ""}</p>
       <table class="table-strat"><tr><th>Test</th><th>Exécutions</th><th>Séquence (récente à droite)</th><th>Changements</th><th>Réussite</th><th>Durées (s)</th><th>Classification</th></tr>
         ${s.tests.map(t => `<tr><td>${esc(t.test)}</td><td>${t.executions}</td><td>${t.sequence.map(x => `<span class="pill ${x === "PASS" ? "ok" : "ko"}">${x === "PASS" ? "P" : "F"}</span>`).join("")}</td><td>${t.transitions}</td>
@@ -108,7 +118,7 @@
 
   async function risques(z) {
     const r = await api("/api/gouvernance/risques");
-    z.innerHTML = `${entete("Application Risk", `<a class="btn" href="#gouvernance/parametres">Pondérations</a>`)}<div class="corps-carte"><p class="lib">${esc(r.definition)}</p>
+    z.innerHTML = `${entete("Risques applicatifs", `<a class="btn" href="#gouvernance/parametres">Pondérations</a>`)}<div class="corps-carte"><p class="lib">${esc(r.definition)}</p>
       <table class="table-strat"><tr><th>Module</th><th>Niveau</th><th>Score</th><th>Criticité</th>${Object.keys(r.poids).map(k => `<th>${esc(k)} (${r.poids[k]})</th>`).join("")}<th>Lacunes</th></tr>
       ${r.modules.map(m => `<tr><td><b>${esc(m.module)}</b></td><td><span class="pill ${NIV[m.niveau] || ""}">${esc(m.niveau || "indisponible")}</span></td><td>${val(m.score)}</td><td>${esc(m.criticite || "—")}</td>
         ${Object.keys(r.poids).map(k => `<td class="mono">${m.facteurs[k] === null ? "—" : m.facteurs[k]}</td>`).join("")}<td>${esc(m.lacunes.join(", ") || "—")}</td></tr>`).join("")}</table></div>`;
@@ -137,7 +147,7 @@
     const t = await api("/api/gouvernance/tendances");
     const max = Math.max(1, ...t.runs.map(r => r.passes + r.echecs));
     const ids = t.instantanes.length ? Object.keys(t.instantanes[0].kpis) : [];
-    z.innerHTML = `${entete("Quality Trends")}<div class="corps-carte"><section class="bloc-strat"><h3>Réussites / échecs par run</h3><div style="display:flex;align-items:flex-end;gap:6px;height:120px">${t.runs.map(r => `
+    z.innerHTML = `${entete("Tendances")}<div class="corps-carte"><section class="bloc-strat"><h3>Réussites / échecs par run</h3><div style="display:flex;align-items:flex-end;gap:6px;height:120px">${t.runs.map(r => `
         <div title="${esc(r.id)} ${esc(r.campagne)}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%"><span style="background:var(--ko);height:${r.echecs / max * 100}%"></span><span style="background:var(--ok);height:${r.passes / max * 100}%"></span></div>`).join("") || "<p class='lib'>Aucun run.</p>"}</div></section>
       <h3 class="lib" style="margin-top:12px">INSTANTANÉS DES KPI (un par jour au moins, conservés même si les sources évoluent)</h3>
       <table class="table-strat"><tr><th>Date</th>${ids.map(i => `<th>${esc(i)}</th>`).join("")}</tr>${t.instantanes.slice().reverse().map(s => `<tr><td class="mono">${date(s.date)}</td>${ids.map(i => `<td>${val(s.kpis[i])}</td>`).join("")}</tr>`).join("")}</table></div>`;
@@ -145,7 +155,7 @@
 
   async function recommandations(z) {
     const l = await api("/api/gouvernance/recommandations");
-    z.innerHTML = `${entete("Recommendations")}<div class="corps-carte"><p class="lib">Recommandations produites par des règles explicables à partir des indicateurs ; aucune modification n'est appliquée sans validation dans le module concerné.</p>
+    z.innerHTML = `${entete("Recommandations")}<div class="corps-carte"><p class="lib">Recommandations produites par des règles explicables à partir des indicateurs ; aucune modification n'est appliquée sans validation dans le module concerné.</p>
       <table class="table-strat"><tr><th>Priorité</th><th>Catégorie</th><th>Recommandation</th><th>Justification (données)</th><th>Module</th><th>Responsable</th><th>Statut</th></tr>
       ${l.map(r => `<tr><td><span class="pill ${r.priorite === "HIGH" ? "ko" : r.priorite === "MEDIUM" ? "warn" : ""}">${esc(r.priorite)}</span></td><td>${esc(r.categorie)}</td><td><b>${esc(r.titre)}</b></td><td class="lib">${esc(r.justification)}</td>
         <td>${esc(r.module_cible)}</td><td><input class="in" data-resp="${esc(r.id)}" value="${esc(r.responsable || "")}" style="width:120px"></td>
@@ -157,7 +167,7 @@
   }
 
   async function rapports(z) {
-    z.innerHTML = `${entete("Reports")}<div class="corps-carte"><p class="lib">Chaque rapport indique sa période, son périmètre et sa date d'extraction. PDF : impression du navigateur ; CSV : indicateurs.</p>
+    z.innerHTML = `${entete("Rapports")}<div class="corps-carte"><p class="lib">Chaque rapport indique sa période, son périmètre et sa date d'extraction. PDF : impression du navigateur ; CSV : indicateurs.</p>
       <div class="grille-2">${[["qa", "Rapport QA Manager", "Couverture, résultats, risques, points bloquants, actions prioritaires"], ["factory", "Rapport Testing Factory", "Volume, automatisation, stabilité, maintenance"],
         ["automation", "Rapport Automation", "Santé, locators, keywords, flaky, maintenance"], ["release", "Rapport Release", "Dernière évaluation, risques résiduels, avis qualité"]]
         .map(([id, t, d]) => `<section class="bloc-strat"><h3>${t}</h3><p class="lib">${d}</p><div class="btns"><button class="btn primaire" data-pdf="${id}">PDF</button><button class="btn" data-csv="${id}">CSV</button></div></section>`).join("")}</div>
@@ -190,7 +200,7 @@
   async function parametres(z) {
     const [p, hist] = await Promise.all([api("/api/gouvernance/parametres"), api("/api/gouvernance/parametres/historique").catch(() => [])]);
     const champs = (g, o) => Object.entries(o).map(([k, v]) => `<div class="champ"><label>${esc(k)}</label><input class="in" type="number" data-g="${g}" data-k="${k}" value="${esc(v)}"></div>`).join("");
-    z.innerHTML = `${entete("Governance Settings", `<button class="btn primaire" id="gs-ok">Enregistrer</button>`)}<div class="corps-carte"><div class="grille-2">
+    z.innerHTML = `${entete("Réglages", `<button class="btn primaire" id="gs-ok">Enregistrer</button>`)}<div class="corps-carte"><div class="grille-2">
       <section class="bloc-strat"><h3>Seuils</h3>${champs("seuils", p.seuils)}</section><section class="bloc-strat"><h3>Release</h3>${champs("release", p.release)}
         <div class="champ"><label>Minutes d'exécution manuelle par test (ROI)</label><input class="in" type="number" id="gs-min" value="${esc(p.minutes_manuelles_par_test ?? "")}" placeholder="non renseigné : ROI indisponible"></div></section>
       <section class="bloc-strat"><h3>Pondérations du risque</h3>${champs("poids_risque", p.poids_risque)}</section><section class="bloc-strat"><h3>Pondérations de la release</h3>${champs("poids_release", p.poids_release)}</section>
