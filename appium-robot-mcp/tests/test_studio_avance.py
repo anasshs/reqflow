@@ -187,3 +187,33 @@ def test_tendance_un_releve_par_jour(demo):
     f = demo / "studio" / "tendance.jsonl"
     f.write_text(json.dumps({"jour": "2026-11-01", "tests_automatises": 3}) + "\n" + f.read_text("utf-8"), "utf-8")
     assert [x["jour"] for x in studio.vue_ensemble()["tendance"]][0] == "2026-11-01"
+
+
+# --------------------------------------------------------------------------- Cursor construit, l'automaticien valide
+def test_cursor_construit_et_soumet_sans_pouvoir_approuver(demo):
+    from atelier.adapters import facade
+    from atelier.generation import studio
+
+    socle = facade.studio_socle()
+    assert any(k["nom"] == "je me connecte avec le jeu de données" for k in socle["keywords"]) and socle["environnement"] == "recette"
+    apercu = facade.studio_construire_test("Connexion par Cursor", "CLIENT_ACTIF", [{"mot": "Given", "keyword": "je suis sur la page de connexion"},
+                                                                                    {"mot": "When", "keyword": "je me connecte avec le jeu de données"}], "DEMO-301")
+    assert apercu["lint"]["ok"] and "ecrit" not in apercu and not (demo / apercu["fichier"]).exists()
+    c = facade.studio_construire_test("Connexion par Cursor", "CLIENT_ACTIF", [{"mot": "Given", "keyword": "je suis sur la page de connexion"}], "DEMO-301", ecrire=True)
+    f = c["fichier"]
+    r = studio.revue_script(f)
+    assert r["statut"] == "Generated" and "généré (cursor)" in r["historique"][-1]["commentaire"]
+    assert facade.studio_soumettre_revue(f)["statut"] == "Technical Review"
+    assert facade.studio_revue(f)["statut"] == "Technical Review"
+    noms = {o.__name__ for o in facade.OUTILS}
+    assert not {n for n in noms if any(m in n for m in ("approuver", "publier", "refuser"))}  # décisions humaines uniquement
+
+
+def test_suite_ecrite_par_l_agent_entre_en_revue(demo):
+    from atelier.adapters import facade
+    from atelier.generation import studio
+
+    facade.write_project_file("tests/ecrite_par_cursor.robot", "*** Test Cases ***\nT\n    Log    x\n")
+    facade.write_project_file("resources/socle/notes.resource", "*** Keywords ***\nK\n    Log    x\n")
+    rev = studio.revues_scripts()
+    assert rev["tests/ecrite_par_cursor.robot"]["statut"] == "Generated" and "resources/socle/notes.resource" not in rev

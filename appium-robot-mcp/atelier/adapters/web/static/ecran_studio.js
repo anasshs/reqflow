@@ -73,6 +73,16 @@
           : `Rôles non activés : tout le monde peut tout faire (<a href="#studio/parametres">activer les rôles</a>).`}</p></div>`;
   }
 
+  /* demande prête à coller dans Cursor (chat de l'agent) : Cursor construit, l'automaticien valide ici */
+  function demandeCursor(texte) {
+    const m = modale("Faire construire par Cursor", `<p>Collez cette demande dans le chat de Cursor (règle « atelier-automatisation » installée depuis Paramètres › Connexions) :</p>
+      <textarea class="in mono" rows="6" readonly style="width:100%">${esc(texte)}</textarea>
+      <p class="lib">Cursor lit le socle et le scénario, écrit le test (qui entre en revue « Généré »), le vérifie en dry run puis le soumet. Il ne peut ni approuver ni publier :
+        vous décidez dans <a href="#studio/revue">Revue et publication</a>.</p>`, `<button class="btn primaire" id="dc-copier">Copier</button>`);
+    $("#dc-copier", m.el).onclick = async () => { try { await navigator.clipboard.writeText(texte); toast("Demande copiée : la coller dans Cursor.", "ok"); m.fermer(); }
+      catch (e) { $("textarea", m.el).select(); toast("Sélectionnée : Ctrl + C pour copier.", "ok"); } };
+  }
+
   /* courbes SVG des relevés quotidiens (un point par jour réellement relevé ; rien n'est reconstitué) */
   function courbes(t) {
     if (!t || t.length < 2) return `<p class="lib">Un relevé par jour est enregistré à l'ouverture du tableau de bord : la courbe apparaît dès le 2e jour (${(t || []).length} relevé).</p>`;
@@ -148,6 +158,7 @@
     }
     const etatsLoc = x => `<span class="pill ${PILL[x.etat] || ""}" title="${esc(x.etat)}">${esc(x.id)}</span>`;
     z.innerHTML = `${entete("BDD to Automation", `<select class="in" id="mp-cle" style="width:auto">${l.map(b => `<option ${b.cle === cle ? "selected" : ""}>${esc(b.cle)}</option>`).join("")}</select>
+        <button class="btn primaire" id="mp-cursor" title="Copie la demande à coller dans Cursor : il construit le test avec les outils du MCP, l'écrit et le soumet en revue ; vous l'approuvez ici">${ico("ia")}Faire construire par Cursor</button>
         <a class="btn" href="#bdd/${encodeURIComponent(cle)}" title="Ouvre le scénario dans Construction BDD pour corriger les étapes ou le mapping (propositions IA par étape)">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn primaire" id="mp-gen" title="Montre le test Robot qui serait généré ; rien n'est écrit">${ico("play")}Prévisualiser le Robot</button>`)}
       <div class="corps-carte"><p><b>${esc(m.cle)}</b> · ${esc(m.titre)} · JDD <span class="mono">${esc(m.jdd || "—")}</span> · BDD ${esc(m.statut_bdd)} ·
         <span class="pill ok">${m.existants} étape(s) reliée(s) au socle</span> <span class="pill ${m.a_creer ? "warn" : ""}">${m.a_creer} keyword(s) à créer</span></p>
@@ -159,6 +170,9 @@
           <td>${e.assertion ? '<span class="pill ok">vérification</span>' : ""}</td></tr>`).join("")}</table>`).join("")}
       <p class="lib" style="margin-top:10px">Correspondance calculée sur le dépôt (keyword de même libellé, fermeture des appels, locators et données réellement utilisés). Les propositions IA par étape se demandent dans Construction BDD (Assistant) et se valident à la main ; le générateur réutilise les keywords existants et ne crée que des stubs « Fail » pour le manquant.</p></div>`;
     $("#mp-cle").onchange = e => { location.hash = "studio/mapping/" + encodeURIComponent(e.target.value); };
+    $("#mp-cursor").onclick = () => demandeCursor(`Construis le test Robot du scénario BDD ${cle} avec le MCP de l'atelier : studio_socle, studio_scenario_bdd("${cle}"), `
+      + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants dans le socle sans wrapper 1:1, vérifie en dry_run, `
+      + `écris la suite puis studio_soumettre_revue. Je valide dans Automation Studio › Revue et publication.`);
     $("#mp-gen").onclick = async () => {
       try { const g = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: false}});
         modale(`Robot généré · ${cle} (prévisualisation, rien n'est écrit)`, `<pre class="code-bloc">${esc(g.contenu || g.robot || JSON.stringify(g, null, 1))}</pre>
@@ -414,7 +428,8 @@
     z.innerHTML = `${entete("Automation Review")}<div class="corps-carte"><ol class="workflow">${Object.keys(LIB).map(s => `<li>${esc(LIB[s])} · ${fichiers.filter(f => r[f].statut === s).length}</li>`).join("")}</ol>
       <p class="lib">Seuls les scripts approuvés / publiés passent sans avertissement dans Execution Center. Toute modification d'un script validé le renvoie en revue technique.</p>
       <table class="table-strat"><tr><th>Suite</th><th>Statut</th><th>Dernière décision</th></tr>${fichiers.map(f => { const h = r[f].historique.slice(-1)[0];
-        return `<tr class="cliquable" data-f="${esc(f)}"><td class="mono">${esc(f)}</td><td>${pill(r[f].statut)}${r[f].modifie_depuis_validation ? ' <span class="pill warn">modifié depuis la validation</span>' : ""}</td>
+        const origine = ((r[f].historique || []).map(x => /^généré \((\w+)\)/.exec(x.commentaire || "")).filter(Boolean).pop() || [])[1];
+        return `<tr class="cliquable" data-f="${esc(f)}" title="Ouvrir les contrôles et décider (approuver, demander des modifications, refuser)"><td class="mono">${esc(f)}${origine ? ` <span class="pill ${origine === "cursor" ? "violet" : ""}" title="Origine du script">${origine === "cursor" ? "écrit par Cursor" : esc(origine)}</span>` : ""}</td><td>${pill(r[f].statut)}${r[f].modifie_depuis_validation ? ' <span class="pill warn">modifié depuis la validation</span>' : ""}</td>
           <td class="lib">${h ? `${esc(h.date.slice(0, 16).replace("T", " "))} · ${esc(h.auteur)}${h.commentaire ? " · « " + esc(h.commentaire) + " »" : ""}` : "—"}</td></tr>`; }).join("")}</table></div>`;
     $$("tr[data-f]", z).forEach(tr => tr.onclick = () => detailRevue(tr.dataset.f, z));
   }

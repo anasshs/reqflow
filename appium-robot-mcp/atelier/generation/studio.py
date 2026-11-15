@@ -701,11 +701,11 @@ def _lignes_controle(etapes: list[dict]) -> list[tuple[int, str | None]]:
     return out
 
 
-def ecrire_test(construit: dict) -> dict:
+def ecrire_test(construit: dict, origine: str = "builder") -> dict:
     """Écrit le test assemblé (jamais d'écrasement) ; il entre en revue technique à l'état « Generated »."""
     from atelier.domain import roles
 
     roles.exiger("construire")
     projet.ecrire_fichier(construit["fichier"], construit["contenu"], False)
-    entrer_en_revue(construit["fichier"], "builder")
+    entrer_en_revue(construit["fichier"], origine)
     return {"fichier": construit["fichier"], "revue": "Generated"}

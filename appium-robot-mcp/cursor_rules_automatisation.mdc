@@ -42,3 +42,19 @@ Méthode :
    si « corrigé », appliquer la correction avant de continuer ; si « refusé », proposer autre chose.
 4. À chaque nouvel écran stabilisé : capture_screen_locators avec les seules clés utiles.
 5. En fin de parcours : generate_locators_resource, écrire steps et suite, puis run_robot en dry_run.
+
+Construire un test (Cursor écrit, l'automaticien valide dans l'atelier) :
+1. studio_socle (keywords, locators et leur état, jeux de données, conventions) : réutiliser avant de créer.
+2. Test issu d'un scénario BDD : studio_scenario_bdd(cle) pour le mapping étape → keyword, puis
+   studio_generer_depuis_bdd(cle) en aperçu ; sinon studio_construire_test(...) en aperçu (blocs SI / POUR /
+   ESSAYER possibles). Corriger jusqu'à un lint propre, puis écrire (ecrire=True).
+3. Mettre au point une étape douteuse avec studio_executer_etape (suite temporaire hors dépôt), puis
+   run_robot en dry_run sur la suite.
+4. studio_soumettre_revue(fichier) : l'automaticien approuve, refuse ou demande des modifications dans
+   l'atelier (Automation Studio › Revue et publication). Tu ne peux ni approuver ni publier.
+5. Statut « Modifications demandées » : studio_revue(fichier) pour lire les contrôles et le commentaire,
+   corriger, puis resoumettre.
+6. Locators fragiles : studio_corrections_locators donne les valeurs proposées ; la correction s'applique
+   dans l'atelier après validation humaine.
+Toute suite écrite avec write_project_file entre aussi en revue : elle ne s'exécute (hors dry_run) qu'une
+fois approuvée.

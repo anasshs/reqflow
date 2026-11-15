@@ -179,7 +179,12 @@ def read_project_file(path: str) -> str:
 @outil
 def write_project_file(path: str, content: str, overwrite: bool = False) -> str:
     """Écrit un fichier dans le projet (nouvelle suite, steps…). Refuse d'écraser sans overwrite=True."""
-    return projet.ecrire_fichier(path, content, overwrite)
+    r = projet.ecrire_fichier(path, content, overwrite)
+    if path.endswith(".robot") and "*** Test Cases ***" in content:  # suite écrite par l'agent : revue humaine avant exécution
+        from atelier.generation import studio
+
+        studio.entrer_en_revue(path, "cursor")
+    return r
 
 
 @outil
@@ -531,6 +536,115 @@ def discovery_terminer() -> dict:
     fin = sessions_discovery.arreter(s["id"])
     r = {k: v for k, v in (fin.get("resultats") or {}).items() if k not in ("nouveaux", "modifies")}
     return {"id": fin["id"], "resultats": r, "propositions_a_valider": len(apprentissage.propositions(fin["id"]))}
+
+
+# =========================================================================== Construire / Automation Studio (Cursor construit,
+# l'automaticien valide dans l'atelier : revue technique, aucune approbation possible depuis l'agent)
+@outil
+def studio_socle(module: str = "", env: str = "") -> dict:
+    """Ce qu'il faut réutiliser avant d'écrire un test : keywords du socle (nom, documentation, fichier, utilisations,
+    signaux doublon / wrapper 1:1), locators par écran avec leur état (Stable, Reliable, Fragile, Obsolete, Missing),
+    jeux de données de l'environnement et conventions du projet. module : filtre sur l'écran ou la catégorie."""
+    from atelier.generation import studio
+
+    f = (module or "").lower()
+    kws = [{k: x[k] for k in ("nom", "documentation", "fichier", "categorie", "utilisations", "doublon", "wrapper_1_1", "plateformes")}
+           for x in studio.keywords() if not f or f in x["categorie"].lower() or f in x["nom"].lower()]
+    locs = [{k: x[k] for k in ("ecran", "cle", "plateforme", "valeur", "etat", "fichier")} for x in studio.locators() if not f or f in x["ecran"]]
+    envs = jdd.environnements()
+    e = env or (envs[0] if envs else "")
+    return {"keywords": kws, "locators": locs, "environnement": e, "jeux": jdd.lister(e) if e else [],
+            "conventions": ["Gherkin français + Page Object Model : locators / keywords / scénarios séparés",
+                            "INITIALISATION : Initialiser Le Test    &{JDD_<NOM>} ; aucune donnée littérale dans le scénario",
+                            "réutiliser les keywords du socle ; jamais de wrapper 1:1 par élément",
+                            "tags : clé Xray + tags fonctionnels (smoke, e2e, negatif, consomme_donnee)",
+                            "tout script écrit entre en revue technique : l'automaticien l'approuve dans l'atelier"]}
+
+
+@outil
+def studio_scenario_bdd(cle: str) -> dict:
+    """Scénario BDD d'un test Xray (Test Design) et son mapping vers le socle : pour chaque étape, keyword existant ou
+    à créer, locators et leur état, données ${DONNEES.x}, assertion. Point de départ pour écrire le test Robot."""
+    from atelier.generation import bdd, studio
+
+    m = bdd._exiger(cle)
+    return {"cle": cle, "titre": m.get("titre", ""), "gherkin": bdd.serialiser(m), "controles": bdd.controles(m),
+            "mapping": studio.mapping_bdd(cle)}
+
+
+@outil
+def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "") -> dict:
+    """Génère la suite Robot d'un scénario BDD (keywords du socle, stubs pour les étapes à créer). ecrire=False :
+    aperçu seulement. ecrire=True : écrit le fichier (jamais d'écrasement) ; il entre en revue technique « Généré »
+    et ne s'exécute qu'après approbation de l'automaticien dans l'atelier."""
+    from atelier.generation import bdd, studio
+
+    g = bdd.generer_robot(bdd._exiger(cle))
+    if ecrire:
+        cible = chemin or g["chemin"]
+        projet.ecrire_fichier(cible, g["contenu"], False)
+        studio.entrer_en_revue(cible, "cursor")
+        g["ecrit"] = cible
+    return g
+
+
+@outil
+def studio_construire_test(nom: str, jdd_nom: str, etapes: list[dict], cle_xray: str = "", tags: list[str] | None = None,
+                           ecrire: bool = False) -> dict:
+    """Assemble un test Robot depuis les keywords EXISTANTS du socle (INITIALISATION + JDD ajoutés). etapes :
+    [{"mot": "Given|When|Then|And", "keyword": "<nom exact>", "arguments": [...]}] et blocs
+    {"type": "si", "condition": "..."}, {"type": "sinon"}, {"type": "pour", "variable": "${i}", "liste": "RANGE 3"},
+    {"type": "essayer"}, {"type": "echec"}, {"type": "fin"}. ecrire=False : aperçu + lint ; ecrire=True : fichier écrit,
+    en revue technique « Généré » (approbation humaine dans l'atelier)."""
+    from atelier.generation import studio
+
+    c = studio.construire_test(nom, cle_xray, jdd_nom, etapes, tags or [])
+    if ecrire:
+        c["ecrit"] = studio.ecrire_test(c, "cursor")
+    return c
+
+
+@outil
+def studio_executer_etape(keyword: str, jdd_nom: str, plateforme: str = "web", env: str = "", arguments: list[str] | None = None) -> dict:
+    """Exécute un seul keyword du socle (INITIALISATION + jeu de données, puis ce keyword) dans une suite temporaire
+    hors dépôt (results/builder/). Pour mettre au point une étape avant d'écrire le test complet."""
+    from atelier.generation import studio_avance
+
+    e = studio_avance.preparer_etape(keyword, jdd_nom, arguments or [])
+    out = e["cible"].rsplit("/", 1)[0]
+    r = robot.run_robot(e["cible"], variables={"PLATFORM": plateforme}, output_dir=out, xray_mode="aucun", jdd_env=env)
+    return {"cible": e["cible"], "resultat": r}
+
+
+@outil
+def studio_revue(fichier: str = "") -> dict:
+    """État de la revue technique des scripts. Sans fichier : liste (statut, dernière décision et commentaire).
+    Avec fichier : statut, contrôles automatiques (clé Xray, conventions, secrets, assertions, réutilisation, locators,
+    données) et historique — à lire pour corriger un script en « Modifications demandées »."""
+    from atelier.generation import studio
+
+    if fichier:
+        return studio.revue_script(fichier)
+    return {f: {"statut": r["statut"], "derniere_decision": (r.get("historique") or [{}])[-1]} for f, r in studio.revues_scripts().items()}
+
+
+@outil
+def studio_soumettre_revue(fichier: str, commentaire: str = "") -> dict:
+    """Soumet un script à la revue technique de l'automaticien (Généré / Modifications demandées / Refusé → Revue
+    technique). L'agent ne peut ni approuver, ni refuser, ni publier : ces décisions restent humaines, dans l'atelier."""
+    from atelier.generation import studio
+
+    r = studio.transition_script(fichier, "soumettre", commentaire or "soumis par Cursor")
+    return {"fichier": fichier, "statut": r["statut"], "controles": r["controles"]}
+
+
+@outil
+def studio_corrections_locators() -> list[dict]:
+    """Locators à fiabiliser (fragiles, obsolètes, ou dont un secours a servi dans les derniers runs) avec la valeur
+    proposée et sa source. Lecture seule : la correction s'applique dans l'atelier après validation."""
+    from atelier.generation import studio_avance
+
+    return studio_avance.propositions_correction()
 
 
 __all__ = [f.__name__ for f in OUTILS]
