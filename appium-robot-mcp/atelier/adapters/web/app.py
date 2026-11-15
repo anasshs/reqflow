@@ -656,7 +656,10 @@ def agent_reset():
 # --------------------------------------------------------------------------- Xray, Jira
 @app.get("/api/xray/tests")
 async def xray_tests(jql: str = ""):
-    jql = jql or config()["jql_candidats"] or (f'project = "{projets.cle_xray()}" ORDER BY key' if projets.cle_xray() else "")
+    from atelier.intelligence import source_tests
+
+    jql = jql or (source_tests.source()["jql"] if amap.app_courante() else "") or config()["jql_candidats"] \
+        or (f'project = "{projets.cle_xray()}" ORDER BY key' if projets.cle_xray() else "")
     if not jql:
         raise HTTPException(400, "Aucune JQL de tests : déclarer la clé Xray du projet (Paramètres › Projets).")
     return await asyncio.to_thread(_call, outils.xray_search_tests, jql, 80)
@@ -796,6 +799,47 @@ def conception_repository():
         {"slug": a["slug"], "nom": a.get("nom", a["slug"]), "type": a.get("type", ""), "plateformes": a.get("plateformes", []),
          "dossiers": (a.get("tests_xray") or {}).get("dossiers", []), "valeurs": (a.get("tests_xray") or {}).get("valeurs", [])}
         for a in amap.apps()], "active": amap.app_courante()}
+
+
+@app.get("/api/apps/configuration")
+def apps_configuration():
+    """Configuration de l'application active : source des tests (JQL + dossiers) et politique des US."""
+    from atelier.intelligence import patrimoine_xray, source_tests, testabilite_us
+
+    slug = amap.app_courante()
+    if not slug:
+        return {"application": None}
+    cfg = amap.config_app(slug)
+    return {"application": {"slug": slug, "nom": cfg.get("nom", slug), "projet_xray": cfg.get("projet_xray") or projets.cle_xray()},
+            "source": _call(source_tests.source, slug), "dossiers": _call(patrimoine_xray.dossiers_repository)["dossiers"],
+            "espaces": [e for e in testabilite_us.tous_espaces() if e.get("application") == slug],
+            "espaces_non_rattaches": [e for e in testabilite_us.tous_espaces() if not e.get("application")],
+            "copie_marquee": patrimoine_xray.charger_brut_marque()}
+
+
+@app.post("/api/apps/source")
+async def apps_source(req: Request):
+    from atelier.intelligence import source_tests
+
+    b = await req.json()
+    r = _call(source_tests.enregistrer, b.get("slug") or amap.app_courante(), b.get("jql", ""), b.get("dossiers") or [])
+    emit({"type": "app_change", "slug": b.get("slug") or amap.app_courante()})
+    return r
+
+
+@app.post("/api/apps/source/tester")
+async def apps_source_tester(req: Request):
+    from atelier.intelligence import source_tests
+
+    return await asyncio.to_thread(_call, source_tests.tester, (await req.json()).get("jql", ""))
+
+
+@app.post("/api/testabilite/espaces/rattacher")
+async def testabilite_rattacher(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    b = await req.json()
+    return _call(testabilite_us.rattacher_espace, b.get("projet_jira", ""), b.get("application") or amap.app_courante())
 
 
 @app.post("/api/apps/dupliquer")
@@ -1519,7 +1563,13 @@ async def patrimoine_xray_definitions(req: Request):
 
 @app.post("/api/patrimoine/synchroniser")
 async def patrimoine_synchroniser(req: Request):
+    """Sans JQL : synchronise l'application active avec sa source (Paramètres › Configuration). Avec JQL : appel
+    historique (copie locale remplacée par le résultat)."""
     b = await req.json()
+    if not b.get("jql"):
+        r = await asyncio.to_thread(_call, patrimoine_xray.synchroniser_application, b.get("application", ""))
+        emit({"type": "patrimoine_change"})
+        return r
     cle = b.get("projet") or projets.cle_jira()
     if not cle:
         raise HTTPException(400, "Projet Jira requis (aucun projet actif avec une clé).")

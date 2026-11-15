@@ -79,7 +79,7 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     xray_ticket : une seule clé Jira, dont le type est détecté automatiquement :
       - Test Plan       -> crée une nouvelle exécution et l'ajoute au plan ;
       - Test Execution  -> met à jour cette exécution (tests manquants ajoutés) ;
-      - autre ticket (US, epic…) ou clé projet seule (ex. TAM) -> crée un plan + une exécution.
+      - autre ticket (US, epic…) ou clé projet seule (ex. DEMO) -> crée un plan + une exécution.
     xray_mode :
       - 'live' (défaut) : listener du MCP, test run en EXECUTING au démarrage de chaque test,
         PASSED / FAILED à la fin, heures de début et de fin, message d'échec et captures ;

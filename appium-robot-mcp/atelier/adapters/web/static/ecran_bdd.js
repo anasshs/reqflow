@@ -113,7 +113,7 @@
           <td class="cle-xray">${esc(s.cle)}</td><td>${esc(s.titre)}</td><td>${s.scenarios}</td><td><span class="pill ${s.statut === "validé" ? "ok" : "warn"}">${esc(s.statut)}</span></td>
           <td class="lib">${esc((s.maj || "").slice(0, 16).replace("T", " "))}</td></tr>`).join("")}</table>` : vide("Aucun scénario", "Créer le premier à partir d'un test Xray ou d'une page blanche.")}</div></section>
       <section class="carte s4"><h2 class="titre-carte">Nouveau scénario</h2><div class="corps-carte">
-        <div class="champ"><label for="n-cle">Clé du test Xray</label><input class="in" id="n-cle" list="n-cles" placeholder="ex. TAM-745"></div>
+        <div class="champ"><label for="n-cle">Clé du test Xray</label><input class="in" id="n-cle" list="n-cles" placeholder="ex. DEMO-745"></div>
         <datalist id="n-cles">${cand.map(c => `<option value="${esc(c.cle)}">${esc(c.resume || "")}</option>`).join("")}</datalist>
         <div class="champ"><label for="n-titre">Titre</label><input class="in" id="n-titre"></div>
         <label class="ligne-champ"><span>Depuis Xray</span><input type="checkbox" class="bascule" id="n-xray" ${Atelier.ctx.xray?.configure ? "checked" : ""}></label>

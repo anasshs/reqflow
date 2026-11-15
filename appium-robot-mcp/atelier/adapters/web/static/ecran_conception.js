@@ -28,7 +28,7 @@
     },
   });
 
-  /* Recherche dans une liste : clé(s) de ticket exactes (TAM-735, plusieurs séparées par espace / virgule) ou texte libre.
+  /* Recherche dans une liste : clé(s) de ticket exactes (DEMO-735, plusieurs séparées par espace / virgule) ou texte libre.
      Entrée sur un résultat unique : ouvre sa ligne (panneau). La saisie est conservée par écran. */
   const RECH = {};
   const RE_CLE = /^[A-Z][A-Z0-9_]*-\d+$/;
@@ -38,7 +38,7 @@
     const barre = document.createElement("div");
     barre.className = "btns";
     barre.style.marginBottom = "8px";
-    barre.innerHTML = `<input class="in" type="search" data-rech placeholder="Rechercher : clé (TAM-735), plusieurs clés, ou texte…" style="max-width:420px" value="${esc(RECH[ecran] || "")}" aria-label="Rechercher dans la liste">
+    barre.innerHTML = `<input class="in" type="search" data-rech placeholder="Rechercher : clé (DEMO-735), plusieurs clés, ou texte…" style="max-width:420px" value="${esc(RECH[ecran] || "")}" aria-label="Rechercher dans la liste">
       <span class="lib" data-rech-n></span>`;
     table.parentNode.insertBefore(barre, table);
     const lignes = [...table.querySelectorAll("tr")].filter(tr => !tr.querySelector("th"));
@@ -183,7 +183,7 @@
     const [cfg, l] = await Promise.all([api("/api/testabilite/espaces?sprint=" + idSel), api(`/api/testabilite/file?sprint=${idSel}&espace=${espSel}`)]);
     const ind = cfg.indicateurs;
     const ETAT = {active: "actif", future: "à venir", closed: "fermé"};
-    z.innerHTML = `${entete("US à couvrir", `<button class="btn" id="us-cfg">Politique (espaces Jira)</button><button class="btn" id="us-rep">Relever les réponses</button>
+    z.innerHTML = `${entete("US à couvrir", `<a class="btn" href="#parametres/configuration" title="Politique des US de l'application : Paramètres › Configuration">Politique (espaces Jira)</a><button class="btn" id="us-rep">Relever les réponses</button>
         <button class="btn primaire" id="us-det">${ico("rejouer")}Détecter</button>`)}<div class="corps-carte">
       <div class="btns" style="margin-bottom:8px"><label class="lib" for="us-sp">Sprint</label><select class="in" id="us-sp" style="width:auto">
         <option value="">Toutes les US suivies</option>${options.map(s => `<option value="${esc(s.esp)}|${s.id}" ${SPRINT === `${s.esp}|${s.id}` ? "selected" : ""}>${esc(s.esp)} · ${esc(s.nom)} (${ETAT[s.etat] || s.etat})</option>`).join("")}</select>
@@ -203,7 +203,6 @@
             <td>${esc(x.resume)}</td><td class="lib">${esc(x.statut_jira)}</td><td><span class="pill ${ST_US[x.statut] || ""}">${esc(x.statut)}</span></td><td>${x.constats}</td><td>${x.cas}</td>
             <td>${(x.tests_lies || []).map(k => `<span class="cle-xray">${esc(k)}</span>`).join(", ") || "—"}</td></tr>`).join("")}</table>`
         : vide("Aucune US détectée", "« Détecter les US » interroge Jira (lecture seule).")}</div>`;
-    $("#us-cfg").onclick = () => politiqueUS(cfg);
     $("#us-po").onchange = e => { PORTEE = e.target.value; };
     $("#us-det").onclick = async () => {
       // une portée choisie prime sur le sprint sélectionné (ex. « prochain sprint uniquement »)
@@ -236,7 +235,9 @@
         <dt>Par statut</dt><dd>${Object.entries(b.par_statut).map(([k, v]) => `<span class="pill ${ST_US[k] || ""}">${esc(k)} · ${v}</span>`).join(" ")}</dd></dl>`);
   }
 
-  function politiqueUS(cfg) {
+  window.PolitiqueUS = async apres => politiqueUS(await api("/api/testabilite/espaces"), apres);
+
+  function politiqueUS(cfg, apres = null) {
     const ligne = e => `<tr><td><b>${esc(e.projet_jira)}</b> ${e.actif ? '<span class="pill ok">actif</span>' : '<span class="pill">inactif</span>'}</td><td>${esc(e.nom)}</td>
       <td>${esc((e.types_issue || []).join(", "))}</td><td>${esc(cfg.portees[e.portee || "sprint"] || e.portee)}${e.portee === "statuts" ? ` : ${esc((e.statuts || []).join(", ") || "non terminées")}` : ""}</td><td>${esc(e.projet_xray)}</td><td>${esc(e.type_test)} · ${e.min_tests} min.</td>
       <td><button class="btn petit danger" data-sup="${esc(e.projet_jira)}">Retirer</button></td></tr>`;
@@ -290,7 +291,7 @@
     $("#es-ok", m.el).onclick = async () => {
       try { await api("/api/testabilite/espaces", {method: "POST", body: {projet_jira: $("#es-pj", m.el).value, nom: $("#es-nom", m.el).value, types_issue: liste($("#es-ty", m.el).value),
           statuts: liste($("#es-st", m.el).value), portee: $("#es-po", m.el).value, projet_xray: $("#es-x", m.el).value, type_test: $("#es-tt", m.el).value, min_tests: +$("#es-min", m.el).value, jql_complement: $("#es-jql", m.el).value, actif: true}});
-        m.fermer(); SPRINTS = null; toast("Espace enregistré.", "ok"); location.hash = "conception/us"; Atelier.ouvrir(); } catch (e) { toast(e.message, "ko"); }
+        m.fermer(); SPRINTS = null; toast("Espace enregistré.", "ok"); if (apres) apres(); else { location.hash = "conception/us"; Atelier.ouvrir(); } } catch (e) { toast(e.message, "ko"); }
     };
     $$("[data-sup]", m.el).forEach(b => b.onclick = async () => { await api("/api/testabilite/espaces/supprimer", {method: "POST", body: {projet_jira: b.dataset.sup}}); m.fermer(); Atelier.ouvrir(); });
   }
@@ -440,8 +441,8 @@
         <div class="champ"><label for="rg-res">Résultats attendus (un par ligne)</label><textarea class="in" id="rg-res" rows="3">${esc(r.resultats.join("\n"))}</textarea></div></div>
       <h3 class="lib">PARAMÈTRES</h3><table id="rg-prms"><tr><th>Paramètre</th><th>Type</th><th>Min</th><th>Max</th><th>Unité</th><th>Valeurs</th><th></th></tr>${(r.parametres.length ? r.parametres : [{}]).map(ligneParam).join("")}</table>
       <button class="btn petit" id="rg-padd">${ico("plus")}Paramètre</button>
-      <div class="grille-2" style="margin-top:8px"><div class="champ"><label for="rg-ex">Exigences (clés)</label><input class="in" id="rg-ex" value="${esc(r.exigences.join(", "))}" placeholder="TAM-10, TAM-11"></div>
-        <div class="champ"><label for="rg-ts">Tests Xray (clés)</label><input class="in" id="rg-ts" value="${esc(r.tests.join(", "))}" placeholder="TAM-735"></div></div>
+      <div class="grille-2" style="margin-top:8px"><div class="champ"><label for="rg-ex">Exigences (clés)</label><input class="in" id="rg-ex" value="${esc(r.exigences.join(", "))}" placeholder="DEMO-10, DEMO-11"></div>
+        <div class="champ"><label for="rg-ts">Tests Xray (clés)</label><input class="in" id="rg-ts" value="${esc(r.tests.join(", "))}" placeholder="DEMO-735"></div></div>
       <div class="btns"><button class="btn primaire" id="rg-save">${ico("check")}Enregistrer</button>${id ? `<button class="btn danger" id="rg-del">Supprimer</button>` : ""}</div>
       ${id ? `<h3 class="lib" style="margin-top:12px">CAS LIMITES PROPOSÉS (${r.cas_limites.length})</h3>${r.cas_limites.length ? `<table class="table-strat"><tr><th></th><th>Cas</th><th>Attendu</th></tr>
         ${r.cas_limites.map(c => `<tr><td><input type="checkbox" data-cl="${esc(c.id)}"></td><td>${esc(c.titre)}<br><span class="lib">${esc(Object.entries(c.donnees).map(([k, v]) => `${k} = ${v}`).join(" · "))}</span></td>
@@ -489,7 +490,7 @@
       <div class="grille-2">${conteneurs("Test Plans Xray", o.plans)}${conteneurs("Test Sets Xray", o.test_sets)}</div>
       <div class="grille-2" style="margin-top:12px">
       <section class="bloc-strat"><h3>Suites Robot (dépôt)</h3><ul class="liste">${s.map(x => `<li><a class="item" href="#editeur/${encodeURIComponent(x.fichier)}">${esc(x.fichier)}</a><span class="compte">${x.tests} test(s)</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul></section>
-      <section class="bloc-strat"><h3>Correspondance Robot ↔ Xray</h3><p class="lib">Un test Robot est relié à son test Xray par le tag de clé (ex. <span class="mono">[Tags] TAM-735</span>) : voir Cas de test (mode automatisé / manuel) et Traçabilité.</p>
+      <section class="bloc-strat"><h3>Correspondance Robot ↔ Xray</h3><p class="lib">Un test Robot est relié à son test Xray par le tag de clé (ex. <span class="mono">[Tags] DEMO-735</span>) : voir Cas de test (mode automatisé / manuel) et Traçabilité.</p>
         <p class="lib">Test Plan, Test Set et dossier du Test Repository sont trois objets distincts dans Xray. Réorganisation depuis l'atelier : à venir (lecture seule).</p></section></div></div>`;
     $("#su-imp").onclick = async () => {
       try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {}});
@@ -622,21 +623,12 @@
         <section class="bloc-strat"><h3>Projet et repository</h3><div class="champ"><label for="mp-proj">Projet Jira</label><input class="in" id="mp-proj" value="${esc(m.projet_jira || "")}" placeholder="ex. DEMO"></div>
           <div class="champ"><label for="mp-dos">Dossier du Test Repository (publication par défaut)</label><input class="in" id="mp-dos" list="mp-dos-liste" value="${esc(m.dossier_repository || "")}" placeholder="choisir ou saisir, ex. /Connexion">
             <datalist id="mp-dos-liste">${repo.dossiers.map(d => `<option value="${esc(d.chemin)}">${d.tests} test(s)</option>`).join("")}</datalist></div></section></div>
-      <h3 class="lib">APPLICATIONS DU PROJET ET DOSSIERS DU TEST REPOSITORY</h3>
-      <p class="lib">Repository dédié à une seule application : ne choisir aucun dossier (tout le repository). Plusieurs applications dans le projet : choisir le ou les dossiers qui contiennent les tests de chacune (sous-dossiers compris).
-        Une application ajoutée ici est la même que dans Paramètres › Applications (elle apparaît dans le header).</p>
+      <h3 class="lib">APPLICATIONS DU PROJET ET SOURCE DE LEURS TESTS</h3>
+      <p class="lib">La source des tests de chaque application (JQL + dossiers du Test Repository) se définit dans <a href="#parametres/configuration">Paramètres › Configuration</a> : seul endroit qui en décide.</p>
       ${!repo.definitions_importees || repo.tests_sans_dossier ? `<p class="warn-t">${repo.definitions_importees ? `${repo.tests_sans_dossier} test(s) sans dossier connu.` : "Dossiers inconnus : les définitions Xray n'ont pas encore été importées."}
         <button class="btn petit" id="mp-imp">Importer les définitions Xray</button></p>` : ""}
-      <table class="table-strat"><tr><th>Application</th><th>Type</th><th>Dossier(s) du Test Repository</th></tr>
-        ${repo.applications.map(a => `<tr><td><b>${esc(a.nom)}</b>${a.slug === repo.active ? ' <span class="pill ok">active</span>' : ""}</td><td class="lib">${esc(a.type)}${a.type === "mobile" ? " · " + esc((a.plateformes || []).join(", ")) : ""}</td>
-          <td><select class="in" multiple size="${Math.min(5, Math.max(2, repo.dossiers.length))}" data-apd="${esc(a.slug)}" aria-label="Dossiers de ${esc(a.nom)}">${optDossiers(a.dossiers)}</select>
-            <span class="lib">${a.dossiers.length ? esc(a.dossiers.join(", ")) : "tout le repository"}</span></td></tr>`).join("") || "<tr><td colspan='3' class='lib'>Aucune application.</td></tr>"}
-        <tr><td><input class="in" id="mpa-nom" placeholder="Nouvelle application"></td>
-          <td><select class="in" id="mpa-type"><option value="android">Mobile Android</option><option value="ios">Mobile iOS</option><option value="android,ios">Mobile Android + iOS</option><option value="web">Web</option><option value="api">API</option></select>
-            <input class="in" id="mpa-url" placeholder="URL (web / API)" hidden></td>
-          <td><select class="in" multiple size="${Math.min(5, Math.max(2, repo.dossiers.length))}" id="mpa-dos" aria-label="Dossiers de la nouvelle application">${optDossiers([])}</select>
-            <button class="btn petit primaire" id="mpa-ok">${ico("plus")}Ajouter l'application</button></td></tr></table>
-      <p class="lib">Ctrl + clic pour choisir plusieurs dossiers. « Enregistrer le mapping » enregistre les dossiers des applications existantes.</p>
+      <table class="table-strat"><tr><th>Application</th><th>Dossier(s)</th></tr>${repo.applications.map(a => `<tr><td><b>${esc(a.nom)}</b>${a.slug === repo.active ? ' <span class="pill ok">active</span>' : ""}</td>
+        <td class="lib">${esc(a.dossiers.join(", ") || "toute la JQL")}</td></tr>`).join("") || "<tr><td colspan='2' class='lib'>Aucune application.</td></tr>"}</table>
       <h3 class="lib">OBJETS</h3><table class="table-strat"><tr><th>Objet plateforme</th><th>Objet Jira / Xray</th><th>Confirmé</th></tr>${m.objets.map((o, i) => `<tr><td>${esc(o.interne)}</td>
         <td><input class="in" data-obj="${i}" value="${esc(o.externe)}"></td><td><input type="checkbox" data-objc="${i}" ${o.confirme ? "checked" : ""}></td></tr>`).join("")}</table>
       <h3 class="lib" style="margin-top:14px">CHAMPS <span class="lib">(${t.tests_analyses} test(s) de l'instantané analysés)</span></h3>
@@ -661,16 +653,7 @@
       <div class="grille-2" style="max-width:700px"><div class="champ"><label for="cv-champ">Champ « candidat auto » (Jira)</label><input class="in mono" id="cv-champ" value="${esc(cv.champ_candidat)}" placeholder="customfield_10070"></div>
         <div class="champ"><label for="cv-val">Valeur « vrai »</label><input class="in mono" id="cv-val" value="${esc(cv.valeur_candidat)}" placeholder="true">
           <span class="lib">true (case à cocher), option:Oui (liste), options:Oui (liste multiple) ou texte</span></div></div>` : ""}
-      <h3 class="lib" style="margin-top:14px">APPLICATIONS ↔ TESTS XRAY</h3>
-      <p class="lib">Un projet Xray peut contenir plusieurs applications : choisir le champ Jira qui indique l'application d'un test, puis la ou les valeurs de chaque application. Les écrans n'affichent ensuite que les tests de l'application active (header).</p>
-      <div class="btns" style="margin-bottom:8px"><label class="lib" for="mp-apc">Champ Jira de l'application</label>
-        <select class="in" id="mp-apc" style="width:auto">${Object.entries(m.champs_application).map(([k, l]) => `<option value="${k}" ${ap.champ === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
-        <input class="in mono" id="mp-apj" placeholder="customfield_10050" value="${esc(ap.champ_jira || "")}" style="width:180px" ${ap.champ === "personnalise" ? "" : "hidden"}></div>
-      ${apps.applications.length ? `<table class="table-strat"><tr><th>Application</th><th>Plateformes</th><th>Valeur(s) du champ (séparées par des virgules)</th></tr>
-        ${apps.applications.map(a => `<tr><td><b>${esc(a.nom)}</b>${a.slug === apps.active ? ' <span class="pill ok">active</span>' : ""}</td><td class="lib">${esc((a.plateformes || []).join(", "))}</td>
-          <td><input class="in" data-apv="${esc(a.slug)}" value="${esc(valeursApp(a))}" placeholder="vide = tout le projet"></td></tr>`).join("")}</table>`
-        : "<p class='lib'>Aucune application : Paramètres › Applications › « Nouvelle application ».</p>"}
-      <p class="lib">Après un changement de champ personnalisé, relancer la synchronisation Jira pour lire ce champ sur chaque test.</p>
+      <input type="hidden" id="mp-apc" value="${esc(ap.champ)}"><input type="hidden" id="mp-apj" value="${esc(ap.champ_jira || "")}">
       <h3 class="lib" style="margin-top:14px">TYPES DE TEST → ÉDITEUR</h3><ul class="liste">${m.types.map(x => `<li><b>${esc(x.xray)}</b><span class="item lib">${esc(EDITEUR[x.editeur] || x.editeur)}</span></li>`).join("")}</ul>
       <h3 class="lib" style="margin-top:14px">HISTORIQUE DES SYNCHRONISATIONS</h3>${hist.length ? `<table class="table-strat"><tr><th>Date</th><th>Objet</th><th>Direction</th><th>Statut</th><th>Résultat</th><th>Auteur</th></tr>${hist.map(h => `<tr><td class="mono">${esc(h.date.replace("T", " "))}</td>
         <td class="cle-xray">${esc(h.objet)}</td><td>${esc(h.direction)}</td><td><span class="pill ${h.statut === "Conflit" ? "warn" : ["Refusé", "Erreur"].includes(h.statut) ? "ko" : "ok"}">${esc(h.statut)}</span></td><td class="lib">${esc(h.resultat)}</td><td>${esc(h.auteur)}</td></tr>`).join("")}</table>`
@@ -697,7 +680,7 @@
         application: {champ: $("#mp-apc").value, champ_jira: $("#mp-apj").value.trim()}};
     };
     const sauver = async corps => { try { await api("/api/conception/mapping", {method: "POST", body: corps}); toast("Mapping enregistré (journalisé).", "ok"); mapping(z); } catch (e) { toast(e.message, "ko"); } };
-    $("#mp-apc").onchange = e => { $("#mp-apj").hidden = e.target.value !== "personnalise"; };
+
     $("#mp-ok").onclick = async () => {
       try {  // valeurs par application d'abord, puis le mapping (qui recharge l'écran)
         for (const i of $$("[data-apv]", z)) await api("/api/apps/maj", {method: "POST", body: {slug: i.dataset.apv, tests_xray: {valeurs: i.value.split(",").map(x => x.trim()).filter(Boolean)}}});
@@ -707,9 +690,9 @@
         await sauver(collecter()); Atelier.chargerContexte();
       } catch (e) { toast(e.message, "ko"); }
     };
-    $("#mpa-type").onchange = e => { $("#mpa-url").hidden = !["web", "api"].includes(e.target.value); };
+    if ($("#mpa-type")) $("#mpa-type").onchange = e => { $("#mpa-url").hidden = !["web", "api"].includes(e.target.value); };
     if ($("#mp-imp")) $("#mp-imp").onclick = async () => { try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {}}); toast(`${r.importes} définition(s) importée(s).`, "ok"); mapping(z); } catch (e) { toast(e.message, "ko"); } };
-    $("#mpa-ok").onclick = async () => {
+    if ($("#mpa-ok")) $("#mpa-ok").onclick = async () => {
       const nom = $("#mpa-nom").value.trim(), ty = $("#mpa-type").value, url = $("#mpa-url").value.trim();
       if (!nom) { toast("Nom de l'application obligatoire.", "ko"); return; }
       const corps = ty === "web" ? {type: "web", plateformes: ["web"], web: {url}} : ty === "api" ? {type: "api", plateformes: ["api"], api: {url}}

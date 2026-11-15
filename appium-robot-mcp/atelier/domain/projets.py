@@ -114,7 +114,7 @@ def valider(p: dict) -> dict:
     for k in ("xray_projet", "jira_projet"):
         v = str(p.get(k) or "").strip().upper()
         if v and not CLE_PROJET.match(v):
-            raise ValueError(f"{k} : clé de projet Jira attendue (ex. TAM).")
+            raise ValueError(f"{k} : clé de projet Jira attendue (ex. DEMO).")
         out[k] = v
     for k in ("jira_url", "xray_url", "gitlab_url"):
         v = str(p.get(k) or "").strip().rstrip("/")

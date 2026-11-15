@@ -81,6 +81,15 @@ def journal(cle: str = "", limite: int = 200) -> list[dict]:
 
 # =========================================================================== politique : espaces Jira activés
 def espaces() -> list[dict]:
+    """Espaces Jira (politique des US) de l'application active ; un espace non rattaché (ancienne politique) vaut
+    pour toutes les applications jusqu'à son rattachement (Paramètres › Configuration)."""
+    from atelier.discovery import carte
+
+    app = carte.app_courante()
+    return [e for e in tous_espaces() if not app or not e.get("application") or e["application"] == app]
+
+
+def tous_espaces() -> list[dict]:
     f = _d() / "espaces.yaml"
     return (yaml.safe_load(f.read_text("utf-8")) or {}).get("espaces", []) if f.exists() else []
 
@@ -101,19 +110,44 @@ def enregistrer_espace(e: dict) -> list[dict]:
               "jql_complement": str(e.get("jql_complement") or "").strip(),
               "projet_xray": (str(e.get("projet_xray") or "").strip().upper() or projets.cle_xray()),
               "type_test": type_test, "min_tests": max(1, int(e.get("min_tests") or 1)),
-              "portee": e.get("portee") if e.get("portee") in PORTEES else "sprint"}
+              "portee": e.get("portee") if e.get("portee") in PORTEES else "sprint",
+              "application": str(e.get("application") or "").strip() or _app_active()}
+    autre = next((x for x in tous_espaces() if x["projet_jira"] == cle and x.get("application") and x["application"] != propre["application"]), None)
+    if autre:
+        raise ValueError(f"L'espace {cle} est déjà rattaché à l'application « {autre['application']} ».")
     if not propre["projet_xray"]:
         raise ValueError("Projet Xray cible requis (ou un projet actif avec une clé Xray).")
-    l = [x for x in espaces() if x["projet_jira"] != cle] + [propre]
+    l = [x for x in tous_espaces() if x["projet_jira"] != cle] + [propre]
     _ecrire("espaces.yaml", yaml.safe_dump({"espaces": l}, allow_unicode=True, sort_keys=False))
     _journaliser("politique_espace", espace=cle, actif=propre["actif"])
     return l
 
 
 def supprimer_espace(cle: str) -> list[dict]:
-    l = [x for x in espaces() if x["projet_jira"] != cle]
+    l = [x for x in tous_espaces() if x["projet_jira"] != cle]
     _ecrire("espaces.yaml", yaml.safe_dump({"espaces": l}, allow_unicode=True, sort_keys=False))
     _journaliser("politique_espace_retire", espace=cle)
+    return l
+
+
+def _app_active() -> str:
+    from atelier.discovery import carte
+
+    try:
+        return carte.app_courante() or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def rattacher_espace(cle: str, application: str) -> list[dict]:
+    """Rattache un espace existant (ancienne politique) à une application."""
+    l = tous_espaces()
+    e = next((x for x in l if x["projet_jira"] == cle), None)
+    if not e:
+        raise KeyError(f"Espace inconnu : {cle}")
+    e["application"] = application
+    _ecrire("espaces.yaml", yaml.safe_dump({"espaces": l}, allow_unicode=True, sort_keys=False))
+    _journaliser("politique_espace_rattache", espace=cle, application=application)
     return l
 
 
@@ -343,10 +377,12 @@ def _dans(u: dict, sprint: str) -> bool:
 
 
 def file(espace: str = "", statut: str = "", sprint: str = "") -> list[dict]:
+    mes_espaces = {e["projet_jira"] for e in espaces()}  # US des espaces de l'application active
     return [{k: u.get(k) for k in ("cle", "espace", "resume", "statut", "statut_jira", "assigne", "tests_lies")}
             | {"constats": len(u.get("constats") or []), "cas": len(u.get("cas") or []), "alertes": len(u.get("alertes") or []),
                "sprints": [s["nom"] for s in (u.get("sprints") or {}).values()]}
-            for u in _us().values() if (not espace or u["espace"] == espace) and (not statut or u["statut"] == statut) and _dans(u, sprint)]
+            for u in _us().values() if u["espace"] in mes_espaces and (not espace or u["espace"] == espace)
+            and (not statut or u["statut"] == statut) and _dans(u, sprint)]
 
 
 # =========================================================================== périmètre figé et bilan de sprint
@@ -399,7 +435,7 @@ def bilan_sprint(espace: str, sprint: str) -> dict:
 
 def detail(cle: str) -> dict:
     _, u = _exiger(cle)
-    e = next((x for x in espaces() if x["projet_jira"] == u["espace"]), {})
+    e = next((x for x in tous_espaces() if x["projet_jira"] == u["espace"]), {})
     cas = [{**c, "verification": {"manuel": verifier_cas(c, "Manual"), "bdd": verifier_cas(c, "Cucumber")},
             "format_publication": e.get("type_test") or "Manual"} for c in u.get("cas") or []]
     return {**u, "cas": cas, "politique": e, "journal": journal(cle, 50)}
@@ -780,7 +816,7 @@ def decider_cas(cle: str, cid: str, decision: str, motif: str = "") -> dict:
     if decision == "rejeter" and not motif.strip():
         raise ValueError("Un rejet doit être motivé.")
     if decision == "valider":  # vérifié dans le format qui sera publié (type de test de l'espace)
-        e = next((x for x in espaces() if x["projet_jira"] == u["espace"]), {})
+        e = next((x for x in tous_espaces() if x["projet_jira"] == u["espace"]), {})
         pb = verifier_cas(c, e.get("type_test") or "Manual")
         if pb:
             raise ValueError(f"Cas non prêt ({'BDD' if e.get('type_test') == 'Cucumber' else 'étapes manuelles'}) : " + " ".join(pb))
@@ -797,7 +833,7 @@ def publier_cas(cle: str, xray=None, jira=None) -> dict:
     from atelier.integrations.xray import XrayClient
 
     d, u = _exiger(cle)
-    e = next((x for x in espaces() if x["projet_jira"] == u["espace"]), None)
+    e = next((x for x in tous_espaces() if x["projet_jira"] == u["espace"]), None)
     if not e:
         raise ValueError(f"Espace {u['espace']} retiré de la politique.")
     a_publier = [c for c in u["cas"] if c["statut"] == "Validé"]

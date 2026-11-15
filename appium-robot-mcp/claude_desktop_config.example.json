@@ -7,7 +7,7 @@
       ],
       "env": {
         "APPIUM_URL": "http://127.0.0.1:4723",
-        "ROBOT_PROJECT_DIR": "/CHEMIN/attijari-mobile-tests",
+        "ROBOT_PROJECT_DIR": "/CHEMIN/banque-mobile-tests",
         "ROBOT_XRAY_LISTENER": "listeners/XrayListener.py:{exec_key}",
         "XRAY_CLIENT_ID": "xxxxxxxx",
         "XRAY_CLIENT_SECRET": "xxxxxxxx",

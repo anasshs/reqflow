@@ -128,14 +128,15 @@
         : `<p>Aucun instantané (<code>${esc(e.fichier || e.erreur)}</code>).</p>`}
       <p class="lib">Règle de synchronisation : l'instantané n'est remplacé que par une synchronisation ou un import explicites ; les graphes de couverture l'utilisent tel quel.</p></div>
       <div><h3 class="lib">SYNCHRONISER DEPUIS JIRA / XRAY</h3>
-        <div class="champ"><label for="p-projet">Clé du projet</label><input class="in" id="p-projet" placeholder="ex. TAM" value="${esc(Atelier.ctx.projet_jira || "")}"></div>
-        <div class="champ"><label for="p-jql">JQL des tests (optionnel)</label><input class="in" id="p-jql" placeholder="project = TAM AND issuetype = Test"></div>
-        <button class="btn primaire" id="p-sync">${ico("rejouer")}Synchroniser</button>
+        <p>Application : <b>${esc((Atelier.ctx.applications || []).find(x => x.slug === Atelier.ctx.application)?.nom || "aucune")}</b></p>
+        <p class="lib">Seuls les tests de l'application sélectionnée sont synchronisés, selon sa source (JQL et dossiers) définie dans
+          <a href="#parametres/configuration">Paramètres › Configuration</a>.</p>
+        <button class="btn primaire" id="p-sync">${ico("rejouer")}Synchroniser les tests de l'application</button>
         <p class="lib">Points d'API Jira à vérifier : docs/XRAY_API.md.</p>
         <h3 class="lib" style="margin-top:14px">IMPORTER UN INSTANTANÉ (JSON)</h3>
         <div class="btns"><input type="file" id="p-fichier" accept=".json,application/json" aria-label="Fichier JSON"><button class="btn" id="p-import">Importer</button></div></div></div>`;
     $("#p-sync").onclick = async () => {
-      try { const r = await api("/api/patrimoine/synchroniser", {method: "POST", body: {projet: $("#p-projet").value.trim(), jql: $("#p-jql").value.trim()}}); toast(`${r.nb_tests} tests synchronisés${r.tronque ? ` — TRONQUÉ : ${r.tronque}` : ""}.`, r.tronque ? "ko" : "ok"); patrimoine(z); }
+      try { const r = await api("/api/patrimoine/synchroniser", {method: "POST", body: {}}); toast(`${r.tests_application ?? r.nb_tests} test(s) de l'application synchronisé(s)${r.tronque ? ` — TRONQUÉ : ${r.tronque}` : ""}.`, r.tronque ? "ko" : "ok"); patrimoine(z); }
       catch (err) { toast(err.message, "ko"); }
     };
     $("#p-import").onclick = async () => {
@@ -223,18 +224,18 @@
     const form = p => `<div class="grille-2" style="max-width:900px">
       <div class="champ"><label for="pj-nom">Nom</label><input class="in" id="pj-nom" value="${esc(p?.nom || "")}" placeholder="Banque mobile"></div>
       <div class="champ"><label for="pj-dos">Dossier du repository de tests</label><input class="in" id="pj-dos" value="${esc(p?.dossier || "")}" placeholder="C:\\Users\\…\\tests-banque"></div>
-      <div class="champ"><label for="pj-xr">Clé du projet Xray</label><input class="in" id="pj-xr" value="${esc(p?.xray_projet || "")}" placeholder="TAM"></div>
+      <div class="champ"><label for="pj-xr">Clé du projet Xray</label><input class="in" id="pj-xr" value="${esc(p?.xray_projet || "")}" placeholder="DEMO"></div>
       <div class="champ"><label for="pj-jp">Clé du projet Jira (si différente)</label><input class="in" id="pj-jp" value="${esc(p?.jira_projet || "")}"></div>
       <div class="champ"><label for="pj-ju">URL Jira</label><input class="in" id="pj-ju" value="${esc(p?.jira_url || "")}" placeholder="https://<site>.atlassian.net"></div>
       <div class="champ"><label for="pj-je">E-mail du compte Jira</label><input class="in" id="pj-je" value="${esc(p?.jira_email || "")}"></div>
       <div class="champ"><label for="pj-xu">URL Xray (si région particulière)</label><input class="in" id="pj-xu" value="${esc(p?.xray_url || "")}" placeholder="https://xray.cloud.getxray.app/api/v2"></div>
       <div class="champ"><label for="pj-env">Environnements (séparés par des virgules)</label><input class="in" id="pj-env" value="${esc((p?.environnements || []).join(", "))}" placeholder="recette, preprod"></div>
-      <div class="champ"><label for="pj-s1">Variable contenant le Client ID Xray</label><input class="in mono" id="pj-s1" value="${sec(p, "XRAY_CLIENT_ID")}" placeholder="XRAY_CLIENT_ID_TAM"></div>
-      <div class="champ"><label for="pj-s2">Variable contenant le Client Secret Xray</label><input class="in mono" id="pj-s2" value="${sec(p, "XRAY_CLIENT_SECRET")}" placeholder="XRAY_CLIENT_SECRET_TAM"></div>
-      <div class="champ"><label for="pj-s3">Variable contenant le jeton API Jira</label><input class="in mono" id="pj-s3" value="${sec(p, "JIRA_API_TOKEN")}" placeholder="JIRA_API_TOKEN_TAM"></div>
+      <div class="champ"><label for="pj-s1">Variable contenant le Client ID Xray</label><input class="in mono" id="pj-s1" value="${sec(p, "XRAY_CLIENT_ID")}" placeholder="XRAY_CLIENT_ID_DEMO"></div>
+      <div class="champ"><label for="pj-s2">Variable contenant le Client Secret Xray</label><input class="in mono" id="pj-s2" value="${sec(p, "XRAY_CLIENT_SECRET")}" placeholder="XRAY_CLIENT_SECRET_DEMO"></div>
+      <div class="champ"><label for="pj-s3">Variable contenant le jeton API Jira</label><input class="in mono" id="pj-s3" value="${sec(p, "JIRA_API_TOKEN")}" placeholder="JIRA_API_TOKEN_DEMO"></div>
       <div class="champ"><label for="pj-gu">URL GitLab (entreprise)</label><input class="in" id="pj-gu" value="${esc(p?.gitlab_url || "")}" placeholder="https://gitlab.<entreprise>"></div>
       <div class="champ"><label for="pj-gp">Projet GitLab (groupe/sous-groupe/projet)</label><input class="in" id="pj-gp" value="${esc(p?.gitlab_projet || "")}" placeholder="qa/automatisation/tests-banque"></div>
-      <div class="champ"><label for="pj-s4">Variable contenant le jeton d'accès personnel GitLab</label><input class="in mono" id="pj-s4" value="${sec(p, "GITLAB_TOKEN")}" placeholder="GITLAB_TOKEN_TAM"></div></div>
+      <div class="champ"><label for="pj-s4">Variable contenant le jeton d'accès personnel GitLab</label><input class="in mono" id="pj-s4" value="${sec(p, "GITLAB_TOKEN")}" placeholder="GITLAB_TOKEN_DEMO"></div></div>
       <p class="lib">GitLab avec LDAP : l'API n'utilise jamais le mot de passe LDAP mais un jeton d'accès personnel (GitLab › Préférences › Access Tokens, portées <code>api</code> et <code>write_repository</code>). Certificat interne : GITLAB_CA_BUNDLE.</p>
       <p class="lib">Secrets : saisir uniquement le <b>nom</b> de la variable d'environnement (jamais sa valeur). Vide = variables globales XRAY_CLIENT_ID, XRAY_CLIENT_SECRET, JIRA_API_TOKEN.</p>
       <div class="btns"><button class="btn primaire" id="pj-ok">${ico("disque")}Enregistrer</button><button class="btn" id="pj-an">Annuler</button></div>`;
@@ -395,19 +396,9 @@
           ${type === "web" ? `<div class="champ" style="grid-column:1/-1"><label for="wa-url">URL de l'application web</label><input class="in" id="wa-url" value="${esc(cfg.web?.url || "")}" placeholder="https://recette.exemple.fr"></div>` : ""}
           ${type === "api" ? `<div class="champ"><label for="wa-aurl">URL de base de l'API</label><input class="in" id="wa-aurl" value="${esc(cfg.api?.url || "")}" placeholder="https://api.recette.exemple.fr/v1"></div>
           <div class="champ"><label for="wa-oapi">Contrat OpenAPI (fichier du projet, optionnel)</label><input class="in mono" id="wa-oapi" value="${esc(cfg.api?.openapi || "")}" placeholder="api/cartes.openapi.yaml"></div>` : ""}
-          <div class="champ"><label for="wa-px">Projet Xray de rattachement</label><input class="in" id="wa-px" value="${esc(cfg.projet_xray ?? Atelier.ctx.projet_xray ?? "")}" placeholder="TAM"></div>
-          <div class="champ" style="grid-column:1/-1"><label for="wa-dos">Ses tests dans Xray : dossier(s) du Test Repository (aucun = tout le repository, s'il est dédié à cette application ; Ctrl + clic pour plusieurs)</label>
-            <select class="in" id="wa-dos" multiple size="4"><option disabled>Lecture des dossiers…</option></select></div>
-          <div class="champ" style="grid-column:1/-1"><label for="wa-val">ou valeur(s) du champ « <span id="wa-champ">…</span> » (virgules ; les dossiers sont prioritaires)</label>
-            <input class="in" id="wa-val" value="${esc((cfg.tests_xray?.valeurs || [cfg.tests_xray?.composant, cfg.tests_xray?.libelle].filter(Boolean)).join(", "))}" placeholder="App Mobile"></div></div>
-        <p class="lib">Le champ Jira qui désigne l'application se choisit dans Test Design › Xray Mapping (composant, libellé ou champ personnalisé).</p>`;
-      if (etape === 1) api("/api/conception/repository").then(r => {
-        const choisis = cfg.tests_xray?.dossiers || [], sel = $("#wa-dos", m.el);
-        if (!sel) return;
-        sel.innerHTML = r.dossiers.map(d => `<option value="${esc(d.chemin)}" ${choisis.includes(d.chemin) ? "selected" : ""}>${"\u00a0\u00a0".repeat(d.profondeur)}${esc(d.chemin)} (${d.tests} test(s)${d.applications.length ? " · " + esc(d.applications.join(", ")) : ""})</option>`).join("")
-          || `<option disabled>${r.definitions_importees ? "Aucun dossier" : "Dossiers inconnus : importer les définitions Xray (Test Design › Xray Mapping)"}</option>`;
-      }).catch(() => {});
-      if (etape === 1) api("/api/conception/mapping").then(mp => { const a = mp.application || {}; $("#wa-champ", m.el).textContent = (mp.champs_application || {})[a.champ] + (a.champ_jira ? ` ${a.champ_jira}` : ""); }).catch(() => {});
+          <div class="champ"><label for="wa-px">Projet Xray de rattachement</label><input class="in" id="wa-px" value="${esc(cfg.projet_xray ?? Atelier.ctx.projet_xray ?? "")}" placeholder="DEMO"></div>
+          </div>
+        <p class="lib">Ses tests (JQL et dossiers du Test Repository) et la politique de ses US se définissent dans <a href="#parametres/configuration">Paramètres › Configuration</a>, une fois l'application créée.</p>`;
       if (etape === 2) c.innerHTML = `${type === "mobile" ? `<label class="lib" style="display:block"><input type="checkbox"> Build de recette <b>sans protection Promon</b> installée (sinon instrumentation et captures peuvent être bloquées).</label>` : ""}
           <label class="lib" style="display:block"><input type="checkbox"> Langue du device et des comptes <b>fixée</b> (reconnaissance par les textes si l'app n'a pas de tags).</label>
           <label class="lib" style="display:block"><input type="checkbox"> Comptes de test prêts, avec des profils variés.</label>
@@ -443,8 +434,7 @@
     };
     const identite = () => ({nom: val("#wa-nom").trim(), type, plateformes: plats(), build: val("#wa-build"), projet_xray: val("#wa-px"),
       api: type === "api" ? {url: val("#wa-aurl").trim(), openapi: val("#wa-oapi").trim()} : {},
-      tests_xray: {valeurs: $("#wa-val", m.el).value.split(",").map(x => x.trim()).filter(Boolean),
-        ...($("#wa-dos", m.el) && !$("#wa-dos option[disabled]", m.el) ? {dossiers: [...$("#wa-dos", m.el).selectedOptions].map(o => o.value)} : {})},
+
       android: {app_package: val("#wa-pkg"), app_activity: val("#wa-act")}, ios: {bundle_id: val("#wa-bundle")}, web: {url: val("#wa-url")}});
     $("#wa-prec", m.el).onclick = () => { if (etape > 1) { etape--; rendre(); } };
     $("#wa-suiv", m.el).onclick = async () => {
@@ -471,17 +461,47 @@
   }
 
   async function configuration(z) {
-    const c = await api("/api/config").catch(() => ({}));
-    z.innerHTML = `<div style="max-width:620px">
-      <div class="champ"><label for="cf-jql">JQL des tests candidats (Xray)</label><input class="in" id="cf-jql" value="${esc(c.jql_candidats || "")}"></div>
-      <div class="champ"><label for="cf-st">Statut Jira « sous-tâche terminée »</label><input class="in" id="cf-st" value="${esc(c.statut_sous_tache_fini || "")}"></div>
-      <button class="btn primaire" id="cf-ok">${ico("disque")}Enregistrer</button>
-      <h3 class="lib" style="margin-top:16px">PROJET DE TESTS</h3><p><code>${esc(Atelier.ctx.projet_chemin || "")}</code> <span class="lib">(variable ROBOT_PROJECT_DIR)</span></p>
-      <h3 class="lib">PRÉRÉGLAGES D'EXÉCUTION</h3><ul class="liste">${Object.keys(c.prereglages || {}).map(n => `<li>${esc(n)}</li>`).join("") || "<li class='lib'>Aucun</li>"}</ul></div>`;
-    $("#cf-ok").onclick = async () => {
-      try { await api("/api/config", {method: "POST", body: {jql_candidats: $("#cf-jql").value, statut_sous_tache_fini: $("#cf-st").value}}); toast("Configuration enregistrée.", "ok"); }
-      catch (e) { toast(e.message, "ko"); }
-    };
+    const [c, a, cf] = await Promise.all([api("/api/config").catch(() => ({})), api("/api/apps"), api("/api/apps/configuration")]);
+    if (!cf.application) { z.innerHTML = vide("Aucune application", `<a href="#parametres/applications">Déclarer une application</a> (Paramètres › Applications).`); return; }
+    const s = cf.source, PO = {sprint: "sprint en cours", prochain: "prochain sprint", backlog: "backlog", statuts: "statuts"};
+    const ligneEsp = (e, rattacher) => `<tr><td><b>${esc(e.projet_jira)}</b> ${e.actif ? '<span class="pill ok">actif</span>' : '<span class="pill">inactif</span>'}</td><td>${esc(e.nom)}</td>
+      <td class="lib">${esc((e.types_issue || []).join(", "))} · ${esc(PO[e.portee] || e.portee)}</td><td>${esc(e.projet_xray)} · ${esc(e.type_test)} · ${e.min_tests} min.</td>
+      <td>${rattacher ? `<button class="btn petit primaire" data-ratt="${esc(e.projet_jira)}">Rattacher à cette application</button>` : ""}</td></tr>`;
+    z.innerHTML = `<div style="max-width:1000px">
+      <div class="btns" style="margin-bottom:8px"><label class="lib" for="cf-app">Application</label><select class="in" id="cf-app" style="width:auto">${a.applications.map(x => `<option value="${esc(x.slug)}" ${x.slug === cf.application.slug ? "selected" : ""}>${esc(x.nom)}</option>`).join("")}</select>
+        <span class="lib">Chaque application a sa configuration. Projet Xray : <b>${esc(cf.application.projet_xray || "—")}</b>.</span></div>
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>SOURCE DES TESTS ${s.deduite ? '<span class="pill warn">déduite des anciens réglages : à vérifier puis enregistrer</span>' : ""}</h3>
+        <p class="lib">Seul endroit qui définit les tests de l'application : la synchronisation Jira ne récupère que cette JQL, et tous les écrans (exigences, cas de test, couverture, graphes, sélection d'exécution) ne montrent que ces tests.</p>
+        <div class="champ"><label for="cf-jql">JQL des tests de l'application</label><textarea class="in mono" id="cf-jql" rows="3" placeholder='project = "DEMO" AND issuetype = "Test" AND component = "Mobile"'>${esc(s.jql)}</textarea></div>
+        <div class="champ"><label for="cf-dos">Affiner par dossiers du Test Repository (optionnel ; Ctrl + clic ; aucun = toute la JQL)</label>
+          <select class="in" id="cf-dos" multiple size="${Math.min(6, Math.max(2, cf.dossiers.length))}">${cf.dossiers.map(d => `<option value="${esc(d.chemin)}" ${s.dossiers.includes(d.chemin) ? "selected" : ""}>${"\u00a0\u00a0".repeat(d.profondeur)}${esc(d.chemin)} (${d.tests})</option>`).join("")
+            || '<option disabled>Dossiers inconnus : importer les définitions Xray (Test Design › Suites de test)</option>'}</select></div>
+        <div class="btns"><button class="btn" id="cf-test">Tester la JQL</button><button class="btn primaire" id="cf-ok">${ico("disque")}Enregistrer la source</button>
+          <button class="btn" id="cf-sync">${ico("rejouer")}Synchroniser les tests de l'application</button></div><div id="cf-res" class="lib" style="margin-top:6px"></div>
+        ${cf.copie_marquee ? "" : '<p class="lib">La copie locale n\'a pas encore été synchronisée par application : en attendant, les anciens réglages filtrent les écrans.</p>'}</section>
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>POLITIQUE DES US (ESPACES JIRA)</h3>
+        <p class="lib">Espaces Jira (projets des squads) dont les US doivent être couvertes par des tests de cette application. « US à couvrir » lit ces espaces pour l'application sélectionnée.</p>
+        ${cf.espaces.length ? `<table><tr><th>Projet Jira</th><th>Nom</th><th>Types · portée</th><th>Tests créés</th><th></th></tr>${cf.espaces.map(e => ligneEsp(e, false)).join("")}</table>` : "<p class='lib'>Aucun espace rattaché.</p>"}
+        ${cf.espaces_non_rattaches.length ? `<p class="warn-t" style="margin-top:8px">Espaces de l'ancienne politique, non rattachés (valent pour toutes les applications) :</p><table>${cf.espaces_non_rattaches.map(e => ligneEsp(e, true)).join("")}</table>` : ""}
+        <div class="btns" style="margin-top:8px"><button class="btn primaire" id="cf-esp">Ajouter / modifier un espace</button></div></section>
+      <section class="bloc-strat"><h3>RÉGLAGES DU POSTE</h3>
+        <div class="champ"><label for="cf-st">Statut Jira « sous-tâche terminée »</label><input class="in" id="cf-st" value="${esc(c.statut_sous_tache_fini || "")}"></div>
+        <button class="btn" id="cf-poste">${ico("disque")}Enregistrer</button>
+        <h3 class="lib" style="margin-top:12px">PROJET DE TESTS</h3><p><code>${esc(Atelier.ctx.projet_chemin || "")}</code></p>
+        <h3 class="lib">PRÉRÉGLAGES D'EXÉCUTION</h3><ul class="liste">${Object.keys(c.prereglages || {}).map(n => `<li>${esc(n)}</li>`).join("") || "<li class='lib'>Aucun</li>"}</ul></section></div>`;
+    const dossiers = () => [...$("#cf-dos").selectedOptions].map(o => o.value).filter(Boolean);
+    $("#cf-app").onchange = async e => { await api("/api/apps/choisir", {method: "POST", body: {slug: e.target.value}}); await Atelier.chargerContexte(); configuration(z); };
+    $("#cf-test").onclick = async () => { $("#cf-res").textContent = "Interrogation de Jira…";
+      try { const r = await api("/api/apps/source/tester", {method: "POST", body: {jql: $("#cf-jql").value}});
+        $("#cf-res").innerHTML = `<b>${r.nombre}${r.plafond ? "+" : ""}</b> ticket(s) : ${r.exemples.map(x => `<span class="cle-xray">${esc(x.cle)}</span> ${esc(x.resume)} <span class="lib">(${esc(x.type)})</span>`).join(" · ")}`; }
+      catch (e) { $("#cf-res").innerHTML = `<span class="ko-t">${esc(e.message)}</span>`; } };
+    $("#cf-ok").onclick = async () => { try { await api("/api/apps/source", {method: "POST", body: {jql: $("#cf-jql").value, dossiers: dossiers()}}); toast("Source des tests enregistrée.", "ok"); configuration(z); } catch (e) { toast(e.message, "ko"); } };
+    $("#cf-sync").onclick = async () => { const b = $("#cf-sync"); b.disabled = true; $("#cf-res").textContent = "Synchronisation des tests de l'application…";
+      try { const r = await api("/api/patrimoine/synchroniser", {method: "POST", body: {}}); toast(`${r.tests_application} test(s) de l'application synchronisé(s)${r.tronque ? " — TRONQUÉ : " + r.tronque : ""}.`, r.tronque ? "ko" : "ok"); configuration(z); }
+      catch (e) { toast(e.message, "ko"); b.disabled = false; $("#cf-res").textContent = ""; } };
+    $("#cf-esp").onclick = () => window.PolitiqueUS ? window.PolitiqueUS(() => configuration(z)) : toast("Test Design non chargé.", "ko");
+    $$("[data-ratt]", z).forEach(b => b.onclick = async () => { try { await api("/api/testabilite/espaces/rattacher", {method: "POST", body: {projet_jira: b.dataset.ratt}}); toast("Espace rattaché.", "ok"); configuration(z); } catch (e) { toast(e.message, "ko"); } });
+    $("#cf-poste").onclick = async () => { try { await api("/api/config", {method: "POST", body: {statut_sous_tache_fini: $("#cf-st").value}}); toast("Réglage enregistré.", "ok"); } catch (e) { toast(e.message, "ko"); } };
   }
 
   function apparence(z) {

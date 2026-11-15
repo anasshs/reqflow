@@ -94,7 +94,7 @@ Outils MCP correspondants : `knowledge_graph`, `impact_analysis`, `coverage_repo
 Les locators sont au format AppiumLibrary : `id=`, `accessibility_id=`, `xpath=`,
 `nsp=` (prédicat iOS), `chain=` (class chain iOS).
 
-## Workflow type (trame TAM : ST1 → ST5)
+## Workflow type (trame de l'équipe : ST1 → ST5)
 
 1. **ST1 Locators Android** — « Ouvre une session Android sur emulator-5554, va sur l'écran
    Virement, relève les éléments et capture les locators sous le nom *virement_saisie* avec
@@ -105,7 +105,7 @@ Les locators sont au format AppiumLibrary : `id=`, `accessibility_id=`, `xpath=`
 
    ```robot
    *** Variables ***
-   &{LOC_VIREMENT_SAISIE_ANDROID}    champ_montant=id=ma.attijari:id/amount
+   &{LOC_VIREMENT_SAISIE_ANDROID}    champ_montant=id=fr.exemple.banque:id/amount
    ...    bouton_valider=accessibility_id=Valider
    &{LOC_VIREMENT_SAISIE_IOS}        champ_montant=accessibility_id=amountField
    ...    bouton_valider=accessibility_id=Valider
@@ -122,10 +122,10 @@ Un seul paramètre, `xray_ticket`, dont le type est détecté automatiquement :
 
 | Ticket donné | Effet du run |
 |---|---|
-| Test Plan (ex. TAM-50) | nouvelle exécution créée, ajoutée au plan ; tests ajoutés au plan |
-| Test Execution (ex. TAM-77) | exécution mise à jour, tests manquants ajoutés |
+| Test Plan (ex. DEMO-50) | nouvelle exécution créée, ajoutée au plan ; tests ajoutés au plan |
+| Test Execution (ex. DEMO-77) | exécution mise à jour, tests manquants ajoutés |
 | Autre ticket (US, epic) | plan créé et lié au ticket + exécution |
-| Clé projet seule (ex. TAM) | plan + exécution créés dans le projet |
+| Clé projet seule (ex. DEMO) | plan + exécution créés dans le projet |
 
 `xray_inspect_ticket` dit à l'avance ce que fera le run.
 
@@ -140,9 +140,9 @@ Pendant le run (listener `xray_live_listener.py`, mode `live` par défaut) :
   Le nom de la transition ou du statut cible est accepté.
 
 Exemple : « Lance la suite virement en Android sur emulator-5554, tags smoke, sur le plan
-TAM-50, passe l'exécution en cours au début puis Terminé à la fin. »
+DEMO-50, passe l'exécution en cours au début puis Terminé à la fin. »
 
-Le rattachement se fait par les tags de clé Xray des tests (ex. ATTIJARI-100). Rapport du run
+Le rattachement se fait par les tags de clé Xray des tests (ex. DEMO-100). Rapport du run
 dans `results/mcp/xray_live_report.json`. Une erreur Xray ou Jira n'interrompt jamais le run.
 
 **Journal et reprise** : chaque événement est d'abord écrit dans un journal local
@@ -221,7 +221,7 @@ playwright install chromium        # et rfbrowser init pour Browser library
 Le plus fiable : partir de la clé du test Xray. `xray_get_test` lit son scénario Gherkin
 (ou ses étapes manuelles), et Claude le déroule étape par étape sur le device.
 
-> « Automatise ATTIJARI-200 sur Android avec le jeu VIREMENT_STANDARD (recette) : lis le
+> « Automatise DEMO-200 sur Android avec le jeu VIREMENT_STANDARD (recette) : lis le
 > scénario dans Xray, déroule-le sur le device, relève les locators écran par écran,
 > réutilise les keywords génériques du projet, puis lance un dry run. »
 
@@ -258,7 +258,7 @@ Pas besoin de clé API Claude dans ce mode.
    la configuration affichée dans cette section, ou `cursor_mcp.example.json`.
 3. Dans Cursor : Settings › MCP, activer / rafraîchir « appium-robot ». La section indique « Cursor connecté »
    dès la première action.
-4. Dans Cursor : « Automatise ATTIJARI-200 sur Android avec le jeu VIREMENT_STANDARD (recette). »
+4. Dans Cursor : « Automatise DEMO-200 sur Android avec le jeu VIREMENT_STANDARD (recette). »
 
 Ce que tu vois dans la page pendant que Cursor travaille :
 - l'écran du device en direct, la session ouverte par Cursor étant suivie automatiquement ;
@@ -303,7 +303,7 @@ validation ». Le même branchement marche avec Claude Desktop.
 ```bash
 pip install -r requirements.txt
 export ANTHROPIC_API_KEY=...        # + variables Xray / Jira / base comme pour le MCP
-export ROBOT_PROJECT_DIR=/CHEMIN/attijari-mobile-tests
+export ROBOT_PROJECT_DIR=/CHEMIN/banque-mobile-tests
 python web/app.py                   # http://127.0.0.1:8765
 ```
 

@@ -3,8 +3,8 @@
     python -m atelier xray-sync <dossier>    rejoue les journaux Xray non envoyés d'un run
                                              (ou de tous les runs sous ce dossier)
     python -m atelier xray-verifier          compare les appels du client au schéma GraphQL réel
-    python -m atelier xray-statuts --projet TAM   contrôle XRAY_STATUTS avec les statuts réels du projet
-    python -m atelier xray-import --projet TAM    importe les définitions Xray des tests (lecture seule dans Xray)
+    python -m atelier xray-statuts --projet DEMO   contrôle XRAY_STATUTS avec les statuts réels du projet
+    python -m atelier xray-import --projet DEMO    importe les définitions Xray des tests (lecture seule dans Xray)
 """
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     v = sous.add_parser("xray-verifier", help="Vérifie les appels Xray par introspection du schéma")
     v.add_argument("--sortie", default="", help="Fichier Markdown du résultat (ex. docs/XRAY_API_resultat.md)")
     st = sous.add_parser("xray-statuts", help="Contrôle la table des statuts avec les statuts réels du projet Xray")
-    st.add_argument("--projet", required=True, help="Clé du projet Jira (ex. TAM) ou son identifiant numérique")
+    st.add_argument("--projet", required=True, help="Clé du projet Jira (ex. DEMO) ou son identifiant numérique")
     im = sous.add_parser("xray-import", help="Importe les définitions de tests Xray dans l'instantané du projet")
     im.add_argument("--projet", default="", help="Clé du projet (utilisée sans instantané existant)")
     im.add_argument("--jql", default="", help="JQL des tests à importer (remplace l'instantané)")

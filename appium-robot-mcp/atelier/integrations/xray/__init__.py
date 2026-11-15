@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from atelier.integrations.jira import JiraClient
 
 XRAY_BASE = os.environ.get("XRAY_BASE_URL", "https://xray.cloud.getxray.app/api/v2")
-# Tag Robot reconnu comme clé de test Xray (ex. ATTIJARI-100, TAM-1909)
+# Tag Robot reconnu comme clé de test Xray (ex. DEMO-100, SQ1-1909)
 KEY_RE = re.compile(os.environ.get("XRAY_TEST_KEY_REGEX", r"^[A-Z][A-Z0-9_]+-\d+$"))
 
 

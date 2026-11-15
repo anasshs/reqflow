@@ -105,7 +105,14 @@ def _par_lots(jira, cles: list[str], champs: list[str], taille: int = 100) -> li
 
 
 def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: int | None = None) -> dict:
-    """Instantané depuis Jira Cloud (recherche JQL) : tests, exigences liées, epics parents.
+    """Instantané complet (tout le résultat de la JQL remplace la copie locale) ; voir synchroniser_application pour
+    la synchronisation de l'application active (seule utilisée par l'interface)."""
+    data, source = lire_jira(projet_cle, jql_tests, jira, limite)
+    return enregistrer(data, source)
+
+
+def lire_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: int | None = None) -> tuple[dict, str]:
+    """Lecture Jira Cloud (recherche JQL) : tests, exigences liées, epics parents.
 
     Champs lus (à vérifier, voir docs/XRAY_API.md) : summary, issuetype, labels, status, components,
     priority, issuelinks, parent. Module = premier composant, sinon libellé « module:<nom> ».
@@ -169,8 +176,53 @@ def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: i
                 exigences.append({"cle": i["key"], "type": _type_exigence(f) if f.get("issuetype") else "epic",
                                   "type_jira": (f.get("issuetype") or {}).get("name"), "resume": f.get("summary"), "parent": None,
                                   "module": _module(f), "statut": (f.get("status") or {}).get("name")})
-    return enregistrer({"projet": projet_cle, "tests": tests, "exigences": exigences,
-                        "tronque": f"limite de {limite} tickets atteinte (PATRIMOINE_LIMITE)" if tronque else ""}, f"Jira : {jql}")
+    return ({"projet": projet_cle, "tests": tests, "exigences": exigences,
+             "tronque": f"limite de {limite} tickets atteinte (PATRIMOINE_LIMITE)" if tronque else ""}, f"Jira : {jql}")
+
+
+def synchroniser_application(slug: str = "", jira=None, limite: int | None = None) -> dict:
+    """Synchronise les tests de l'application (sa JQL, Paramètres › Configuration) dans la copie locale du projet :
+    chaque test porte les applications qui l'ont synchronisé ; les tests des autres applications sont conservés,
+    les tests sortis de la JQL perdent cette application (supprimés s'ils n'en ont plus). Définitions Xray, plans,
+    exécutions déjà importés sont conservés pour les tests restants."""
+    from atelier.discovery import carte
+    from atelier.domain import projets
+    from atelier.intelligence import source_tests
+
+    slug = slug or carte.app_courante()
+    if not slug:
+        raise ValueError("Aucune application sélectionnée (header).")
+    src = source_tests.source(slug)
+    if not src["jql"]:
+        raise ValueError("Aucune JQL de tests pour l'application : la définir dans Paramètres › Configuration.")
+    cle = (carte.config_app(slug).get("projet_xray") or projets.cle_xray() or "").upper()
+    nouveau, _ = lire_jira(cle, src["jql"], jira, limite)
+    base = charger()
+    if not base or (base.get("projet") and cle and base["projet"].upper() != cle):
+        base = {"projet": cle, "tests": [], "exigences": []}
+    anciens = {t["cle"]: t for t in base["tests"] if t.get("applications")}  # tests non marqués : ancienne synchro globale, remplacés
+    lus = {t["cle"] for t in nouveau["tests"]}
+    tests = []
+    for t in nouveau["tests"]:
+        a = anciens.get(t["cle"], {})
+        tests.append({**a, **t, "applications": sorted(set(a.get("applications") or []) | {slug})})
+    for k, a in anciens.items():
+        if k in lus:
+            continue
+        apps = [x for x in a.get("applications") or [] if x != slug]
+        if apps:
+            tests.append({**a, "applications": apps})
+    exigences = {e["cle"]: e for e in base.get("exigences") or []}
+    exigences.update({e["cle"]: e for e in nouveau["exigences"]})
+    utiles = {k for t in tests for k in t.get("exigences") or []}
+    parents = {exigences[k].get("parent") for k in utiles if k in exigences} - {None}
+    while parents - utiles:
+        utiles |= parents
+        parents = {exigences[k].get("parent") for k in utiles if k in exigences} - {None}
+    data = {**base, "projet": cle, "tests": tests, "exigences": [e for k, e in exigences.items() if k in utiles],
+            "tronque": nouveau.get("tronque", "")}
+    etat_ = enregistrer(data, f"Jira, application {carte.config_app(slug).get('nom', slug)} : {src['jql']}")
+    return {**etat_, "application": slug, "jql": src["jql"], "tests_application": len(lus)}
 
 
 CHAMPS_DEFINITION = ("type", "type_genre", "issueId", "etapes", "gherkin", "definition", "dossier", "preconditions")
@@ -209,7 +261,15 @@ def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dic
     else:
         if not (jql or projet_cle):
             raise ValueError("Projet ou JQL requis (aucun instantané à compléter).")
-        d = xray.definitions_tests(jql=jql or f'project = "{projet_cle}"', limite=limite_import())
+        from atelier.discovery import carte
+        from atelier.intelligence import source_tests
+
+        app = carte.app_courante()
+        jql = jql or (source_tests.source(app)["jql"] if app else "") or f'project = "{projet_cle}"'
+        d = xray.definitions_tests(jql=jql, limite=limite_import())
+        if app:
+            for t in d["tests"]:
+                t["applications"] = [app]
     defs = {t["cle"]: t for t in d["tests"] if t.get("cle")}
     if not defs:  # rien trouvé : l'instantané n'est pas modifié
         if not completer:
@@ -406,6 +466,11 @@ def filtre_application() -> dict:
         a = carte.config_app() if carte.app_courante() else {}
     except Exception:  # noqa: BLE001 - carte illisible : aucune restriction
         a = {}
+    if a and charger_brut_marque():  # copie locale marquée par application : la source de l'application fait foi
+        from atelier.intelligence import source_tests
+
+        src = source_tests.source(a.get("slug"))
+        return {"app": a.get("nom", ""), "champ": "application", "valeurs": [a.get("slug")], "dossiers": src["dossiers"]}
     tx = a.get("tests_xray") or {}
     regle = regle_application()
     if tx.get("dossiers"):  # dossiers du Test Repository : prioritaires sur le champ Jira
@@ -435,6 +500,8 @@ def appliquer_filtre(pat: dict | None, f: dict) -> dict | None:
     valeurs = {str(v).strip().lower() for v in f.get("valeurs") or [] if str(v).strip()}
     if not pat or not valeurs:
         return pat
+    if f.get("champ") == "application":
+        valeurs = set(f["valeurs"])
     champ = f.get("champ", "composant")
 
     def sous(d: str | None, racine: str) -> bool:
@@ -442,7 +509,13 @@ def appliquer_filtre(pat: dict | None, f: dict) -> dict | None:
         racine = racine.rstrip("/").lower()
         return d == racine or d.startswith(racine + "/")
 
+    dossiers_app = [d.lower() for d in f.get("dossiers") or []] if champ == "application" else []
+
     def concerne(x: dict) -> bool:
+        if champ == "application":  # tests synchronisés pour l'application (+ dossiers en option) ; exigences : par leurs tests
+            if f.get("valeurs", [""])[0] not in (x.get("applications") or []):
+                return False
+            return not dossiers_app or (x.get("dossier") is not None and any(sous(x["dossier"], r) for r in dossiers_app))
         if champ == "dossier":  # tests du dossier et de ses sous-dossiers ; les exigences suivent leurs tests
             return x.get("dossier") is not None and any(sous(x["dossier"], r) for r in valeurs)
         if champ == "libelle":
@@ -474,6 +547,12 @@ def appliquer_filtre(pat: dict | None, f: dict) -> dict | None:
     return {**pat, "tests": tests, "exigences": exig, "plans": restreindre(pat.get("plans")),
             "test_sets": restreindre(pat.get("test_sets")),
             "filtre_application": {**f, "tests": len(tests), "tests_projet": len(pat["tests"])}}
+
+
+def charger_brut_marque() -> bool:
+    """La copie locale a-t-elle été synchronisée par application (tests marqués) ?"""
+    d = charger()
+    return bool(d and any(t.get("applications") for t in d.get("tests") or []))
 
 
 def charger_vue() -> dict | None:

@@ -16,7 +16,7 @@ En fin de run, le listener attend au plus XRAY_SYNC_DELAI_FIN secondes (30 par d
 n'a pas pu partir reste dans le journal : `python -m atelier xray-sync <output_dir>`.
 
 Sans ticket Xray, le listener sert uniquement au suivi en direct (events_url).
-Le rattachement se fait par les tags de clé Xray portés par les tests (ex. ATTIJARI-100).
+Le rattachement se fait par les tags de clé Xray portés par les tests (ex. DEMO-100).
 Aucune erreur Xray/Jira n'interrompt le run.
 """
 from __future__ import annotations
