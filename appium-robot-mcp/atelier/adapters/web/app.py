@@ -1170,6 +1170,61 @@ async def graphes_plan_de_test(module: str):
     return await asyncio.to_thread(_call, plan_test.plan, module)
 
 
+@app.get("/api/couverture")
+async def couverture_calcul(version: str = "", plateforme: str = ""):
+    """Couverture des exigences (Test Xray ↔ Story / Requirement) : 4 indicateurs, par niveau."""
+    from atelier.intelligence import couverture_exigences
+
+    return await asyncio.to_thread(_call, couverture_exigences.calculer, version, plateforme)
+
+
+@app.post("/api/couverture/importer")
+async def couverture_importer():
+    """Lit dans Jira les exigences du périmètre, leurs tests liés et leurs parents (lecture seule, journalisé)."""
+    from atelier.intelligence import couverture_exigences
+
+    return await asyncio.to_thread(_call, couverture_exigences.importer)
+
+
+@app.get("/api/couverture/reglages")
+async def couverture_reglages():
+    from atelier.intelligence import couverture_exigences
+
+    return _call(couverture_exigences.reglages)
+
+
+@app.post("/api/couverture/reglages")
+async def couverture_reglages_maj(req: Request):
+    from atelier.intelligence import couverture_exigences
+
+    b = await req.json()
+    return _call(couverture_exigences.enregistrer_reglages, b.get("jql_exigences", ""), b.get("criteres_actifs"))
+
+
+@app.post("/api/couverture/critere")
+async def couverture_critere(req: Request):
+    """Tests qui couvrent un critère d'acceptation (enrichissement local, historisé)."""
+    from atelier.intelligence import couverture_exigences
+
+    b = await req.json()
+    return _call(couverture_exigences.associer_critere, b.get("exigence", ""), int(b.get("index") or 0), b.get("tests") or [])
+
+
+@app.post("/api/couverture/instantane")
+async def couverture_instantane(req: Request):
+    from atelier.intelligence import couverture_exigences
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, couverture_exigences.enregistrer_instantane, b.get("version", ""), b.get("commentaire", ""))
+
+
+@app.get("/api/couverture/evolution")
+async def couverture_evolution():
+    from atelier.intelligence import couverture_exigences
+
+    return _call(couverture_exigences.evolution)
+
+
 @app.get("/api/graphes/couverture")
 async def graphe_couverture(module: str = "", afficher: str = "tous", recherche: str = ""):
     return await asyncio.to_thread(_call, espaces.vue_couverture, module, afficher, recherche)

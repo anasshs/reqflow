@@ -139,7 +139,7 @@ def couverture_fonctionnelle(s: dict | None = None) -> dict:
     for e in s["pat"]["exigences"]:
         ts = pex.get(e["cle"], [])
         na = sum(t in s["auto"] for t in ts)
-        etat = "indisponible" if e["type"] == "epic" and not ts else "insuffisante" if not ts else "satisfaisante" if na == len(ts) else "partielle"
+        etat = "indisponible" if e["type"] == "epic" and not ts else "insuffisante" if not ts else "satisfaisante"  # existence ; automatisation à part
         exig.append({**{k: e.get(k) for k in ("cle", "type", "resume", "module", "parent", "statut")}, "tests": ts, "automatises": na, "etat": etat})
     modules: dict = {}
     for e in exig:
@@ -148,15 +148,15 @@ def couverture_fonctionnelle(s: dict | None = None) -> dict:
         m = modules.setdefault(e["module"] or "—", {"module": e["module"] or "—", "exigences": 0, "couvertes": 0, "auto": 0})
         m["exigences"] += 1
         m["couvertes"] += bool(e["tests"])
-        m["auto"] += e["etat"] == "satisfaisante"
+        m["auto"] += e["automatises"] > 0
     for m in modules.values():
         m["pct"] = round(100 * m["couvertes"] / m["exigences"], 1)
         m["etat"] = "satisfaisante" if m["pct"] >= ok else "partielle" if m["pct"] >= part else "insuffisante"
     lies = {t for ts in pex.values() for t in ts}
     return {"exigences": exig, "modules": list(modules.values()),
             "sans_exigence": [t["cle"] for t in s["pat"]["tests"] if t["cle"] not in lies],
-            "definition": "Exigence satisfaisante : au moins un test et tous automatisés ; partielle : des tests dont certains manuels ; "
-                          "insuffisante : aucun test ; une epic sans test direct est « indisponible » (couverte par ses stories).",
+            "definition": "Exigence couverte (satisfaisante) : au moins un test Xray lié ; insuffisante : aucun test ; l'automatisation est comptée à part "
+                          "(colonne automatisés) ; une epic sans test direct est « indisponible » (agrégée par ses stories). Vue complète : Test Strategy › Couverture et traçabilité.",
             "source": f"Instantané Xray du {s['date_xray'][:16]} + dépôt Robot", "date": s["date"]}
 
 

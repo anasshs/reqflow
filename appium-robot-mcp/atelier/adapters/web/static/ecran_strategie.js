@@ -398,16 +398,92 @@
   }
 
   /* ------------------------------------------------------------------ 11 couverture et traçabilité */
-  function couverture(z) {
-    const m = E.mesures, y = E.synthese.couverture;
-    const k = id => `<div class="kpi" title="${esc(m[id].definition)}"><div class="v">${fmt(m[id].valeur, m[id].unite)}</div><div class="l">${esc(m[id].libelle)}</div><div class="lib" style="font-size:11px">${esc(m[id].detail || "")}</div></div>`;
-    z.innerHTML = `${entete("11. Couverture et traçabilité", `<a class="btn" href="#graphe/couverture">${ico("graphe")}Explorer le graphe</a><a class="btn" href="#rapports/couverture">${ico("rapports")}Rapport de couverture</a>`)}
-      <div class="corps-carte"><p class="lib">Epic → User Story → Exigence → Test Xray → Scénario BDD → Script Robot → Exécution → Résultat : relations réelles du Knowledge Graph (Xray, Jira, BDD, dépôt, runs).</p>
-        <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:12px">${k("couverture_fonctionnelle")}${k("couverture_automatisee")}${k("exigences_non_couvertes")}${k("tests_en_echec")}</div>
-        <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))"><div class="kpi"><div class="v ok-t">${y.couvertes ?? "—"}</div><div class="l">exigences couvertes (tests tous automatisés)</div></div>
-          <div class="kpi"><div class="v warn-t">${y.partielles ?? "—"}</div><div class="l">partiellement (tests manuels restants)</div></div>
-          <div class="kpi"><div class="v ko-t">${y.non_couvertes ?? "—"}</div><div class="l">sans test</div></div></div>
-        <div class="btns" style="margin-top:12px"><a class="btn" href="#graphe/anomalies">Trous de couverture, doublons, tests sans exigence</a><a class="btn" href="#graphe/impact">Analyser l'impact d'une modification</a></div></div>`;
+  /* Test Xray ↔ Story / Requirement (liens natifs) ; Epics / Features = agrégation. 4 indicateurs distincts. */
+  const FC = {version: "", plateforme: "", niveau: "macro", ouverts: new Set(), liste: "sans_test"};
+  async function couverture(z) {
+    z.innerHTML = `${entete("11. Couverture et traçabilité")}<div class="corps-carte">${vide("Calcul de la couverture…")}</div>`;
+    const c = await api(`/api/couverture?version=${encodeURIComponent(FC.version)}&plateforme=${encodeURIComponent(FC.plateforme)}`).catch(e => ({erreur: e.message}));
+    if (c.erreur) { z.innerHTML = `${entete("11. Couverture et traçabilité")}<div class="corps-carte"><p class="ko-t">${esc(c.erreur)}</p></div>`; return; }
+    const g = c.global, D = c.definitions, pc = v => fmt(v, "%");
+    const barre = v => `<span style="display:inline-block;width:70px;height:6px;border-radius:3px;background:var(--line);vertical-align:middle;margin-right:6px"><span style="display:block;height:100%;width:${v || 0}%;border-radius:3px;background:${v >= 80 ? "var(--ok)" : v >= 50 ? "var(--warn)" : "var(--ko)"}"></span></span>`;
+    const ind = (v, t) => `<td title="${esc(t)}">${barre(v)}${pc(v)}</td>`;
+    const kpi = (v, l, t, cls = "") => `<div class="kpi" title="${esc(t)}"><div class="v ${cls}">${v ?? "—"}</div><div class="l">${l}</div></div>`;
+    const ligneAgr = (x, niveau) => `<tr class="cliquable" data-ouvrir="${esc(niveau + ":" + x.cle)}" title="Afficher / masquer le détail"><td>${FC.ouverts.has(niveau + ":" + x.cle) ? "▾" : "▸"}
+        ${x.cle ? `<span class="cle-xray">${esc(x.cle)}</span>` : ""} ${esc(x.resume)} <span class="lib">${esc(x.type_jira || "")}</span></td>
+      <td>${x.exigences}</td><td>${x.tests}</td>${ind(x.existence, D.existence)}${ind(x.execution, D.execution)}${ind(x.resultat, D.resultat)}${ind(x.automatisee, D.automatisee)}
+      <td class="${x.en_echec ? "ko-t" : ""}">${x.en_echec}</td><td class="${x.sans_test ? "warn-t" : ""}">${x.sans_test}</td></tr>`;
+    const ok = b => b ? '<span class="ok-t">●</span>' : '<span class="lib">○</span>';
+    const ligneExig = x => `<tr class="cliquable" data-exig="${esc(x.cle)}" title="Tests, critères d'acceptation et résultats de l'exigence" style="background:var(--surface-2, transparent)">
+      <td style="padding-left:34px"><span class="cle-xray">${esc(x.cle)}</span> ${esc(x.resume)} ${x.etat === "partielle" ? '<span class="pill warn">partielle</span>' : x.etat === "non_couverte" ? '<span class="pill ko">sans test</span>' : ""}</td>
+      <td>1</td><td>${x.tests.length}</td><td title="${esc(D.existence)}">${ok(x.existence)}</td><td title="${esc(D.execution)}">${ok(x.execution)}${x.execution_partielle ? ' <span class="lib">partielle</span>' : ""}</td>
+      <td title="${esc(D.resultat)}">${ok(x.resultat)}</td><td title="${esc(D.automatisee)}">${ok(x.automatisee)}</td><td class="${x.echec ? "ko-t" : ""}">${x.echec ? "oui" : ""}</td><td></td></tr>`;
+    const entetes = `<tr><th>${FC.niveau === "macro" ? "Macro-fonctionnalité" : FC.niveau === "fonctionnalite" ? "Fonctionnalité" : "Exigence"}</th><th>Exigences</th><th>Tests Xray</th>
+      <th title="${esc(D.existence)}">Existence</th><th title="${esc(D.execution)}">Exécution</th><th title="${esc(D.resultat)}">Résultat</th><th title="${esc(D.automatisee)}">Automatisée</th><th>En échec</th><th>Sans test</th></tr>`;
+    let corps = "";
+    if (FC.niveau === "exigence") corps = c.exigences.map(ligneExig).join("");
+    else if (FC.niveau === "fonctionnalite") corps = c.fonctionnalites.map(f => ligneAgr(f, "f") + (FC.ouverts.has("f:" + f.cle) ? c.exigences.filter(x => x.fonctionnalite === f.cle).map(ligneExig).join("") : "")).join("");
+    else corps = c.macros.map(m => ligneAgr(m, "m") + (FC.ouverts.has("m:" + m.cle) ? c.fonctionnalites.filter(f => f.macro === m.cle).map(f => ligneAgr(f, "f").replace("<td>", '<td style="padding-left:20px">')
+      + (FC.ouverts.has("f:" + f.cle) ? c.exigences.filter(x => x.fonctionnalite === f.cle).map(ligneExig).join("") : "")).join("") : "")).join("");
+    const listes = {sans_test: ["Exigences sans test", c.sans_test], tests_sans_exigence: ["Tests sans exigence", c.tests_sans_exigence],
+      en_echec: ["Exigences en échec", c.en_echec], manuelles_seulement: ["Exigences couvertes uniquement en manuel", c.manuelles_seulement],
+      criteres: ["Critères d'acceptation non testés", c.criteres_non_testes.map(x => `${x.exigence} · AC${x.index}`)], hors: ["Hors périmètre (gardées)", c.hors_perimetre.map(x => `${x.cle} (${x.raison})`)]};
+    const imp = c.import, r = c.reglages;
+    z.innerHTML = `${entete("11. Couverture et traçabilité", `<button class="btn" id="cv-imp" title="Relit dans Jira les exigences de la JQL, leurs tests liés et leurs Epics / Features (lecture seule, journalisé)">${ico("rejouer")}Importer les exigences (Jira)</button>
+        <button class="btn" id="cv-snap" title="Enregistre les indicateurs actuels, datés et rattachés à la version filtrée, pour suivre l'évolution">${ico("disque")}Instantané</button>
+        <a class="btn" href="#graphe/couverture" title="Graphe Epic → US → Test Xray → Test Robot">${ico("graphe")}Graphe</a>`)}
+      <div class="corps-carte">
+        <p class="lib">Liaison principale : Test Xray ↔ Story / Requirement Jira (liens natifs, lus depuis l'exigence et depuis le test). Epics / Features : agrégation.
+          Périmètre : <code title="${r.deduite ? "Déduite des espaces Jira de la politique des US de l'application" : "JQL des exigences de l'application"}">${esc(r.jql || "aucune JQL")}</code>
+          ${r.deduite ? '<span class="pill">déduite</span>' : ""} · <a href="#parametres/configuration" title="Changer la JQL des exigences et activer les critères d'acceptation">régler</a>
+          · ${imp.date ? `import du ${esc(imp.date.slice(0, 16).replace("T", " "))}${imp.tronque ? ' <span class="warn-t">tronqué</span>' : ""}` : '<b class="warn-t">exigences jamais importées</b>'}</p>
+        <div class="btns" style="margin:8px 0">
+          <label class="lib" for="cv-niv">Niveau</label><select class="in" id="cv-niv" style="width:auto" title="Niveau d'agrégation du tableau">${[["macro", "Macro-fonctionnalité"], ["fonctionnalite", "Fonctionnalité"], ["exigence", "Exigence"]].map(([v, l]) => `<option value="${v}" ${FC.niveau === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+          <label class="lib" for="cv-ver">Version</label><select class="in" id="cv-ver" style="width:auto" title="Exigences dont la fixVersion Jira est celle-ci"><option value="">Toutes</option>${c.versions.map(v => `<option ${FC.version === v ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+          <label class="lib" for="cv-pl">Plateforme</label><select class="in" id="cv-pl" style="width:auto" title="Couverture automatisée sur cette plateforme seulement"><option value="">Toutes</option>${["web", "android", "ios", "api"].map(v => `<option ${FC.plateforme === v ? "selected" : ""}>${v}</option>`).join("")}</select></div>
+        <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:8px">
+          ${kpi(pc(g.existence), "couverture par existence", D.existence, "ok-t")}${kpi(pc(g.execution), "couverture par exécution", D.execution)}
+          ${kpi(pc(g.resultat), "couverture par résultat", D.resultat)}${kpi(pc(g.automatisee), "couverture automatisée", D.automatisee)}</div>
+        <div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin-bottom:12px">${kpi(g.exigences, "exigences du périmètre", "Exigences Jira de la JQL, hors exclusions de la stratégie")}
+          ${kpi(g.tests, "tests Xray liés", "Tests distincts liés aux exigences")}${kpi(g.sans_test, "exigences sans test", "Aucun test lié", "ko-t")}
+          ${kpi(g.partielles, "partiellement couvertes", D.partielle, "warn-t")}${kpi(g.en_echec, "exigences en échec", "Au moins un test lié au dernier statut FAIL", "ko-t")}
+          ${kpi(c.tests_sans_exigence.length, "tests sans exigence", "Tests de l'application sans aucune exigence liée", "warn-t")}</div>
+        ${c.exigences.length ? `<table class="table-strat">${entetes}${corps}</table>` : vide("Aucune exigence", imp.date ? "La JQL ne renvoie aucune exigence pour ce filtre." : " Cliquer « Importer les exigences (Jira) ».")}
+        <div class="btns" style="margin-top:14px">${Object.entries(listes).map(([k, [l, v]]) => `<button class="btn petit ${FC.liste === k ? "primaire" : ""}" data-liste="${k}" title="Afficher la liste : ${esc(l)}">${esc(l)} (${v.length})</button>`).join("")}</div>
+        <div class="lib" style="margin-top:6px">${(listes[FC.liste][1]).map(x => `<span class="cle-xray">${esc(String(x).split(" ")[0])}</span>${esc(String(x).slice(String(x).split(" ")[0].length))}`).join(" · ") || "Aucun."}</div>
+        <section class="bloc-strat" style="margin-top:14px"><h3>Évolution (instantanés) et synchronisations</h3><div id="cv-evo" class="lib">Chargement…</div></section></div>`;
+    const relancer = () => couverture(z);
+    $("#cv-niv").onchange = e => { FC.niveau = e.target.value; relancer(); };
+    $("#cv-ver").onchange = e => { FC.version = e.target.value; relancer(); };
+    $("#cv-pl").onchange = e => { FC.plateforme = e.target.value; relancer(); };
+    $$("[data-ouvrir]", z).forEach(tr => tr.onclick = () => { const k = tr.dataset.ouvrir; FC.ouverts.has(k) ? FC.ouverts.delete(k) : FC.ouverts.add(k); relancer(); });
+    $$("[data-liste]", z).forEach(b => b.onclick = () => { FC.liste = b.dataset.liste; relancer(); });
+    $$("[data-exig]", z).forEach(tr => tr.onclick = () => detailExigence(c.exigences.find(x => x.cle === tr.dataset.exig), r.criteres_actifs, relancer));
+    $("#cv-imp").onclick = async () => { const b = $("#cv-imp"); b.disabled = true; b.textContent = "Lecture Jira…";
+      try { const x = await api("/api/couverture/importer", {method: "POST", body: {}});
+        toast(`${x.exigences} exigence(s) · ${x.ajoutees.length} ajoutée(s) · ${x.sorties_du_perimetre.length} sortie(s) du périmètre (gardées) · ${x.liens_modifies.length} lien(s) modifié(s).`, "ok"); relancer(); }
+      catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Importer les exigences (Jira)"; } };
+    $("#cv-snap").onclick = async () => { const com = prompt(`Instantané de la couverture (version : ${FC.version || "toutes"}). Commentaire :`, ""); if (com === null) return;
+      try { await api("/api/couverture/instantane", {method: "POST", body: {version: FC.version, commentaire: com}}); toast("Instantané enregistré.", "ok"); relancer(); } catch (e) { toast(e.message, "ko"); } };
+    api("/api/couverture/evolution").then(ev => { $("#cv-evo").innerHTML = `${ev.instantanes.length ? `<table><tr><th>Date</th><th>Version</th><th>Exigences</th><th>Existence</th><th>Exécution</th><th>Résultat</th><th>Automatisée</th><th>Commentaire</th></tr>
+        ${ev.instantanes.map(i => `<tr><td>${esc(i.date.slice(0, 16).replace("T", " "))}</td><td>${esc(i.version)}</td><td>${i.global.exigences}</td><td>${pc(i.global.existence)}</td><td>${pc(i.global.execution)}</td><td>${pc(i.global.resultat)}</td><td>${pc(i.global.automatisee)}</td><td>${esc(i.commentaire)}</td></tr>`).join("")}</table>` : "Aucun instantané : « Instantané » enregistre les indicateurs du moment."}
+      <h3 style="margin-top:10px">Journal des synchronisations Jira</h3>${ev.synchros.map(x => `<div>${esc(x.date.slice(0, 16).replace("T", " "))} · ${x.exigences} exigence(s) · +${x.ajoutees.length} · sorties ${x.sorties_du_perimetre.length}${x.sorties_du_perimetre.length ? ` (${esc(x.sorties_du_perimetre.join(", "))})` : ""} · liens modifiés ${x.liens_modifies.length}${x.tronque ? ' · <span class="warn-t">tronqué</span>' : ""}</div>`).join("") || "Aucune."}`; })
+      .catch(() => { $("#cv-evo").textContent = "Historique indisponible."; });
+  }
+
+  function detailExigence(x, criteresActifs, apres) {
+    const cls = c => c === "reussi" ? "ok" : c === "echec" ? "ko" : "";
+    const m = modale(`Exigence ${x.cle}`, `<p><b>${esc(x.resume)}</b> <span class="pill">${esc(x.statut)}</span> <span class="lib">${esc(x.type_jira)} · versions : ${esc(x.versions.join(", ") || "—")}</span></p>
+      <h3>Tests Xray liés (${x.tests.length})</h3>${x.tests.length ? `<table><tr><th>Test</th><th>Résumé</th><th>Dernier statut</th><th>Automatisé</th></tr>${x.tests.map(t => `<tr><td class="cle-xray">${esc(t.cle)}</td>
+        <td>${esc(t.resume)}${t.connu ? "" : ' <span class="lib" title="Test lié dans Jira mais absent des tests de l\'application synchronisés">hors application</span>'}</td>
+        <td>${t.statut ? `<span class="pill ${cls(t.classe)}">${esc(t.statut)}</span>` : '<span class="lib">non exécuté</span>'}</td><td>${t.automatise ? "oui" : "manuel"}</td></tr>`).join("")}</table>` : "<p class='ko-t'>Aucun test lié : exigence non couverte.</p>"}
+      <h3>Critères d'acceptation</h3>${!criteresActifs ? "<p class='lib'>Couverture par critère non activée pour cette application (Paramètres › Configuration).</p>"
+        : x.criteres.length ? x.criteres.map(c => `<div class="champ"><label>AC${c.index} · ${esc(c.texte)} ${c.tests.length ? '<span class="pill ok">testé</span>' : '<span class="pill ko">non testé</span>'}</label>
+          <select class="in" multiple size="${Math.min(4, Math.max(2, x.tests.length))}" data-ac="${c.index}" title="Tests qui vérifient ce critère (Ctrl + clic) ; un libellé Xray AC${c.index} sur le test compte aussi">${x.tests.map(t => `<option value="${esc(t.cle)}" ${c.tests.includes(t.cle) ? "selected" : ""}>${esc(t.cle)} ${esc(t.resume)}</option>`).join("")}</select></div>`).join("")
+          + `<button class="btn primaire" id="ac-ok" title="Enregistre dans l'atelier les tests associés à chaque critère (rien n'est écrit dans Jira / Xray)">${ico("disque")}Enregistrer les associations</button>`
+        : "<p class='lib'>Aucun critère trouvé dans l'exigence (champ JIRA_CHAMP_CRITERES ou puces sous « Critères d'acceptation » dans la description).</p>"}`);
+    if ($("#ac-ok", m.el)) $("#ac-ok", m.el).onclick = async () => {
+      try { for (const sel of $$("[data-ac]", m.el)) await api("/api/couverture/critere", {method: "POST", body: {exigence: x.cle, index: +sel.dataset.ac, tests: [...sel.selectedOptions].map(o => o.value)}});
+        toast("Associations enregistrées.", "ok"); m.fermer(); apres(); } catch (e) { toast(e.message, "ko"); } };
   }
 
   /* ------------------------------------------------------------------ 12 plan d'automatisation */

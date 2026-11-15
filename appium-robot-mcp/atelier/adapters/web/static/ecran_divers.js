@@ -479,6 +479,13 @@
         <div class="btns"><button class="btn" id="cf-test">Tester la JQL</button><button class="btn primaire" id="cf-ok">${ico("disque")}Enregistrer la source</button>
           <button class="btn" id="cf-sync">${ico("rejouer")}Synchroniser les tests de l'application</button></div><div id="cf-res" class="lib" style="margin-top:6px"></div>
         ${cf.copie_marquee ? "" : '<p class="lib">La copie locale n\'a pas encore été synchronisée par application : en attendant, les anciens réglages filtrent les écrans.</p>'}</section>
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>EXIGENCES (COUVERTURE)</h3>
+        <p class="lib">Stories / Requirements Jira dont la couverture est mesurée (Test Strategy › Couverture et traçabilité). Vide : US des espaces Jira de la politique ci-dessous.</p>
+        <div class="champ"><label for="cf-jqlx">JQL des exigences <span id="cf-jqlx-d"></span></label>
+          <textarea class="in mono" id="cf-jqlx" rows="2" placeholder='project = "DEMO" AND issuetype in (Story, Requirement) AND component = "Mobile"'></textarea></div>
+        <label class="ligne-champ" title="Mesure aussi la couverture de chaque critère d'acceptation (à activer si les Stories sont structurées en critères)"><span>Couverture par critère d'acceptation</span><input type="checkbox" class="bascule" id="cf-ac"></label>
+        <div class="btns"><button class="btn" data-cf-tester="cf-jqlx" title="Nombre d'exigences renvoyées par cette JQL (lecture Jira)">Tester (exigences)</button>
+          <button class="btn primaire" id="cf-couv" title="Enregistre la JQL des exigences et le réglage des critères pour cette application">${ico("disque")}Enregistrer</button></div></section>
       <section class="bloc-strat" style="margin-bottom:12px"><h3>TEST PLANS ET TEST EXECUTIONS</h3>
         <p class="lib">Filtrent l'Execution Center pour cette application : tableau de bord (Test Executions lues dans Xray) et choix du Test Plan d'une campagne. Vide : tout le projet Xray.</p>
         <div class="champ"><label for="cf-jqlp">JQL des Test Plans ${s.plans_deduite ? '<span class="pill">tout le projet</span>' : ""}</label>
@@ -508,6 +515,10 @@
       try { const r = await api("/api/apps/source/tester", {method: "POST", body: {jql}});
         $("#cf-res2").innerHTML = `<b>${r.nombre}${r.plafond ? "+" : ""}</b> ticket(s) : ${r.exemples.map(x => `<span class="cle-xray">${esc(x.cle)}</span> ${esc(x.resume)} <span class="lib">(${esc(x.type)})</span>`).join(" · ")}`; }
       catch (e) { $("#cf-res2").innerHTML = `<span class="ko-t">${esc(e.message)}</span>`; } });
+    api("/api/couverture/reglages").then(r => { $("#cf-jqlx").value = r.deduite ? "" : r.jql; $("#cf-ac").checked = r.criteres_actifs;
+      $("#cf-jqlx-d").innerHTML = r.deduite ? `<span class="pill" title="${esc(r.jql || "aucun espace rattaché")}">déduite des espaces</span>` : ""; }).catch(() => {});
+    $("#cf-couv").onclick = async () => { try { await api("/api/couverture/reglages", {method: "POST", body: {jql_exigences: $("#cf-jqlx").value, criteres_actifs: $("#cf-ac").checked}});
+      toast("Exigences de la couverture enregistrées.", "ok"); } catch (e) { toast(e.message, "ko"); } };
     $("#cf-cont").onclick = async () => { try { await api("/api/apps/source/conteneurs", {method: "POST", body: {jql_plans: $("#cf-jqlp").value, jql_executions: $("#cf-jqle").value}});
       toast("JQL des Test Plans et Test Executions enregistrées.", "ok"); configuration(z); } catch (e) { toast(e.message, "ko"); } };
     $("#cf-ok").onclick = async () => { try { await api("/api/apps/source", {method: "POST", body: {jql: $("#cf-jql").value, dossiers: dossiers()}}); toast("Source des tests enregistrée.", "ok"); configuration(z); } catch (e) { toast(e.message, "ko"); } };

@@ -179,7 +179,12 @@ def mesures() -> dict:
             for e in t.get("exigences") or []:
                 par_exig.setdefault(e, []).append(t["cle"])
         couvertes = [e for e in exig if par_exig.get(e["cle"])]
-        if exig:
+        cx = _couverture_exigences()
+        if cx:  # périmètre des exigences importé (JQL) : les exigences sans aucun test comptent aussi
+            g_ = cx["global"]
+            out["couverture_fonctionnelle"].update(valeur=g_["existence"], detail=f"{g_['couvertes']}/{g_['exigences']} (périmètre Jira)")
+            out["exigences_non_couvertes"].update(valeur=g_["sans_test"])
+        elif exig:
             out["couverture_fonctionnelle"].update(valeur=round(100 * len(couvertes) / len(exig), 1), detail=f"{len(couvertes)}/{len(exig)}")
             out["exigences_non_couvertes"].update(valeur=len(exig) - len(couvertes))
         auto = [t for t in pat["tests"] if (n := g.noeuds.get(f"test:{t['cle']}")) and n.proprietes.get("automatise")]
@@ -744,6 +749,17 @@ def criteres_entree_non_satisfaits() -> list[dict]:
     return [c for c in criteres_evalues(s, mesures()) if c["type"] == "entrée" and c.get("obligatoire") and c["etat"] != "satisfait"]
 
 
+def _couverture_exigences() -> dict | None:
+    """Couverture du périmètre des exigences importé (couverture_exigences), ou None s'il n'a jamais été importé."""
+    from atelier.intelligence import couverture_exigences
+
+    try:
+        c = couverture_exigences.calculer()
+    except Exception:  # noqa: BLE001 — indicateur indisponible : repli sur l'instantané Xray
+        return None
+    return c if c["import"].get("date") and c["global"]["exigences"] else None
+
+
 def synthese(s: dict, m: dict) -> dict:
     ru = s["rubriques"]
     objs = [{**o, "valeur": v, "etat": e} for o in ru["objectifs"] for v, e in [_statut_objectif(o, m)]]
@@ -756,11 +772,16 @@ def synthese(s: dict, m: dict) -> dict:
         if r.get("statut") != "Clos":
             risques[niveau_risque(r)[1]] += 1
     couverture = {"couvertes": None, "partielles": None, "non_couvertes": None, "definition":
-                  "couverte : au moins un test et tous automatisés ; partielle : au moins un test, dont des manuels ; non couverte : aucun test."}
+                  "couverte : au moins un test lié ; partielle : des tests, mais un critère d'acceptation sans test ; non couverte : aucun test. "
+                  "L'automatisation est un indicateur à part (Couverture et traçabilité)."}
     from atelier.intelligence import patrimoine_xray
 
     pat = patrimoine_xray.charger_vue()
-    if pat and pat.get("exigences"):
+    cx = _couverture_exigences()
+    if cx:
+        couverture.update(couvertes=cx["global"]["couvertes"] - cx["global"]["partielles"], partielles=cx["global"]["partielles"],
+                          non_couvertes=cx["global"]["sans_test"])
+    elif pat and pat.get("exigences"):
         g = _graphe()
         auto = {t["cle"] for t in pat["tests"] if (n := g.noeuds.get(f"test:{t['cle']}")) and n.proprietes.get("automatise")}
         par_exig: dict = {}
@@ -770,7 +791,7 @@ def synthese(s: dict, m: dict) -> dict:
         c = {"couvertes": 0, "partielles": 0, "non_couvertes": 0}
         for e in pat["exigences"]:
             ts = par_exig.get(e["cle"], [])
-            c["non_couvertes" if not ts else "couvertes" if all(t in auto for t in ts) else "partielles"] += 1
+            c["non_couvertes" if not ts else "couvertes"] += 1  # existence ; l'automatisation n'est pas la couverture
         couverture.update(c)
     return {
         "objectifs": {"total": len(objs), **{k: sum(1 for o in objs if o["etat"] == k) for k in ("atteint", "en cours", "non atteint", "non mesurable")},

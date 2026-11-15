@@ -132,3 +132,16 @@ Une ligne datée par décision d'architecture ou de conception.
   écrit dans une Exécution. Plusieurs runs peuvent alimenter la même Exécution (relance des échecs, relance
   complète, retry) ; une campagne lancée sur deux plateformes crée une Exécution par plateforme (environnement
   Xray distinct). Le lien Exécution ↔ runs ↔ campagne est calculé à partir des runs, jamais stocké à part.
+
+## 2026-11-15 — Couverture : liaison directe Test Xray ↔ Story / Requirement — décision de l'utilisateur
+- La liaison native Test Xray ↔ Story / Requirement Jira (liens « Test », lus depuis l'exigence et depuis le test) est
+  le mécanisme principal de couverture ; l'atelier n'en crée aucune. Epics / Features (parents Jira, jusqu'à 3
+  niveaux) servent seulement à agréger : macro-fonctionnalité = ancêtre le plus haut, fonctionnalité = parent direct.
+- Périmètre : JQL des exigences de l'application (Paramètres › Configuration ; défaut : espaces de la politique des
+  US), moins les exigences exclues de la Test Strategy.
+- Quatre indicateurs distincts : existence, exécution, résultat, automatisée (filtrable par plateforme) ; filtres
+  par version (fixVersions). L'automatisation n'entre plus dans l'état « couverte ».
+- Critères d'acceptation : activables par application ; un test couvre un critère par association enregistrée dans
+  l'atelier (historisée) ou par libellé Xray AC<n> / CA<n>.
+- Synchronisations journalisées (ajouts, sorties, liens modifiés) ; une exigence sortie de la JQL est gardée et
+  marquée « hors périmètre », jamais supprimée en silence ; une JQL vide n'écrase rien. Instantanés par version.
