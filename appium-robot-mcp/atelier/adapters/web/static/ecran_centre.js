@@ -6,6 +6,15 @@
     ["file", "Execution Queue"], ["live", "Live Monitoring"], ["devices", "Device Farm"], ["runners", "Runners Management"],
     ["resultats", "Execution Results"], ["preuves", "Evidence Repository"], ["historique", "Execution History"], ["xray", "Xray Synchronization"],
     ["parametres", "Settings"]];
+  const ROLE = {vue: "Tableau de bord des Exécutions (Test Executions Xray) : réussite, bugs, statuts modifiables",
+    campagnes: "Campagnes de l'atelier (= Test Plans Xray) : avancement et réussite des plans, lancement",
+    selection: "Choisir des tests (dépôt, échecs, exécution Xray) et les lancer une fois",
+    configuration: "Paramétrer un run : suite, plateforme, environnement, ticket Xray, retry, dry run",
+    file: "Runs en attente et en cours (un à la fois sur le runner local)", live: "Suivre le run en cours en direct",
+    devices: "Émulateurs, appareils et navigateurs disponibles", runners: "Machines qui exécutent les runs",
+    resultats: "Résultats des runs de l'atelier, comparaison de deux runs, lien vers l'Exécution Xray",
+    preuves: "Captures, logs et rapports de chaque run", historique: "Historique des runs avec leur contexte figé (environnement, commit, version) ; export CSV",
+    xray: "Envois vers Xray de chaque run : en attente, en erreur, à rejouer", parametres: "Réglages de l'Execution Center"};
   const ST = {"réussi": "ok", "échec": "ko", "en cours": "info", "arrêté": "warn", "bloqué données": "warn", "erreur": "ko"};
   let R = "vue", SEL = new Set(), F = {}, desabo = [];
 
@@ -16,7 +25,7 @@
       R = MENU.some(m => m[0] === r) ? r : "vue";
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques Execution Center"><div class="titre-carte">EXECUTION CENTER</div>
-        <ol class="liste-strat">${MENU.map(([id, lib], i) => `<li><button data-r="${id}" ${id === R ? 'aria-current="page"' : ""}><span class="num">${i + 1}</span><span class="item">${esc(lib)}</span>${id === "file" ? '<span class="compl" id="ce-nfile"></span>' : ""}</button></li>`).join("")}</ol>
+        <ol class="liste-strat">${MENU.map(([id, lib], i) => `<li><button data-r="${id}" title="${esc(ROLE[id] || "")}" ${id === R ? 'aria-current="page"' : ""}><span class="num">${i + 1}</span><span class="item">${esc(lib)}</span>${id === "file" ? '<span class="compl" id="ce-nfile"></span>' : ""}</button></li>`).join("")}</ol>
         <div class="pied-strat lib">Projet : <b>${esc(Atelier.ctx.projet || "")}</b> (header). Le contexte de chaque exécution est figé à son entrée dans la file.</div></nav>
         <section class="carte corps-strat"><div class="corps-carte">${vide("Chargement…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "centre/" + b.dataset.r; });
@@ -47,8 +56,8 @@
     const v = await api("/api/centre/vue"), k = v.kpi;
     const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
     const max = Math.max(1, ...v.tendance.map(t => t.passes + t.echecs));
-    z.innerHTML = `${entete("Overview", `<a class="btn primaire" href="#centre/campagnes">${ico("plus")}Nouvelle campagne</a><a class="btn" href="#centre/selection">Exécution ponctuelle</a>
-        <a class="btn" href="#execution">Rejouer les échecs / en cours</a><a class="btn" href="#centre/devices">Devices</a>`)}
+    z.innerHTML = `${entete("Overview", `<a class="btn primaire" href="#centre/campagnes" title="Définir une campagne (tests, plateformes, environnement, planification) rattachée à un Test Plan Xray">${ico("plus")}Nouvelle campagne</a><a class="btn" href="#centre/selection" title="Choisir des tests à la main et les lancer une fois, hors campagne">Exécution ponctuelle</a>
+        <a class="btn" href="#execution" title="Suivre le run en cours en direct ou rejouer les échecs du dernier run">Rejouer les échecs / en cours</a><a class="btn" href="#centre/devices" title="Émulateurs, appareils et navigateurs disponibles pour les runs">Devices</a>`)}
       <div class="corps-carte"><div id="vx-zone"></div><details class="bloc-strat" style="margin-top:12px"><summary class="lib">Runs Robot locaux de l'atelier (avant publication dans Xray)</summary><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px">
         ${kpi(k.executions, "exécutions")}${kpi(k.en_cours, "en cours", "info")}${kpi(k.en_file, "en file d'attente", "warn-t")}${kpi(k.passes, "tests réussis", "ok")}${kpi(k.echecs, "tests échoués", "ko")}
         ${kpi(k.taux_reussite === null ? null : String(k.taux_reussite).replace(".", ",") + " %", "taux de réussite")}${kpi(k.duree_moyenne_s === null ? null : k.duree_moyenne_s + " s", "durée moyenne")}
@@ -114,7 +123,7 @@
             .map(([v, l]) => `<option value="${v}" ${PERIODE.choix === v ? "selected" : ""}>${l}</option>`).join("")}</select>
           <span id="vx-dates" ${PERIODE.choix === "periode" ? "" : "hidden"}><input class="in" type="date" id="vx-d" value="${PERIODE.depuis}" style="width:auto" aria-label="Du">
             <input class="in" type="date" id="vx-f" value="${PERIODE.jusqu}" style="width:auto" aria-label="Au"></span>
-          <button class="btn petit" id="vx-actu">${ico("rejouer")}Actualiser depuis Xray</button></span></h3>
+          <button class="btn petit" id="vx-actu" title="Relit maintenant dans Xray les Test Executions de la période (statuts, plans, bugs)">${ico("rejouer")}Actualiser depuis Xray</button></span></h3>
       ${erreurLecture ? `<p class="warn-t">Lecture Xray impossible : ${esc(erreurLecture.replace(/\.+$/, ""))}. Affichage de la dernière copie locale.</p>` : ""}
       ${x.incompletes?.length ? `<p class="warn-t">Exécution(s) de plus de 100 tests lues en partie (schéma Xray sans pagination des runs) : ${esc(x.incompletes.join(", "))}.</p>` : ""}
       ${imp.erreur ? `<p class="warn-t">${esc(imp.erreur)}</p>` : ""}${imp.absents.length ? `<p class="lib">Non exposé par le schéma Xray : ${esc(imp.absents.join(", "))}.</p>` : ""}
@@ -140,7 +149,7 @@
           <td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}${e.incomplete ? ` <span class="pill warn" title="${e.tests_total} tests dans Xray">/${e.tests_total}</span>` : ""}</td>
           <td class="ok-t">${e.reussi}</td><td class="ko-t">${e.echec}</td><td>${e.non_execute}</td><td>${pct(e.taux) ?? "—"}</td><td><span class="pill">${esc(e.statut)}</span></td><td style="white-space:nowrap">${celluleBugs(e)}</td>
           <td>${e.echec ? `<button class="btn petit" data-relance="${esc(e.cle)}" title="Nouveau run qui écrit dans ${esc(e.cle)}">${ico("rejouer")}Relancer les échecs</button>` : ""}</td></tr>`).join("")}</table>
-      ${!TOUTES && x.recentes.length > 20 ? `<button class="btn petit" id="vx-toutes" style="margin-top:6px">Afficher les ${x.recentes.length} exécutions</button>` : ""}`}`;
+      ${!TOUTES && x.recentes.length > 20 ? `<button class="btn petit" id="vx-toutes" style="margin-top:6px" title="Affiche toutes les exécutions de la période au lieu des 20 plus récentes">Afficher les ${x.recentes.length} exécutions</button>` : ""}`}`;
     const recharger = (auto = true) => vueXray(z, auto);
     $$("[data-barre]", bloc).forEach(bar => bar.onclick = () => {
       let tr = $(`[data-vx="${CSS.escape(bar.dataset.barre)}"]`, bloc);
@@ -242,7 +251,7 @@
     const barre = p => { const t = Math.max(1, p.tests); return `<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--line);min-width:120px" title="${p.reussi} réussi(s), ${p.echec} échec(s), ${p.non_execute} non exécuté(s)">
       <span style="width:${p.reussi / t * 100}%;background:var(--ok)"></span><span style="width:${p.echec / t * 100}%;background:var(--ko)"></span></div>`; };
     bloc.innerHTML = `<h3 style="display:flex;align-items:center;gap:8px">Test Plans <span class="lib" style="font-weight:normal">${v.import.date ? `lus dans Xray le ${esc(v.import.date.slice(0, 16).replace("T", " "))} · ${esc(v.import.jql || "")}` : "pas encore lus"}</span>
-        <button class="btn petit" id="pl-actu" style="margin-left:auto">${ico("rejouer")}Actualiser depuis Xray</button></h3>
+        <button class="btn petit" id="pl-actu" style="margin-left:auto" title="Relit dans Xray les Test Plans de l'application et leurs exécutions">${ico("rejouer")}Actualiser depuis Xray</button></h3>
       ${erreur ? `<p class="warn-t">Lecture Xray impossible : ${esc(erreur)}. Affichage de la dernière copie locale.</p>` : ""}
       ${(v.import.absents || []).includes("TestPlan.testExecutions") ? `<p class="lib">Xray n'expose pas les exécutions d'un plan : seules celles lancées par l'atelier sont comptées.</p>` : ""}
       ${v.plans.length ? `<div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:8px 0">${kpi(k.plans, "Test Plans")}${kpi(k.plans_ouverts, "ouverts")}${kpi(k.tests, "tests planifiés")}
@@ -271,7 +280,7 @@
 
   async function campagnes(z) {
     const l = await api("/api/centre/campagnes");
-    z.innerHTML = `${entete("Test Campaigns", `<button class="btn primaire" id="ca-n">${ico("plus")}Créer une campagne</button>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Test Campaigns", `<button class="btn primaire" id="ca-n" title="Nouvelle campagne : tests, plateformes, environnement, planification et Test Plan Xray">${ico("plus")}Créer une campagne</button>`)}<div class="corps-carte">
       <section class="bloc-strat" id="pl-zone" style="margin-bottom:12px"></section><h3>Campagnes de l'atelier</h3>
       ${l.length ? `<table class="table-strat"><tr><th>Campagne</th><th>Type</th><th>Plateformes</th><th>Environnement</th><th>Tests</th><th>Priorité</th><th>Test Plan · Exécutions</th><th>Dernier run</th><th>Réussite</th><th>Statut</th><th></th></tr>
         ${l.map(c => `<tr><td class="cliquable" data-ed="${esc(c.id)}"><b>${esc(c.nom)}</b><div class="lib">${esc(c.id)} · ${esc(c.cible)}</div></td><td>${esc(c.type)}</td><td>${esc(c.plateformes.join(", "))}</td>
@@ -280,8 +289,8 @@
           <td>${c.plan_xray ? `<span class="cle-xray">${esc(c.plan_xray)}</span>` : ""}${c.execution_xray ? `<div class="lib">Exécution réutilisée <span class="cle-xray">${esc(c.execution_xray)}</span></div>` : ""}${c.plan_xray || c.execution_xray ? "" : c.xray_ticket ? `<span class="lib">ticket ${esc(c.xray_ticket)}</span>` : '<span class="lib">sans Xray</span>'}
             ${(c.executions || []).length ? `<div class="lib">${c.executions.slice(0, 3).map(k => `<a href="#centre/vue" data-ouvrir-exe="${esc(k)}" class="cle-xray">${esc(k)}</a>`).join(", ")}${c.executions.length > 3 ? ` +${c.executions.length - 3}` : ""}</div>` : ""}</td>
           <td>${c.derniere_execution ? `${esc(c.derniere_execution.slice(0, 16).replace("T", " "))} ${statut(c.dernier_statut)}` : "—"}</td><td>${c.taux_reussite === null ? "—" : c.taux_reussite + " %"}</td><td>${esc(c.statut)}</td>
-          <td class="btns">${c.statut === "Active" ? `<button class="btn petit primaire" data-ex="${esc(c.id)}">${ico("play")}Exécuter</button><button class="btn petit" data-dry="${esc(c.id)}">Dry run</button>` : ""}
-            <button class="btn petit" data-dup="${esc(c.id)}">Dupliquer</button>${c.runs.length >= 2 ? `<button class="btn petit" data-cmp="${esc(c.runs[1])}|${esc(c.runs[0])}">Comparer</button>` : ""}</td></tr>`).join("")}</table>`
+          <td class="btns">${c.statut === "Active" ? `<button class="btn petit primaire" data-ex="${esc(c.id)}" title="Lance la campagne : un run par plateforme, chacun crée (ou réutilise) une Exécution Xray">${ico("play")}Exécuter</button><button class="btn petit" data-dry="${esc(c.id)}" title="Vérifie la campagne sans rien exécuter ni écrire dans Xray (syntaxe Robot, sélection des tests)">Dry run</button>` : ""}
+            <button class="btn petit" data-dup="${esc(c.id)}" title="Ouvre une copie de la campagne à modifier puis enregistrer">Dupliquer</button>${c.runs.length >= 2 ? `<button class="btn petit" data-cmp="${esc(c.runs[1])}|${esc(c.runs[0])}" title="Compare les deux derniers runs de la campagne, test par test">Comparer</button>` : ""}</td></tr>`).join("")}</table>`
         : vide("Aucune campagne", "Ex. : « Smoke Connexion » (tag smoke, web, recette) ou « TNR quotidienne ».")}</div>`;
     const form = async c => {
       const [es, ref] = await Promise.all([envs(), api("/api/centre/referentiel").catch(() => [])]);
@@ -303,7 +312,7 @@
         <div class="champ"><label>Jours (hebdomadaire)</label><div class="btns">${["lun", "mar", "mer", "jeu", "ven", "sam", "dim"].map((j, n) => `<label><input type="checkbox" data-jour="${n}" ${(c.planning?.jours || []).includes(n) ? "checked" : ""}> ${j}</label>`).join("")}</div></div>
         <fieldset class="bloc-strat" style="margin:8px 0"><legend class="lib">XRAY</legend>
           <div class="champ"><label for="ca-plan">Test Plan de la campagne</label><div class="btns"><select class="in" id="ca-plan" style="flex:1"><option value="">Chargement des Test Plans…</option></select>
-            <button class="btn petit" id="ca-plan-n" type="button">${ico("plus")}Créer un Test Plan</button></div>
+            <button class="btn petit" id="ca-plan-n" type="button" title="Crée dans Xray le Test Plan « Campagne – nom » avec les tests choisis (après confirmation)">${ico("plus")}Créer un Test Plan</button></div>
             <small class="lib" id="ca-plan-info">Test Plans de l'application (JQL de Paramètres › Configuration).</small></div>
           <div class="champ"><label>Test Execution à chaque lancement</label>
             <label><input type="radio" name="ca-mx" value="nouvelle" ${c.mode_execution !== "reutiliser" ? "checked" : ""}> nouvelle Test Execution, rattachée au Test Plan</label><br>
@@ -313,7 +322,7 @@
         <label class="ligne-champ"><span>Retry des échecs (une relance, historisée)</span><input type="checkbox" class="bascule" id="ca-retry" ${c.retry ? "checked" : ""}></label>
         <div class="champ"><label for="ca-st">Statut</label><select class="in" id="ca-st">${["Active", "Archivée"].map(t => `<option ${t === c.statut ? "selected" : ""}>${t}</option>`).join("")}</select></div>
         <p class="lib">Parallélisation : 1 run à la fois sur le runner local. Webhook CI/CD : POST /api/externe/campagnes/&lt;id&gt;/executer avec l'en-tête X-Atelier-Jeton.</p>
-        <button class="btn primaire" id="ca-ok">Enregistrer</button>`);
+        <button class="btn primaire" id="ca-ok" title="Enregistre la campagne dans l'atelier (rien n'est lancé)">Enregistrer</button>`);
       $("#ca-ok", p).onclick = async () => {
         const b = {id: c.id, nom: $("#ca-nom", p).value, description: $("#ca-desc", p).value, type: $("#ca-type", p).value, priorite: $("#ca-prio", p).value,
           plateformes: $$("[data-pl]", p).filter(x => x.checked).map(x => x.dataset.pl), environnement: $("#ca-env", p).value, cible: $("#ca-cible", p).value,
@@ -368,26 +377,26 @@
         ${sel("dernier_resultat", "Dernier résultat", opts("dernier_resultat"))}${sel("revue", "Revue du script", opts("revue"))}${sel("plan", "Test Plan Xray", opts("plans"))}
         <div class="champ"><label for="se-exec">Test Execution Xray</label><select class="in" id="se-exec"><option value="">Toutes</option>${ex.executions.map(e => `<option value="${esc(e.cle)}" ${F.exec === e.cle ? "selected" : ""}>${esc(e.cle)} ${esc(e.resume).slice(0, 40)}</option>`).join("")}</select></div>
         ${sel("statut_xray", "Dernier statut Xray", opts("statut_xray"))}
-        <button class="btn" id="se-echecs" style="width:100%">Sélectionner les échecs (local)</button>
-        <button class="btn" id="se-actu" style="width:100%;margin-top:6px">Actualiser depuis Xray</button>
+        <button class="btn" id="se-echecs" style="width:100%" title="Ajoute à la sélection les tests en échec au dernier run de l'atelier">Sélectionner les échecs (local)</button>
+        <button class="btn" id="se-actu" style="width:100%;margin-top:6px" title="Relit dans Xray les Test Executions pour choisir une exécution à rejouer">Actualiser depuis Xray</button>
         <p class="lib" style="font-size:12px">${imp.date ? `Exécutions Xray : ${imp.nombre} (les plus récentes), lues le ${esc(imp.date.slice(0, 16).replace("T", " "))}` : imp.erreur ? `<span class="warn-t">Exécutions Xray : ${esc(imp.erreur)}</span>` : "Exécutions Xray pas encore importées."}</p></div>
       <div>${exe ? `<section class="bloc-strat" style="margin-bottom:8px"><h3><span class="cle-xray">${esc(exe.cle)}</span> ${esc(exe.resume)} <span class="pill">${esc(exe.statut)}</span></h3>
           <p class="lib">${exe.tests_total} test(s)${exe.tests_total > exe.tests ? ` (${exe.tests} lus : au-delà de 100, ouvrir l'exécution dans Xray)` : ""}${exe.environnements.length ? " · environnements " + esc(exe.environnements.join(", ")) : ""} ·
             <b>${exe.automatises.length}</b> automatisé(s) · <b>${exe.non_automatises.length}</b> non automatisé(s) · <b>${exe.echecs.length}</b> en échec dans Xray</p>
-          <div class="btns"><button class="btn petit primaire" id="se-x-tous" ${exe.automatises.length ? "" : "disabled"}>Sélectionner les ${exe.automatises.length} automatisé(s)</button>
-            <button class="btn petit" id="se-x-ech" ${exe.echecs.filter(k => exe.automatises.includes(k)).length ? "" : "disabled"}>Rejouer les échecs Xray (${exe.echecs.filter(k => exe.automatises.includes(k)).length})</button></div>
+          <div class="btns"><button class="btn petit primaire" id="se-x-tous" ${exe.automatises.length ? "" : "disabled"} title="Ajoute à la sélection tous les tests automatisés de cette exécution Xray">Sélectionner les ${exe.automatises.length} automatisé(s)</button>
+            <button class="btn petit" id="se-x-ech" ${exe.echecs.filter(k => exe.automatises.includes(k)).length ? "" : "disabled"} title="Ajoute à la sélection les tests automatisés en échec dans cette exécution Xray">Rejouer les échecs Xray (${exe.echecs.filter(k => exe.automatises.includes(k)).length})</button></div>
           ${exe.non_automatises.length ? `<details><summary class="lib">Non automatisés (aucun script Robot ne porte la clé)</summary><p class="lib">${exe.non_automatises.map(k => `<span class="cle-xray">${esc(k)}</span> ${pillXray(exe.statuts[k])}`).join(" · ")}</p></details>` : ""}</section>` : ""}
         <table class="table-strat"><tr><th></th><th>Clé Xray</th><th>Test</th><th>Plateforme</th><th>Revue</th><th>Dernier résultat</th><th>Statut Xray</th><th>Criticité</th></tr>
         ${ref.filter(filtre).map(t => `<tr><td><input type="checkbox" data-t="${esc(t.id)}" ${SEL.has(t.id) ? "checked" : ""}></td><td class="cle-xray">${esc(t.cle_xray || "—")}</td><td>${esc(t.nom)}<div class="lib">${esc(t.fichier)}</div></td>
           <td>${esc(t.plateformes.join(", "))}</td><td>${esc(t.revue)}</td><td>${t.dernier_resultat ? `<span class="pill ${t.dernier_resultat === "PASS" ? "ok" : "ko"}">${esc(t.dernier_resultat)}</span>` : "—"}</td>
           <td>${pillXray(exe ? exe.statuts[t.cle_xray] : t.statut_xray)}${!exe && t.execution_xray ? `<div class="lib">${esc(t.execution_xray)}</div>` : ""}</td><td>${esc(t.criticite)}</td></tr>`).join("")}</table></div>
-      <div class="bloc-strat"><h3>Sélection (${choisis.length})</h3><ul class="liste">${choisis.map(t => `<li><span class="item">${esc(t.cle_xray || t.nom)}</span><button class="icone" data-retirer="${esc(t.id)}">${ico("x")}</button></li>`).join("") || "<li class='lib'>Aucun test.</li>"}</ul>
+      <div class="bloc-strat"><h3>Sélection (${choisis.length})</h3><ul class="liste">${choisis.map(t => `<li><span class="item">${esc(t.cle_xray || t.nom)}</span><button class="icone" data-retirer="${esc(t.id)}" title="Retirer ce test de la sélection">${ico("x")}</button></li>`).join("") || "<li class='lib'>Aucun test.</li>"}</ul>
         <div class="champ"><label for="se-p">Plateforme</label><select class="in" id="se-p">${["web", "android", "ios", "api"].map(p => `<option ${p === Atelier.plateforme ? "selected" : ""}>${p}</option>`).join("")}</select></div>
         <div class="champ"><label for="se-e">Environnement</label><select class="in" id="se-e"><option value=""></option>${es.map(e => `<option ${e === Atelier.env ? "selected" : ""}>${esc(e)}</option>`).join("")}</select></div>
         <div class="champ"><label for="se-xr">Publier les résultats dans Xray</label><select class="in" id="se-xr"><option value="">Nouvelle exécution${Atelier.ctx.projet_xray ? " (projet " + esc(Atelier.ctx.projet_xray) + ")" : ""}</option>
           ${ex.executions.map(e => `<option value="${esc(e.cle)}" ${F.exec === e.cle ? "selected" : ""}>Mettre à jour ${esc(e.cle)}</option>`).join("")}</select></div>
         <div class="champ"><label for="se-pr">Priorité</label><select class="in" id="se-pr">${["Critical", "High", "Normal", "Low"].map(t => `<option ${t === "Normal" ? "selected" : ""}>${t}</option>`).join("")}</select></div>
-        <div class="btns"><button class="btn" id="se-v" ${choisis.length ? "" : "disabled"}>Contrôle préalable</button><button class="btn primaire" id="se-l" ${choisis.length ? "" : "disabled"}>${ico("play")}Lancer</button></div>
+        <div class="btns"><button class="btn" id="se-v" ${choisis.length ? "" : "disabled"} title="Vérifie avant de lancer : device disponible, données de test, revue des scripts, accès Xray">Contrôle préalable</button><button class="btn primaire" id="se-l" ${choisis.length ? "" : "disabled"} title="Met le run en file d'attente ; il démarre dès que le runner est libre">${ico("play")}Lancer</button></div>
         <div id="se-res"></div></div></div></div>`;
     $$("[data-f]", z).forEach(s => s.onchange = () => { F[s.dataset.f] = s.value; selection(z); });
     $$("[data-t]", z).forEach(c => c.onchange = () => { c.checked ? SEL.add(c.dataset.t) : SEL.delete(c.dataset.t); selection(z); });
@@ -435,7 +444,7 @@
       <div class="champ"><label for="rc-vars">Variables (NOM=valeur, une par ligne ; jamais de secret)</label><textarea class="in" id="rc-vars" rows="3" placeholder="BROWSER=chromium&#10;HEADLESS=True"></textarea></div></div>
       <label class="ligne-champ"><span>Retry des échecs (relance unique, tentatives conservées)</span><input type="checkbox" class="bascule" id="rc-retry"></label>
       <label class="ligne-champ"><span>Dry run</span><input type="checkbox" class="bascule" id="rc-dry"></label>
-      <div class="btns" style="margin-top:12px"><button class="btn primaire" id="rc-ok">${ico("play")}Mettre en file</button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn primaire" id="rc-ok" title="Lance le run avec ce paramétrage (mis en file d'attente)">${ico("play")}Mettre en file</button></div>
       <p class="lib" style="margin-top:10px">Contexte figé à l'entrée dans la file : projet, application et version (carte), environnement, plateforme, commit Git du projet, statut de revue des scripts.
         Navigateur, résolution, langue, Appium / XCUITest : variables passées à Robot (PLATFORM, DEVICE, variables libres). Secrets : JDD {{env:…}} uniquement.</p></div>`;
     $("#rc-ok").onclick = async () => {
@@ -455,7 +464,7 @@
     if ($("#ce-nfile")) $("#ce-nfile").textContent = f.attente.length || "";
     const ligne = (j, encours) => `<tr><td class="cle-xray">${esc(j.id)}</td><td>${esc(j.nom)}</td><td>${esc(j.priorite)}</td><td>${esc(j.campagne || "—")}</td>
       <td>${esc(j.contexte.plateforme)} · ${esc(j.contexte.environnement || "—")}</td><td class="mono">${esc(j.contexte.commit)}</td><td class="mono">${esc(j.entre_le.slice(11))}</td>
-      <td>${encours ? `<span class="pill info">Running</span> <a class="btn petit" href="#execution">Suivre</a>` : `<span class="pill warn">Queued</span> <button class="btn petit" data-ann="${esc(j.id)}">Annuler</button>`}</td></tr>`;
+      <td>${encours ? `<span class="pill info">Running</span> <a class="btn petit" href="#execution" title="Suivre ce run en direct (tests, étapes, logs)">Suivre</a>` : `<span class="pill warn">Queued</span> <button class="btn petit" data-ann="${esc(j.id)}" title="Retire ce run de la file (s'il n'a pas démarré)">Annuler</button>`}</td></tr>`;
     z.innerHTML = `${entete("Execution Queue")}<div class="corps-carte"><p class="lib">Ordre : priorité (Critical, High, Normal, Low) puis arrivée. Runner local : 1 exécution à la fois ; un même device n'est jamais partagé entre deux runs.</p>
       ${f.en_cours || f.attente.length ? `<table class="table-strat"><tr><th>Job</th><th>Cible</th><th>Priorité</th><th>Campagne</th><th>Plateforme · env.</th><th>Commit</th><th>Entré à</th><th>État</th></tr>
         ${f.en_cours ? ligne(f.en_cours, true) : ""}${f.attente.map(j => ligne(j, false)).join("")}</table>` : vide("File vide", "Lancer une campagne, une sélection ou une configuration.")}</div>`;
@@ -485,15 +494,20 @@
 
   /* ------------------------------------------------------------------ 9 résultats, 10 preuves, 11 historique */
   async function resultats(z) {
-    const runs = await api("/api/executions");
-    z.innerHTML = `${entete("Execution Results", `<a class="btn primaire" href="#execution">Résultats détaillés (étapes, logs, captures)</a>`)}<div class="corps-carte">
-      <div class="btns" style="margin-bottom:10px">Comparer <select class="in" id="cr-a" style="width:auto">${runs.map(r => `<option>${esc(r.id)}</option>`).join("")}</select> avec
-        <select class="in" id="cr-b" style="width:auto">${runs.map((r, i) => `<option ${i === 0 ? "selected" : ""}>${esc(r.id)}</option>`).join("")}</select><button class="btn" id="cr-ok">Comparer</button></div>
-      <table class="table-strat"><tr><th>Run</th><th>Suite</th><th>Plateforme</th><th>Statut</th><th>Réussis</th><th>Échecs</th><th>Durée</th><th>Xray</th></tr>
-      ${runs.map(r => `<tr class="cliquable" data-run="${esc(r.id)}"><td class="cle-xray">${esc(r.id)}</td><td>${esc(r.suite || "")}</td><td>${esc(r.plateforme)}</td><td>${statut(r.statut)}</td>
-        <td>${r.passes ?? "—"}</td><td>${r.echecs ?? "—"}</td><td class="mono">${duree(r)}</td><td>${esc(r.xray || "—")}</td></tr>`).join("")}</table>
+    const [runs, camps] = await Promise.all([api("/api/executions"), api("/api/centre/campagnes").catch(() => [])]);
+    const nomCamp = id => (camps.find(c => c.id === id) || {}).nom || id || "—";
+    z.innerHTML = `${entete("Execution Results", `<a class="btn primaire" href="#execution" title="Ouvre le dernier run : étapes de chaque test, logs Robot, captures et preuves">Résultats détaillés (étapes, logs, captures)</a>`)}<div class="corps-carte">
+      <p class="lib">Un run = un lancement Robot de l'atelier ; il écrit ses résultats dans une Exécution (Test Execution Xray). Cliquer une ligne : détail du run ; cliquer l'Exécution : ses tests et statuts Xray.</p>
+      <div class="btns" style="margin-bottom:10px">Comparer <select class="in" id="cr-a" style="width:auto" title="Run de référence (avant)">${runs.map(r => `<option>${esc(r.id)}</option>`).join("")}</select> avec
+        <select class="in" id="cr-b" style="width:auto" title="Run à comparer (après)">${runs.map((r, i) => `<option ${i === 0 ? "selected" : ""}>${esc(r.id)}</option>`).join("")}</select>
+        <button class="btn" id="cr-ok" title="Affiche, test par test, les statuts et durées des deux runs ; les changements sont surlignés">Comparer</button></div>
+      <table class="table-strat"><tr><th>Run</th><th>Suite</th><th>Campagne</th><th>Plateforme</th><th>Statut</th><th>Réussis</th><th>Échecs</th><th>Durée</th><th title="Test Execution Xray alimentée par ce run">Exécution Xray</th></tr>
+      ${runs.map(r => `<tr class="cliquable" data-run="${esc(r.id)}" title="Ouvrir le détail du run ${esc(r.id)} (étapes, logs, captures)"><td class="mono">${esc(r.id)}</td><td>${esc(r.suite || "")}</td><td>${esc(nomCamp(r.campagne))}</td><td>${esc(r.plateforme)}</td><td>${statut(r.statut)}</td>
+        <td class="ok-t">${r.passes ?? "—"}</td><td class="ko-t">${r.echecs ?? "—"}</td><td class="mono">${duree(r)}</td>
+        <td>${r.xray ? `<button class="btn petit" data-ouvrir-exe="${esc(r.xray)}" title="Ouvrir l'Exécution ${esc(r.xray)} : tests, statuts Xray modifiables, relance">${esc(r.xray)}</button>` : '<span class="lib" title="Run non publié dans Xray (sans ticket ou dry run)">—</span>'}</td></tr>`).join("")}</table>
       <p class="lib" style="margin-top:10px">Qualification des échecs (applicatif, technique, environnement, données, flaky) : proposée puis validée dans <a href="#echecs">Failure Analysis</a> ; un résultat n'est jamais modifié silencieusement.</p></div>`;
     $$("[data-run]", z).forEach(tr => tr.onclick = () => { location.hash = "execution/" + tr.dataset.run; });
+    $$("[data-ouvrir-exe]", z).forEach(b => b.onclick = ev => { ev.stopPropagation(); detailXray(b.dataset.ouvrirExe, () => {}); });
     if (runs.length > 1) $("#cr-a").selectedIndex = 1;
     $("#cr-ok").onclick = () => comparer($("#cr-a").value, $("#cr-b").value);
   }
@@ -515,22 +529,26 @@
       <div class="corps-carte"><p class="lib">Projet › Exécution › fichiers du run (${p.fichiers.length}, ${Math.round(p.taille_totale / 1024)} Ko). Vidéos et traces réseau : selon les capacités des runners (à venir).</p>
       <div class="grille-strat" style="margin-bottom:12px">${p.fichiers.filter(f => f.type === "capture").map(f => `<a class="bloc-strat" href="${url(f.chemin)}" target="_blank" rel="noopener"><img src="${url(f.chemin)}" alt="${esc(f.nom)}" style="max-width:100%;max-height:220px;display:block;margin:auto"><div class="lib">${esc(f.nom)}</div></a>`).join("")}</div>
       <table class="table-strat"><tr><th>Fichier</th><th>Type</th><th>Taille</th><th></th></tr>${p.fichiers.map(f => `<tr><td class="mono">${esc(f.chemin.split("/").slice(3).join("/"))}</td><td>${esc(f.type)}</td><td>${Math.max(1, Math.round(f.taille / 1024))} Ko</td>
-        <td><a class="btn petit" href="${url(f.chemin)}" target="_blank" rel="noopener">Ouvrir</a></td></tr>`).join("")}</table></div>`;
+        <td><a class="btn petit" href="${url(f.chemin)}" target="_blank" rel="noopener" title="Ouvrir le fichier de preuve dans un nouvel onglet">Ouvrir</a></td></tr>`).join("")}</table></div>`;
     $("#pv-run").onchange = e => { location.hash = "centre/preuves/" + e.target.value; };
   }
 
   async function historique(z) {
-    const runs = await api("/api/executions");
-    z.innerHTML = `${entete("Execution History", `<button class="btn" id="hi-csv">${ico("export")}Exporter CSV</button>`)}<div class="corps-carte"><table class="table-strat">
-      <tr><th>Run</th><th>Campagne</th><th>Début</th><th>Durée</th><th>Environnement</th><th>Plateforme</th><th>Commit</th><th>Version app.</th><th>Résultat</th><th>Retry</th></tr>
-      ${runs.map(r => `<tr class="cliquable" data-run="${esc(r.id)}"><td class="cle-xray">${esc(r.id)}</td><td>${esc(r.campagne || "—")}</td><td class="mono">${esc((r.debut || "").replace("T", " "))}</td><td class="mono">${duree(r)}</td>
+    const [runs, camps] = await Promise.all([api("/api/executions"), api("/api/centre/campagnes").catch(() => [])]);
+    const nomCamp = id => (camps.find(c => c.id === id) || {}).nom || id || "—";
+    z.innerHTML = `${entete("Execution History", `<button class="btn" id="hi-csv" title="Télécharge l'historique des runs (CSV, séparateur ;) pour Excel">${ico("export")}Exporter CSV</button>`)}<div class="corps-carte">
+      <p class="lib">Contexte figé de chaque run au lancement : environnement, plateforme, commit Git et version de l'application. Cliquer une ligne : détail du run.</p><table class="table-strat">
+      <tr><th>Run</th><th>Campagne</th><th>Exécution Xray</th><th>Début</th><th>Durée</th><th>Environnement</th><th>Plateforme</th><th title="Commit Git du dépôt de tests au lancement">Commit</th><th>Version app.</th><th>Résultat</th><th title="Relances automatiques des échecs (retry) et tests instables détectés">Retry</th></tr>
+      ${runs.map(r => `<tr class="cliquable" data-run="${esc(r.id)}" title="Ouvrir le détail du run ${esc(r.id)}"><td class="mono">${esc(r.id)}</td><td>${esc(nomCamp(r.campagne))}</td>
+        <td>${r.xray ? `<button class="btn petit" data-ouvrir-exe="${esc(r.xray)}" title="Ouvrir l'Exécution ${esc(r.xray)}">${esc(r.xray)}</button>` : "—"}</td><td class="mono">${esc((r.debut || "").replace("T", " "))}</td><td class="mono">${duree(r)}</td>
         <td>${esc(r.contexte?.environnement || "—")}</td><td>${esc(r.plateforme)}</td><td class="mono">${esc(r.contexte?.commit || "—")}</td><td>${esc(r.contexte?.version_application || "—")}</td>
         <td>${statut(r.statut)} <span class="lib">${r.passes ?? "—"}/${(r.passes ?? 0) + (r.echecs ?? 0)}</span></td>
         <td>${r.tentatives > 1 ? `${r.tentatives} tentatives${r.instables.length ? ` <span class="pill warn" title="${esc(r.instables.join(", "))}">${r.instables.length} instable(s)</span>` : ""}` : r.tentatives ? "1" : "—"}</td></tr>`).join("")}</table>
       <p class="lib" style="margin-top:10px">Les runs antérieurs à l'Execution Center n'ont pas de contexte figé (« — »).</p></div>`;
     $$("[data-run]", z).forEach(tr => tr.onclick = () => { location.hash = "execution/" + tr.dataset.run; });
+    $$("[data-ouvrir-exe]", z).forEach(b => b.onclick = ev => { ev.stopPropagation(); detailXray(b.dataset.ouvrirExe, () => {}); });
     $("#hi-csv").onclick = () => {
-      const l = [["run", "campagne", "debut", "fin", "statut", "passes", "echecs", "plateforme", "environnement", "commit"], ...runs.map(r => [r.id, r.campagne, r.debut, r.fin, r.statut, r.passes, r.echecs, r.plateforme, r.contexte?.environnement, r.contexte?.commit])];
+      const l = [["run", "campagne", "execution_xray", "debut", "fin", "statut", "passes", "echecs", "plateforme", "environnement", "commit"], ...runs.map(r => [r.id, nomCamp(r.campagne), r.xray, r.debut, r.fin, r.statut, r.passes, r.echecs, r.plateforme, r.contexte?.environnement, r.contexte?.commit])];
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([l.map(x => x.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\n")], {type: "text/csv"}));
       a.download = "historique-executions.csv"; a.click(); URL.revokeObjectURL(a.href);
@@ -548,7 +566,7 @@
       Chaque résultat est d'abord écrit dans le journal local du run (outbox), puis envoyé dans l'ordre, sans doublon (clés d'idempotence). Une indisponibilité Xray n'interrompt jamais un run : synchronisation rattrapable par « python -m atelier xray-sync &lt;dossier&gt; ».</p>
       <table class="table-strat"><tr><th>Run</th><th>Début</th><th>Run</th><th>Test Execution Xray</th><th>Événements</th><th>Restants</th><th>Synchronisation</th></tr>
       ${l.map(x => `<tr><td class="cle-xray">${esc(x.run)}</td><td class="mono">${esc((x.debut || "").replace("T", " "))}</td><td>${statut(x.statut_run)}</td><td>${esc(x.xray_execution || "—")}</td>
-        <td>${x.evenements}</td><td>${x.restants}</td><td><span class="pill ${P[x.statut] || ""}">${esc(x.statut)}</span>${x.restants ? ` <button class="btn petit" data-rejouer="${esc(x.run)}">Rejouer</button>` : ""}</td></tr>`).join("")}</table>
+        <td>${x.evenements}</td><td>${x.restants}</td><td><span class="pill ${P[x.statut] || ""}">${esc(x.statut)}</span>${x.restants ? ` <button class="btn petit" data-rejouer="${esc(x.run)}" title="Rejoue la synchronisation Xray de ce run (envois en attente ou en erreur)">Rejouer</button>` : ""}</td></tr>`).join("")}</table>
       <p class="lib" style="margin-top:10px">Ordre d'envoi en fin de test : statut final, puis heures et commentaire, puis captures ; résultats Robot (zip) joints après le run (XRAY_ARTEFACTS). Mapping des statuts : variable XRAY_STATUTS (défaut PASS → PASSED, FAIL → FAILED, SKIP → TO DO ; aucune heure de fin sur un statut non final) ; schéma Xray vérifié par introspection, contrôle des statuts réels : <code>python -m atelier xray-statuts --projet &lt;CLÉ&gt;</code>.</p></div>`;
   }
 

@@ -109,6 +109,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       const demarrage = async () => {
         await charger();
         if (sous === "anomalies") anomalies();
+        let centre = "";
+        try { centre = sessionStorage.getItem("kg-centre") || ""; sessionStorage.removeItem("kg-centre"); } catch (e) { /* stockage indisponible */ }
+        if (centre) developper(centre);  // ouvert depuis un autre écran (ex. candidat à automatiser)
       };
       demarrage();
     },

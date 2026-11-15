@@ -137,7 +137,16 @@
   /* ------------------------------------------------------------------ chargement et rendu */
   async function charger() {
     try { S.vue = await api("/api/bdd/" + encodeURIComponent(S.cle)); }
-    catch (e) { $("#b-graphe").innerHTML = vide("Scénario introuvable", `${esc(e.message)} <a href="#bdd">Retour à la liste</a>`); return; }
+    catch (e) {
+      $("#b-graphe").innerHTML = vide(`Pas encore de scénario BDD pour ${S.cle}`, ` ${esc(e.message)}`)
+        + `<div class="btns" style="justify-content:center"><button class="btn primaire" id="b-creer" title="Crée le scénario depuis le test Xray (son Gherkin, ou ses étapes manuelles converties) puis l'ouvre">${ico("plus")}Créer depuis le test Xray</button>
+           <a class="btn" href="#bdd" title="Liste des scénarios BDD et des tests Xray à construire">Retour à la liste</a></div>`;
+      $("#b-creer").onclick = async () => {
+        try { await api("/api/bdd", {method: "POST", body: {cle: S.cle, titre: "", depuis_xray: true}}); toast(`Scénario ${S.cle} créé.`, "ok"); charger(); }
+        catch (err) { toast(err.message, "ko"); }
+      };
+      return;
+    }
     rendu();
     test();
   }

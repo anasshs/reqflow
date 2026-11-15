@@ -56,16 +56,23 @@
 
   /* ------------------------------------------------------------------ 2 candidats */
   async function candidats(z) {
-    const [plan, ref] = await Promise.all([api("/api/strategie/plan-automatisation").catch(() => []), api("/api/centre/referentiel").catch(() => [])]);
+    const [plan, ref, bdds] = await Promise.all([api("/api/strategie/plan-automatisation").catch(() => []), api("/api/centre/referentiel").catch(() => []), api("/api/bdd").catch(() => [])]);
+    const aBdd = new Set(bdds.map(b => b.cle));
     const plats = c => [...new Set(ref.filter(t => t.cle_xray === c).flatMap(t => t.plateformes))].join(", ");
-    z.innerHTML = `${entete("Automation Candidates", `<a class="btn" href="#strategie/plan">Décisions (Test Strategy)</a>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Automation Candidates", `<a class="btn" href="#strategie/plan" title="Décider pour chaque candidat : approuvé, rejeté (justifié), reporté ; décisions journalisées">Décisions (Test Strategy)</a>`)}<div class="corps-carte">
       <p class="lib">Candidats issus de Test Strategy (instantané Xray × dépôt). Le score d'automatisabilité n'est pas inventé : il reste « non calculé » tant que répétitivité, stabilité et complexité ne sont pas mesurées ; les critères disponibles et les manques sont affichés pour comprendre la recommandation.</p>
       ${plan.length ? `<table class="table-strat"><tr><th>Clé Xray</th><th>Test</th><th>Module</th><th>Plateforme</th><th>Criticité</th><th>Répétition</th><th>Score</th><th>Statut</th><th>Critères / manques</th><th></th></tr>
         ${plan.map(c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume || "")}</td><td>${esc(c.module || "")}</td><td>${esc(plats(c.cle) || "—")}</td><td>${esc(c.criticite || "")}</td>
           <td class="lib">plans : ${esc((c.plans || []).length || "—")}</td><td class="lib">non calculé</td><td>${pill(c.statut_plan === "Automatisé" ? "Published" : "", c.statut_plan)}</td>
           <td class="lib">${esc([...(c.justification || []), ...(c.donnees_manquantes || []).map(x => "manque : " + x)].join(" · "))}</td>
-          <td class="btns"><a class="btn petit" href="#bdd/${encodeURIComponent(c.cle)}">BDD</a><a class="btn petit" href="#studio/mapping/${encodeURIComponent(c.cle)}">Mapping</a><a class="btn petit" href="#graphe">Graphe</a></td></tr>`).join("")}</table>`
+          <td class="btns" style="white-space:nowrap"><button class="btn petit ${aBdd.has(c.cle) ? "" : "primaire"}" data-bdd="${esc(c.cle)}" data-titre="${esc(c.resume || "")}"
+              title="${aBdd.has(c.cle) ? "Ouvrir le scénario BDD (Gherkin) de ce test dans Construction BDD" : "Aucun scénario BDD : le créer depuis le test Xray (Gherkin ou étapes manuelles), puis l'ouvrir"}">${aBdd.has(c.cle) ? "BDD" : "Créer le BDD"}</button>
+            <button class="btn petit" data-map="${esc(c.cle)}" data-titre="${esc(c.resume || "")}" title="${aBdd.has(c.cle) ? "Correspondance étape BDD → keyword du socle, locators et données ; prévisualisation du Robot" : "Mapping BDD → Robot : nécessite le scénario BDD (proposé à la création)"}">Mapping</button>
+            <button class="btn petit" data-kg="${esc(c.cle)}" title="Ouvrir le Knowledge Graph centré sur ce test : exigences, écrans, scripts Robot et exécutions liés">Graphe</button></td></tr>`).join("")}</table>`
         : vide("Aucun candidat", "Importer l'instantané Xray (Rapports › Patrimoine) puis définir le plan dans Test Strategy.")}</div>`;
+    $$("[data-bdd]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.bdd, b.dataset.titre));
+    $$("[data-map]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.map, b.dataset.titre, "mapping"));
+    $$("[data-kg]", z).forEach(b => b.onclick = () => window.OuvrirGraphe("test:" + b.dataset.kg));
   }
 
   /* ------------------------------------------------------------------ 3 espaces */
@@ -99,7 +106,13 @@
     const l = await api("/api/bdd").catch(() => []);
     cle = cle || l[0]?.cle;
     if (!cle) { z.innerHTML = `${entete("BDD to Automation")}<div class="corps-carte">${vide("Aucun scénario BDD", `<a href="#bdd">Créer un scénario</a> depuis un test Xray.`)}</div>`; return; }
-    const m = await api("/api/studio/mapping/" + encodeURIComponent(cle));
+    const m = await api("/api/studio/mapping/" + encodeURIComponent(cle)).catch(e => ({erreur: e.message}));
+    if (m.erreur) {
+      z.innerHTML = `${entete("BDD to Automation")}<div class="corps-carte">${vide(`Pas de scénario BDD pour ${cle}`, ` ${esc(m.erreur.replace(/^["']|["']$/g, ""))}`)}
+        <button class="btn primaire" id="mp-creer" title="Crée le scénario BDD depuis le test Xray (Gherkin ou étapes manuelles), puis ouvre le mapping">${ico("plus")}Créer le scénario depuis Xray</button></div>`;
+      $("#mp-creer").onclick = () => window.OuvrirBdd(cle, "", "mapping");
+      return;
+    }
     const etatsLoc = x => `<span class="pill ${PILL[x.etat] || ""}" title="${esc(x.etat)}">${esc(x.id)}</span>`;
     z.innerHTML = `${entete("BDD to Automation", `<select class="in" id="mp-cle" style="width:auto">${l.map(b => `<option ${b.cle === cle ? "selected" : ""}>${esc(b.cle)}</option>`).join("")}</select>
         <a class="btn" href="#bdd/${encodeURIComponent(cle)}">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn primaire" id="mp-gen">${ico("play")}Prévisualiser le Robot</button>`)}

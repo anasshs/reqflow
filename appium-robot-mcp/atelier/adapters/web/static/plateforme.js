@@ -81,6 +81,25 @@ function modale(titre, html, actions = "") {
   return {el: m, fermer};
 }
 
+/* Ouvre le Knowledge Graph centré sur un nœud (ex. "test:DEMO-12") */
+window.OuvrirGraphe = id => {
+  try { sessionStorage.setItem("kg-centre", id); } catch (e) { /* stockage indisponible : graphe complet */ }
+  location.hash = "graphe/connaissance";
+};
+
+/* Scénario BDD d'un test Xray : ouvert s'il existe, sinon créé depuis le test Xray (Gherkin ou étapes) puis ouvert */
+window.OuvrirBdd = async (cle, titre = "", cible = "bdd") => {
+  try {
+    const l = await api("/api/bdd");
+    if (!l.some(b => b.cle === cle)) {
+      if (!confirm(`Aucun scénario BDD pour ${cle}. Le créer maintenant depuis le test Xray (Gherkin ou étapes manuelles) ?`)) return;
+      await api("/api/bdd", {method: "POST", body: {cle, titre, depuis_xray: true}});
+      toast(`Scénario BDD ${cle} créé depuis Xray.`, "ok");
+    }
+    location.hash = (cible === "mapping" ? "studio/mapping/" : "bdd/") + encodeURIComponent(cle);
+  } catch (e) { toast(e.message, "ko"); }
+};
+
 const statutIco = s => {
   const m = {PASS: ["ok", "✓"], PASSED: ["ok", "✓"], FAIL: ["ko", "✕"], FAILED: ["ko", "✕"], RUNNING: ["run", "▶"], EXECUTING: ["run", "▶"],
     "réussi": ["ok", "✓"], "échec": ["ko", "✕"], "en cours": ["run", "▶"], SKIP: ["attente", "–"], "NOT RUN": ["attente", "–"]}[s] || ["attente", "·"];
