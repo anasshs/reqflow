@@ -174,16 +174,39 @@ def frameworks() -> dict:
          "disponible": bool(r["bibliotheques"].get(lib)) and all(outils.get(o, False) for o in req)} for t, tech, lib, req in lignes]}
 
 
+# État de travail de l'atelier rangé dans le projet de tests (revues, runs, sessions, instantanés…) : propre à chaque poste,
+# à ne pas versionner (.gitignore conseillé). Il ne bloque ni « tirer », ni « basculer », ni la merge request.
+ETAT_ATELIER = ("studio/", "executions/", "results/", "discovery/", "connaissance/", "analyses/", "couverture/", "gouvernance/", "testabilite/")
+
+
+def _chemins_modifies() -> list[str]:
+    from atelier.execution.centre import _git
+
+    return [ligne.split(None, 1)[-1] for ligne in _git("status", "--porcelain", "--untracked-files=no").splitlines() if ligne.strip()]
+
+
+def _modifs_bloquantes() -> list[str]:
+    """Fichiers suivis modifiés et non validés, hors état de travail de l'atelier."""
+    return [f for f in _chemins_modifies() if not f.startswith(ETAT_ATELIER)]
+
+
 def git() -> dict:
     from atelier.execution.centre import _git
 
     if not _git("rev-parse", "--is-inside-work-tree"):
         return {"depot": False, "message": "Le projet de tests n'est pas un dépôt Git (lecture seule ici ; commit et merge request : phase 7)."}
     log = _git("log", "-15", "--date=iso-strict", "--format=%h%x1f%an%x1f%ad%x1f%s")
-    return {"depot": True, "branche": _git("rev-parse", "--abbrev-ref", "HEAD"), "commit": _git("rev-parse", "--short", "HEAD"),
+    amont = _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    avance, retard = (_git("rev-list", "--left-right", "--count", "HEAD...@{u}").split() + ["0", "0"])[:2] if amont else ("", "")
+    distantes = sorted({b.strip().removeprefix("origin/") for b in _git("branch", "-r", "--format=%(refname:short)").splitlines()
+                        if b.strip().startswith("origin/") and b.strip() != "origin/HEAD"})
+    return {"depot": True, "amont": amont, "en_avance": int(avance or 0), "en_retard": int(retard or 0), "branches_distantes": distantes,
+            "derniere_recuperation": _derniere_recuperation(),
+            "etat_atelier_modifie": [f for f in _chemins_modifies() if f.startswith(ETAT_ATELIER)],
+            "etat_atelier_versionne": len([f for f in _git("ls-files", "--", *ETAT_ATELIER).splitlines() if f]), "branche": _git("rev-parse", "--abbrev-ref", "HEAD"), "commit": _git("rev-parse", "--short", "HEAD"),
             "distant": _git("remote", "get-url", "origin").split("@")[-1],  # jamais d'identifiant dans l'URL affichée
             "branches": [b.strip("* ").strip() for b in _git("branch", "--list").splitlines()],
-            "modifications": [x for x in _git("status", "--porcelain").splitlines() if x],
+            "modifications": [x for x in _git("status", "--porcelain").splitlines() if x and not x.split(None, 1)[-1].startswith(ETAT_ATELIER)],
             "commits": [dict(zip(("hash", "auteur", "date", "message"), x.split("\x1f"))) for x in log.splitlines() if x]}
 
 
@@ -519,6 +542,86 @@ def _commit(message: str, fichiers: list[str]) -> dict:
     return git()
 
 
+def _derniere_recuperation() -> str:
+    f = projet.PROJECT_DIR / ".git" / "FETCH_HEAD"
+    return datetime.fromtimestamp(f.stat().st_mtime).astimezone().isoformat(timespec="seconds") if f.exists() else ""
+
+
+def _git_distant(*args: str, timeout: int = 120) -> str:
+    """Commande Git qui parle au distant (fetch, pull, push) : authentification par l'environnement (_git_env_push),
+    jeton masqué dans tout message d'erreur."""
+    import os
+    import subprocess
+
+    from atelier.execution.centre import _git
+
+    r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), *args], capture_output=True, text=True, timeout=timeout,
+                       env=_git_env_push(_git("remote", "get-url", "origin")))
+    if r.returncode:
+        from atelier.integrations.http import variable_secrete
+
+        jeton = variable_secrete("GITLAB_TOKEN") or os.environ.get("GITLAB_TOKEN") or "\x00"
+        raise RuntimeError((r.stderr or r.stdout).replace(jeton, "***").strip()[:400])
+    return r.stdout
+
+
+def synchroniser(action: str, branche: str = "") -> dict:
+    from atelier.domain import roles
+
+    roles.exiger("commit_local")
+    return _synchroniser(action, branche)
+
+
+def _synchroniser(action: str, branche: str = "") -> dict:
+    """Synchronisation du dépôt local avec GitLab, sur action explicite :
+    - « recuperer » : git fetch (met à jour les branches distantes et le compteur « à tirer ») ;
+    - « tirer » : git pull --ff-only de la branche courante (jamais de fusion implicite : en cas de divergence, refus) ;
+    - « basculer » : passer sur une branche existante, locale ou distante (refusé s'il reste des modifications non validées).
+    Le push ne se fait que par la merge request (proposer_mr), avec ses garde-fous."""
+    from atelier.execution.centre import _git
+
+    if not _git("rev-parse", "--is-inside-work-tree"):
+        raise RuntimeError("Le projet de tests n'est pas un dépôt Git.")
+    if action == "recuperer":
+        _git_distant("fetch", "--prune", "origin")
+    elif action == "tirer":
+        if not _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"):
+            raise ValueError("Branche sans branche distante suivie : rien à tirer (elle sera poussée avec la merge request).")
+        if _modifs_bloquantes():
+            raise ValueError("Modifications locales non validées : faire le commit (ou les annuler dans l'éditeur) avant de tirer : "
+                             + ", ".join(_modifs_bloquantes()[:5]))
+        try:
+            _git_distant("pull", "--ff-only")
+        except RuntimeError as e:
+            if "fast-forward" in str(e).lower() or "diverg" in str(e).lower():
+                raise RuntimeError("La branche locale et la branche distante ont divergé : l'atelier ne fusionne pas à votre place. "
+                                   "Rebaser ou fusionner dans votre IDE / terminal, puis revenir ici.") from e
+            raise
+    elif action == "basculer":
+        if not re.fullmatch(r"[A-Za-z0-9._/-]{1,80}", branche or "") or ".." in branche:
+            raise ValueError("Nom de branche invalide.")
+        if _modifs_bloquantes():
+            raise ValueError("Modifications locales non validées : faire le commit avant de changer de branche : " + ", ".join(_modifs_bloquantes()[:5]))
+        connues = set(_git("branch", "--format=%(refname:short)").split()) | {
+            b.removeprefix("origin/") for b in _git("branch", "-r", "--format=%(refname:short)").split()}
+        if branche not in connues:
+            raise ValueError(f"Branche « {branche} » inconnue (faire « Récupérer » pour voir les branches distantes).")
+        import subprocess
+
+        r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), "switch", branche], capture_output=True, text=True, timeout=15)
+        if r.returncode:
+            bloquants = [x.strip() for x in r.stderr.splitlines() if x.startswith(("\t", "        "))]
+            if bloquants and all(x.startswith(ETAT_ATELIER) for x in bloquants):
+                raise RuntimeError("Git refuse de changer de branche : des fichiers de travail de l'atelier (" + ", ".join(bloquants[:3])
+                                   + ") sont versionnés et diffèrent sur l'autre branche. Les sortir du suivi Git (.gitignore puis "
+                                   "« git rm --cached ») ; aucun fichier n'a été modifié.")
+            raise RuntimeError(r.stderr.strip()[:300])
+    else:
+        raise ValueError("Action inconnue : recuperer, tirer ou basculer.")
+    _journaliser(f"git_{action}", branche=branche or _git("rev-parse", "--abbrev-ref", "HEAD"))
+    return git()
+
+
 # =========================================================================== GitLab : merge request encadrée
 EXECUTIONS_STABLES = 3  # invariant 5 : 3 exécutions stables ET revue humaine
 
@@ -534,8 +637,10 @@ def gitlab_etat() -> dict:
     try:
         c = gitlab.GitLabClient()
         branche = _git("rev-parse", "--abbrev-ref", "HEAD")
+        travail = bool(branche) and branche not in BRANCHES_PROTEGEES
         return {"configure": True, "utilisateur": c.utilisateur(), "projet": c.projet_info(), "branche": branche,
-                "mr_ouvertes": c.mr_ouvertes(branche) if branche and branche not in BRANCHES_PROTEGEES else []}
+                "mr_ouvertes": c.mr_ouvertes(branche) if travail else [],
+                "mr_recentes": c.mr_branche(branche) if travail and hasattr(c, "mr_branche") else []}
     except Exception as e:  # noqa: BLE001 - GitLab indisponible : affiché, jamais bloquant pour le reste
         return {"configure": True, "erreur": str(e)[:400]}
 
@@ -606,16 +711,19 @@ def _proposer_mr(titre: str, description: str = "", cible: str = "", derogation:
         raise RuntimeError("Le projet de tests n'est pas un dépôt Git.")
     if branche in BRANCHES_PROTEGEES or branche == "HEAD":
         raise PermissionError(f"Merge request impossible depuis « {branche} » : créer une branche de travail.")
-    if not titre.strip():
-        raise ValueError("Titre de la merge request obligatoire.")
-    if _git("status", "--porcelain", "--untracked-files=no"):
-        raise ValueError("Modifications locales non validées : faire le commit (suites approuvées) avant la merge request.")
+    if _modifs_bloquantes():
+        raise ValueError("Modifications locales non validées : faire le commit (suites approuvées) avant la merge request : "
+                         + ", ".join(_modifs_bloquantes()[:5]))
     c = gitlab_client or GitLabClient()
-    info = c.projet_info()
-    cible = cible or info.get("branche_defaut") or "main"
     deja = c.mr_ouvertes(branche)
-    if deja:
-        return {"deja_ouverte": True, "mr": deja[0]}
+    if not deja and not titre.strip():
+        raise ValueError("Titre de la merge request obligatoire.")
+    if deja:  # MR ouverte : seuls des commits nouveaux justifient un push (corrections demandées en revue GitLab)
+        cible = cible or deja[0].get("cible") or ""
+        if _git("rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branche}") and _git("rev-list", "--count", f"origin/{branche}..HEAD") == "0":
+            return {"deja_ouverte": True, "mr": deja[0], "pousse": False}
+    if not cible:
+        cible = c.projet_info().get("branche_defaut") or "main"
     _git("fetch", "--quiet", "origin", cible)
     base = _git("merge-base", "HEAD", f"origin/{cible}") or _git("merge-base", "HEAD", cible)
     fichiers = [f for f in _git("diff", "--name-only", f"{base}..HEAD" if base else "HEAD~1..HEAD").splitlines() if f]
@@ -637,6 +745,9 @@ def _proposer_mr(titre: str, description: str = "", cible: str = "", derogation:
     if r.returncode:
         jeton = os.environ.get("GITLAB_TOKEN") or "\x00"
         raise RuntimeError("git push refusé : " + (r.stderr or r.stdout).replace(jeton, "***").strip()[:400])
+    if deja:
+        _journaliser("git_push", branche=branche, mr=deja[0].get("url", ""), derogation=derogation.strip() if instables else "")
+        return {"deja_ouverte": True, "mr": deja[0], "pousse": True, "fichiers": fichiers, "stabilite": stab}
     inv = _inv()
     cles = sorted({k for t in inv["tests"].values() if t["fichier"] in suites for k in t.get("cles_xray") or []})
     jira = (os.environ.get("JIRA_BASE_URL") or "").rstrip("/")

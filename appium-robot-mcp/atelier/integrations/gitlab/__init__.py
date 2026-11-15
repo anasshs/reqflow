@@ -66,6 +66,12 @@ class GitLabClient:
         l = self._appel("GET", f"{self._p}/merge_requests", {"state": "opened", "source_branch": source, "per_page": 50})
         return [_mr(m) for m in l or []]
 
+    def mr_branche(self, source: str, limite: int = 5) -> list[dict]:
+        """Dernières merge requests de la branche, tous états (ouverte, fusionnée, fermée) : suivi après la création."""
+        l = self._appel("GET", f"{self._p}/merge_requests", {"state": "all", "source_branch": source, "per_page": limite,
+                                                             "order_by": "updated_at"})
+        return [_mr(m) for m in l or []]
+
     # ------------------------------------------------------------ écriture (sur action explicite uniquement)
     def creer_mr(self, source: str, cible: str, titre: str, description: str, libelles: list[str] | None = None) -> dict:
         m = self._appel("POST", f"{self._p}/merge_requests", corps={
@@ -76,4 +82,6 @@ class GitLabClient:
 
 def _mr(m: dict) -> dict:
     return {"iid": m.get("iid"), "titre": m.get("title"), "etat": m.get("state"), "source": m.get("source_branch"),
-            "cible": m.get("target_branch"), "url": m.get("web_url"), "auteur": (m.get("author") or {}).get("username")}
+            "cible": m.get("target_branch"), "url": m.get("web_url"), "auteur": (m.get("author") or {}).get("username"),
+            "fusionnee_le": m.get("merged_at"), "conflits": bool(m.get("has_conflicts")),
+            "statut_fusion": m.get("detailed_merge_status") or m.get("merge_status") or ""}

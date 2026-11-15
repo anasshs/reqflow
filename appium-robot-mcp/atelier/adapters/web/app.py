@@ -2559,6 +2559,13 @@ async def studio_gitlab_mr(req: Request):
     return await asyncio.to_thread(_call, studio.proposer_mr, b.get("titre", ""), b.get("description", ""), b.get("cible", ""), b.get("derogation", ""))
 
 
+@app.post("/api/studio/git/synchroniser")
+async def studio_git_synchroniser(req: Request):
+    """Récupérer (fetch), tirer (pull --ff-only) ou basculer de branche ; le push passe par la merge request."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio.synchroniser, b.get("action", ""), b.get("branche", ""))
+
+
 @app.post("/api/studio/git/commit")
 async def studio_commit(req: Request):
     b = await req.json()

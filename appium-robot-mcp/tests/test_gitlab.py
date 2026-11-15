@@ -109,3 +109,85 @@ def test_push_https_jeton_jamais_dans_la_commande(monkeypatch):
     assert env["GIT_CONFIG_COUNT"] == "2" and env["GIT_CONFIG_KEY_0"] == "http.proxy"
     assert env["GIT_CONFIG_KEY_1"] == "http.extraHeader" and "jeton-xyz" not in env["GIT_CONFIG_VALUE_1"]  # encodé en Basic
     assert studio._git_env_push("git@gitlab.exemple.interne:qa/tests.git")["GIT_CONFIG_COUNT"] == "1"  # SSH : clés de l'utilisateur
+
+
+def test_recuperer_tirer_basculer(depot, tmp_path):
+    """Récupérer (fetch), tirer (pull --ff-only) et basculer, sans jamais fusionner à la place de l'automaticien."""
+    from atelier.generation import studio
+
+    repo, distant, g = depot
+    assert studio.git()["amont"] == ""  # branche de travail jamais poussée
+    with pytest.raises(ValueError, match="distante suivie"):
+        studio.synchroniser("tirer")
+    (repo / "brouillon.robot").write_text("x", "utf-8")  # fichier non suivi : n'empêche pas de basculer
+    (repo / "tests" / "connexion.robot").write_text("modifié", "utf-8")
+    with pytest.raises(ValueError, match="non validées"):
+        studio.synchroniser("basculer", "main")
+    g("checkout", "--", "tests/connexion.robot")
+    with pytest.raises(ValueError, match="inconnue"):
+        studio.synchroniser("basculer", "nexiste-pas")
+    g("branch", "--set-upstream-to=origin/main", "main")
+    assert studio.synchroniser("basculer", "main")["branche"] == "main"
+    autre = tmp_path / "collegue"  # un collègue pousse sur main
+    subprocess.run(["git", "clone", "-q", str(distant), str(autre)], check=True, capture_output=True)
+    (autre / "tests" / "nouveau.robot").write_text("*** Test Cases ***\nNouveau\n    Log    ok\n", "utf-8")
+    for a in (["config", "user.email", "c@exemple.fr"], ["config", "user.name", "C"], ["add", "."], ["commit", "-qm", "nouveau"], ["push", "-q", "origin", "main"]):
+        g(*a, cwd=autre)
+    assert studio.git()["en_retard"] == 0  # rien de su avant de récupérer
+    e = studio.synchroniser("recuperer")
+    assert e["en_retard"] == 1 and e["amont"] == "origin/main" and "auto/connexion" not in e["branches_distantes"] and e["derniere_recuperation"]
+    e = studio.synchroniser("tirer")
+    assert e["en_retard"] == 0 and (repo / "tests" / "nouveau.robot").exists()
+    (repo / "local.txt").write_text("l", "utf-8")  # divergence : commit local + commit distant
+    g("add", "local.txt")
+    g("commit", "-qm", "local")
+    (autre / "b.txt").write_text("b", "utf-8")
+    for a in (["add", "."], ["commit", "-qm", "distant"], ["push", "-q", "origin", "main"]):
+        g(*a, cwd=autre)
+    studio.synchroniser("recuperer")
+    with pytest.raises(RuntimeError, match="divergé"):
+        studio.synchroniser("tirer")
+    with pytest.raises(ValueError, match="Action inconnue"):
+        studio.synchroniser("pousser")
+
+
+def test_mr_ouverte_pousse_les_nouveaux_commits(depot, monkeypatch):
+    from atelier.generation import studio
+
+    repo, distant, g = depot
+    f = "tests/connexion.robot"
+    monkeypatch.setattr(studio, "revues_scripts", lambda: {f: {"statut": "Approved", "historique": [{"auteur": "r", "date": "2026-11-15"}]}})
+    monkeypatch.setattr(studio, "_stabilite_suites", lambda fs: {x: {"stable": True, "tests": {}} for x in fs})
+    studio.proposer_mr("Connexion", gitlab_client=FauxGitLab())
+    ouverte = FauxGitLab(ouvertes=[{"iid": 12, "cible": "main", "url": "https://g/mr/12"}])
+    assert studio.proposer_mr("", gitlab_client=ouverte) == {"deja_ouverte": True, "mr": ouverte.ouvertes[0], "pousse": False}
+    (repo / f).write_text("*** Test Cases ***\nConnexion valide\n    Log    ok v3\n", "utf-8")  # correction demandée en revue
+    g("commit", "-qam", "connexion v3")
+    monkeypatch.setattr(studio, "revues_scripts", lambda: {f: {"statut": "Technical Review", "historique": []}})
+    with pytest.raises(PermissionError, match="Revue technique"):  # mêmes garde-fous que la création
+        studio.proposer_mr("", gitlab_client=ouverte)
+    monkeypatch.setattr(studio, "revues_scripts", lambda: {f: {"statut": "Approved", "historique": [{"auteur": "r", "date": "2026-11-15"}]}})
+    r = studio.proposer_mr("", gitlab_client=ouverte)
+    assert r["pousse"] and not ouverte.mrs  # aucune nouvelle MR
+    assert "connexion v3" in subprocess.run(["git", "log", "--format=%s", "auto/connexion"], cwd=distant, capture_output=True, text=True).stdout
+    assert studio.git()["en_avance"] == 0
+
+
+def test_etat_de_travail_atelier_ne_bloque_pas(depot):
+    """Revues, runs, sessions de l'atelier rangés dans le projet : signalés, jamais bloquants pour tirer / basculer."""
+    from atelier.generation import studio
+
+    repo, distant, g = depot
+    (repo / "studio").mkdir()
+    (repo / "studio" / "journal.jsonl").write_text("{}\n", "utf-8")
+    g("add", "studio/journal.jsonl")
+    g("commit", "-qm", "journal versionné par erreur")
+    (repo / "studio" / "journal.jsonl").write_text("{}\n{}\n", "utf-8")
+    e = studio.git()
+    assert e["etat_atelier_versionne"] == 1 and e["etat_atelier_modifie"] == ["studio/journal.jsonl"] and not e["modifications"]
+    assert not studio._modifs_bloquantes()
+    with pytest.raises(RuntimeError, match="gitignore"):  # absent de main : Git protège le fichier, message clair
+        studio.synchroniser("basculer", "main")
+    g("rm", "-q", "--cached", "studio/journal.jsonl")
+    g("commit", "-qm", "journal hors suivi")
+    assert studio.synchroniser("basculer", "main")["branche"] == "main" and (repo / "studio" / "journal.jsonl").exists()

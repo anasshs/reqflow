@@ -172,3 +172,15 @@ Une ligne datée par décision d'architecture ou de conception.
   nées d'un échec (workflow Proposed → … → Validated inchangé). Failure Analysis › Fix Recommendations les compte et y renvoie.
 - **Exigences sans test** : Missing Tests est l'entrée (diagnostic + colonne « Suivi Test Design ») ; US à couvrir reste le
   lieu de travail (conception, validation, publication). Plus de « Proposer » en double pour une exigence déjà suivie.
+
+## 2026-11-15 — Git et GitLab depuis l'atelier : synchroniser oui, fusionner non
+- Le code source des tests vit dans le clone local du dépôt GitLab (`ROBOT_PROJECT_DIR`). Studio › Revue et publication ›
+  Git et merge request couvre le circuit : Récupérer (fetch), Tirer (`pull --ff-only`), Basculer, créer la branche,
+  commit local (suites approuvées), pousser + merge request, pousser les corrections sur la MR ouverte.
+- La fusion reste une décision humaine dans GitLab ; l'atelier ne fusionne pas, ne rebase pas et ne résout aucun conflit :
+  en cas de divergence, « Tirer » refuse et renvoie vers l'IDE / le terminal. Après fusion : « Revenir sur la cible et tirer ».
+- Les nouveaux commits poussés sur une MR ouverte passent les mêmes garde-fous que la création (revue approuvée,
+  3 exécutions stables ou dérogation écrite).
+- L'état de travail de l'atelier rangé dans le projet (studio/, executions/, results/, discovery/, connaissance/, analyses/,
+  couverture/, gouvernance/, testabilite/) est propre à chaque poste : signalé s'il est versionné (.gitignore conseillé),
+  il ne bloque ni Tirer, ni Basculer, ni la merge request.
