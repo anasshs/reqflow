@@ -231,10 +231,23 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     relancer_echecs : rejoue uniquement les tests en échec du run précédent (même output_dir).
       Pour mettre à jour la même exécution Xray, passer sa clé dans xray_ticket.
     La session Appium du MCP est fermée avant le run pour libérer le device."""
-    return robot.run_robot(target, include_tags, exclude_tags, variables, dry_run, output_dir, xray_ticket, xray_mode,
-                           exec_summary, plan_summary, test_environments, jira_transition_start,
-                           jira_transition_end, jira_transition_end_if_fail, attach_screenshots, jdd_env, jdd_jeux,
+    # Transitions Jira : jamais appliquées directement depuis Cursor ; demandes à valider après le run (V2, phase 0 bis)
+    transitions = {"début": jira_transition_start, "fin": jira_transition_end, "fin si échec": jira_transition_end_if_fail}
+    bilan = robot.run_robot(target, include_tags, exclude_tags, variables, dry_run, output_dir, xray_ticket, xray_mode,
+                           exec_summary, plan_summary, test_environments, "",
+                           "", "", attach_screenshots, jdd_env, jdd_jeux,
                            events_url or WEB_EVENTS_URL, relancer_echecs, cartographie, timeout_s)
+    demandees = {k: v for k, v in transitions.items() if v}
+    if demandees and not dry_run:
+        from atelier.domain import demandes
+
+        ticket = ((bilan.get("xray") or {}).get("execution")) or xray_ticket
+        echec = bool((bilan.get("resultat") or {}).get("echecs") or bilan.get("code_retour"))
+        a_faire = [(m, t) for m, t in demandees.items() if m != "fin si échec" or echec]
+        bilan["transitions_jira"] = [demandes.creer("jira_transition", {"issue_key": ticket, "transition": t},
+                                                    f"{ticket} → {t} (transition « {m} » du run)")["id"] for m, t in a_faire if ticket]
+        bilan["transitions_jira_note"] = "Transitions Jira déposées en demandes : à valider dans l'atelier (À valider)."
+    return bilan
 
 
 @outil
@@ -280,7 +293,17 @@ def xray_search_tests(jql: str, limit: int = 50) -> list[dict]:
 def add_screen_locator(screen_name: str, key: str, locator: str, platform: str = "") -> dict:
     """Ajoute ou remplace une clé dans les locators capturés d'un écran (plateforme de la session
     par défaut). Sert à corriger un locator sans tout recapturer."""
-    return locators.add_screen_locator(screen_name, key, locator, platform)
+    # V2 (phase 0 bis) : une clé nouvelle est ajoutée directement ; remplacer une valeur existante devient une demande
+    from atelier.domain import demandes
+
+    ancien = locators.locator_capture(screen_name, key, platform)
+    if ancien is None or ancien == locator:
+        return locators.add_screen_locator(screen_name, key, locator, platform)
+    p = locators.plateforme(platform)
+    d = demandes.creer("remplacer_locator", {"screen_name": screen_name, "key": key, "locator": locator, "platform": p},
+                       f"{screen_name}.{key}@{p} : {ancien} → {locator}", apercu={"avant": ancien, "apres": locator})
+    return {"ecran": screen_name, "platform": p, "cle": key, "statut": "en attente de validation", "demande": d["id"],
+            "message": demandes.message(d)}
 
 
 @outil
@@ -292,7 +315,12 @@ def jira_subtasks(issue_key: str) -> list[dict]:
 @outil
 def qualify_failure(run_id: str, qualification: str, commentaire: str = "", message_echec: str = "") -> str:
     """Qualifie un échec dans le test run Xray : bug, données, locator ou environnement."""
-    return suivi.qualify_failure(run_id, qualification, commentaire, message_echec)
+    # V2 (phase 0 bis) : écriture Xray déposée en demande, envoyée après validation dans l'atelier
+    from atelier.domain import demandes
+
+    d = demandes.creer("qualify_failure", {"run_id": run_id, "qualification": qualification, "commentaire": commentaire,
+                                           "message_echec": message_echec[:2000]}, f"test run {run_id} : {qualification}")
+    return demandes.message(d)
 
 
 @outil
@@ -342,7 +370,16 @@ def screen_info(ecran: str) -> dict:
 def name_screen(ecran: str, nom: str, module: str = "") -> dict:
     """Donne un nom métier à un écran (ex. virement_saisie). Un nom déjà utilisé fusionne les deux
     écrans (cas du même écran vu sur Android puis sur iOS)."""
-    return carte_outils.name_screen(ecran, nom, module)
+    # V2 (phase 0 bis) : le simple nommage est immédiat ; la fusion devient une demande à valider
+    from atelier.discovery import carte
+    from atelier.domain import demandes
+
+    autre = carte.ecran_nomme(nom, sauf=ecran)
+    if not autre:
+        return carte_outils.name_screen(ecran, nom, module)
+    d = demandes.creer("fusion_ecrans", {"ecran": ecran, "nom": nom, "module": module},
+                       f"écran {ecran} → fusion avec « {autre.get('nom')} » ({autre['id']})")
+    return {"ecran": ecran, "statut": "en attente de validation", "demande": d["id"], "message": demandes.message(d)}
 
 
 @outil
@@ -393,7 +430,11 @@ def xray_inspect_ticket(ticket: str) -> dict:
 @outil
 def jira_transition(issue_key: str, transition: str) -> str:
     """Fait passer un ticket Jira dans un statut (nom de transition ou de statut cible)."""
-    return suivi.jira_transition(issue_key, transition)
+    # V2 (phase 0 bis) : écriture Jira déposée en demande, exécutée après validation dans l'atelier
+    from atelier.domain import demandes
+
+    d = demandes.creer("jira_transition", {"issue_key": issue_key, "transition": transition}, f"{issue_key} → {transition}")
+    return demandes.message(d)
 
 
 @outil
@@ -402,7 +443,21 @@ def import_results_to_xray(output_xml: str = "results/mcp/output.xml",
                            test_plan_key: str = "") -> dict:
     """Envoie un output.xml Robot dans Xray Cloud (import/execution/robot), en secours
     quand le run s'est fait sans listener. N'utiliser pas sur un run déjà remonté en live."""
-    return suivi.import_results_to_xray(output_xml, test_execution_key, project_key, test_plan_key)
+    # V2 (phase 0 bis) : écriture Xray déposée en demande (aperçu des statistiques), envoyée après validation
+    from atelier.domain import demandes
+
+    if not (test_execution_key or project_key):
+        raise ValueError("Renseigner test_execution_key ou project_key.")
+    projet.safe_path(output_xml)
+    try:
+        resume = parse_robot_output(output_xml)
+        apercu = {k: resume.get(k) for k in ("passes", "echecs") if k in resume}
+    except Exception as e:  # noqa: BLE001 — aperçu facultatif
+        apercu = {"erreur": str(e)[:200]}
+    d = demandes.creer("import_results_to_xray", {"output_xml": output_xml, "test_execution_key": test_execution_key,
+                                                  "project_key": project_key, "test_plan_key": test_plan_key},
+                       f"{output_xml} → {test_execution_key or 'nouvelle exécution ' + project_key}", apercu=apercu)
+    return {"statut": "en attente de validation", "demande": d["id"], "apercu": apercu, "message": demandes.message(d)}
 
 
 

@@ -176,13 +176,25 @@ def ecran_courant(ia_suggestions: bool = False) -> dict:
 
 
 def action_mcp(nom: str, locator: str, fn):
-    """Action de l'agent (tap, type_text) : hors session Discovery, exécutée telle quelle (comportement historique) ;
-    pendant une session en cours, classée et autorisée selon l'environnement, puis comportements observés."""
+    """Action de l'agent (tap, type_text), toujours classée côté serveur (V2, phase 0 bis) :
+    - hors session Discovery : liste rouge et actions sensibles refusées ; navigation et saisie (contrôlée) permises ;
+    - pendant une session : autorisée selon l'environnement de la session, puis comportements observés."""
     from atelier.discovery import classement, comportements, session, sessions_discovery
     from atelier.discovery.observation import observer
 
     s = sessions_discovery.active()
     if not s or s["statut"] != "En cours":
+        try:
+            ecran_ = comportements.etat_ecran()
+        except Exception:  # noqa: BLE001 — écran illisible : classement sur le seul locator
+            ecran_ = []
+        el = next((e for e in ecran_ if locator in (e.get("locators") or [])), None) or {"key": re.sub(r"\W+", "_", locator)[:60], "libelle": "", "type": "element"}
+        if nom == "type_text":
+            el = {**el, "type": "champ"}
+        v = classement.autorise(el, "guidee", "", False, None, agent=True)
+        if not v["autorise"]:
+            raise PermissionError(f"Action refusée (hors session Discovery) : {v.get('motif') or 'non autorisée'} "
+                                  "Pour une action sensible, démarrer une session Discovery sur un environnement autorisé.")
         return fn()
     avant = comportements.etat_ecran()
     el = next((e for e in avant if locator in (e.get("locators") or [])), None) or {"key": re.sub(r"\W+", "_", locator)[:60], "libelle": "", "type": "element"}

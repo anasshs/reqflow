@@ -267,9 +267,14 @@ def a_valider() -> list[dict]:
     Discovery / agent (déclarations et noms d'écrans), relations déduites du graphe, Coverage Intelligence
     (Stories, critères, liens exigence ↔ test, classements de tests orphelins). Chaque élément dit comment décider."""
     from atelier.discovery import apprentissage, intelligence_app
+    from atelier.domain import demandes
     from atelier.intelligence import intelligence_couverture
 
     out, vus = [], set()
+    for d in demandes.lister("en attente"):  # actions demandées par Cursor : rien n'est fait avant acceptation
+        out.append({"source": "Cursor (action)", "decision": "action", "id": d["id"], "type": d["libelle_type"], "libelle": d["resume"],
+                    "detail": ", ".join(f"{k} {v}" for k, v in (d.get("apercu") or {}).items())[:240] or f"demandé le {d['cree_le'][:16].replace('T', ' ')}",
+                    "confiance": None})
     for p in apprentissage.propositions():
         vus.add(p["id"])
         src = str(p.get("source") or "")

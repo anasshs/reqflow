@@ -61,7 +61,7 @@
     const l = await api("/api/cerveau/a-valider");
     const sources = [...new Set(l.map(x => x.source))];
     z.innerHTML = `${entete("À valider", `<a class="btn" href="#intelligence/couverture" title="Coverage Intelligence : proposer des Stories, analyser les liens exigence ↔ test">Coverage Intelligence</a>`)}<div class="corps-carte">
-      <p class="lib">Toutes les propositions en attente, quelle que soit leur origine (Discovery, Cursor, relations déduites du graphe, Coverage Intelligence). Rien n'est utilisé ni écrit dans Jira / Xray avant validation ; un rejet est motivé et définitif.</p>
+      <p class="lib">Toutes les propositions en attente, quelle que soit leur origine (Discovery, Cursor, actions demandées par Cursor vers Jira / Xray / la carte, relations déduites du graphe, Coverage Intelligence). Rien n'est utilisé ni écrit dans Jira / Xray avant validation ; un rejet est motivé et définitif.</p>
       <div class="btns" style="margin-bottom:8px">${["", ...sources].map(x => `<button class="btn petit ${x ? "" : "primaire"}" data-src="${esc(x)}" title="Filtrer par origine">${esc(x || "Tout")} (${x ? l.filter(y => y.source === x).length : l.length})</button>`).join("")}</div>
       ${l.length ? `<table class="table-strat" id="av-t"><tr><th>Origine</th><th>Proposition</th><th>Type</th><th>Justification / source</th><th>Confiance</th><th></th></tr>
         ${l.map((x, i) => `<tr data-s="${esc(x.source)}"><td><span class="pill">${esc(x.source)}</span></td><td><b>${esc(x.libelle)}</b></td><td>${esc(x.type)}</td><td class="lib">${esc(x.detail || "")}</td>
@@ -76,7 +76,11 @@
       const motif = valider ? "" : prompt("Motif du rejet (définitif, historisé) :", "");
       if (!valider && !motif) return;
       try {
-        if (x.decision === "discovery") await api("/api/discovery/propositions/decider", {method: "POST", body: {id: x.id, valider, motif}});
+        if (x.decision === "action") {
+          if (valider && !confirm(`Accepter et EXÉCUTER maintenant : ${x.type}\n${x.libelle} ?`)) return;
+          const r = await api("/api/demandes/decider", {method: "POST", body: {id: x.id, accepter: valider, commentaire: motif}});
+          if (r.statut === "échec") { toast(`Échec : ${r.erreur}`, "ko"); aValider(z); return; }
+        } else if (x.decision === "discovery") await api("/api/discovery/propositions/decider", {method: "POST", body: {id: x.id, valider, motif}});
         else if (x.decision === "graphe") await api(valider ? "/api/graphes/valider" : "/api/graphes/rejeter", {method: "POST", body: {id: x.id, motif}});
         else await api("/api/ci/decider", {method: "POST", body: {id: x.id, decision: valider ? "valider" : "rejeter", motif}});
         toast(valider ? "Validé (historisé)." : "Rejeté (historisé).", "ok"); aValider(z);

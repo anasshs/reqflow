@@ -69,3 +69,12 @@ avec propose_step : il valide, corrige ou refuse depuis la même vue. Le relecte
 (appels et écrans) dans la revue du script : avant de soumettre, lance un dry run réussi de la suite.
 Toute suite écrite avec write_project_file entre aussi en revue : elle ne s'exécute (hors dry_run) qu'une
 fois approuvée.
+
+## Actions soumises à validation (côté serveur)
+Ces outils ne modifient rien directement : ils déposent une **demande** que l'automaticien accepte ou rejette dans
+l'atelier (Application Intelligence › À valider). Annoncer la demande à l'utilisateur, ne pas réessayer, ne pas
+chercher de contournement :
+- `jira_transition`, `qualify_failure`, `import_results_to_xray` (écritures Jira / Xray) ;
+- `run_robot` avec `jira_transition_*` : les transitions deviennent des demandes après le run ;
+- `name_screen` vers un nom déjà pris (fusion d'écrans) ; `add_screen_locator` qui remplace une valeur existante.
+`tap` / `type_text` sont classés côté serveur même hors session Discovery : liste rouge et actions sensibles refusées.

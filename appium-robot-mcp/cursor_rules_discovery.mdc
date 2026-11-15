@@ -49,3 +49,12 @@ Fin : discovery_terminer(), puis résume à l'automaticien les écrans découver
 les actions refusées qu'il doit faire lui-même. Il valide ou rejette dans l'atelier (fenêtre Discovery ou
 Discovery › Validation) ; une proposition rejetée n'est jamais reproposée. Tout ce qui est validé apparaît
 dans le Knowledge Graph avec sa provenance.
+
+## Actions soumises à validation (côté serveur)
+Ces outils ne modifient rien directement : ils déposent une **demande** que l'automaticien accepte ou rejette dans
+l'atelier (Application Intelligence › À valider). Annoncer la demande à l'utilisateur, ne pas réessayer, ne pas
+chercher de contournement :
+- `jira_transition`, `qualify_failure`, `import_results_to_xray` (écritures Jira / Xray) ;
+- `run_robot` avec `jira_transition_*` : les transitions deviennent des demandes après le run ;
+- `name_screen` vers un nom déjà pris (fusion d'écrans) ; `add_screen_locator` qui remplace une valeur existante.
+`tap` / `type_text` sont classés côté serveur même hors session Discovery : liste rouge et actions sensibles refusées.

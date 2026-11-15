@@ -176,7 +176,8 @@ def frameworks() -> dict:
 
 # État de travail de l'atelier rangé dans le projet de tests (revues, runs, sessions, instantanés…) : propre à chaque poste,
 # à ne pas versionner (.gitignore conseillé). Il ne bloque ni « tirer », ni « basculer », ni la merge request.
-ETAT_ATELIER = ("studio/", "executions/", "results/", "discovery/", "connaissance/", "analyses/", "couverture/", "gouvernance/", "testabilite/")
+ETAT_ATELIER = ("studio/", "executions/", "results/", "discovery/", "connaissance/", "analyses/", "couverture/", "gouvernance/", "testabilite/",
+                "validations/")
 
 
 def _chemins_modifies() -> list[str]:

@@ -82,7 +82,7 @@ qualification 3 runs · Git : commit sur branche non protégée, suites approuv�
 Coverage Intelligence : synchronisation Jira après validation · outbox Xray idempotente · actions device classées
 pendant une session Discovery.
 
-## 8. Écarts de sécurité (§11 du cahier) — phase 0 bis
+## 8. Écarts de sécurité (§11 du cahier) — phase 0 bis (corrigés le 2026-11-15, voir DECISIONS)
 
 | Outil | Constat | Correction proposée (nom et signature conservés) |
 |---|---|---|

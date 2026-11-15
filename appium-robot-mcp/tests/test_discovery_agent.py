@@ -29,7 +29,9 @@ def test_actions_mcp_classees_seulement_en_session(app):
     from atelier.discovery import apprentissage, sessions_discovery as ds
 
     faits = []
-    assert apprentissage.action_mcp("tap", "id=bouton_virement", lambda: faits.append("v")) is None  # hors session : historique
+    with pytest.raises(PermissionError, match="hors session"):  # V2 : action sensible refusée aussi hors session
+        apprentissage.action_mcp("tap", "id=bouton_virement", lambda: faits.append("v"))
+    assert apprentissage.action_mcp("tap", "id=lien_aide", lambda: faits.append("v")) is None  # navigation hors session : permise
     s = ds.creer({"environnement": "recette"})
     ds.demarrer(s["id"])
     with pytest.raises(PermissionError, match="non autorisée"):

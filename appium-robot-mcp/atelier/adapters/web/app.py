@@ -2929,6 +2929,22 @@ async def cerveau_module(module: str):
     return await asyncio.to_thread(_call, plan_test.plan, module)
 
 
+@app.get("/api/demandes")
+def demandes_liste(statut: str = ""):
+    from atelier.domain import demandes
+
+    return _call(demandes.lister, statut)
+
+
+@app.post("/api/demandes/decider")
+async def demandes_decider(req: Request):
+    """Accepter (exécute l'action une seule fois) ou rejeter (motif obligatoire) une action demandée par Cursor."""
+    from atelier.domain import demandes
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, demandes.decider, b.get("id", ""), bool(b.get("accepter")), b.get("commentaire", ""))
+
+
 @app.get("/api/cerveau/a-valider")
 async def cerveau_a_valider():
     """Une seule boîte : propositions Discovery / agent, relations déduites du graphe, Coverage Intelligence."""

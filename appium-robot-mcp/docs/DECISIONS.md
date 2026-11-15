@@ -230,3 +230,22 @@ Une ligne datée par décision d'architecture ou de conception.
 - Abandonnés comme écrans : types et niveaux de tests, risques, données, outils, workflow versions / publication
   (les données restent dans le fichier et apparaissent dans l'export). Anciennes adresses #strategie/… redirigées.
 - Le score de Release Readiness n'est pas modifié : l'état des critères de sortie est affiché à côté, comme alerte.
+
+## 2026-11-15 — V2 phase 0 bis : validation imposée côté serveur pour les outils MCP d'écriture
+- Nouveau mécanisme commun `atelier/domain/demandes.py` : un outil qui écrirait dans Jira / Xray ou modifierait la
+  carte sans retour dépose une **demande** (stockée dans `<projet>/validations/`, idempotente, historisée) ; elle
+  n'est exécutée qu'une fois, à l'acceptation dans Application Intelligence › À valider (droit `valider_action`,
+  rôle relecteur ; rejet justifié). Un échec d'exécution est conservé, jamais rejoué automatiquement.
+- Outils concernés (noms, signatures et descriptions inchangés — contrat de rétrocompatibilité) :
+  `jira_transition`, `qualify_failure`, `import_results_to_xray` (aperçu des statistiques) → demandes ;
+  `run_robot` : les `jira_transition_*` ne sont plus transmises au run, elles deviennent des demandes sur
+  l'exécution Xray du run (la transition « fin si échec » seulement s'il y a eu un échec) ; l'envoi des résultats
+  du run dans Xray est inchangé (but du run, idempotent) ;
+  `name_screen` : nommage direct, **fusion** d'écrans → demande ; `add_screen_locator` : ajout direct,
+  **remplacement** d'une valeur → demande ;
+  `tap` / `type_text` : classés côté serveur même hors session Discovery (liste rouge et actions sensibles refusées,
+  navigation et saisie contrôlée permises).
+- Migration : le comportement est expliqué dans la réponse de chaque outil et dans les règles Cursor
+  (`cursor_rules_*.mdc`, section « Actions soumises à validation ») ; à réinstaller depuis Paramètres › Cursor / Claude.
+- Interface web : les écrans de l'atelier (Execution Center, Failure Analysis…) gardent leurs propres circuits de
+  confirmation ; seule l'entrée MCP est concernée.

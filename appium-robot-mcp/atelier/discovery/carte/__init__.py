@@ -514,6 +514,16 @@ def chemin(depuis: str, vers: str, platform: str, s: str | None = None) -> list[
 
 
 # =========================================================================== édition
+def ecran_nomme(nom: str, sauf: str = "", s: str | None = None) -> dict | None:
+    """Autre écran portant déjà ce nom métier (renommer vers ce nom fusionnerait les deux)."""
+    n = slug(nom)
+    try:
+        exclu = ecran(sauf, s)["id"] if sauf else ""
+    except Exception:  # noqa: BLE001 — écran inconnu : aucun à exclure
+        exclu = ""
+    return next((x for x in ecrans(s) if x.get("nom") == n and x["id"] != exclu), None)
+
+
 def renommer(eid: str, nom: str, module: str | None = None, alias: list | None = None, s: str | None = None) -> dict:
     """Donne un nom métier. Si le nom existe déjà (ex. même écran vu sur iOS), les deux sont fusionnés."""
     nom = slug(nom)

@@ -253,7 +253,7 @@ aucune MR proposée avant 3 passages stables, aucune modification silencieuse.
 
 ## V2 — Workbench piloté par Cursor (cahier : docs/CAHIER_V2.md)
 - [x] Phase 0 — Audit de l'existant : matrice EXISTANT / À AMÉLIORER / À CRÉER, 76 outils MCP classés (docs/V2_AUDIT_PHASE0.md)
-- [ ] Phase 0 bis — Validation côté serveur des outils MCP d'écriture (jira_transition, import_results_to_xray, qualify_failure, transitions de run_robot, fusion d'écrans / remplacement de locator, tap / type_text hors Discovery)
+- [x] Phase 0 bis — Validation côté serveur des outils MCP d'écriture (jira_transition, import_results_to_xray, qualify_failure, transitions de run_robot, fusion d'écrans / remplacement de locator, tap / type_text hors Discovery)
 - [ ] Phase 1 — Parcours de fonctionnalité (web + MCP)
 - [ ] Phase 2 — Cursor Integration (règles structurées, versionnement, export, configuration MCP)
 - [ ] Phase 3 — Coverage avancé (parcours, composants UI, niveaux de couverture)

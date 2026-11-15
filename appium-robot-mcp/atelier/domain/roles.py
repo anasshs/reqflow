@@ -29,7 +29,7 @@ DROITS = {  # droit -> rôle minimal
     "construire": "automaticien", "corriger_locator": "automaticien", "factoriser_keyword": "automaticien",
     "importer_donnees": "automaticien", "preparer_donnees": "automaticien", "soumettre_revue": "automaticien",
     "commit_local": "automaticien", "executer_etape": "automaticien",
-    "decider_revue": "relecteur", "publier": "relecteur", "merge_request": "relecteur",
+    "decider_revue": "relecteur", "publier": "relecteur", "merge_request": "relecteur", "valider_action": "relecteur",
     "gerer_roles": "responsable",
 }
 LIBELLES_DROITS = {
@@ -37,7 +37,8 @@ LIBELLES_DROITS = {
     "importer_donnees": "importer des données de test", "preparer_donnees": "appeler une API de préparation de données",
     "soumettre_revue": "soumettre un script en revue", "commit_local": "faire un commit local", "executer_etape": "exécuter une étape isolée",
     "decider_revue": "approuver, refuser ou demander des modifications", "publier": "publier un script",
-    "merge_request": "créer une merge request", "gerer_roles": "gérer les rôles",
+    "merge_request": "créer une merge request", "valider_action": "accepter une action demandée par Cursor (Jira, Xray, carte)",
+    "gerer_roles": "gérer les rôles",
 }
 
 

@@ -80,6 +80,21 @@ def generate_locators_resource(screen_name: str, output_dir: str = "resources/lo
             "manquants_ios": [k for k in all_keys if k not in data["ios"]] if mobile else []}
 
 
+def plateforme(platform: str = "") -> str:
+    p = (platform or session.etat["platform"] or "").lower()
+    if p not in ("android", "ios", "web"):
+        raise ValueError("Plateforme inconnue : ouvre une session ou précise platform.")
+    return p
+
+
+def locator_capture(screen_name: str, key: str, platform: str = "") -> str | None:
+    """Valeur capturée actuelle d'une clé (None si absente) : sert à distinguer ajout et remplacement."""
+    path = projet.SNAP_DIR / f"{projet.slug(screen_name)}_{plateforme(platform)}.json"
+    if not path.exists():
+        return None
+    return (json.loads(path.read_text("utf-8")).get("locators") or {}).get(key)
+
+
 def add_screen_locator(screen_name: str, key: str, locator: str, platform: str = "") -> dict:
     """Ajoute ou remplace une clé dans les locators capturés d'un écran (plateforme de la session
     par défaut). Sert à corriger un locator sans tout recapturer."""
