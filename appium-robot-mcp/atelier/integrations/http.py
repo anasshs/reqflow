@@ -28,4 +28,10 @@ def variable_secrete(nom: str) -> str:
     (cause fréquente d'un 401 : Read-Host ou un .env qui conserve les guillemets)."""
     import os
 
-    return (os.environ.get(nom) or "").strip().strip('"').strip("'").strip()
+    try:  # coffre du système d'abord (variable propre du projet actif comprise), puis l'environnement
+        from atelier.domain import projets
+
+        v = projets.valeur_secret(nom)
+    except Exception:  # noqa: BLE001 - coffre ou liste des projets illisible : environnement seul
+        v = os.environ.get(nom)
+    return (v or "").strip().strip('"').strip("'").strip()

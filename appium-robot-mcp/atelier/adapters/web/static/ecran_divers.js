@@ -293,14 +293,18 @@
         <div class="champ"><label for="cg-xu">URL Xray (si région particulière)</label><input class="in" id="cg-xu" value="${esc(cx.general.xray_url)}" placeholder="https://xray.cloud.getxray.app/api/v2"></div></div>
       <div class="btns"><button class="btn" id="cg-ok">${ico("disque")}Enregistrer les connexions générales</button></div>
       <h3 class="lib" style="margin-top:18px">SECRETS (JETONS, IDENTIFIANTS)</h3>
-      <p class="lib">${cx.coffre.disponible ? `Mémorisés dans le <b>coffre du système</b> (${esc(cx.coffre.systeme)} : Gestionnaire d'identifiants Windows sur un poste Windows), chiffré par le système et rechargé au démarrage.`
-        : "Coffre du système indisponible : gardés <b>en mémoire</b> jusqu'à l'arrêt du serveur."} Jamais écrits dans un fichier de l'atelier, jamais journalisés, jamais réaffichés.
-        Une variable d'environnement du poste reste prioritaire.</p>
-      ${cx.coffre.disponible ? `<label class="lib"><input type="checkbox" id="sec-mem" checked> Mémoriser dans le coffre (sinon : session seulement)</label>` : ""}
-      <table><tr><th>Variable</th><th>Utilisée par</th><th>État</th><th>Saisir pour cette session</th></tr>${cx.secrets.map(s => `<tr><td class="mono">${esc(s.nom)}</td><td class="lib">${esc(s.usages.join(", "))}</td>
-        <td>${s.present ? '<span class="pill ok">présente</span>' : '<span class="pill warn">absente</span>'}${s.dans_le_coffre ? ' <span class="pill info">coffre</span>' : s.saisi_dans_l_app ? ' <span class="pill">session</span>' : s.environnement_poste ? ' <span class="pill">variable du poste</span>' : ""}</td>
+      <p class="lib">${cx.coffre.disponible ? `Source unique : le <b>coffre du système</b> (${esc(cx.coffre.systeme)} : Gestionnaire d'identifiants Windows sur un poste Windows), chiffré par le système.
+        Toute l'application l'utilise : interface, Cursor / Claude (MCP), ligne de commande, runs Robot ; un secret saisi ici est pris en compte sans redémarrage.
+        Le coffre prime sur une variable d'environnement du poste, qui ne sert que de repli : la verser dans le coffre avec « Verser dans le coffre ».`
+        : `<span class="warn-t">Coffre du système indisponible</span> : secrets gardés <b>en mémoire</b> jusqu'à l'arrêt du serveur (installer « keyring », ou retirer ATELIER_COFFRE=non).`}
+        Jamais écrits dans un fichier de l'atelier, jamais journalisés, jamais réaffichés.</p>
+      <table><tr><th>Variable</th><th>Utilisée par</th><th>Source</th><th>${cx.coffre.disponible ? "Enregistrer dans le coffre" : "Saisir pour cette session"}</th></tr>${cx.secrets.map(s => `<tr><td class="mono">${esc(s.nom)}</td><td class="lib">${esc(s.usages.join(", "))}</td>
+        <td>${{coffre: '<span class="pill ok">coffre</span>', poste: '<span class="pill warn">variable du poste</span>', session: '<span class="pill warn">session</span>', absent: '<span class="pill">absente</span>'}[s.source]}
+          ${s.source === "coffre" && s.environnement_poste ? '<div class="lib" style="font-size:11px">variable du poste ignorée (le coffre prime)</div>' : ""}</td>
         <td class="btns"><input class="in" type="password" autocomplete="new-password" data-sec="${esc(s.nom)}" placeholder="valeur" style="width:220px">
-          <button class="btn petit" data-sec-ok="${esc(s.nom)}">Enregistrer</button>${s.saisi_dans_l_app || s.dans_le_coffre ? `<button class="btn petit danger" data-sec-x="${esc(s.nom)}">Effacer</button>` : ""}</td></tr>`).join("")}</table>` : ""}`;
+          <button class="btn petit" data-sec-ok="${esc(s.nom)}">Enregistrer</button>
+          ${s.source === "poste" && cx.coffre.disponible ? `<button class="btn petit primaire" data-sec-verser="${esc(s.nom)}">Verser dans le coffre</button>` : ""}
+          ${s.saisi_dans_l_app || s.dans_le_coffre ? `<button class="btn petit danger" data-sec-x="${esc(s.nom)}">Effacer</button>` : ""}</td></tr>`).join("")}</table>` : ""}`;
     $("#p-rafr").onclick = () => connexions(z, true);
     etatConnexions(z, rafraichir);
     if ($("#cg-ok")) $("#cg-ok").onclick = async () => {
@@ -309,8 +313,12 @@
     };
     $$("[data-sec-ok]", z).forEach(b => b.onclick = async () => {
       const champ = $(`[data-sec="${b.dataset.secOk}"]`, z);
-      try { const r = await api("/api/connexions/secret", {method: "POST", body: {nom: b.dataset.secOk, valeur: champ.value, memoriser: $("#sec-mem") ? $("#sec-mem").checked : false}}); champ.value = "";
+      try { const r = await api("/api/connexions/secret", {method: "POST", body: {nom: b.dataset.secOk, valeur: champ.value}}); champ.value = "";
         toast(`${b.dataset.secOk} ${r.mode === "coffre" ? "mémorisée dans le coffre du système" : "enregistrée pour cette session"}.`, "ok"); await Atelier.chargerContexte(); connexions(z, true); } catch (e) { champ.value = ""; toast(e.message, "ko"); }
+    });
+    $$("[data-sec-verser]", z).forEach(b => b.onclick = async () => {
+      try { await api("/api/connexions/secret/verser", {method: "POST", body: {nom: b.dataset.secVerser}}); toast(`${b.dataset.secVerser} versée dans le coffre.`, "ok"); await Atelier.chargerContexte(); connexions(z, true); }
+      catch (e) { toast(e.message, "ko"); }
     });
     $$("[data-sec-x]", z).forEach(b => b.onclick = async () => {
       if (!confirm(`Effacer ${b.dataset.secX} de la session et du coffre du système ?`)) return;

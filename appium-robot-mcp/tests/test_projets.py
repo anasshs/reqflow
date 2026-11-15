@@ -180,9 +180,10 @@ def test_coffre_du_systeme(env, monkeypatch):
         assert projets.charger_coffre() == ["XRAY_CLIENT_SECRET_TAM"]
         projets.au_demarrage()
         assert os.environ["XRAY_CLIENT_SECRET"] == "secret-coffre-1"
-        # session seulement : rien dans le coffre
+        # le coffre est la source unique : même sans « mémoriser », un secret saisi va au coffre quand il est disponible
         projets.saisir_secret("JIRA_API_TOKEN", "jeton-session", memoriser=False)
-        assert (coffre.SERVICE, "JIRA_API_TOKEN") not in faux.k.valeurs
+        assert faux.k.valeurs[(coffre.SERVICE, "JIRA_API_TOKEN")] == "jeton-session"
+        projets.effacer_secret("JIRA_API_TOKEN")
         projets.effacer_secret("XRAY_CLIENT_SECRET_TAM")
         assert (coffre.SERVICE, "XRAY_CLIENT_SECRET_TAM") not in faux.k.valeurs and "XRAY_CLIENT_SECRET_TAM" not in os.environ
         monkeypatch.setenv("ATELIER_COFFRE", "non")

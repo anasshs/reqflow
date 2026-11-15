@@ -22,6 +22,7 @@ from atelier.domain import coffre, projet
 # variables de connexion pilotées par le projet actif ; leurs valeurs de démarrage servent de défaut
 VARIABLES = ("JIRA_BASE_URL", "JIRA_EMAIL", "XRAY_BASE_URL", "GITLAB_URL", "GITLAB_PROJET")
 SECRETS = ("XRAY_CLIENT_ID", "XRAY_CLIENT_SECRET", "JIRA_API_TOKEN", "GITLAB_TOKEN")
+SECRETS_OUTILS = ("ANTHROPIC_API_KEY", "IA_INTERNE_JETON")  # clés des fournisseurs d'IA, gérées par le coffre aussi
 _ORIGINE = {v: os.environ.get(v) for v in VARIABLES + SECRETS + ("ROBOT_PROJECT_DIR",)}
 _ORIGINE_ENV = dict(_ORIGINE)  # valeurs réellement fournies par l'environnement au démarrage
 NOM_VARIABLE = re.compile(r"^[A-Z_][A-Z0-9_]{1,80}$")
@@ -247,15 +248,22 @@ def connexions() -> dict:
     présence : aucune valeur de secret n'est jamais renvoyée."""
     g = _charger().get("general") or {}
     attendus: dict[str, list[str]] = {n: ["général"] for n in SECRETS}
+    attendus.update({n: ["IA"] for n in SECRETS_OUTILS})
     for p in _charger()["projets"]:
         for cible, src in (p.get("secrets") or {}).items():
             attendus.setdefault(src, []).append(f"{p['nom']} ({cible})")
     return {"general": {k: g.get(k, "") for k in GENERAUX},
             "general_effectif": {k: os.environ.get(v, "") for k, v in GENERAUX.items()},
             "coffre": {"disponible": coffre.disponible(), "systeme": coffre.nom_backend()},
-            "secrets": [{"nom": n, "usages": u, "present": bool(os.environ.get(n)), "saisi_dans_l_app": n in _SAISIS,
-                         "dans_le_coffre": coffre.present(n), "environnement_poste": bool(_ORIGINE_ENV.get(n) or n in _ENV_POSTE)}
-                        for n, u in sorted(attendus.items())]}
+            "secrets": [_etat_secret(n, u) for n, u in sorted(attendus.items())]}
+
+
+def _etat_secret(n: str, usages: list[str]) -> dict:
+    dans_coffre = coffre.present(n)
+    poste = bool(_POSTE.get(n))
+    source = "coffre" if dans_coffre else "poste" if poste else "session" if n in _SAISIS and os.environ.get(n) else "absent"
+    return {"nom": n, "usages": usages, "present": source != "absent", "source": source, "saisi_dans_l_app": n in _SAISIS,
+            "dans_le_coffre": dans_coffre, "environnement_poste": poste}
 
 
 def enregistrer_general(g: dict) -> dict:
@@ -279,24 +287,53 @@ def enregistrer_general(g: dict) -> dict:
 
 
 _ENV_POSTE = {k for k in os.environ if k.startswith(("XRAY_", "JIRA_", "GITLAB_"))}  # posées hors de l'atelier au démarrage
+_POSTE = {k: v for k, v in os.environ.items() if k.startswith(("XRAY_", "JIRA_", "GITLAB_", "ANTHROPIC_", "IA_INTERNE_"))}
+
+
+def _noms_secrets() -> list[str]:
+    noms = set(SECRETS) | set(SECRETS_OUTILS)
+    for p in _charger()["projets"]:
+        noms |= {src for src in (p.get("secrets") or {}).values() if src}
+    return sorted(noms)
 
 
 def charger_coffre() -> list[str]:
-    """Charge depuis le coffre du système les secrets attendus absents de l'environnement (l'environnement du poste
-    reste prioritaire). Renvoie les noms chargés, jamais les valeurs."""
+    """Charge les secrets du coffre dans l'environnement du processus (le coffre prime sur une variable du poste ;
+    les runs Robot et autres sous-processus en héritent). Renvoie les noms chargés, jamais les valeurs."""
     charges = []
-    for s in connexions()["secrets"]:
-        n = s["nom"]
-        if os.environ.get(n) and (n in _ENV_POSTE or _ORIGINE_ENV.get(n)):
-            continue
+    for n in _noms_secrets():
         v = coffre.lire(n)
-        if v:
+        if v and os.environ.get(n) != v:
             os.environ[n] = v
             if n in SECRETS:
                 _ORIGINE[n] = v
             _SAISIS.add(n)
             charges.append(n)
+    if charges:
+        _reappliquer()
     return charges
+
+
+def valeur_secret(nom: str) -> str:
+    """Valeur d'un secret au moment de l'appel, dans n'importe quel processus (interface, MCP, ligne de commande,
+    listener d'un run Robot) : variable propre du projet actif s'il en déclare une (ex. XRAY_CLIENT_ID_TAM), lue
+    d'abord dans le coffre, puis dans l'environnement (variable du poste, saisie de session)."""
+    p = actif()
+    n = ((p or {}).get("secrets") or {}).get(nom) or nom
+    return coffre.lire(n) or os.environ.get(n) or (os.environ.get(nom, "") if n != nom else "")
+
+
+def verser_dans_coffre(nom: str) -> dict:
+    """Verse dans le coffre la valeur d'un secret présent seulement comme variable du poste (la valeur ne transite
+    que du processus vers le coffre : jamais affichée ni journalisée)."""
+    if nom not in _noms_secrets():
+        raise ValueError(f"{nom} : variable non attendue.")
+    v = os.environ.get(nom) or _POSTE.get(nom)
+    if not v:
+        raise ValueError(f"{nom} : aucune valeur sur le poste à verser.")
+    coffre.ecrire(nom, v.strip().strip('"').strip("'").strip())
+    _tracer("secret_verse_au_coffre", vers=nom)
+    return connexions()
 
 
 def saisir_secret(nom: str, valeur: str, memoriser: bool = True) -> dict:
@@ -310,7 +347,7 @@ def saisir_secret(nom: str, valeur: str, memoriser: bool = True) -> dict:
     if not valeur:
         raise ValueError("Valeur vide.")
     mode = "session"
-    if memoriser and coffre.disponible():
+    if coffre.disponible():  # le coffre est la source des secrets : toujours mémorisé quand il est disponible
         coffre.ecrire(nom, valeur)
         mode = "coffre"
     os.environ[nom] = valeur

@@ -20,14 +20,22 @@ from atelier.integrations import interface_web
 mcp = FastMCP("appium-robot")
 
 
+_coffre_lu = {"t": 0.0}
+
+
 def _suivre_projet(fn):
-    """Avant chaque outil : projet actif de l'atelier (même signature et description que l'outil)."""
+    """Avant chaque outil : projet actif de l'atelier et secrets du coffre (même signature et description que l'outil)."""
     @functools.wraps(fn)
     def outil(*a, **k):
         try:
+            import time
+
             from atelier.domain import projets
 
             projets.suivre_actif()
+            if time.time() - _coffre_lu["t"] > 10:
+                _coffre_lu["t"] = time.time()
+                projets.charger_coffre()
         except Exception:  # noqa: BLE001 - le suivi du projet ne fait jamais échouer un outil
             pass
         return fn(*a, **k)

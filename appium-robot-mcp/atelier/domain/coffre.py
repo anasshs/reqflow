@@ -2,7 +2,8 @@
 via la bibliothèque « keyring ». Décision de l'utilisateur du 2026-11-14 (docs/DECISIONS.md).
 
 Règles : le coffre est chiffré et géré par le système, jamais un fichier de l'atelier ; aucune valeur n'est journalisée
-ni renvoyée par l'API ; une variable d'environnement définie au démarrage reste prioritaire sur le coffre.
+ni renvoyée par l'API. Le coffre est la source des secrets (décision du 2026-11-15) : il prime sur une variable
+d'environnement du poste, qui ne sert que de repli (et peut être versée dans le coffre depuis Paramètres › Connexions).
 Coffre indisponible (pas de backend système) ou ATELIER_COFFRE=non : la saisie reste en mémoire de session.
 """
 from __future__ import annotations

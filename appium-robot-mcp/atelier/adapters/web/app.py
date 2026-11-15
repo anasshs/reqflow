@@ -163,6 +163,14 @@ async def connexions_general(req: Request):
     return r
 
 
+@app.post("/api/connexions/secret/verser")
+async def connexions_secret_verser(req: Request):
+    """Verse dans le coffre un secret présent seulement comme variable du poste (valeur jamais renvoyée)."""
+    r = _call(projets.verser_dans_coffre, str((await req.json()).get("nom", "")))
+    state["sante_cache"].clear()
+    return r
+
+
 @app.post("/api/connexions/secret")
 async def connexions_secret(req: Request):
     """Secret saisi dans l'interface : mémoire du serveur local uniquement (ni disque, ni log, jamais renvoyé)."""

@@ -108,3 +108,14 @@ Une ligne datée par décision d'architecture ou de conception.
 - Les applications vivent dans le repository du projet (`app_map/`) : un projet Xray peut en contenir plusieurs.
   Chaque application porte `projet_xray` (défaut : projet actif) et `tests_xray` (composant ou libellé Jira qui
   identifie ses tests dans ce projet ; vide = tout le projet).
+
+## 2026-11-15 — Le coffre est la source unique des secrets — décision de l'utilisateur
+- Tous les processus lisent les secrets dans le coffre du système au moment de l'appel : interface web, MCP (Cursor /
+  Claude, relu avant les outils sans redémarrage), ligne de commande, listener des runs Robot (sous-processus).
+- Le coffre prime sur une variable d'environnement du poste, qui ne sert que de repli ; « Verser dans le coffre »
+  (Paramètres › Connexions) y copie une variable du poste sans jamais afficher sa valeur.
+- Un secret saisi dans l'atelier va toujours au coffre quand il est disponible (plus de « session seulement ») ;
+  coffre indisponible : mémoire de session, signalé.
+- Variables propres d'un projet (ex. XRAY_CLIENT_ID_TAM) : lues dans le coffre elles aussi, sans repli silencieux sur
+  le compte général. Clés IA (ANTHROPIC_API_KEY, IA_INTERNE_JETON) gérées de la même façon.
+
