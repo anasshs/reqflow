@@ -243,10 +243,10 @@
       ${d.projets.length ? `<table><tr><th>Projet</th><th>Repository</th><th>Xray / Jira</th><th>Secrets</th><th></th></tr>${d.projets.map(p => `<tr><td><b>${esc(p.nom)}</b>${p.id === d.actif ? ' <span class="pill ok">actif</span>' : ""}</td>
         <td class="mono" style="font-size:11px">${esc(p.dossier)}${p.dossier_existe ? "" : ' <span class="pill ko">introuvable</span>'}</td><td>${esc(p.xray_projet || "—")}${p.jira_url ? ` · <span class="lib">${esc(p.jira_url)}</span>` : ""}</td>
         <td>${Object.entries(p.secrets_presents).map(([k, ok]) => `<span class="pill ${ok ? "ok" : "warn"}" title="${esc(p.secrets[k])}">${esc(k.replace("XRAY_", "").replace("JIRA_", "Jira "))}</span>`).join(" ") || "<span class='lib'>globaux</span>"}</td>
-        <td class="btns">${p.id === d.actif ? "" : `<button class="btn petit primaire" data-act="${esc(p.id)}">Activer</button>`}<button class="btn petit" data-mod="${esc(p.id)}">Modifier</button>
+        <td class="btns">${p.id === d.actif ? "" : `<button class="btn petit primaire" data-act="${esc(p.id)}">Activer</button>`}<button class="btn petit" data-mod="${esc(p.id)}">Modifier</button><button class="btn petit" data-dup="${esc(p.id)}">Dupliquer</button>
           ${p.id === d.actif ? "" : `<button class="btn petit danger" data-sup="${esc(p.id)}">Retirer</button>`}</td></tr>`).join("")}</table>`
         : vide("Aucun projet déclaré", `Projet courant : ${Atelier.ctx.projet_chemin || ""} (variable ROBOT_PROJECT_DIR).`)}
-      <h3 class="lib" style="margin-top:16px">${edition ? "MODIFIER LE PROJET" : "AJOUTER UN PROJET"}</h3>${form(edition || (d.projets.length ? null : {dossier: Atelier.ctx.projet_chemin, nom: Atelier.ctx.projet}))}
+      <h3 class="lib" style="margin-top:16px">${edition?.id ? "MODIFIER LE PROJET" : edition?.duplique ? `DUPLIQUER « ${esc(edition.duplique)} » (choisir le nom et le dossier du nouveau repository)` : "AJOUTER UN PROJET"}</h3>${form(edition || (d.projets.length ? null : {dossier: Atelier.ctx.projet_chemin, nom: Atelier.ctx.projet}))}
       ${d.journal.length ? `<h3 class="lib" style="margin-top:16px">JOURNAL</h3><table class="table-strat"><tr><th>Date</th><th>Auteur</th><th>Opération</th><th>De</th><th>Vers</th></tr>${d.journal.map(j => `<tr><td class="mono">${esc(j.date.replace("T", " ").slice(0, 16))}</td><td>${esc(j.auteur)}</td><td>${esc(j.op)}</td><td>${esc(j.de || "")}</td><td>${esc(j.vers || "")}</td></tr>`).join("")}</table>` : ""}`;
     $("#pj-ok").onclick = async () => {
       const b = {id: edition?.id || "", nom: $("#pj-nom").value, dossier: $("#pj-dos").value, xray_projet: $("#pj-xr").value, jira_projet: $("#pj-jp").value,
@@ -257,6 +257,8 @@
     };
     $("#pj-an").onclick = () => projets(z);
     $$("[data-mod]", z).forEach(b => b.onclick = () => projets(z, d.projets.find(p => p.id === b.dataset.mod)));
+    $$("[data-dup]", z).forEach(b => b.onclick = () => { const p = d.projets.find(x => x.id === b.dataset.dup);
+      projets(z, {...p, id: "", nom: `${p.nom} (copie)`, dossier: "", duplique: p.nom}); setTimeout(() => $("#pj-dos")?.focus(), 50); });
     $$("[data-act]", z).forEach(b => b.onclick = async () => {
       try { await api("/api/projets/activer", {method: "POST", body: {id: b.dataset.act}}); toast("Projet activé.", "ok"); await Atelier.chargerContexte(); projets(z); } catch (e) { toast(e.message, "ko"); } });
     $$("[data-sup]", z).forEach(b => b.onclick = async () => {
@@ -338,7 +340,7 @@
         <td>${a.projet_xray ? esc(a.projet_xray) : '<span class="pill warn">non rattachée</span>'}</td>
         <td class="lib">${a.tests_xray?.dossiers?.length ? `dossier(s) ${esc(a.tests_xray.dossiers.join(", "))}` : esc((a.tests_xray?.valeurs || [a.tests_xray?.composant, a.tests_xray?.libelle].filter(Boolean)).join(", ")) || "tout le projet"}</td>
         <td>${esc(a.build || "—")}</td><td>${a.nb_ecrans}</td>
-        <td class="btns"><button class="btn petit" data-mod="${esc(a.slug)}">Modifier</button><button class="btn petit danger" data-arch="${esc(a.slug)}">Supprimer</button>${a.slug === d.active ? '<span class="pill ok">active</span>' : `<button class="btn petit" data-app="${esc(a.slug)}">Activer</button>`}</td></tr>`).join("")}</table>`
+        <td class="btns"><button class="btn petit" data-mod="${esc(a.slug)}">Modifier</button><button class="btn petit" data-dupa="${esc(a.slug)}">Dupliquer</button><button class="btn petit danger" data-arch="${esc(a.slug)}">Supprimer</button>${a.slug === d.active ? '<span class="pill ok">active</span>' : `<button class="btn petit" data-app="${esc(a.slug)}">Activer</button>`}</td></tr>`).join("")}</table>`
       : vide("Aucune application", "« Nouvelle application » : identité, prérequis, liste rouge, import des locators, cartographie.")}`;
     $$("[data-app]", z).forEach(b => b.onclick = async () => { await api("/api/apps/choisir", {method: "POST", body: {slug: b.dataset.app}}); await Atelier.chargerContexte(); applications(z); });
     $$("[data-arch]", z).forEach(b => b.onclick = async () => {
@@ -352,6 +354,18 @@
     $$("[data-rest]", z).forEach(b => b.onclick = async () => { try { await api("/api/apps/restaurer", {method: "POST", body: {archive: b.dataset.rest}}); toast("Application restaurée.", "ok"); applications(z); } catch (e) { toast(e.message, "ko"); } });
     $("#ap-new").onclick = () => assistantApp(z, null);
     $$("[data-mod]", z).forEach(b => b.onclick = async () => { await api("/api/apps/choisir", {method: "POST", body: {slug: b.dataset.mod}}); assistantApp(z, d.applications.find(a => a.slug === b.dataset.mod)); });
+    $$("[data-dupa]", z).forEach(b => b.onclick = () => {
+      const a = d.applications.find(x => x.slug === b.dataset.dupa);
+      const m = modale(`Dupliquer « ${a.nom} »`, `<div class="champ"><label for="du-nom">Nom de la nouvelle application</label><input class="in" id="du-nom" value="${esc(a.nom)} (copie)"></div>
+        <label class="lib"><input type="checkbox" id="du-carte"> Copier aussi la carte (écrans, transitions, locators)</label>
+        <p class="lib">Copiés : type, plateformes, package / bundle / URL, liste rouge, classement des actions, projet Xray et source des tests. Jamais les comptes de test.</p>`,
+        `<button class="btn primaire" id="du-ok">Dupliquer</button>`);
+      $("#du-ok", m.el).onclick = async () => {
+        try { const r = await api("/api/apps/dupliquer", {method: "POST", body: {slug: a.slug, nom: $("#du-nom", m.el).value, avec_carte: $("#du-carte", m.el).checked}});
+          m.fermer(); toast(`Application « ${r.nom} » créée : à ajuster (Modifier).`, "ok"); await Atelier.chargerContexte(); applications(z); }
+        catch (e) { toast(e.message, "ko"); }
+      };
+    });
   }
 
   /* Assistant « Nouvelle application » (repris de l'interface classique) : 1 identité et rattachement Xray,

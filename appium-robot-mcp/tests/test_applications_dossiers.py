@@ -45,3 +45,20 @@ def test_dossiers_prioritaires_et_fusion(projet_xray):
     assert tx == {"dossiers": ["/Mobile"], "valeurs": ["App Mobile"]}
     assert carte.normaliser_tests_xray({"dossiers": [], "valeurs": []}) == {}
     assert carte.normaliser_tests_xray({"composant": "Mobile"}) == {"composant": "Mobile"}
+
+
+def test_dupliquer_application(projet_xray):
+    carte, _ = projet_xray
+    a = carte.creer_app("Banque Mobile", ["android"], android={"app_package": "fr.exemple.banque"}, tests_xray={"dossiers": ["/Mobile"]},
+                        comptes=["client_recette"])
+    carte.maj_app(a["slug"], classement={"sensibles": ["virement"], "cles": {}, "environnements": {"recette": ["safe"]}})
+    carte.observer([{"key": "lien_comptes", "type": "lien", "libelle": "Comptes", "locators": ["id=comptes"]}], "android", "accueil")
+    b = carte.dupliquer_app(a["slug"], "Banque Mobile iOS")
+    cfg = carte.config_app(b["slug"])
+    assert cfg["android"]["app_package"] == "fr.exemple.banque" and cfg["tests_xray"] == {"dossiers": ["/Mobile"]}
+    assert cfg["classement"]["environnements"] == {"recette": ["safe"]} and cfg["comptes"] == [] and cfg["duplique_de"] == a["slug"]
+    assert carte.ecrans(b["slug"]) == []  # carte vide par défaut
+    c = carte.dupliquer_app(a["slug"], "Banque Mobile bis", avec_carte=True)
+    assert len(carte.ecrans(c["slug"])) == 1
+    with pytest.raises(FileExistsError):
+        carte.dupliquer_app(a["slug"], "Banque Mobile iOS")

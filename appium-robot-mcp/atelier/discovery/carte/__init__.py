@@ -122,6 +122,33 @@ def apps() -> list[dict]:
     return out
 
 
+def dupliquer_app(source: str, nom: str, avec_carte: bool = False) -> dict:
+    """Nouvelle application à partir d'une autre : configuration complète (type, plateformes, packages / URL, liste
+    rouge, classement des actions, rattachement Xray…) ; avec_carte : écrans et transitions copiés aussi (sinon la
+    carte part vide). Les comptes de test ne sont jamais copiés."""
+    import shutil
+
+    d = _racine() / source
+    if not source or "/" in source or source.startswith(".") or not (d / "app.yaml").exists():
+        raise KeyError(f"Application « {source} » inconnue.")
+    nom = (nom or "").strip()
+    if not nom:
+        raise ValueError("Nom de la nouvelle application obligatoire.")
+    s = slug(nom)
+    cible = _racine() / s
+    if cible.exists():
+        raise FileExistsError(f"L'application « {nom} » existe déjà.")
+    if avec_carte:
+        shutil.copytree(d, cible, ignore=shutil.ignore_patterns("comptes*", ".app_courante"))
+    else:
+        cible.mkdir(parents=True)
+    cfg = _load(d / "app.yaml", {})
+    cfg.update(nom=nom, cree=_now(), comptes=[], ecran_depart=cfg.get("ecran_depart", "") if avec_carte else "", etape_assistant=1,
+               duplique_de=source)
+    _dump(cible / "app.yaml", cfg)
+    return {**cfg, "slug": s}
+
+
 def archiver_app(s: str) -> dict:
     """« Suppression » d'une application : son dossier local (carte, écrans, comptes, liste rouge) est déplacé dans
     app_map/.archives/<slug>-<date>, restaurable. Rien n'est supprimé dans Xray ni Jira, ni dans le dépôt de tests."""

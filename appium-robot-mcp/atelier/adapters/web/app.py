@@ -63,7 +63,7 @@ CONFIG_PATH = Path(os.environ.get("ATELIER_CONFIG", Path.home() / ".atelier-auto
 CONFIG_DEFAUT = {
     "apps": {"android": {}, "ios": {}, "web": {"browser": "chromium", "headless": True}},
     "prereglages": {},
-    "jql_candidats": os.environ.get("XRAY_CANDIDATS_JQL", "project = TAM AND labels = candidat_auto ORDER BY key"),
+    "jql_candidats": os.environ.get("XRAY_CANDIDATS_JQL", ""),  # vide : tests du projet Xray actif (aucune clé client en dur)
     "statut_sous_tache_fini": "Terminé",
 }
 
@@ -656,7 +656,10 @@ def agent_reset():
 # --------------------------------------------------------------------------- Xray, Jira
 @app.get("/api/xray/tests")
 async def xray_tests(jql: str = ""):
-    return await asyncio.to_thread(_call, outils.xray_search_tests, jql or config()["jql_candidats"], 80)
+    jql = jql or config()["jql_candidats"] or (f'project = "{projets.cle_xray()}" ORDER BY key' if projets.cle_xray() else "")
+    if not jql:
+        raise HTTPException(400, "Aucune JQL de tests : déclarer la clé Xray du projet (Paramètres › Projets).")
+    return await asyncio.to_thread(_call, outils.xray_search_tests, jql, 80)
 
 
 @app.get("/api/xray/test/{key}")
@@ -793,6 +796,14 @@ def conception_repository():
         {"slug": a["slug"], "nom": a.get("nom", a["slug"]), "type": a.get("type", ""), "plateformes": a.get("plateformes", []),
          "dossiers": (a.get("tests_xray") or {}).get("dossiers", []), "valeurs": (a.get("tests_xray") or {}).get("valeurs", [])}
         for a in amap.apps()], "active": amap.app_courante()}
+
+
+@app.post("/api/apps/dupliquer")
+async def apps_dupliquer(req: Request):
+    b = await req.json()
+    r = _call(amap.dupliquer_app, b.get("slug", ""), b.get("nom", ""), bool(b.get("avec_carte")))
+    emit({"type": "app_change", "slug": r["slug"]})
+    return r
 
 
 @app.post("/api/apps/archiver")
