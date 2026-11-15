@@ -42,6 +42,22 @@ def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def message_identifiants_absents() -> str:
+    """Où saisir les identifiants Xray, en nommant les variables propres du projet actif s'il en déclare."""
+    propres = {}
+    try:
+        from atelier.domain import projets
+
+        propres = {k: v for k, v in ((projets.actif() or {}).get("secrets") or {}).items() if k.startswith("XRAY_") and v}
+    except Exception:  # noqa: BLE001
+        pass
+    if propres:
+        return (f"Xray : identifiants absents pour le projet actif, qui utilise ses propres variables "
+                f"{' et '.join(propres.values())} : les saisir dans Paramètres › Connexions (coffre) ou les définir sur le poste.")
+    return ("Xray : Client ID / Client Secret absents : les saisir dans Paramètres › Connexions (coffre du système) "
+            "ou définir XRAY_CLIENT_ID et XRAY_CLIENT_SECRET sur le poste.")
+
+
 # =========================================================================== Xray
 class XrayClient:
     def __init__(self):
@@ -50,7 +66,7 @@ class XrayClient:
         self.cid = variable_secrete("XRAY_CLIENT_ID")
         self.secret = variable_secrete("XRAY_CLIENT_SECRET")
         if not (self.cid and self.secret):
-            raise RuntimeError("XRAY_CLIENT_ID / XRAY_CLIENT_SECRET non configurés.")
+            raise RuntimeError(message_identifiants_absents())
         self._token = None
 
     def token(self) -> str:
