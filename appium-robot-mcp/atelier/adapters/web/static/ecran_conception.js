@@ -2,10 +2,18 @@
    Données réelles : instantané Xray, scénarios BDD, dépôt Robot, JDD ; métadonnées de conception côté plateforme. */
 "use strict";
 (() => {
-  const MENU = [["vue", "Vue d'ensemble"], ["us", "US à couvrir"], ["exigences", "Exigences & import"], ["cas", "Cas de test (Xray)"], ["bdd", "Scénarios BDD"],
-    ["jdd", "Jeux de données"], ["regles", "Règles de test"], ["suites", "Suites de test"], ["tracabilite", "Traçabilité"],
-    ["reutilisables", "Réutilisables"], ["revue", "Revue & validation"], ["baseline", "Baseline & versioning"],
-    ["mapping", "Xray Mapping & synchronisation"], ["parametres", "Paramètres"]];
+  /* 6 entrées qui suivent le travail du concepteur ; les anciens écrans deviennent des onglets (adresses inchangées) */
+  const GROUPES = [
+    ["vue", "Vue d'ensemble", [["vue", "Vue d'ensemble"]], "Indicateurs de conception, synchronisation Xray, raccourcis"],
+    ["us", "À concevoir", [["us", "À concevoir"]], "US et exigences à couvrir : analyser, proposer des cas, valider, publier dans Xray"],
+    ["cas", "Cas de test", [["cas", "Cas Xray et revue"], ["bdd", "Scénarios BDD ↗"]], "Cas de test Xray, revue interne (Brouillon → Prêt pour l'automatisation) et scénarios BDD"],
+    ["regles", "Règles de test", [["regles", "Règles de test"]], "Règles métier, de validation, de calcul… et leur couverture"],
+    ["suites", "Organisation Xray", [["suites", "Suites, plans et dossiers"], ["baseline", "Baselines et versions"]], "Test Repository Xray (dossiers, Test Plans, Test Sets) et baselines figées"],
+    ["mapping", "Réglages", [["mapping", "Mapping et synchronisation Xray"], ["parametres", "Rangement et conventions"]], "Correspondance des champs et statuts Xray, rangement des tests générés"]];
+  const MENU = GROUPES.flatMap(g => g[2]);
+  const groupeDe = r => GROUPES.find(g => g[2].some(o => o[0] === r)) || GROUPES[0];
+  /* Écrans qui existaient aussi ailleurs : une seule source par sujet */
+  const AILLEURS = {exigences: ["strategie/couverture", "exigences"], tracabilite: ["graphe/couverture"], reutilisables: ["studio/keywords"], jdd: ["studio/donnees"]};
   const PILL_REVUE = {Draft: "", "In Review": "info", "Changes Requested": "warn", Approved: "violet", "Ready for Automation": "ok"};
   const LIB_REVUE = {Draft: "Brouillon", "In Review": "En revue", "Changes Requested": "Modifs demandées", Approved: "Approuvé", "Ready for Automation": "Prêt pour l'automatisation"};
   const EDITEUR = {bdd: "Éditeur BDD (Gherkin)", etapes: "Éditeur d'étapes (Manual)", technique: "Définition technique (Generic)", exploratoire: "Fiche exploratoire", inconnu: "Type non reconnu"};
@@ -14,16 +22,27 @@
   Atelier.enregistrer("conception", {
     async afficher(zone, sous) {
       if (sous === "bdd") { location.hash = "bdd"; return; }
+      if (AILLEURS[sous]) {
+        const [cible, onglet] = AILLEURS[sous];
+        if (onglet) { try { sessionStorage.setItem("ci-onglet", onglet); } catch (e) { /* facultatif */ } }
+        location.hash = cible; return;
+      }
+      if (sous === "revue") { F.revue = F.revue || "In Review"; sous = "cas"; }  // la revue interne se fait dans Cas de test
       R = MENU.some(m => m[0] === sous) ? sous : "vue";
-      SEL = null;
+      const G = groupeDe(R);
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques Test Design"><div class="titre-carte">TEST DESIGN</div>
-        <ol class="liste-strat">${MENU.map(([id, lib], i) => `<li><button data-r="${id}" ${id === R ? 'aria-current="page"' : ""}><span class="num">${i + 1}</span><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
-        <div class="pied-strat lib">Xray reste le référentiel officiel ; la plateforme garde revues, baselines et mapping.</div></nav>
-        <section class="carte corps-strat"><div class="corps-carte">${vide("Chargement…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
+        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
+        <div class="pied-strat lib">Xray reste le référentiel officiel ; la plateforme garde revues, baselines et mapping.
+          <br><a href="#strategie/couverture" title="Exigences, couverture et tests manquants : Test Strategy › Couverture">Couverture</a> · <a href="#graphe/couverture" title="Traçabilité exigence → test → script → exécution">Traçabilité</a> · <a href="#studio/donnees" title="Jeux de données (Automation Studio › Socle)">Données de test</a></div></nav>
+        <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}</button>`).join("")}</div>` : ""}
+          <div id="td-contenu"><div class="corps-carte">${vide("Chargement…")}</div></div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "conception/" + b.dataset.r; });
-      const z = $(".corps-strat");
-      try { await ({vue, us, exigences, cas, jdd, regles, suites, tracabilite, reutilisables, revue, baseline, mapping, parametres}[R])(z); }
+      $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = "conception/" + b.dataset.onglet; });
+      const z = $("#td-contenu");
+      const sel = SEL;
+      SEL = null;
+      try { await ({vue, us, cas, regles, suites, baseline, mapping, parametres}[R])(z); if (R === "cas" && sel) panneauRevue(sel); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
   });
@@ -74,7 +93,7 @@
     const v = await api("/api/conception/vue"), k = v.kpi;
     const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
     z.innerHTML = `${entete("Vue d'ensemble", `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Importer le repository Xray</a><button class="btn" id="cv-def">${ico("xray")}Importer les définitions Xray</button>
-        <a class="btn" href="#conception/exigences">Exigences sans tests</a><a class="btn" href="#conception/revue">En attente de validation</a><a class="btn primaire" href="#bdd">${ico("bdd")}Créer un scénario BDD</a>`)}
+        <a class="btn" href="#conception/exigences" title="Test Strategy › Couverture (source unique des exigences)">Exigences sans tests</a><a class="btn" href="#conception/revue" title="Cas de test filtrés sur « En revue »">En attente de validation</a><a class="btn primaire" href="#bdd">${ico("bdd")}Créer un scénario BDD</a>`)}
       <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(8,minmax(0,1fr));margin-bottom:12px">
         ${kpi(k.exigences, "exigences importées")}${kpi(k.cas_xray, "cas de test Xray")}${kpi(k.scenarios_bdd, "scénarios BDD")}${kpi(k.a_revoir, "à revoir", "warn-t")}
         ${kpi(k.approuves, "approuvés", "violet")}${kpi(k.prets_automatisation, "prêts pour l'automatisation", "info")}${kpi(k.automatises, "automatisés", "ok")}
@@ -95,20 +114,6 @@
     };
   }
 
-  /* ------------------------------------------------------------------ 02 exigences */
-  async function exigences(z) {
-    const l = await api("/api/conception/exigences");
-    const sans = l.filter(e => e.sans_test).length;
-    z.innerHTML = `${entete("Exigences & import", `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Importer / synchroniser Jira</a>`)}
-      <div class="corps-carte"><p class="lib">Source : instantané Jira / Xray (clés externes conservées). ${sans} exigence(s) sans test.</p>
-      ${l.length ? `<table class="table-strat"><tr><th>Clé Jira</th><th>Type</th><th>Titre</th><th>Parent</th><th>Module</th><th>Statut</th><th>Cas de test</th></tr>
-        ${l.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc({epic: "Epic", user_story: "User Story", bug: "Bug"}[e.type] || e.type)}${e.type_jira ? ` <span class="lib">(${esc(e.type_jira)})</span>` : ""}</td><td>${esc(e.resume || "")}</td><td>${e.parent ? `<span class="cle-xray">${esc(e.parent)}</span>` : ""}</td><td>${esc(e.module || "")}</td><td>${esc(e.statut || "")}</td>
-          <td>${e.sans_test ? '<span class="pill ko">aucun test</span>' : e.tests.map(t => `<span class="pill cle-xray" title="Ouvrir le test Xray ${esc(t)} dans Jira">${esc(t)}</span>`).join(" ")}</td></tr>`).join("")}</table>`
-        : vide("Aucune exigence", `<a href="#rapports/patrimoine">Importer l'instantané Xray ou synchroniser Jira.</a>`)}
-      <p class="lib" style="margin-top:10px">Génération IA de cas de test depuis une exigence : à venir (les propositions devront être validées avant création dans Xray).</p></div>`;
-    recherche(z, "exigences");
-  }
-
   /* ------------------------------------------------------------------ 03 cas de test */
   async function cas(z) {
     const l = await api("/api/conception/cas");
@@ -116,14 +121,16 @@
     const filtre = c => (!F.type || c.type === F.type) && (!F.module || c.module === F.module) && (!F.revue || c.revue === F.revue);
     const sel = (k, lib, vals, libs = {}) => `<select class="in" data-f="${k}" style="width:auto"><option value="">${lib}</option>${vals.map(v => `<option value="${esc(v)}" ${F[k] === v ? "selected" : ""}>${esc(libs[v] || v)}</option>`).join("")}</select>`;
     z.innerHTML = `${entete("Cas de test (Xray)", `${sel("type", "Tous types", opts("type"))}${sel("module", "Tous modules", opts("module"))}${sel("revue", "Toutes revues", Object.keys(LIB_REVUE), LIB_REVUE)}`)}
-      <div class="corps-carte">${l.length ? `<table class="table-strat"><tr><th>Clé Xray</th><th>Résumé</th><th>Type Xray</th><th>Module</th><th>Priorité</th><th>Exigences</th><th>Statut Xray</th><th>Mode</th><th>Revue interne</th><th>Synchronisation</th></tr>
+      <div class="corps-carte"><ol class="workflow" title="Revue interne de conception (distincte du statut Xray) : cliquer pour filtrer">${Object.keys(LIB_REVUE).map(st => `<li class="cliquable" data-wf="${esc(st)}" ${F.revue === st ? 'style="font-weight:600"' : ""}>${esc(LIB_REVUE[st])} · ${l.filter(c => c.revue === st).length}</li>`).join("")}</ol>
+      ${l.length ? `<table class="table-strat"><tr><th>Clé Xray</th><th>Résumé</th><th>Type Xray</th><th>Module</th><th>Priorité</th><th>Exigences</th><th>Statut Xray</th><th>Mode</th><th>Revue interne</th><th>Synchronisation</th></tr>
         ${l.filter(filtre).map(c => `<tr class="cliquable ${SEL === c.cle ? "sel" : ""}" data-cle="${esc(c.cle)}"><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume)}</td><td>${esc(c.type)}</td><td>${esc(c.module)}</td>
           <td>${esc(c.priorite)}</td><td>${c.exigences.map(k => `<span class="cle-xray">${esc(k)}</span>`).join(", ")}</td><td>${esc(c.statut_xray)}</td>
           <td>${c.automatise ? `<span class="pill ok">automatisé</span>${c.dernier_resultat ? ` <span class="pill ${c.dernier_resultat === "PASS" ? "ok" : "ko"}">${esc(c.dernier_resultat)}</span>` : ""}` : '<span class="pill">manuel</span>'}</td>
           <td>${pillRevue(c.revue)}</td><td class="lib" title="${esc(c.synchronisation)}">${esc(c.synchronisation.split(" (")[0])}</td></tr>`).join("")}</table>`
         : vide("Aucun cas de test", `<a href="#rapports/patrimoine">Importer le repository Xray.</a>`)}
-        <p class="lib" style="margin-top:10px">Publication dans Xray : tests Cucumber depuis le panneau d'un cas (« Publier dans Xray »), tests issus des US depuis « US à couvrir ». Aucun test n'est converti d'un type à un autre sans validation.</p></div>`;
+        <p class="lib" style="margin-top:10px">Publication dans Xray : tests Cucumber depuis le panneau d'un cas (« Publier dans Xray »), tests issus des US depuis « À concevoir ». Aucun test n'est converti d'un type à un autre sans validation.</p></div>`;
     $$("[data-f]", z).forEach(s => s.onchange = () => { F[s.dataset.f] = s.value; cas(z); });
+    $$("[data-wf]", z).forEach(li => li.onclick = () => { F.revue = F.revue === li.dataset.wf ? "" : li.dataset.wf; cas(z); });
     $$("tr[data-cle]", z).forEach(tr => tr.onclick = () => panneauCas(l.find(c => c.cle === tr.dataset.cle)));
     recherche(z, "cas");
   }
@@ -145,11 +152,11 @@
         ${c.etapes.map((e, i) => `<tr><td>${i + 1}</td><td>${esc(e.action)}</td><td>${esc(e.donnees)}</td><td>${esc(e.resultat)}</td></tr>`).join("")}</table>` : ""}
       ${c.gherkin ? `<h3 class="lib" style="margin-top:10px">GHERKIN XRAY (lecture)</h3><pre class="code-bloc">${esc(c.gherkin)}</pre>` : ""}
       ${c.definition ? `<h3 class="lib" style="margin-top:10px">DÉFINITION (Generic, lecture)</h3><pre class="code-bloc">${esc(c.definition)}</pre>` : ""}
-      <div class="btns" style="margin-top:12px">${ouvrir}<a class="btn" href="#conception/revue" id="pc-rev">Revue</a>
+      <div class="btns" style="margin-top:12px">${ouvrir}<button class="btn" id="pc-rev" title="Revue interne : envoyer en revue, approuver, demander des modifications, cycle de vie">Revue</button>
         <button class="btn" id="pc-graphe">${ico("graphe")}Traçabilité</button></div></div>`;
     $("#pc-x").onclick = () => { p.hidden = true; SEL = null; };
     if ($("#pc-pub")) $("#pc-pub").onclick = () => publier(c.bdd, Atelier.ctx.projet_xray || c.cle.split("-")[0]);
-    $("#pc-rev").onclick = e => { e.preventDefault(); SEL = c.cle; R = "revue"; history.replaceState(null, "", "#conception/revue"); revue($(".corps-strat"), c.cle); };
+    $("#pc-rev").onclick = () => panneauRevue(c.cle);
     $("#pc-graphe").onclick = () => { location.hash = "graphe/couverture"; };
   }
 
@@ -183,7 +190,7 @@
     const [cfg, l] = await Promise.all([api("/api/testabilite/espaces?sprint=" + idSel), api(`/api/testabilite/file?sprint=${idSel}&espace=${espSel}`)]);
     const ind = cfg.indicateurs;
     const ETAT = {active: "actif", future: "à venir", closed: "fermé"};
-    z.innerHTML = `${entete("US à couvrir", `<a class="btn" href="#strategie/couverture" data-manquants="1" title="Entrée unique : Test Strategy › Couverture › Missing Tests (exigences sans test ou à vérifier). Ici, on conçoit et publie leurs cas.">Exigences sans test</a><a class="btn" href="#parametres/configuration" title="Politique des US de l'application : Paramètres › Configuration">Politique (espaces Jira)</a><button class="btn" id="us-rep">Relever les réponses</button>
+    z.innerHTML = `${entete("À concevoir · US et exigences à couvrir", `<a class="btn" href="#strategie/couverture" data-manquants="1" title="Entrée unique : Test Strategy › Couverture › Missing Tests (exigences sans test ou à vérifier). Ici, on conçoit et publie leurs cas.">Exigences sans test</a><a class="btn" href="#parametres/configuration" title="Politique des US de l'application : Paramètres › Configuration">Politique (espaces Jira)</a><button class="btn" id="us-rep">Relever les réponses</button>
         <button class="btn primaire" id="us-det">${ico("rejouer")}Détecter</button>`)}<div class="corps-carte">
       <div class="btns" style="margin-bottom:8px"><label class="lib" for="us-sp">Sprint</label><select class="in" id="us-sp" style="width:auto">
         <option value="">Toutes les US suivies</option>${options.map(s => `<option value="${esc(s.esp)}|${s.id}" ${SPRINT === `${s.esp}|${s.id}` ? "selected" : ""}>${esc(s.esp)} · ${esc(s.nom)} (${ETAT[s.etat] || s.etat})</option>`).join("")}</select>
@@ -394,15 +401,6 @@
   }
 
   /* ------------------------------------------------------------------ 05 JDD, 07 suites, 08 traçabilité, 09 réutilisables, 06 règles */
-  async function jdd(z) {
-    const d = Atelier.env ? await api("/api/jdd/" + encodeURIComponent(Atelier.env)).catch(() => ({jeux: []})) : {jeux: []};
-    z.innerHTML = `${entete(`Jeux de données · ${Atelier.env || "aucun environnement"}`)}<div class="corps-carte">
-      ${d.jeux.length ? `<table class="table-strat"><tr><th>Jeu</th><th>Description</th><th>Variables</th><th>Prérequis</th></tr>${d.jeux.map(j => `<tr><td class="mono">${esc(j.jeu)}</td>
-        <td>${esc(j.description || "")}</td><td>${esc((j.champs || []).join(", "))}</td><td>${(j.prerequis || []).length}</td></tr>`).join("")}</table>`
-        : vide("Aucun jeu de données", "data/jdd/&lt;environnement&gt;.yaml dans le projet de tests.")}
-      <p class="lib" style="margin-top:10px">Source : data/jdd/${esc(Atelier.env || "<env>")}.yaml (valeurs secrètes jamais affichées). Association à un scénario : Construction BDD › propriétés. Import CSV / JSON et éditeur : à venir.</p></div>`;
-  }
-
   async function regles(z) {
     const d = await api("/api/conception/regles");
     const k = d.indicateurs;
@@ -502,33 +500,6 @@
     recherche(z, "suites");
   }
 
-  function tracabilite(z) {
-    z.innerHTML = `${entete("Traçabilité")}<div class="corps-carte"><p>Epic / Story Jira → Exigence → Test Xray → Scénario BDD → Jeu de données → Script Robot → Exécution → Résultat :
-      relations réelles du Knowledge Graph, clés Jira / Xray visibles dans les propriétés des nœuds.</p>
-      <div class="btns"><a class="btn primaire" href="#graphe/couverture">${ico("graphe")}Explorer le graphe de couverture</a><a class="btn" href="#graphe/anomalies">Trous, doublons, tests sans exigence</a>
-        <a class="btn" href="#graphe/impact">Analyser l'impact d'une modification</a><a class="btn" href="#graphe/flux">Flux d'automatisation</a></div></div>`;
-  }
-
-  async function reutilisables(z) {
-    const r = await api("/api/editeur/reutilisation").catch(() => ({keywords: []}));
-    z.innerHTML = `${entete("Réutilisables")}<div class="corps-carte"><p class="lib">Keywords du socle (étapes Gherkin réutilisables) et nombre d'utilisations dans le dépôt. Avant de modifier un keyword : Knowledge Graph › Analyse d'impact.</p>
-      <table class="table-strat"><tr><th>Keyword / étape</th><th>Fichier</th><th>Utilisations</th><th>Documentation</th></tr>${(r.keywords || []).map(k => `<tr><td><b>${esc(k.nom)}</b></td>
-        <td><a href="#editeur/${encodeURIComponent(k.fichier)}">${esc(k.fichier)}:${k.ligne}</a></td><td>${k.appels}</td><td class="lib">${esc(k.documentation || "")}</td></tr>`).join("")}</table>
-      <p class="lib">Préconditions, fragments de scénarios et templates versionnés : à venir.</p></div>`;
-  }
-
-  /* ------------------------------------------------------------------ 10 revue et validation */
-  async function revue(z, cle = SEL) {
-    const l = await api("/api/conception/cas");
-    z.innerHTML = `${entete("Revue & validation")}<div class="corps-carte"><ol class="workflow">${Object.keys(LIB_REVUE).map(s => `<li>${esc(LIB_REVUE[s])} · ${l.filter(c => c.revue === s).length}</li>`).join("")}</ol>
-      <p class="lib">Statut interne de conception, géré séparément du statut Jira / Xray (mapping configurable dans « Xray Mapping »).</p>
-      <table class="table-strat"><tr><th>Clé</th><th>Résumé</th><th>Type</th><th>Statut Xray</th><th>Revue interne</th></tr>${l.map(c => `<tr class="cliquable ${cle === c.cle ? "sel" : ""}" data-cle="${esc(c.cle)}">
-        <td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume)}</td><td>${esc(c.type)}</td><td>${esc(c.statut_xray)}</td><td>${pillRevue(c.revue)}</td></tr>`).join("")}</table></div>`;
-    $$("tr[data-cle]", z).forEach(tr => tr.onclick = () => panneauRevue(tr.dataset.cle));
-    recherche(z, "revue");
-    if (cle) panneauRevue(cle);
-  }
-
   async function panneauRevue(cle) {
     SEL = cle;
     $$("tr[data-cle]").forEach(tr => tr.classList.toggle("sel", tr.dataset.cle === cle));
@@ -553,7 +524,7 @@
     cycleVie(cle);
     $$("[data-a]", p).forEach(b => b.onclick = async () => {
       try { await api("/api/conception/revue/" + encodeURIComponent(cle), {method: "POST", body: {action: b.dataset.a, commentaire: $("#pr-com").value, reviseur: $("#pr-rev").value}});
-        toast("Décision enregistrée.", "ok"); revue($(".corps-strat"), cle); }
+        toast("Décision enregistrée.", "ok"); await cas($("#td-contenu")); panneauRevue(cle); }
       catch (e) { toast(e.message, "ko"); }
     });
   }
@@ -717,7 +688,7 @@
         <li>Réutiliser le socle avant de créer ; mêmes clés métier de locators Android / iOS.</li>
         <li>Validation humaine de toute proposition IA.</li></ul></section>
       <section class="bloc-strat"><h3>IA et intégrations</h3><dl class="props"><dt>Assistant IA</dt><dd>${Atelier.ctx.agent_integre ? "clé présente" : "désactivé (ANTHROPIC_API_KEY absente)"}</dd>
-        <dt>Modèle</dt><dd>variable CLAUDE_MODEL</dd><dt>Langue des scénarios</dt><dd>français</dd><dt>Mapping Xray</dt><dd><a href="#conception/mapping">Xray Mapping & synchronisation</a></dd>
+        <dt>Modèle</dt><dd>variable CLAUDE_MODEL</dd><dt>Langue des scénarios</dt><dd>français</dd><dt>Mapping Xray</dt><dd><a href="#conception/mapping">Réglages › Mapping et synchronisation Xray</a></dd>
         <dt>Workflow de revue</dt><dd>${Object.values(LIB_REVUE).map(esc).join(" → ")}</dd></dl></section>
       <section class="bloc-strat" style="grid-column:1/-1"><h3>Rangement des tests générés</h3>
         <div class="grille-2"><div class="champ"><label for="rg-robot">Dépôt Robot (chemin du fichier)</label><input class="in mono" id="rg-robot"></div>

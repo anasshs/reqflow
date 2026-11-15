@@ -184,3 +184,12 @@ Une ligne datée par décision d'architecture ou de conception.
 - L'état de travail de l'atelier rangé dans le projet (studio/, executions/, results/, discovery/, connaissance/, analyses/,
   couverture/, gouvernance/, testabilite/) est propre à chaque poste : signalé s'il est versionné (.gitignore conseillé),
   il ne bloque ni Tirer, ni Basculer, ni la merge request.
+
+## 2026-11-15 — Test Design simplifié : 6 entrées, doublons renvoyés à leur module
+- Menu : Vue d'ensemble · À concevoir (ex-US à couvrir) · Cas de test (Cas Xray et revue, Scénarios BDD) · Règles de test ·
+  Organisation Xray (suites / plans / dossiers, baselines) · Réglages (mapping et synchronisation Xray, rangement).
+- La revue interne de conception est intégrée à Cas de test (compteurs du circuit = filtre, panneau de revue) ;
+  `#conception/revue` ouvre Cas de test filtré sur « En revue ».
+- Écrans en double retirés, adresses conservées : Exigences & import → Test Strategy › Couverture ; Traçabilité →
+  Knowledge Graph (couverture) ; Réutilisables → Studio › Keywords ; Jeux de données → Studio › Données de test
+  (la liste des jeux y est désormais affichée).

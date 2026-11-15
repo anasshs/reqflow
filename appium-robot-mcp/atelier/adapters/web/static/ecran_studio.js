@@ -464,7 +464,8 @@
   }
 
   function donnees(z) {
-    z.innerHTML = `${entete("Test Data & Configuration", `<a class="btn" href="#conception/jdd" title="Jeux de données par environnement (YAML, requêtes SELECT en liste blanche)">Jeux de données</a>`)}<div class="corps-carte"><ul class="liste">
+    z.innerHTML = `${entete("Test Data & Configuration")}<div class="corps-carte">
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>Jeux de données · ${esc(Atelier.env || "aucun environnement")}</h3><div id="dn-jeux" class="lib">Chargement…</div></section><ul class="liste">
       <li>JDD : data/jdd/&lt;environnement&gt;.yaml ; secrets par {{env:VAR}}, masqués dans les logs et l'interface.</li>
       <li>Base Oracle : requêtes SELECT en liste blanche (data/jdd/requetes.yaml), paramètres liés, délai et nombre de lignes plafonnés, compte en lecture seule.</li>
       <li>Fichier de variables résolues : écrit dans le dossier du run uniquement, jamais dans le dépôt.</li>
@@ -480,6 +481,11 @@
       <section class="bloc-strat" style="margin-top:12px"><h3>API de préparation des données</h3>
         <p class="lib">Déclarées dans <code>data/jdd/api.yaml</code> (méthode GET / POST / PUT, URL HTTPS, secrets <code>{{env:…}}</code>, environnements autorisés, champs extraits) ; utilisées en prérequis d'un jeu
           (<code>- api: NOM</code>) puis <code>{{api:NOM.champ}}</code>. Jamais sur la production.</p><div id="dn-api">Chargement…</div></section></div>`;
+    (Atelier.env ? api("/api/jdd/" + encodeURIComponent(Atelier.env)) : Promise.resolve({jeux: []})).then(d => {
+      $("#dn-jeux", z).innerHTML = d.jeux.length ? `<table class="table-strat"><tr><th>Jeu</th><th>Description</th><th>Variables</th><th>Prérequis</th></tr>${d.jeux.map(j => `<tr><td class="mono">${esc(j.jeu)}</td>
+        <td>${esc(j.description || "")}</td><td>${esc((j.champs || []).join(", "))}</td><td>${(j.prerequis || []).length}</td></tr>`).join("")}</table>`
+        : `Aucun jeu : data/jdd/${esc(Atelier.env || "<environnement>")}.yaml dans le projet de tests, ou import ci-dessous.`;
+    }).catch(e => { $("#dn-jeux", z).textContent = e.message; });
     const lireFichier = () => new Promise((ok, ko) => { const f = $("#dn-f").files[0]; if (!f) return ko(new Error("Choisir un fichier CSV ou JSON."));
       const r = new FileReader(); r.onload = () => ok({contenu: r.result, format: /\.json$/i.test(f.name) ? "json" : "csv"}); r.onerror = () => ko(new Error("Lecture impossible.")); r.readAsText(f, "utf-8"); });
     const importer = async ecrire => { try { const f = await lireFichier();
