@@ -24,7 +24,11 @@ Conventions du projet :
 - Tags : clé Xray du test + tags fonctionnels (smoke, e2e, negatif, consomme_donnee).
 - Un seul scénario end-to-end par suite.
 
-Carte de l'application (toujours en premier) :
+Cerveau de l'application (avant tout) : cerveau_application() pour ce que l'atelier sait déjà (sources et leur
+fraîcheur, modules, lacunes), cerveau_application(module="…") pour le détail d'un module, cerveau_question("…")
+pour une question précise. Ne redécouvre pas ce que le cerveau sait ; signale ce qu'il ignore.
+
+Carte de l'application :
 - where_am_i pour savoir où l'on est, list_screens pour voir les écrans connus.
 - goto_screen("<écran>") pour aller sur un écran connu : ne pas naviguer à la main.
 - screen_info("<écran>") pour reprendre ses locators : ne pas réanalyser un écran connu.

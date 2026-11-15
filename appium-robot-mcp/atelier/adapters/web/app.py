@@ -2907,6 +2907,29 @@ async def centre_rejouer_xray(req: Request):
 
 
 # --------------------------------------------------------------------------- Application Intelligence
+@app.get("/api/cerveau")
+async def cerveau_vue():
+    """Cerveau de l'application active : sources et fraîcheur, modules, lacunes, apprentissages."""
+    from atelier.intelligence import cerveau
+
+    return await asyncio.to_thread(_call, cerveau.vue)
+
+
+@app.get("/api/cerveau/module")
+async def cerveau_module(module: str):
+    from atelier.intelligence import plan_test
+
+    return await asyncio.to_thread(_call, plan_test.plan, module)
+
+
+@app.post("/api/cerveau/question")
+async def cerveau_question(req: Request):
+    """Question posée au cerveau : réponse fondée sur ses seules connaissances (IA si configurée, sinon les faits)."""
+    from atelier.intelligence import cerveau
+
+    return await asyncio.to_thread(_call, cerveau.demander, (await req.json()).get("question", ""))
+
+
 @app.get("/api/intelligence/{section}")
 async def intelligence_section(section: str):
     fn = {"vue": intelligence_app.vue_ensemble, "jira": intelligence_app.jira, "ecrans": intelligence_app.ecrans,

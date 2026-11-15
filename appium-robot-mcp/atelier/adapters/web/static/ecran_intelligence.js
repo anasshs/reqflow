@@ -2,10 +2,17 @@
    (Jira / Xray, carte observée, dépôt, BDD, déclarations). Aucun second graphe. */
 "use strict";
 (() => {
-  const MENU = [["vue", "Application Overview"], ["jira", "Jira Intelligence"], ["carte", "Application Map"], ["fonctionnel", "Functional Graph"],
-    ["technique", "Technical Graph"], ["parcours", "User Journeys"], ["ecrans", "Screen Explorer"], ["api", "API Intelligence"],
-    ["regles", "Business Rules"], ["exploration", "Application Exploration"], ["changements", "Change Detection"], ["impact", "Impact Analysis"],
-    ["validation", "Knowledge Validation"], ["historique", "Knowledge History"], ["parametres", "Settings"]];
+  /* Le cerveau de l'application d'abord ; les autres écrans sont regroupés par question (adresses inchangées) */
+  const GROUPES = [
+    ["vue", "Cerveau de l'application", [["vue", "Cerveau"]], "Ce que l'atelier sait de l'application, d'où, depuis quand, ce qui manque et quoi faire"],
+    ["jira", "Ce qui est demandé", [["jira", "Exigences Jira"], ["regles", "Règles métier"], ["fonctionnel", "Graphe fonctionnel"]], "Epics, stories, critères d'acceptation et règles métier"],
+    ["ecrans", "Ce qui existe", [["ecrans", "Écrans"], ["parcours", "Parcours"], ["api", "API"], ["carte", "Carte (graphe)"], ["technique", "Graphe technique"]], "Écrans observés, parcours, API et composants"],
+    ["exploration", "Apprendre", [["exploration", "Explorer"], ["validation", "À valider"], ["changements", "Changements"]], "Enrichir la connaissance : explorer, valider les propositions, voir les écarts"],
+    ["impact", "Analyser l'impact", [["impact", "Impact"]], "Ce qui est touché si un écran, une règle ou un locator change"],
+    ["historique", "Historique et versions", [["historique", "Historique"]], "Journal des connaissances et versions nommées du graphe"],
+    ["parametres", "Réglages", [["parametres", "Réglages"]], "Réglages d'Application Intelligence"]];
+  const MENU = GROUPES.flatMap(g => g[2]);
+  const groupeDe = r => GROUPES.find(g => g[2].some(o => o[0] === r)) || GROUPES[0];
   const GRAPHE = {carte: "graphe/connaissance", fonctionnel: "graphe/fonctionnel", technique: "graphe/technique", impact: "graphe/impact"};
   let R = "vue";
 
@@ -13,13 +20,16 @@
     async afficher(zone, sous) {
       R = MENU.some(m => m[0] === sous) ? sous : "vue";
       if (GRAPHE[R]) { location.hash = GRAPHE[R]; return; }
+      const G = groupeDe(R);
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques Application Intelligence"><div class="titre-carte">APPLICATION INTELLIGENCE</div>
-        <ol class="liste-strat">${MENU.map(([id, lib], i) => `<li><button data-r="${id}" ${id === R ? 'aria-current="page"' : ""}><span class="num">${i + 1}</span><span class="item">${esc(lib)}</span>${GRAPHE[id] ? ` <span class="lib">${ico("graphe")}</span>` : ""}</button></li>`).join("")}</ol>
-        <div class="pied-strat lib">Jira dit ce qui est demandé, l'application montre ce qui existe, Xray comment vérifier, Git l'automatisation : le graphe relie les quatre.</div></nav>
-        <section class="carte corps-strat"><div class="corps-carte">${vide("Chargement…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
+        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span>${GRAPHE[id] ? ` <span class="lib">${ico("graphe")}</span>` : ""}</button></li>`).join("")}</ol>
+        <div class="pied-strat lib">Jira dit ce qui est demandé, l'application montre ce qui existe, Xray comment vérifier, Git l'automatisation : le cerveau relie les quatre, application par application.</div></nav>
+        <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}${GRAPHE[id] ? " ↗" : ""}</button>`).join("")}</div>` : ""}
+          <div id="ai-contenu"><div class="corps-carte">${vide("Chargement…")}</div></div></section><aside class="carte panneau-strat" hidden></aside>`;
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = GRAPHE[b.dataset.r] || "intelligence/" + b.dataset.r; });
-      const z = $(".corps-strat");
+      $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = GRAPHE[b.dataset.onglet] || "intelligence/" + b.dataset.onglet; });
+      const z = $("#ai-contenu");
       try { await ({vue, jira, parcours, ecrans, api: liste("api", "API Intelligence", "Endpoints et entités déclarés ou importés depuis les contrats OpenAPI / Swagger du projet (api/*.yaml|json ; module par tag, stories par x-jira). Import Postman : à venir."),
         regles: liste("regles", "Business Rules", "Règles métier déclarées ou extraites des critères d'acceptation Jira (Jira Intelligence › « Proposer les règles métier ») ; provenance, ticket et extrait conservés, validation humaine obligatoire."),
         exploration, changements, validation, historique, parametres}[R])(z); }
@@ -30,18 +40,75 @@
   const entete = (t, a = "") => `<h2 class="titre-carte">${esc(t)}<span class="actions-titre">${a}</span></h2>`;
   const date = d => d ? esc(String(d).replace("T", " ").slice(0, 16)) : "—";
 
+  /* ------------------------------------------------------------------ cerveau de l'application */
+  const F = {"à jour": "ok", "ancienne": "warn", "jamais": "ko"};
+  const barre = v => v === null || v === undefined ? '<span class="lib">—</span>'
+    : `<span style="display:inline-block;width:60px;height:6px;border-radius:3px;background:var(--line);vertical-align:middle"><span style="display:block;height:100%;width:${v}%;border-radius:3px;background:${v >= 80 ? "var(--ok)" : v >= 50 ? "var(--warn)" : "var(--ko)"}"></span></span> ${v} %`;
+
   async function vue(z) {
-    const v = await api("/api/intelligence/vue"), a = v.application, f = v.fonctionnel, t = v.technique, tr = v.tracabilite;
-    const k = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
-    z.innerHTML = `${entete("Application Overview", `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Synchroniser Jira / Xray</a><a class="btn" href="#intelligence/exploration">Explorer l'application</a>
-        <a class="btn" href="#intelligence/changements">Changements</a><a class="btn primaire" href="#graphe">${ico("graphe")}Knowledge Graph</a>`)}
-      <div class="corps-carte"><p><b>${esc(a.nom || "Aucune application cartographiée")}</b> · ${esc(a.plateformes.join(", ") || "—")} · build ${esc(a.build || "—")} · dernière exploration ${date(a.derniere_exploration)} ·
-        Xray / Jira ${date(a.derniere_synchro_xray)} <span class="lib">(${esc(a.source_xray || "—")})</span> · graphe modifié ${date(a.derniere_maj_graphe)}</p>
-      <h3 class="lib">CONNAISSANCE FONCTIONNELLE</h3><div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin-bottom:10px">${k(f.epics, "epics")}${k(f.stories, "stories")}${k(f.modules, "modules")}${k(f.fonctionnalites, "fonctionnalités")}${k(f.regles, "règles métier")}${k(f.parcours, "parcours")}</div>
-      <h3 class="lib">CONNAISSANCE TECHNIQUE</h3><div class="kpis" style="grid-template-columns:repeat(7,minmax(0,1fr));margin-bottom:10px">${k(t.ecrans, "écrans")}${k(t.composants, "composants")}${k(t.locators, "locators")}${k(t.keywords, "keywords")}${k(t.api, "API")}${k(t.transitions, "transitions")}${k(t.ecrans_a_revoir, "écrans à revoir", "warn-t")}</div>
-      <h3 class="lib">TRAÇABILITÉ</h3><div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">${k(tr.stories_sans_test.length, "stories sans test", "ko")}${k(tr.tests_sans_exigence.length, "tests sans exigence", "warn-t")}
-        ${k(tr.tests_automatises, "tests Xray automatisés", "ok")}${k(tr.elements_a_valider, "propositions à valider", "info")}</div>
-      <p class="lib" style="margin-top:10px">${esc(v.limites)}</p></div>`;
+    const v = await api("/api/cerveau"), a = v.application, m = v.maturite;
+    z.innerHTML = `${entete(`Cerveau de ${a.nom || "l'application"}`, `<a class="btn" href="#graphe" title="Knowledge Graph complet de l'application">${ico("graphe")}Knowledge Graph</a>`)}
+      <div class="corps-carte">
+        <p class="lib">${esc(a.plateformes.join(", ") || "plateformes non déclarées")}${a.build ? ` · build ${esc(a.build)}` : ""} ·
+          <b title="${esc(m.definition)}">${m.sources_alimentees}/${m.sources} sources alimentées</b> · <b>${m.modules_connus}/${m.modules} modules connus</b>
+          ${m.a_valider ? ` · <a href="#intelligence/validation"><b class="warn-t">${m.a_valider} connaissance(s) à valider</b></a>` : ""}</p>
+        <section class="bloc-strat" style="margin-bottom:12px"><h3>Demander au cerveau</h3>
+          <div class="btns"><input class="in" id="cv-q" style="flex:1" placeholder="Ex. Qu'est-ce qui n'est pas testé dans les virements ? Quels écrans ont des locators fragiles ?"
+            title="Réponse fondée uniquement sur ce que l'atelier sait de cette application">
+            <button class="btn primaire" id="cv-ok" title="${v.ia.appel_direct ? "Réponse rédigée par l'IA à partir des seuls faits du cerveau" : "Sans IA configurée : les faits trouvés et le détail des modules concernés"}">${ico("ia")}Demander</button></div>
+          <div id="cv-rep" style="margin-top:8px"></div>
+          <p class="lib">${v.ia.appel_direct ? "IA configurée : réponse rédigée à partir des faits, éléments cités." : "Sans IA configurée : le cerveau répond avec les faits trouvés."} Cursor pose les mêmes questions avec cerveau_question.</p></section>
+        <div class="grille-2" style="align-items:start">
+          <section class="bloc-strat"><h3>Lacunes et prochaines actions</h3>${v.lacunes.length ? `<ol class="liste">${v.lacunes.slice(0, 12).map(l => `<li style="border-left:3px solid ${l.priorite === 1 ? "var(--ko)" : l.priorite === 2 ? "var(--warn)" : "var(--line)"};padding-left:8px;margin:4px 0">
+              <span class="item"><b>${esc(l.sujet)}</b> : ${esc(l.texte)}</span><a class="btn petit" href="${esc(l.action)}" title="${esc(l.action_lib)}">${esc(l.action_lib)}</a></li>`).join("")}</ol>`
+            : "<p class='lib'>Aucune lacune détectée : sources à jour, modules connus et couverts.</p>"}</section>
+          <section class="bloc-strat"><h3>D'où vient la connaissance</h3><table>${v.sources.map(x => `<tr><td><b>${esc(x.nom)}</b><div class="lib">${esc(x.role)}</div></td>
+              <td><span class="pill ${F[x.fraicheur]}" title="À jour : moins de 7 jours">${esc(x.fraicheur)}</span><div class="lib">${x.date ? esc(String(x.date).slice(0, 16).replace("T", " ")) : "—"}</div></td>
+              <td class="lib">${esc(x.volume || "")}</td><td><a class="btn petit" href="${esc(x.action)}" title="Mettre à jour cette source">${esc(x.action_lib)}</a></td></tr>`).join("")}</table></section></div>
+        <section class="bloc-strat" style="margin-top:12px"><h3>Modules de l'application <span class="lib" style="font-weight:normal">cliquer un module pour tout ce que le cerveau en sait</span></h3>
+          ${v.modules.length ? `<table class="table-strat"><tr><th>Module</th><th title="Écrans de la carte / parcours connus">Connaissance</th><th title="Exigences avec au moins un test Xray / exigences du module">Couverture</th>
+              <th title="Tests Xray automatisés / tests Xray liés">Automatisation</th><th title="Tests au dernier statut FAIL">Échecs</th><th>Attention</th></tr>
+            ${v.modules.map(x => `<tr class="cliquable" data-mod="${esc(x.id)}" title="Détail du module ${esc(x.module)}"><td><b>${esc(x.module)}</b> ${x.connu ? "" : '<span class="pill warn" title="Aucun écran ni parcours dans la carte">non exploré</span>'}</td>
+              <td class="lib">${x.ecrans} écran(s) · ${x.parcours} parcours · ${x.regles} règle(s)</td><td>${barre(x.couverture)} <span class="lib">${x.exigences_couvertes}/${x.exigences}</span></td>
+              <td>${barre(x.automatisation)} <span class="lib">${x.tests_automatises}/${x.tests}</span></td><td class="${x.echecs.length ? "ko-t" : ""}">${x.echecs.length}</td>
+              <td class="lib">${[x.ecrans_fragiles ? `${x.ecrans_fragiles} écran(s) fragiles` : "", x.actions_sensibles ? `${x.actions_sensibles} action(s) sensibles` : ""].filter(Boolean).join(" · ") || "—"}</td></tr>`).join("")}</table>`
+            : vide("Aucun module", "Les modules viennent des composants Jira, de la carte (Discovery) et des déclarations.")}</section>
+        <section class="bloc-strat" style="margin-top:12px"><h3>Ce que le cerveau a appris récemment</h3>${v.apprentissages.length ? `<ul class="liste">${v.apprentissages.slice(0, 15).map(x => `<li><span class="mono lib">${esc(String(x.date).slice(0, 16).replace("T", " "))}</span>
+            <span class="pill">${esc(x.source)}</span><span class="item">${esc(x.texte)}</span><span class="lib">${esc(x.auteur || "")}</span></li>`).join("")}</ul>` : "<p class='lib'>Rien encore.</p>"}</section></div>`;
+    const demander = async () => {
+      const q = $("#cv-q").value.trim(); if (!q) return;
+      $("#cv-rep").innerHTML = '<p class="lib">Le cerveau réfléchit…</p>';
+      try { const r = await api("/api/cerveau/question", {method: "POST", body: {question: q}});
+        $("#cv-rep").innerHTML = `<div class="bloc-strat"><p>${esc(r.reponse).replace(/\n/g, "<br>")}</p>
+          ${r.modules.length ? `<p class="lib">Modules : ${r.modules.map(n => `<b>${esc(n)}</b>`).join(", ")}</p>` : ""}
+          ${r.elements.length ? `<p class="lib">Éléments : ${r.elements.slice(0, 15).map(e => `<a href="#graphe" data-kg-id="${esc(e.id)}" title="${esc(e.type)} · ${esc(e.statut)} · source ${esc(e.source || "")}">${esc(e.libelle)}</a>`).join(" · ")}</p>` : ""}
+          <p class="lib">${r.mode === "ia" ? "Rédigé par l'IA à partir des faits du cerveau." : "Faits trouvés (sans IA)."}</p></div>`;
+        $$("[data-kg-id]", z).forEach(x => x.onclick = ev => { ev.preventDefault(); window.OuvrirGraphe(x.dataset.kgId); });
+      } catch (e) { $("#cv-rep").innerHTML = `<p class="ko-t">${esc(e.message)}</p>`; }
+    };
+    $("#cv-ok").onclick = demander;
+    $("#cv-q").onkeydown = e => { if (e.key === "Enter") demander(); };
+    $$("[data-mod]", z).forEach(tr => tr.onclick = () => detailModule(tr.dataset.mod));
+  }
+
+  async function detailModule(id) {
+    const p = $(".panneau-strat");
+    p.hidden = false;
+    p.innerHTML = `<div class="corps-carte">${vide("Chargement…")}</div>`;
+    const d = await api("/api/cerveau/module?module=" + encodeURIComponent(id)).catch(e => ({erreur: e.message}));
+    if (d.erreur) { p.innerHTML = `<div class="corps-carte"><p class="ko-t">${esc(d.erreur)}</p></div>`; return; }
+    const r = d.resume;
+    p.innerHTML = `${entete(d.module, `<button class="icone" id="md-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
+      <div class="btns" style="margin-bottom:8px"><button class="btn petit" id="md-kg" title="Knowledge Graph centré sur ce module">${ico("graphe")}Graphe</button>
+        <a class="btn petit" href="#strategie/couverture" title="Couverture des exigences (Test Strategy)">Couverture</a><a class="btn petit" href="#studio/direct" title="Faire construire les tests manquants par Cursor">Construire avec Cursor</a></div>
+      <p class="lib">${r.ecrans} écran(s) · ${r.parcours} parcours · ${r.regles} règle(s) · ${r.exigences} exigence(s) · ${r.us_sans_test} US sans test · ${r.tests_a_automatiser} à automatiser · ${d.echecs.length} en échec</p>
+      <h3 class="lib">PISTES</h3>${d.pistes.length ? `<ul class="liste">${d.pistes.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "<p class='lib'>Rien à signaler.</p>"}
+      <h3 class="lib">ÉCRANS</h3>${d.ecrans.map(e => `<div><b>${esc(e.nom)}</b> <span class="lib">${e.elements} élément(s) · ${e.tests_robot} test(s) Robot · Xray ${esc(e.tests_xray.join(", ") || "—")}</span>
+        ${e.locators_fragiles.length ? `<span class="pill warn" title="${esc(e.locators_fragiles.join(", "))}">${e.locators_fragiles.length} fragile(s)</span>` : ""}</div>`).join("") || "<p class='lib'>Aucun écran exploré.</p>"}
+      <h3 class="lib" style="margin-top:8px">EXIGENCES</h3>${d.exigences.map(e => `<div><span class="cle-xray">${esc(e.cle)}</span> ${esc(e.resume)} <span class="pill ${e.couverture === "aucun test" ? "ko" : e.couverture === "automatisée" ? "ok" : "warn"}">${esc(e.couverture)}</span></div>`).join("") || "<p class='lib'>Aucune.</p>"}
+      <h3 class="lib" style="margin-top:8px">PARCOURS</h3>${d.parcours.map(x => `<div>${esc(x.libelle)} <span class="lib">${esc(x.ecrans.join(" → "))}</span></div>`).join("") || "<p class='lib'>Aucun.</p>"}</div>`;
+    $("#md-x").onclick = () => { p.hidden = true; };
+    $("#md-kg").onclick = () => window.OuvrirGraphe(d.id);
   }
 
   async function jira(z) {

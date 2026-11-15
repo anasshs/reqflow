@@ -676,4 +676,28 @@ def studio_factoriser_keywords(groupe_id: str) -> dict:
     return studio_avance.appliquer_factorisation(groupe_id, origine="cursor")
 
 
+# =========================================================================== cerveau de l'application
+@outil
+def cerveau_application(module: str = "") -> dict:
+    """Ce que l'atelier sait de l'application active, à lire AVANT de construire ou d'explorer : sans module, vue
+    d'ensemble (sources et leur fraîcheur, modules avec écrans / exigences / couverture / automatisation / échecs,
+    lacunes et prochaines actions) ; avec module, le détail du module (écrans, parcours, règles, exigences et tests,
+    non couvert, à automatiser, pistes)."""
+    from atelier.intelligence import cerveau, plan_test
+
+    if module:
+        return plan_test.plan(module)
+    v = cerveau.vue()
+    return {k: v[k] for k in ("application", "maturite", "sources", "modules", "lacunes")}
+
+
+@outil
+def cerveau_question(question: str) -> dict:
+    """Pose une question au cerveau de l'application (ex. « quels écrans du module Virements n'ont pas de test ? »).
+    Réponse fondée uniquement sur ses connaissances (graphe, carte, Jira / Xray, dépôt, exécutions), éléments cités."""
+    from atelier.intelligence import cerveau
+
+    return cerveau.demander(question)
+
+
 __all__ = [f.__name__ for f in OUTILS]

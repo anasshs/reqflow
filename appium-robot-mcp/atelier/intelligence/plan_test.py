@@ -22,11 +22,12 @@ def _module(g, module: str) -> str:
     return m
 
 
-def plan(module: str) -> dict:
+def plan(module: str, g=None) -> dict:
+    """g : graphe déjà construit (le cerveau calcule tous les modules sur un seul graphe)."""
     from atelier.discovery import connaissance, espaces
     from atelier.intelligence import patrimoine_xray
 
-    g = connaissance.construire()
+    g = g or connaissance.construire()
     nid = _module(g, module)
     coeur = g.atteignables(nid, "aval", {"contient"}, fiables=False)
     zone = espaces.ids_perimetre(g, nid)

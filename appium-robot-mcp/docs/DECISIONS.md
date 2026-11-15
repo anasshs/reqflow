@@ -153,3 +153,10 @@ Une ligne datée par décision d'architecture ou de conception.
 - Chaque appel d'outil MCP est publié à l'atelier (début, fin, durée, résultat ; texte saisi et secrets masqués).
   L'écran piloté est visible : mobile par adb / simctl, navigateur par une image envoyée par le MCP après chaque
   action (route protégée par le jeton des processus locaux). Vue : Automation Studio › Construire › Avec Cursor.
+
+## 2026-11-15 — Application Intelligence = cerveau de chaque application — décision de l'utilisateur
+- Le cerveau (atelier/intelligence/cerveau.py) est la porte d'entrée de la connaissance d'une application : sources et
+  fraîcheur (carte, exigences Jira, tests et exécutions Xray, dépôt Robot, runs, sessions Cursor), modules (connaissance,
+  couverture, automatisation, échecs), lacunes avec l'action qui les comble, journal d'apprentissage, questions.
+- Les réponses ne s'appuient que sur ce que le cerveau sait (IA facultative, rédige à partir des faits fournis).
+- Cursor lit le cerveau avant de construire ou d'explorer (outils cerveau_application, cerveau_question).
