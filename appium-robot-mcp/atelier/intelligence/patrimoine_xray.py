@@ -332,8 +332,8 @@ def _fusionner_executions(data: dict, r: dict, conserver: bool = False):
     """Exécutions dans l'instantané ; sur chaque test : ses exécutions et son dernier statut Xray (exécution la
     plus récente qui le contient avec un statut). conserver : les exécutions déjà importées absentes de cette lecture
     (hors période demandée) sont gardées, celles relues sont mises à jour."""
-    lues = [{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests", "tests_total", "runs", "incomplete", "applications")
-             if k != "applications" or e.get(k)} for e in r["executions"]]
+    lues = [{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests", "tests_total", "runs", "incomplete", "applications",
+                                   "assigne", "resolu", "plans") if k not in ("applications", "plans") or e.get(k) is not None} for e in r["executions"]]
     if conserver:
         cles = {e["cle"] for e in lues}
         avant = {e["cle"]: e.get("applications") or [] for e in data.get("executions") or []}

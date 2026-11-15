@@ -19,7 +19,7 @@ class FauxSchema(XrayClient):
 
 
 SCHEMA = {"Query": {"getTestExecutions": ["jql", "limit", "start"]},
-          "TestExecution": {"issueId": [], "jira": ["fields"], "tests": ["limit"], "testRuns": ["limit"], "testEnvironments": []},
+          "TestExecution": {"issueId": [], "jira": ["fields"], "tests": ["limit"], "testRuns": ["limit"], "testEnvironments": [], "testPlans": ["limit"]},
           "TestRun": {"status": [], "test": [], "finishedOn": []}}
 
 
@@ -185,3 +185,22 @@ def test_changer_statut_depuis_le_tableau_de_bord(projet):
     assert len(x.appels) == 1
     projet.maj_statut_execution("DEMO-90", "Terminé")
     assert centre.detail_execution_xray("DEMO-90")["statut"] == "Terminé"
+
+
+def test_plan_assigne_et_fin_de_l_execution(projet):
+    from atelier.execution import centre
+
+    e = _exec("DEMO-90", {"DEMO-1": "FAILED"})
+    e["jira"].update(assignee={"displayName": "Testeur A"}, resolutiondate="2026-11-11T09:00")
+    e["testPlans"] = {"results": [{"jira": {"key": "DEMO-50", "summary": "Release 3"}}]}
+    x = FauxSchema(SCHEMA, [{"total": 1, "results": [e]}])
+    r = x.executions("DEMO")
+    assert 'testPlans(limit: 10) { results { jira(fields: ["key", "summary"]) } }' in x.requetes[0][0] and '"assignee"' in x.requetes[0][0]
+    assert r["executions"][0]["plans"] == [{"cle": "DEMO-50", "resume": "Release 3"}] and r["executions"][0]["assigne"] == "Testeur A"
+    projet._fusionner_executions(d := projet.charger(), r)
+    projet.enregistrer(d, "test")
+    v = centre.vue_xray()["recentes"][0]
+    assert v["plans"] == [{"cle": "DEMO-50", "resume": "Release 3"}] and v["assigne"] == "Testeur A"
+    assert v["fin"] == "2026-11-10T10:00"  # fin du dernier test run, à défaut date de résolution Jira
+    det = centre.detail_execution_xray("DEMO-90")
+    assert det["plan"] == "DEMO-50" and det["assigne"] == "Testeur A"

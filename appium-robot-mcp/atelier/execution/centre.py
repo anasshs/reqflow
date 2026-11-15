@@ -642,8 +642,23 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
                       "automatises": sum(1 for k in runs if k in automatises), "incomplete": bool(e.get("incomplete")),
                       "tests_total": e.get("tests_total") or len(runs)})
     liens = runs_par_execution()
+    plans_connus = {p["cle"]: p for p in (pat.get("plans_xray") or {}).get("plans") or []}
+    plans_par_exe: dict = {}
+    for p in plans_connus.values():
+        for k in p.get("executions") or []:
+            plans_par_exe.setdefault(k, []).append(p["cle"])
+    brut = {e["cle"]: e for e in pat.get("executions") or []}
     for x in execs:
-        x.update({k: liens.get(x["cle"], {}).get(k) for k in ("campagne", "campagne_nom", "plan")}, runs_atelier=len(liens.get(x["cle"], {}).get("runs") or []))
+        lien, e = liens.get(x["cle"], {}), brut.get(x["cle"], {})
+        x.update({k: lien.get(k) for k in ("campagne", "campagne_nom")}, runs_atelier=len(lien.get("runs") or []))
+        # Test Plans : lus dans Xray (TestExecution.testPlans), sinon déduits des plans lus, sinon du run de l'atelier
+        cles = [p["cle"] for p in e.get("plans") or []] or plans_par_exe.get(x["cle"]) or ([lien["plan"]] if lien.get("plan") else [])
+        titres = {p["cle"]: p.get("resume") for p in e.get("plans") or []}
+        x["plans"] = [{"cle": k, "resume": titres.get(k) or (plans_connus.get(k) or {}).get("resume") or ""} for k in dict.fromkeys(cles)]
+        x["plan"] = x["plans"][0]["cle"] if x["plans"] else ""
+        fins = [r.get("fin") for r in (e.get("runs") or {}).values() if r.get("fin")]
+        x["assigne"] = e.get("assigne") or ""
+        x["fin"] = max(fins) if fins else (e.get("resolu") or "")
     tot = {k: sum(x[k] for x in execs) for k in ("reussi", "echec", "non_execute")}
     executes = tot["reussi"] + tot["echec"]
     imp = pat.get("executions_xray") or {}
@@ -775,7 +790,9 @@ def detail_execution_xray(cle: str) -> dict:
     automatises = {c for t in lire_depot()["tests"].values() for c in t.get("cles_xray") or []}
     lien = runs_par_execution().get(cle, {})
     return {**{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests_total", "incomplete")},
-            "campagne": lien.get("campagne", ""), "campagne_nom": lien.get("campagne_nom", ""), "plan": lien.get("plan", ""),
+            "campagne": lien.get("campagne", ""), "campagne_nom": lien.get("campagne_nom", ""),
+            **{k: v for k, v in (next((x for x in vue_xray()["recentes"] if x["cle"] == cle), None) or {"plans": [], "plan": lien.get("plan", ""), "assigne": e.get("assigne", ""), "fin": ""}).items()
+               if k in ("plans", "plan", "assigne", "fin")},
             "runs_atelier": lien.get("runs") or [],
             "runs": [{"test": k, "resume": resumes.get(k, ""), "statut": r.get("statut", ""), "fin": r.get("fin", ""), "modifiable": bool(r.get("id")),
                       "automatise": k in automatises} for k, r in sorted((e.get("runs") or {}).items())]}

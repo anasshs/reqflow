@@ -66,6 +66,7 @@
 
   /* indicateurs des Test Executions Xray (copie locale, tests de l'application sélectionnée) */
   const PERIODE = {choix: "30", depuis: "", jusqu: ""};
+  const jour = d => (d || "").slice(0, 16).replace("T", " ");
   const jourIso = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
   const bornes = () => PERIODE.choix === "tout" ? {depuis: "", jusqu: ""} : PERIODE.choix === "periode" ? {depuis: PERIODE.depuis, jusqu: PERIODE.jusqu}
     : {depuis: jourIso(+PERIODE.choix), jusqu: ""};
@@ -117,18 +118,30 @@
         ${kpi(k.tests_en_echec, "tests en échec (dernier statut)", "ko")}${kpi(k.tests_reussis, "tests réussis (dernier statut)", "ok")}
         ${kpi(k.tests_jamais_executes, "tests de l'app jamais exécutés")}${kpi(pct(k.part_automatisee), "part des runs automatisés")}</div>
       <div class="grille-strat"><section class="bloc-strat" style="grid-column:span 2"><h3>Par exécution (20 dernières)</h3><div style="display:flex;align-items:flex-end;gap:6px;height:110px">${x.tendance.map(t => `
-          <div title="${esc(t.cle)} : ${t.reussi} réussi(s), ${t.echec} échec(s), ${t.non_execute} non exécuté(s)" style="flex:1;max-width:48px;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+          <div data-barre="${esc(t.cle)}" class="cliquable" title="${esc(t.cle)} : ${t.reussi} réussi(s), ${t.echec} échec(s), ${t.non_execute} non exécuté(s)" style="flex:1;max-width:48px;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
             <span style="background:var(--muted);opacity:.35;height:${t.non_execute / max * 100}%"></span><span style="background:var(--ko);height:${t.echec / max * 100}%"></span><span style="background:var(--ok);height:${t.reussi / max * 100}%"></span></div>`).join("") || "<p class='lib'>Aucune exécution pour cette application.</p>"}</div></section>
         <section class="bloc-strat"><h3>Statuts Xray des runs</h3>${Object.entries(x.par_statut).map(([st, n]) => `<div><span class="pill ${classe(st)}">${esc(st)}</span> <b>${n}</b></div>`).join("") || "—"}</section></div>
       <h3 style="margin-top:12px">Exécutions de la période (${x.recentes.length}) <span class="lib" style="font-weight:normal">une Exécution = une Test Execution Xray · cliquer une ligne pour ses tests, ses statuts et ses runs</span></h3>
-      <table class="table-strat"><tr><th>Exécution</th><th>Résumé</th><th>Campagne · Test Plan</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th></th></tr>
-        ${(TOUTES ? x.recentes : x.recentes.slice(0, 20)).map(e => `<tr class="cliquable" data-vx="${esc(e.cle)}"><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}<div class="lib">${esc((e.cree || "").slice(0, 10))}</div></td>
-          <td>${e.campagne_nom ? esc(e.campagne_nom) : '<span class="lib">hors atelier</span>'}${e.plan ? `<div class="cle-xray">${esc(e.plan)}</div>` : ""}${e.runs_atelier ? `<div class="lib">${e.runs_atelier} run(s) atelier</div>` : ""}</td>
+      <table class="table-strat"><tr><th>Exécution</th><th>Résumé</th><th>Test Plan · Campagne</th><th>Assigné à</th><th>Créée → Fin</th><th>Environnements</th><th>Tests</th><th>Réussis</th><th>Échecs</th><th>Non exécutés</th><th>Réussite</th><th>Statut</th><th></th></tr>
+        ${(TOUTES ? x.recentes : x.recentes.slice(0, 20)).map(e => `<tr class="cliquable" data-vx="${esc(e.cle)}"><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.resume)}</td>
+          <td>${e.plans.length ? e.plans.map(p => `<div><span class="cle-xray">${esc(p.cle)}</span> ${esc(p.resume)}</div>`).join("") : '<span class="lib">sans Test Plan</span>'}
+            <div class="lib">${e.campagne_nom ? `campagne ${esc(e.campagne_nom)} · ${e.runs_atelier} run(s) atelier` : "hors atelier"}</div></td>
+          <td>${esc(e.assigne || "—")}</td>
+          <td class="lib" style="white-space:nowrap">${esc(jour(e.cree))}<br>→ ${e.fin ? esc(jour(e.fin)) : "en cours / non exécutée"}</td>
           <td class="lib">${esc(e.environnements.join(", ") || "—")}</td><td>${e.tests}${e.incomplete ? ` <span class="pill warn" title="${e.tests_total} tests dans Xray">/${e.tests_total}</span>` : ""}</td>
           <td class="ok-t">${e.reussi}</td><td class="ko-t">${e.echec}</td><td>${e.non_execute}</td><td>${pct(e.taux) ?? "—"}</td><td><span class="pill">${esc(e.statut)}</span></td>
           <td>${e.echec ? `<button class="btn petit" data-relance="${esc(e.cle)}" title="Nouveau run qui écrit dans ${esc(e.cle)}">${ico("rejouer")}Relancer les échecs</button>` : ""}</td></tr>`).join("")}</table>
       ${!TOUTES && x.recentes.length > 20 ? `<button class="btn petit" id="vx-toutes" style="margin-top:6px">Afficher les ${x.recentes.length} exécutions</button>` : ""}`}`;
     const recharger = (auto = true) => vueXray(z, auto);
+    $$("[data-barre]", bloc).forEach(bar => bar.onclick = () => {
+      let tr = $(`[data-vx="${CSS.escape(bar.dataset.barre)}"]`, bloc);
+      if (!tr && !TOUTES) { TOUTES = true; recharger(false); return; }
+      $$("[data-vx].surligne", bloc).forEach(x => { x.classList.remove("surligne"); x.style.background = ""; });
+      $$("[data-barre]", bloc).forEach(x => x.style.outline = "");
+      tr.classList.add("surligne"); tr.style.background = "var(--info-soft, rgba(37,99,235,.12))";
+      bar.style.outline = "2px solid var(--accent, #2563eb)";
+      tr.scrollIntoView({behavior: "smooth", block: "center"});
+    });
     $("#vx-per", bloc).onchange = e => { PERIODE.choix = e.target.value; if (PERIODE.choix !== "periode") recharger(); else $("#vx-dates", bloc).hidden = false; };
     if ($("#vx-d", bloc)) { $("#vx-d", bloc).onchange = e => { PERIODE.depuis = e.target.value; recharger(); }; $("#vx-f", bloc).onchange = e => { PERIODE.jusqu = e.target.value; recharger(); }; }
     $("#vx-actu", bloc).onclick = async () => { const b = $("#vx-actu", bloc); b.disabled = true; b.textContent = "Lecture des exécutions Xray…";
@@ -167,7 +180,8 @@
     const options = st => [...new Set([...(st ? [st] : []), ...sts])].map(v => `<option ${v === st ? "selected" : ""}>${esc(v)}</option>`).join("");
     const nbEchecs = d.runs.filter(r => /FAIL|ABORT|BLOCK/i.test(r.statut)).length;
     corps.innerHTML = `<p><b>${esc(d.resume || "")}</b> <span class="lib">${esc((d.cree || "").slice(0, 10))} · ${esc((d.environnements || []).join(", ") || "sans environnement")}</span></p>
-      <p class="lib">Test Execution Xray <span class="cle-xray">${esc(cle)}</span>${d.plan ? ` · Test Plan <span class="cle-xray">${esc(d.plan)}</span>` : ""} · ${d.campagne_nom ? `campagne <b>${esc(d.campagne_nom)}</b>` : "lancée hors atelier ou hors campagne"}</p>
+      <p class="lib">Test Execution Xray <span class="cle-xray">${esc(cle)}</span> · ${(d.plans || []).length ? `Test Plan ${d.plans.map(p => `<span class="cle-xray">${esc(p.cle)}</span> ${esc(p.resume)}`).join(", ")}` : "sans Test Plan"}
+        · ${d.campagne_nom ? `campagne <b>${esc(d.campagne_nom)}</b>` : "hors atelier"} · assignée à <b>${esc(d.assigne || "—")}</b> · créée ${esc(jour(d.cree))} → ${d.fin ? `fin ${esc(jour(d.fin))}` : "non terminée"}</p>
       <div class="btns" style="margin-bottom:8px"><button class="btn petit primaire" id="vx-rel-e" ${nbEchecs ? "" : "disabled"}>${ico("rejouer")}Relancer les échecs (${nbEchecs})</button>
         <button class="btn petit" id="vx-rel-t">${ico("play")}Relancer tous les tests automatisés</button><span class="lib">nouveau run, résultats écrits dans cette même exécution</span></div>
       <p style="display:flex;gap:8px;align-items:center">Statut Jira de l'exécution : <span class="pill" id="vx-st">${esc(d.statut || "—")}</span>

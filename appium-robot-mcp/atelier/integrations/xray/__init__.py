@@ -209,7 +209,11 @@ class XrayClient:
             out["absents"].append("getTestExecutions")
             return out
         champs = self._type_champs("TestExecution")
-        sel = ['issueId', 'jira(fields: ["key", "summary", "status", "created"])']
+        sel = ['issueId', 'jira(fields: ["key", "summary", "status", "created", "assignee", "resolutiondate"])']
+        if "testPlans" in champs:  # Test Plans de l'exécution, si le schéma l'expose
+            sel.append(("testPlans(limit: 10) " if "limit" in champs["testPlans"]["args"] else "testPlans ") + '{ results { jira(fields: ["key", "summary"]) } }')
+        else:
+            out["absents"].append("TestExecution.testPlans")
         if "testEnvironments" in champs:
             sel.append("testEnvironments")
         else:
@@ -250,7 +254,10 @@ class XrayClient:
             out["executions"].append({"cle": j.get("key"), "resume": j.get("summary") or "", "statut": (j.get("status") or {}).get("name", ""),
                                       "cree": j.get("created") or "", "issueId": x.get("issueId"), "environnements": x.get("testEnvironments") or [],
                                       "tests": [(t_.get("jira") or {}).get("key") for t_ in tests.get("results") or []] or sorted(runs),
-                                      "tests_total": tests.get("total") or (x.get("testRuns") or {}).get("total"), "runs": runs})
+                                      "tests_total": tests.get("total") or (x.get("testRuns") or {}).get("total"), "runs": runs,
+                                      "assigne": (j.get("assignee") or {}).get("displayName") or "", "resolu": j.get("resolutiondate") or "",
+                                      **({"plans": [{"cle": (p.get("jira") or {}).get("key"), "resume": (p.get("jira") or {}).get("summary") or ""}
+                                                    for p in (x.get("testPlans") or {}).get("results") or []]} if "testPlans" in x else {})})
         self._completer_runs(out, requete)
         return out
 
