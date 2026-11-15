@@ -700,4 +700,59 @@ def cerveau_question(question: str) -> dict:
     return cerveau.demander(question)
 
 
+# =========================================================================== Coverage Intelligence
+@outil
+def coverage_intelligence(vue: str = "overview") -> dict | list:
+    """Coverage Intelligence de l'application active. vue : « overview » (4 dimensions : documentaire, traçabilité,
+    exécution, automatisation), « documentation » (anomalies Jira), « reconstruction » (fonctionnalités observées et si
+    une exigence les documente), « liens » (rapprochements exigence ↔ test proposés), « manquants » (exigences sans test),
+    « orphelins » (tests sans exigence et candidats). Lecture seule."""
+    from atelier.intelligence import intelligence_couverture as ci
+
+    fn = {"overview": ci.vue, "documentation": ci.qualite_documentaire, "reconstruction": ci.capacites,
+          "liens": lambda: ci.propositions("lien_test"), "manquants": ci.tests_manquants, "orphelins": ci.orphelins}.get(vue)
+    if not fn:
+        raise ValueError("vue : overview, documentation, reconstruction, liens, manquants ou orphelins.")
+    return fn()
+
+
+@outil
+def coverage_proposer_story(capacite: str, je_souhaite: str, afin_de: str, criteres: list[dict], titre: str = "",
+                            en_tant_que: str = "utilisateur de l'application", epic: str = "") -> dict:
+    """Dépose une proposition de User Story reconstruite (id de fonctionnalité donné par coverage_intelligence("reconstruction")).
+    criteres : [{"texte": "...", "origine": "observe|deduit|ia|a_confirmer"}] ; n'invente pas de règle métier : ce qui
+    n'est pas observé est « a_confirmer ». L'automaticien valide ; la création Jira reste humaine."""
+    from atelier.intelligence import intelligence_couverture as ci
+
+    p = ci.proposer_story(capacite)
+    crit = [{"texte": str(c.get("texte", ""))[:300], "origine": c.get("origine") if c.get("origine") in ci.ORIGINES_CRITERE else "a_confirmer",
+             "ref": str(c.get("ref", ""))} for c in criteres or [] if c.get("texte")]
+    l = ci._charger()
+    x = next(y for y in l if y["id"] == p["id"])
+    x["contenu"].update({k: v for k, v in (("titre", titre), ("en_tant_que", en_tant_que), ("je_souhaite", je_souhaite), ("afin_de", afin_de), ("epic", epic)) if v})
+    x["contenu"]["criteres"] = crit or x["contenu"]["criteres"]
+    x["source"] = "cursor"
+    x["historique"].append({"date": ci._maintenant(), "auteur": "cursor", "action": "modifiee", "detail": "proposition de Cursor"})
+    ci._sauver(l)
+    return x
+
+
+@outil
+def coverage_proposer_lien(exigence: str, test: str, score: int, justification: list[str]) -> dict:
+    """Dépose une proposition de lien exigence ↔ test Xray (score 0-100, raisons). Jamais créé dans Jira / Xray sans
+    validation humaine puis synchronisation explicite dans l'atelier."""
+    from atelier.intelligence import intelligence_couverture as ci
+
+    d = ci._donnees()
+    if exigence not in d["exigences"] or test not in d["tests"]:
+        raise ValueError("Exigence (périmètre importé) ou test (tests de l'application) inconnu.")
+    l = ci._charger()
+    p = ci._ajouter(l, "lien_test", "cursor", exigence, test, max(0, min(100, int(score))), [str(j)[:300] for j in justification or []][:8],
+                    {"exigence": exigence, "exigence_resume": d["exigences"][exigence].get("resume", ""), "test": test,
+                     "test_resume": d["tests"][test].get("resume", ""), "decision": "à valider" if score >= 70 else "analyse nécessaire"},
+                    cle_unique=f"lien:{exigence}:{test}")
+    ci._sauver(l)
+    return p
+
+
 __all__ = [f.__name__ for f in OUTILS]

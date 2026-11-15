@@ -2930,6 +2930,37 @@ async def cerveau_question(req: Request):
     return await asyncio.to_thread(_call, cerveau.demander, (await req.json()).get("question", ""))
 
 
+# --------------------------------------------------------------------------- Coverage Intelligence (Test Strategy)
+@app.get("/api/ci/{section}")
+async def ci_lecture(section: str, type: str = "", statut: str = ""):
+    from atelier.intelligence import intelligence_couverture as ci
+
+    fn = {"vue": ci.vue, "documentation": ci.qualite_documentaire, "capacites": ci.capacites, "manquants": ci.tests_manquants,
+          "orphelins": ci.orphelins, "synchros": ci.synchronisations, "propositions": lambda: ci.propositions(type, statut)}.get(section)
+    if not fn:
+        raise HTTPException(404, "Section inconnue.")
+    return await asyncio.to_thread(_call, fn)
+
+
+@app.post("/api/ci/{action}")
+async def ci_action(action: str, req: Request):
+    """Propositions (jamais appliquées sans validation) et synchronisation explicite vers Jira / Xray."""
+    from atelier.intelligence import intelligence_couverture as ci
+
+    b = await req.json()
+    fn = {"story": lambda: ci.proposer_story(b.get("capacite", ""), bool(b.get("ia"))),
+          "criteres": lambda: ci.proposer_criteres(b.get("cle", ""), bool(b.get("ia"))),
+          "analyser-liens": lambda: ci.analyser_liens(),
+          "decider": lambda: ci.decider(b.get("id", ""), b.get("decision", ""), b.get("motif", ""), b.get("modifications") or {}),
+          "regrouper": lambda: ci.regrouper(b.get("ids") or [], b.get("titre", "")),
+          "synchroniser": lambda: ci.synchroniser(b.get("id", "")),
+          "test-design": lambda: ci.envoyer_vers_test_design(b.get("cle", "")),
+          "orphelin": lambda: ci.classer_orphelin(b.get("test", ""), b.get("classe", ""), b.get("cible", ""), b.get("justification", ""))}.get(action)
+    if not fn:
+        raise HTTPException(404, "Action inconnue.")
+    return await asyncio.to_thread(_call, fn)
+
+
 @app.get("/api/intelligence/{section}")
 async def intelligence_section(section: str):
     fn = {"vue": intelligence_app.vue_ensemble, "jira": intelligence_app.jira, "ecrans": intelligence_app.ecrans,

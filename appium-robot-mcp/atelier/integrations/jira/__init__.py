@@ -91,8 +91,8 @@ class JiraClient:
                 return [st["name"] for st in it.get("statuses", [])]
         return sorted({st["name"] for it in data for st in it.get("statuses", [])})
 
-    def creer_ticket(self, projet: str, resume: str, description: str, type_ticket: str = "") -> str:
-        """Crée un ticket (description en texte simple, une ligne = un paragraphe)."""
+    def creer_ticket(self, projet: str, resume: str, description: str, type_ticket: str = "", parent: str = "") -> str:
+        """Crée un ticket (description en texte simple, une ligne = un paragraphe) ; parent : Epic / Feature de rattachement."""
         if not self.enabled:
             raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")
         type_ticket = type_ticket or os.environ.get("JIRA_TYPE_TICKET_TAGS", "Task")
@@ -101,6 +101,8 @@ class JiraClient:
             for ligne in description.splitlines() if ligne.strip()]}
         body = {"fields": {"project": {"key": projet}, "summary": resume, "description": doc,
                            "issuetype": {"name": type_ticket}}}
+        if parent:
+            body["fields"]["parent"] = {"key": parent}
         r = json.loads(http("POST", f"{self.base}/rest/api/3/issue", json.dumps(body).encode(), self._h()))
         return r["key"]
 

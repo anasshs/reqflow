@@ -174,11 +174,22 @@ def vue() -> dict:
     app, _, _ = intelligence_app._ecrans_carte()
     slug = carte.app_courante() if carte.app_courante() else ""
     connues = sum(1 for s in srcs if s["fraicheur"] != "jamais")
+    lac = lacunes(srcs, mods, a_valider)
+    try:  # documentation Jira (Coverage Intelligence) : anomalies hautes signalées au cerveau
+        from atelier.intelligence import intelligence_couverture
+
+        doc = intelligence_couverture.qualite_documentaire()
+        hautes = sum(1 for x in doc if x["criticite"] == "haute")
+        if hautes:
+            lac.insert(0, {"priorite": 1, "sujet": "Documentation Jira", "texte": f"{len(doc)} anomalie(s), dont {hautes} haute(s) (Stories sans description ou critères, Epics vides…)",
+                           "action": "#strategie/coverage", "action_lib": "Coverage Intelligence"})
+    except Exception:  # noqa: BLE001
+        pass
     return {"application": {"slug": slug, "nom": app.get("nom") or slug, "plateformes": app.get("plateformes", []), "build": app.get("build", "")},
             "maturite": {"sources_alimentees": connues, "sources": len(srcs), "modules": len(mods), "modules_connus": sum(m["connu"] for m in mods),
                          "a_valider": a_valider,
                          "definition": "Sources alimentées : sources avec au moins une mise à jour ; module connu : au moins un écran ou un parcours dans la carte."},
-            "sources": srcs, "modules": mods, "lacunes": lacunes(srcs, mods, a_valider), "apprentissages": apprentissages(),
+            "sources": srcs, "modules": mods, "lacunes": lac, "apprentissages": apprentissages(),
             "ia": _ia_etat()}
 
 

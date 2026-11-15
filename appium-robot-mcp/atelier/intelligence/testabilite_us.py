@@ -348,6 +348,23 @@ def _integrer(d: dict, i: dict, e: dict, sp: dict | None, champ_crit: str, adf_v
     d[i["key"]] = u
 
 
+def importer_exigence(e: dict) -> dict:
+    """Exigence sans test venue de Coverage Intelligence → file « US à couvrir » de Test Design (même workflow :
+    cas proposés, revus, validés, puis publiés dans Xray selon le mapping). Ne touche pas une US déjà suivie."""
+    d = _us()
+    cle = e["cle"]
+    if cle not in d:
+        u = {"cle": cle, "espace": cle.split("-")[0], "resume": e.get("resume", ""), "description": e.get("description", ""),
+             "criteres_jira": "\n".join(f"- {c}" for c in e.get("criteres") or []), "statut_jira": e.get("statut_jira", ""), "assigne": "",
+             "maj_jira": "", "tests_lies": e.get("tests_lies") or [], "liens_ignores": [], "statut": "", "historique": [], "constats": [],
+             "questions": {}, "cas": [], "origine": "Coverage Intelligence"}
+        _changer(u, "Détectée", "exigence sans test (Coverage Intelligence)")
+        d[cle] = u
+        _sauver_us(d)
+        _journaliser("import_exigence", cle=cle, source="Coverage Intelligence")
+    return d[cle]
+
+
 def types_test() -> set[str]:
     """Nom(s) du type de ticket Test de Xray (XRAY_TEST_ISSUE_TYPE, virgules ; défaut « Test »), en minuscules."""
     return {t.strip().lower() for t in (os.environ.get("XRAY_TEST_ISSUE_TYPE") or "Test").split(",") if t.strip()}

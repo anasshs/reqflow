@@ -7,7 +7,8 @@
     ["vue", "Cerveau de l'application", [["vue", "Cerveau"]], "Ce que l'atelier sait de l'application, d'où, depuis quand, ce qui manque et quoi faire"],
     ["jira", "Ce qui est demandé", [["jira", "Exigences Jira"], ["regles", "Règles métier"], ["fonctionnel", "Graphe fonctionnel"]], "Epics, stories, critères d'acceptation et règles métier"],
     ["ecrans", "Ce qui existe", [["ecrans", "Écrans"], ["parcours", "Parcours"], ["api", "API"], ["carte", "Carte (graphe)"], ["technique", "Graphe technique"]], "Écrans observés, parcours, API et composants"],
-    ["exploration", "Apprendre", [["exploration", "Explorer"], ["validation", "À valider"], ["changements", "Changements"]], "Enrichir la connaissance : explorer, valider les propositions, voir les écarts"],
+    ["exploration", "Apprendre", [["exploration", "Explorer"], ["reconstruction", "Reconstruction fonctionnelle"], ["validation", "À valider"], ["changements", "Changements"]],
+      "Enrichir la connaissance : explorer, reconstruire les fonctionnalités non documentées, valider les propositions, voir les écarts"],
     ["impact", "Analyser l'impact", [["impact", "Impact"]], "Ce qui est touché si un écran, une règle ou un locator change"],
     ["historique", "Historique et versions", [["historique", "Historique"]], "Journal des connaissances et versions nommées du graphe"],
     ["parametres", "Réglages", [["parametres", "Réglages"]], "Réglages d'Application Intelligence"]];
@@ -32,7 +33,7 @@
       const z = $("#ai-contenu");
       try { await ({vue, jira, parcours, ecrans, api: liste("api", "API Intelligence", "Endpoints et entités déclarés ou importés depuis les contrats OpenAPI / Swagger du projet (api/*.yaml|json ; module par tag, stories par x-jira). Import Postman : à venir."),
         regles: liste("regles", "Business Rules", "Règles métier déclarées ou extraites des critères d'acceptation Jira (Jira Intelligence › « Proposer les règles métier ») ; provenance, ticket et extrait conservés, validation humaine obligatoire."),
-        exploration, changements, validation, historique, parametres}[R])(z); }
+        exploration, changements, validation, historique, parametres, reconstruction: z => window.CoverageIntelligence(z, "reconstruction")}[R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
   });

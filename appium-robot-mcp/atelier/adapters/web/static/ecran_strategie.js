@@ -5,7 +5,7 @@
   const MENU = [["vue", "Vue d'ensemble"], ["objectifs", "Objectifs"], ["perimetre", "Périmètre"], ["types_tests", "Types de tests"],
     ["niveaux", "Niveaux de tests"], ["environnements", "Environnements"], ["criteres", "Critères d'entrée et de sortie"],
     ["risques", "Risques et contraintes"], ["donnees", "Données de test"], ["outils", "Outils et intégrations"],
-    ["couverture", "Couverture et traçabilité"], ["plan", "Plan d'automatisation"], ["validation", "Validation et publication"],
+    ["couverture", "Couverture et traçabilité"], ["coverage", "Coverage Intelligence"], ["plan", "Plan d'automatisation"], ["validation", "Validation et publication"],
     ["historique", "Historique des versions"]];
   const COLONNES = {
     objectifs: ["nom", "categorie", "indicateur", "_cible", "_valeur", "_etat", "echeance", "responsable"],
@@ -72,7 +72,7 @@
     const z = $(".corps-strat");
     $(".panneau-strat").hidden = true;
     if (!E.existe) return creation(z);
-    const vues = {vue, couverture, plan, validation, historique};
+    const vues = {vue, couverture, coverage: z => window.CoverageIntelligence(z), plan, validation, historique};
     (vues[R] || rubrique)(z);
   }
 

@@ -163,7 +163,16 @@ def importer(jira=None) -> dict:
                                  "statut": (f.get("status") or {}).get("name", ""), "parent": (f.get("parent") or {}).get("key")}
             if parents[i["key"]]["parent"]:
                 a_lire.add(parents[i["key"]]["parent"])
-    return _fusionner_import(exigences, parents, r["jql"], tronque)
+    epics = {}
+    projets_ = sorted({k.split("-")[0] for k in exigences})
+    if projets_:  # Epics des projets du périmètre, même sans Story : détection « Epic sans Story » (Coverage Intelligence)
+        try:
+            for i in jira.rechercher(f"project in ({', '.join(projets_)}) AND issuetype = Epic", ["summary", "status", "description"], 500):
+                f = i.get("fields") or {}
+                epics[i["key"]] = {"cle": i["key"], "resume": f.get("summary") or "", "statut": (f.get("status") or {}).get("name", "")}
+        except Exception:  # noqa: BLE001 — type Epic absent ou JQL refusée : la détection est simplement indisponible
+            epics = {}
+    return _fusionner_import(exigences, parents, r["jql"], tronque, epics)
 
 
 def _est_test(issue: dict | None) -> bool:
@@ -172,7 +181,7 @@ def _est_test(issue: dict | None) -> bool:
     return nom in types
 
 
-def _fusionner_import(exigences: dict, parents: dict, jql: str, tronque: bool) -> dict:
+def _fusionner_import(exigences: dict, parents: dict, jql: str, tronque: bool, epics: dict | None = None) -> dict:
     """Comparaison avec l'import précédent : ajouts, sorties du périmètre (gardées, marquées), liens changés."""
     avant = _lire_json(_fichier("exigences.json"), {"exigences": {}})
     anciennes = avant.get("exigences") or {}
@@ -184,7 +193,8 @@ def _fusionner_import(exigences: dict, parents: dict, jql: str, tronque: bool) -
     date = _maintenant()
     for k in set(anciennes) - set(exigences):  # jamais de perte silencieuse
         exigences[k] = {**anciennes[k], "hors_perimetre": anciennes[k].get("hors_perimetre") or date}
-    data = {"date": date, "jql": jql, "tronque": tronque, "exigences": exigences, "parents": {**(avant.get("parents") or {}), **parents}}
+    data = {"date": date, "jql": jql, "tronque": tronque, "exigences": exigences, "parents": {**(avant.get("parents") or {}), **parents},
+            "epics": epics if epics is not None else avant.get("epics") or {}}
     _ecrire_json(_fichier("exigences.json"), data)
     bilan = {"date": date, "jql": jql, "exigences": sum(1 for e in exigences.values() if not e.get("hors_perimetre")),
              "ajoutees": ajoutees, "sorties_du_perimetre": sorties, "liens_modifies": liens_changes, "tronque": tronque}

@@ -35,6 +35,7 @@ def construire(avec_declarations: bool = True, inventaire: dict | None = None) -
     _depuis_depot(g, inv)
     _depuis_jdd(g)
     _depuis_patrimoine(g, patrimoine_xray.charger_vue())
+    _depuis_couverture(g)
     _depuis_openapi(g)
     _resultats(g, derniers_resultats())
     if avec_declarations:
@@ -225,6 +226,38 @@ def _depuis_jdd(g: Graphe):
         if n.type == "jdd" and not n.proprietes.get("environnements"):
             n.proprietes["non_defini"] = True
             n.confiance = 0.3
+
+
+def _depuis_couverture(g: Graphe):
+    """Exigences du périmètre importées pour la couverture (y compris celles SANS test), leurs parents et leurs liens
+    natifs vers les tests : la vue Coverage Graph montre aussi ce qui n'est pas couvert."""
+    try:
+        from atelier.intelligence import couverture_exigences
+
+        src = couverture_exigences._lire_json(couverture_exigences._fichier("exigences.json"), {})
+    except Exception:  # noqa: BLE001 — import jamais fait : rien à ajouter
+        return
+    if not src.get("exigences"):
+        return
+    s = f"exigences Jira ({str(src.get('date', '?'))[:16]})"
+    for k, p in (src.get("parents") or {}).items():
+        typ = "epic" if (p.get("type_jira") or "").lower() in ("epic", "épopée") or not p.get("parent") else "fonctionnalite"
+        if f"epic:{k}" not in g.noeuds and f"fonctionnalite:{k}" not in g.noeuds:
+            g.noeud(f"{typ}:{k}", typ, f"{k} {p.get('resume') or ''}".strip(), source=s, proprietes={"cle": k, "resume": p.get("resume"), "statut": p.get("statut")})
+    trouver = lambda k: next((f"{t}:{k}" for t in ("epic", "fonctionnalite", "user_story") if f"{t}:{k}" in g.noeuds), None)  # noqa: E731
+    for k, e in (src.get("exigences") or {}).items():
+        if e.get("hors_perimetre"):
+            continue
+        nid = trouver(k) or g.noeud(f"user_story:{k}", "user_story", f"{k} {e.get('resume') or ''}".strip(), source=s,
+                                    proprietes={"cle": k, "resume": e.get("resume"), "statut": e.get("statut"), "description": (e.get("description") or "")[:500]}).id
+        if e.get("parent") and trouver(e["parent"]):
+            g.relier(trouver(e["parent"]), nid, "contient", source=s)
+        for t in e.get("tests_jira") or []:
+            if f"test:{t}" in g.noeuds:
+                g.relier(nid, f"test:{t}", "teste_par", source=s)
+    for k, p in (src.get("parents") or {}).items():
+        if p.get("parent") and trouver(p["parent"]) and trouver(k):
+            g.relier(trouver(p["parent"]), trouver(k), "contient", source=s)
 
 
 def _depuis_patrimoine(g: Graphe, pat: dict | None):
