@@ -250,3 +250,14 @@ et exécutés contre un faux serveur local, résultats dans le journal Xray.
 - [ ] Indicateurs exportables (Grafana) : taux d'autonomie, coût et temps par test, instabilité.
 **Acceptation** : scénarios d'échec simulés pour chaque catégorie → bonne qualification avec preuves,
 aucune MR proposée avant 3 passages stables, aucune modification silencieuse.
+
+## V2 — Workbench piloté par Cursor (cahier : docs/CAHIER_V2.md)
+- [x] Phase 0 — Audit de l'existant : matrice EXISTANT / À AMÉLIORER / À CRÉER, 76 outils MCP classés (docs/V2_AUDIT_PHASE0.md)
+- [ ] Phase 0 bis — Validation côté serveur des outils MCP d'écriture (jira_transition, import_results_to_xray, qualify_failure, transitions de run_robot, fusion d'écrans / remplacement de locator, tap / type_text hors Discovery)
+- [ ] Phase 1 — Parcours de fonctionnalité (web + MCP)
+- [ ] Phase 2 — Cursor Integration (règles structurées, versionnement, export, configuration MCP)
+- [ ] Phase 3 — Coverage avancé (parcours, composants UI, niveaux de couverture)
+- [ ] Phase 4 — Test Design avancé (catégories de scénarios, doublons)
+- [ ] Phase 5 — Knowledge Graph (Champ, Anomalie)
+- [ ] Phase 6 — Failure Analysis (liens échecs ↔ écrans, composants, champs, anomalies)
+- [ ] Phase 7 — Consolidation (non-régression, intégration MCP, sécurité)
