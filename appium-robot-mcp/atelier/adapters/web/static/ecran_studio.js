@@ -68,7 +68,23 @@
         <div class="grille-strat">${barres("Locators par état", v.locators_par_etat)}${barres("Scripts par statut de revue", v.scripts_par_statut)}
           ${barres("Tests par plateforme", v.tests_par_plateforme)}${barres("Réutilisation des keywords", v.keywords_reutilisation)}
           <section class="bloc-strat"><h3>Activité</h3><ul class="liste">${v.activite.map(a => `<li><span class="mono lib">${esc(a.date.slice(5, 16).replace("T", " "))}</span><span class="item">${esc(a.op.replace(/_/g, " "))} ${esc(a.fichier || a.nom || a.locator || "")} ${a.vers ? "→ " + esc(LIB[a.vers] || a.vers) : ""}</span></li>`).join("") || "<li class='lib'>Aucune activité.</li>"}</ul></section></div>
-        <p class="lib">Historique de la couverture dans le temps et activité de génération IA : alimentés à mesure des générations et des runs (aucune valeur reconstituée).</p></div>`;
+        <section class="bloc-strat" style="margin-top:12px"><h3>Évolution dans le temps</h3>${courbes(v.tendance)}</section>
+        <p class="lib">${v.roles.actifs ? `Rôles actifs : vous êtes <b>${esc(v.roles.utilisateur)}</b> (${esc(v.roles.role)})${v.roles.quatre_yeux ? " · quatre yeux en revue" : ""}.`
+          : `Rôles non activés : tout le monde peut tout faire (<a href="#studio/parametres">activer les rôles</a>).`}</p></div>`;
+  }
+
+  /* courbes SVG des relevés quotidiens (un point par jour réellement relevé ; rien n'est reconstitué) */
+  function courbes(t) {
+    if (!t || t.length < 2) return `<p class="lib">Un relevé par jour est enregistré à l'ouverture du tableau de bord : la courbe apparaît dès le 2e jour (${(t || []).length} relevé).</p>`;
+    const W = 640, H = 140, series = [["tests_automatises", "tests automatisés", "var(--ok)"], ["couverture_automatisee", "couverture automatisée (%)", "var(--info, #2563eb)"],
+      ["locators_a_corriger", "locators à corriger", "var(--ko)"]];
+    const x = i => 30 + i * (W - 40) / (t.length - 1);
+    const lignes = series.map(([k, l, c]) => { const vals = t.map(p => p[k] ?? 0), max = Math.max(1, ...vals);
+      return `<polyline fill="none" stroke="${c}" stroke-width="2" points="${vals.map((v, i) => `${x(i)},${H - 20 - v / max * (H - 40)}`).join(" ")}"><title>${esc(l)}</title></polyline>`
+        + vals.map((v, i) => `<circle cx="${x(i)}" cy="${H - 20 - v / max * (H - 40)}" r="3" fill="${c}"><title>${esc(t[i].jour)} · ${esc(l)} : ${v}</title></circle>`).join(""); }).join("");
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px" role="img" aria-label="Évolution des indicateurs">${lignes}
+      <text x="30" y="${H - 4}" font-size="10" fill="currentColor">${esc(t[0].jour)}</text><text x="${W - 10}" y="${H - 4}" font-size="10" text-anchor="end" fill="currentColor">${esc(t[t.length - 1].jour)}</text></svg>
+      <div class="lib">${series.map(([, l, c]) => `<span style="color:${c}">●</span> ${esc(l)}`).join(" · ")} (chaque courbe à sa propre échelle ; survoler un point pour la valeur)</div>`;
   }
 
   /* ------------------------------------------------------------------ 2 candidats */
@@ -156,9 +172,33 @@
     const [kws, jdd] = await Promise.all([api("/api/studio/keywords"), Atelier.env ? api("/api/jdd/" + encodeURIComponent(Atelier.env)).catch(() => ({jeux: []})) : {jeux: []}]);
     const cats = [...new Set(kws.map(k => k.categorie))];
     const rendre = () => {
-      $("#bd-etapes").innerHTML = ETAPES.map((e, n) => `<li class="bd-etape"><select class="in" data-mot="${n}" style="width:90px">${["Given", "When", "Then", "And"].map(m => `<option ${m === e.mot ? "selected" : ""}>${m}</option>`).join("")}</select>
-        <span class="item">${esc(e.keyword)}</span><button class="icone" data-haut="${n}" title="Monter">${ico("haut")}</button><button class="icone" data-bas="${n}" title="Descendre">${ico("bas")}</button>
-        <button class="icone" data-suppr="${n}" title="Retirer">${ico("x")}</button></li>`).join("") || "<li class='lib'>Cliquer un keyword de la palette pour l'ajouter.</li>";
+      let niveau = 0;
+      const champ = (n, k, ph, w = 220) => `<input class="in mono" data-champ="${n}" data-k="${k}" value="${esc(ETAPES[n][k] || "")}" placeholder="${esc(ph)}" style="width:${w}px">`;
+      $("#bd-etapes").innerHTML = ETAPES.map((e, n) => {
+        const t = e.type || "keyword";
+        if (["fin", "sinon", "sinon_si", "echec", "finalement"].includes(t)) niveau = Math.max(0, niveau - 1);
+        const retrait = `margin-left:${niveau * 22}px`;
+        if (["si", "pour", "essayer"].includes(t) || ["sinon", "sinon_si", "echec", "finalement"].includes(t)) niveau++;
+        const outils = `<button class="icone" data-haut="${n}" title="Monter">${ico("haut")}</button><button class="icone" data-bas="${n}" title="Descendre">${ico("bas")}</button>
+          <button class="icone" data-suppr="${n}" title="Retirer">${ico("x")}</button>`;
+        if (t === "keyword") return `<li class="bd-etape" style="${retrait}"><select class="in" data-mot="${n}" style="width:90px" title="Mot-clé Gherkin">${["Given", "When", "Then", "And"].map(m => `<option ${m === e.mot ? "selected" : ""}>${m}</option>`).join("")}</select>
+          <span class="item">${esc(e.keyword)}</span>${champ(n, "args", "arguments (séparés par |)", 160)}
+          <button class="btn petit" data-isoler="${n}" title="Exécute seulement cette étape (INITIALISATION + jeu de données, puis ce keyword) dans une suite temporaire, via la file d'exécution">${ico("play")}Exécuter</button>${outils}</li>`;
+        const L = {si: "SI", sinon_si: "SINON SI", sinon: "SINON", pour: "POUR", essayer: "ESSAYER", echec: "EN CAS D'ÉCHEC", finalement: "FINALEMENT", fin: "FIN"}[t];
+        const extra = t === "si" || t === "sinon_si" ? champ(n, "condition", "${DONNEES.type} == 'externe'")
+          : t === "pour" ? `${champ(n, "variable", "${montant}", 110)} dans ${champ(n, "liste", "@{DONNEES.montants} ou RANGE 3", 200)}`
+          : t === "echec" ? champ(n, "motif", "motif d'erreur (optionnel)", 180) : "";
+        return `<li class="bd-etape" style="${retrait};background:var(--violet-soft, rgba(124,58,237,.08))"><b class="mono" style="width:120px">${L}</b>${extra}<span class="item"></span>${outils}</li>`;
+      }).join("") || "<li class='lib'>Cliquer un keyword de la palette pour l'ajouter ; les blocs SI / POUR / ESSAYER s'ajoutent avec les boutons au-dessus.</li>";
+      $$("[data-champ]").forEach(x => x.oninput = () => { ETAPES[+x.dataset.champ][x.dataset.k] = x.value; });
+      $$("[data-isoler]").forEach(x => x.onclick = async () => {
+        const e = ETAPES[+x.dataset.isoler];
+        if (!$("#bd-jdd").value) return toast("Choisir un jeu de données (environnement du header).", "ko");
+        if (!confirm(`Exécuter seulement « ${e.keyword} » (jeu ${$("#bd-jdd").value}, plateforme ${Atelier.plateforme || "web"}) ? L'application est réellement pilotée.`)) return;
+        try { const r = await api("/api/studio/etape", {method: "POST", body: {keyword: e.keyword, jdd: $("#bd-jdd").value, arguments: (e.args || "").split("|").map(a => a.trim()).filter(Boolean),
+            plateforme: Atelier.plateforme || "web", env: Atelier.env || ""}});
+          toast(`${r.run_id} ${r.etat === "Queued" ? "en file d'attente" : "démarré"} : étape isolée.`, "ok"); }
+        catch (err) { toast(err.message, "ko"); } });
       $$("[data-mot]").forEach(x => x.onchange = () => { ETAPES[+x.dataset.mot].mot = x.value; });
       $$("[data-haut]").forEach(x => x.onclick = () => { const n = +x.dataset.haut; if (n) [ETAPES[n - 1], ETAPES[n]] = [ETAPES[n], ETAPES[n - 1]]; rendre(); });
       $$("[data-bas]").forEach(x => x.onclick = () => { const n = +x.dataset.bas; if (n < ETAPES.length - 1) [ETAPES[n + 1], ETAPES[n]] = [ETAPES[n], ETAPES[n + 1]]; rendre(); });
@@ -173,12 +213,18 @@
             <div class="champ"><label for="bd-jdd">Jeu de données *</label><select class="in" id="bd-jdd">${(jdd.jeux || []).map(j => `<option>${esc(j.jeu)}</option>`).join("")}</select></div>
             <div class="champ"><label for="bd-tags">Tags</label><input class="in" id="bd-tags" placeholder="smoke, e2e"></div></div>
           <p class="lib">INITIALISATION (Initialiser Le Test + JDD) ajoutée automatiquement ; seules les étapes Gherkin se composent ici.</p>
+          <div class="btns" style="margin:6px 0">${[["si", "SI", "Bloc conditionnel IF … END"], ["sinon_si", "SINON SI", "Autre condition dans le SI ouvert"], ["sinon", "SINON", "Branche ELSE du SI ouvert"],
+            ["pour", "POUR", "Boucle FOR … IN / IN RANGE … END"], ["essayer", "ESSAYER", "Bloc TRY … EXCEPT … END (Robot 5+)"], ["echec", "EN CAS D'ÉCHEC", "Branche EXCEPT du ESSAYER ouvert"],
+            ["finalement", "FINALEMENT", "Branche FINALLY du ESSAYER ouvert"], ["fin", "FIN", "Ferme le dernier bloc ouvert (END)"]]
+            .map(([t, l, ti]) => `<button class="btn petit" data-bloc="${t}" title="${esc(ti)}">${l}</button>`).join("")}</div>
           <ol class="liste" id="bd-etapes"></ol>
           <div class="btns"><button class="btn" id="bd-prev" title="Affiche le fichier Robot et le résultat du lint ; rien n'est écrit">${ico("editeur")}Prévisualiser</button><button class="btn primaire" id="bd-ecrire" title="Écrit le test dans le dépôt (jamais d'écrasement) ; il entre en revue technique « Généré »">${ico("disque")}Écrire le test</button></div><div id="bd-res"></div></section></div>
-      <p class="lib" style="margin-top:10px">Le Builder n'assemble que des keywords existants (réutilisation, pas de wrapper 1:1) ; un keyword manquant se crée d'abord dans le socle (Code Editor ou génération BDD). Blocs If / For / Try : à venir.</p></div>`;
+      <p class="lib" style="margin-top:10px">Le Builder n'assemble que des keywords existants (réutilisation, pas de wrapper 1:1) ; un keyword manquant se crée d'abord dans le socle (Code Editor ou génération BDD). Blocs SI / POUR / ESSAYER : contrôle d'équilibre à la prévisualisation ; « Exécuter » sur une étape lance ce seul keyword.</p></div>`;
     $$(".bd-kw", z).forEach(b => b.onclick = () => { ETAPES.push({mot: ETAPES.length ? "When" : "Given", keyword: b.dataset.kw}); rendre(); });
+    $$("[data-bloc]", z).forEach(b => b.onclick = () => { ETAPES.push({type: b.dataset.bloc}); rendre(); });
     $("#bd-q").oninput = e => $$(".bd-kw", z).forEach(b => { b.hidden = !b.dataset.kw.toLowerCase().includes(e.target.value.toLowerCase()); });
-    const corps = ecrire => ({nom: $("#bd-nom").value.trim(), cle_xray: $("#bd-cle").value.trim(), jdd: $("#bd-jdd").value, tags: $("#bd-tags").value.split(",").map(x => x.trim()).filter(Boolean), etapes: ETAPES, ecrire});
+    const corps = ecrire => ({nom: $("#bd-nom").value.trim(), cle_xray: $("#bd-cle").value.trim(), jdd: $("#bd-jdd").value, tags: $("#bd-tags").value.split(",").map(x => x.trim()).filter(Boolean),
+      etapes: ETAPES.map(e => (e.type || "keyword") === "keyword" ? {...e, arguments: (e.args || "").split("|").map(a => a.trim()).filter(Boolean)} : e), ecrire});
     const envoyer = async ecrire => {
       try { const r = await api("/api/studio/builder", {method: "POST", body: corps(ecrire)});
         $("#bd-res").innerHTML = `<p class="lib">${esc(r.fichier)} ${r.lint.ok ? '<span class="pill ok">lint OK</span>' : `<span class="pill ko">${r.lint.problemes.length} problème(s)</span>`}${r.ecrit ? ' <span class="pill info">écrit · revue technique : Généré</span>' : r.existe ? ' <span class="pill warn">le fichier existe : écriture refusée</span>' : ""}</p><pre class="code-bloc">${esc(r.contenu)}</pre>`;
@@ -211,7 +257,19 @@
           <td class="lib">${x.derniere_verification ? `${esc(x.derniere_verification.date.slice(0, 16).replace("T", " "))} · ${x.derniere_verification.trouve ? "trouvé" : "introuvable"}` : "—"}</td>
           <td>${x.valeur ? `<button class="btn petit" data-test="${esc(x.id)}" data-val="${esc(x.valeur)}" title="Cherche ce locator sur la session ouverte (device ou navigateur) ; résultat journalisé">Tester</button>` : ""} ${x.fichier ? `<a class="btn petit" href="#editeur/${encodeURIComponent(x.fichier)}" title="Ouvre le fichier de locators dans l'éditeur">Fichier</a>` : ""}</td></tr>`).join("")}</table>
         <p class="lib" style="margin-top:10px">État : Stable (identifiant technique), Reliable (css, rôle, prédicat), Fragile (texte, xpath, index), Obsolete (écran cartographié où la valeur n'est plus observée), Missing (référencé dans un keyword mais non défini).
-          Tester = sur la session ouverte (device ou navigateur), journalisé. Utilisation des secours à l'exécution et correction assistée : phase 7 (validation humaine obligatoire).</p></div>`;
+          Tester = sur la session ouverte (device ou navigateur), journalisé.</p>
+        <section class="bloc-strat" style="margin-top:12px"><h3>Corrections proposées</h3><div id="lo-cor" class="lib">Analyse des runs et de la carte…</div></section></div>`;
+    api("/api/studio/locators/corrections").then(c => {
+      $("#lo-cor").innerHTML = c.length ? `<table><tr><th>Locator</th><th>Actuel</th><th>Proposé</th><th>Source</th><th></th></tr>${c.map((x, i) => `<tr><td class="mono">${esc(x.id)}</td>
+        <td class="mono">${esc(x.valeur)} ${pill(x.etat)}</td><td>${x.proposition ? `<input class="in mono" data-prop="${i}" value="${esc(x.proposition)}" style="width:240px"> ${pill(x.fiabilite_proposee)}` : '<span class="lib">aucune source fiable : corriger dans l\'éditeur</span>'}</td>
+        <td class="lib">${esc(x.source || (x.secours_utilises ? "" : "fragile, aucun secours utilisé ni valeur stable observée"))}</td>
+        <td>${x.proposition ? `<button class="btn petit primaire" data-corr="${i}" title="Remplace la valeur dans ${esc(x.fichier)} (historique de l'éditeur). Les suites concernées repassent en revue ; fiabilité confirmée après 3 runs stables.">Appliquer</button>` : ""}</td></tr>`).join("")}</table>`
+        : "Aucune correction à proposer : aucun locator fragile ou obsolète, aucun secours utilisé dans les derniers runs.";
+      $$("[data-corr]", z).forEach(b => b.onclick = async () => { const x = c[+b.dataset.corr], val = $(`[data-prop="${b.dataset.corr}"]`, z).value.trim();
+        if (!confirm(`${x.id}\n\navant : ${x.valeur}\naprès : ${val}\n\nAppliquer dans ${x.fichier} ?`)) return;
+        try { const r = await api("/api/studio/locators/corriger", {method: "POST", body: {id: x.id, valeur: val}}); toast(`Locator corrigé. ${r.suite}`, "ok"); locators(z); }
+        catch (e) { toast(e.message, "ko"); } });
+    }).catch(e => { $("#lo-cor").textContent = e.message; });
     $("#lo-e").onchange = e => { F.etat = e.target.value; locators(z); };
     $("#lo-p").onchange = e => { F.plat = e.target.value; locators(z); };
     $("#lo-q").onchange = e => { F.q = e.target.value; locators(z); };
@@ -229,7 +287,21 @@
         ${l.map(k => `<tr><td>${esc(k.categorie)}</td><td><a href="#editeur/${encodeURIComponent(k.fichier)}"><b>${esc(k.nom)}</b></a><div class="lib">${esc(k.fichier)}:${k.ligne}</div></td>
           <td class="lib">${esc(k.documentation || "—")}</td><td>${esc(k.plateformes.join(", ") || "—")}</td><td class="lib">${esc(k.locators.join(", ") || "—")}</td><td class="lib">${esc(k.jdd.join(", ") || "—")}</td>
           <td>${k.utilisations}</td><td>${k.doublon ? '<span class="pill warn">doublon</span> ' : ""}${k.inutilise ? '<span class="pill">inutilisé</span> ' : ""}${k.wrapper_1_1 ? '<span class="pill warn">wrapper 1:1</span>' : ""}</td></tr>`).join("")}</table>
-        <p class="lib" style="margin-top:10px">Règle : un keyword représente une action réutilisable, jamais un bouton (wrapper 1:1 signalé). Factorisation proposée par l'IA : à venir, avec validation.</p></div>`;
+        <p class="lib" style="margin-top:10px">Règle : un keyword représente une action réutilisable, jamais un bouton (wrapper 1:1 signalé). Factorisation : proposition, puis application validée (historique de l'éditeur, suites repassées en revue).</p>
+      <section class="bloc-strat" style="margin-top:12px"><h3>Factorisation <button class="btn petit" id="kw-ia" title="Demande à l'IA configurée un avis sur chaque groupe (rien n'est appliqué)">Avis de l'IA</button></h3><div id="kw-fact" class="lib">Recherche des doublons…</div></section></div>`;
+    const factorisation = ia => api("/api/studio/keywords/factorisation" + (ia ? "?ia=true" : "")).then(g => {
+      $("#kw-fact").innerHTML = g.length ? g.map((x, i) => `<div class="bloc-strat" style="margin:6px 0"><b>${esc(x.raison)}</b> : garder <span class="mono">${esc(x.garder.nom)}</span> (${esc(x.garder.fichier)}),
+        remplacer ${x.remplacer.map(r => `<span class="mono">${esc(r.nom)}</span> (${esc(r.fichier)}:${r.ligne}, ${r.utilisations} appel(s))`).join(", ")}
+        ${x.avis_ia ? `<p class="lib">IA : ${esc(x.avis_ia)}</p>` : ""}
+        ${x.applicable ? `<button class="btn petit primaire" data-fact="${i}" title="Renomme les appels vers le keyword gardé et retire les définitions en double ; chaque fichier passe par l'éditeur (historique)">Appliquer</button>` : '<span class="lib">corps différents : à trancher dans l\'éditeur</span>'}</div>`).join("")
+        : "Aucun doublon : chaque keyword a un corps et un nom uniques.";
+      $$("[data-fact]", z).forEach(b => b.onclick = async () => { const x = g[+b.dataset.fact];
+        if (!confirm(`Garder « ${x.garder.nom} » et retirer ${x.remplacer.map(r => r.nom + " (" + r.fichier + ")").join(", ")} ?`)) return;
+        try { const r = await api("/api/studio/keywords/factoriser", {method: "POST", body: {id: x.id}}); toast(`${r.fichiers.length} fichier(s) modifié(s) ; suites à repasser en revue.`, "ok"); keywords(z); }
+        catch (e) { toast(e.message, "ko"); } });
+    }).catch(e => { $("#kw-fact").textContent = e.message; });
+    factorisation(false);
+    $("#kw-ia").onclick = () => { $("#kw-fact").textContent = "Avis de l'IA…"; factorisation(true); };
   }
 
   async function pages(z) {
@@ -247,7 +319,36 @@
       <li>Base Oracle : requêtes SELECT en liste blanche (data/jdd/requetes.yaml), paramètres liés, délai et nombre de lignes plafonnés, compte en lecture seule.</li>
       <li>Fichier de variables résolues : écrit dans le dossier du run uniquement, jamais dans le dépôt.</li>
       <li>Prérequis vérifiés avant chaque run (« bloqué données » sinon) ; aucune requête destructive possible.</li></ul>
-      <p class="lib">Import CSV / JSON et API de préparation : à venir.</p></div>`;
+      <section class="bloc-strat" style="margin-top:12px"><h3>Importer des jeux (CSV ou JSON)</h3>
+        <p class="lib">CSV : colonnes <code>jeu</code>, <code>description</code> puis un champ par colonne (séparateur ; , ou tabulation). JSON : <code>{"JEU": {"description": "…", "donnees": {…}}}</code>.
+          Valeurs sensibles (mot de passe, jeton, IBAN…) : <code>{{env:VARIABLE}}</code> obligatoire.</p>
+        <div class="btns"><label class="lib" for="dn-env">Environnement</label><input class="in" id="dn-env" value="${esc(Atelier.env || "recette")}" style="width:140px" title="Fichier data/jdd/<environnement>.yaml">
+          <input type="file" id="dn-f" accept=".csv,.json,text/csv,application/json" title="Fichier CSV ou JSON des jeux de données">
+          <label title="Autorise le remplacement des jeux qui existent déjà"><input type="checkbox" id="dn-ec"> remplacer les jeux existants</label>
+          <button class="btn" id="dn-ap" title="Contrôle le fichier sans rien écrire : jeux nouveaux, remplacés, erreurs">Aperçu</button>
+          <button class="btn primaire" id="dn-ok" title="Écrit les jeux dans data/jdd/<environnement>.yaml (historique de l'éditeur)">${ico("disque")}Importer</button></div><div id="dn-res" class="lib"></div></section>
+      <section class="bloc-strat" style="margin-top:12px"><h3>API de préparation des données</h3>
+        <p class="lib">Déclarées dans <code>data/jdd/api.yaml</code> (méthode GET / POST / PUT, URL HTTPS, secrets <code>{{env:…}}</code>, environnements autorisés, champs extraits) ; utilisées en prérequis d'un jeu
+          (<code>- api: NOM</code>) puis <code>{{api:NOM.champ}}</code>. Jamais sur la production.</p><div id="dn-api">Chargement…</div></section></div>`;
+    const lireFichier = () => new Promise((ok, ko) => { const f = $("#dn-f").files[0]; if (!f) return ko(new Error("Choisir un fichier CSV ou JSON."));
+      const r = new FileReader(); r.onload = () => ok({contenu: r.result, format: /\.json$/i.test(f.name) ? "json" : "csv"}); r.onerror = () => ko(new Error("Lecture impossible.")); r.readAsText(f, "utf-8"); });
+    const importer = async ecrire => { try { const f = await lireFichier();
+      const r = await api("/api/donnees/importer", {method: "POST", body: {env: $("#dn-env").value.trim(), ...f, ecraser: $("#dn-ec").checked, ecrire}});
+      $("#dn-res").innerHTML = `${Object.keys(r.jeux).length} jeu(x) : ${Object.entries(r.jeux).map(([n, j]) => `<b>${esc(n)}</b> (${esc(j.champs.join(", "))})`).join(" · ")}
+        ${r.nouveaux.length ? `<br>nouveaux : ${esc(r.nouveaux.join(", "))}` : ""}${r.remplaces.length ? `<br>remplacés : ${esc(r.remplaces.join(", "))}` : ""}
+        ${r.erreurs.length ? `<ul class="ko-t">${r.erreurs.map(e => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}${r.ecrit ? `<br><span class="ok-t">Écrit dans ${esc(r.fichier)}.</span>` : ""}`;
+      if (r.ecrit) toast("Jeux importés.", "ok"); else if (ecrire && r.erreurs.length) toast("Import refusé : corriger les erreurs.", "ko"); } catch (e) { toast(e.message, "ko"); } };
+    $("#dn-ap").onclick = () => importer(false);
+    $("#dn-ok").onclick = () => importer(true);
+    api("/api/donnees/apis").then(a => { const n = Object.keys(a);
+      $("#dn-api").innerHTML = n.length ? `<table><tr><th>Appel</th><th>Méthode</th><th>Environnements</th><th>Champs extraits</th><th></th></tr>${n.map(k => `<tr><td><b>${esc(k)}</b><div class="lib">${esc(a[k].description || "")}</div></td>
+        <td>${esc(a[k].methode || "GET")}</td><td>${esc((a[k].environnements || []).join(", ") || "aucun")}</td><td class="mono">${esc(Object.keys(a[k].extraire || {}).join(", "))}</td>
+        <td><button class="btn petit" data-api="${esc(k)}" title="Appel réel sur l'environnement saisi au-dessus (peut créer des données) ; les valeurs sensibles sont masquées">Tester l'appel</button></td></tr>`).join("")}</table>`
+        : "<p class='lib'>Aucun appel déclaré (data/jdd/api.yaml absent).</p>";
+      $$("[data-api]", z).forEach(b => b.onclick = async () => { const env = $("#dn-env").value.trim();
+        if (!confirm(`Appeler réellement « ${b.dataset.api} » sur ${env} ?`)) return;
+        try { const r = await api("/api/donnees/apis/tester", {method: "POST", body: {env, nom: b.dataset.api}}); toast(`${r.api} : ${Object.entries(r.valeurs).map(([k, v]) => k + "=" + v).join(", ")}`, "ok"); }
+        catch (e) { toast(e.message, "ko"); } }); }).catch(e => { $("#dn-api").textContent = e.message; });
   }
 
   /* ------------------------------------------------------------------ 11 frameworks, 13 git */
@@ -352,6 +453,23 @@
         <li>INITIALISATION avec &amp;{JDD_&lt;NOM&gt;} ; tags clé Xray + tags fonctionnels ; pas de donnée littérale.</li><li>Dossiers : tests/, resources/socle, resources/locators, data/jdd.</li></ul></section>
       <section class="bloc-strat"><h3>IA, Git, Xray</h3><dl class="props"><dt>IA</dt><dd>${Atelier.ctx.agent_integre ? "clé présente (CLAUDE_MODEL)" : "désactivée"} · validation humaine obligatoire</dd>
         <dt>Git</dt><dd>branche et commit local (branches protégées refusées, suites approuvées uniquement) ; push et merge request GitLab depuis « Revue et publication › Git et merge request » (suites approuvées et stables, dérogation justifiée sinon)</dd><dt>Xray</dt><dd><a href="#conception/mapping">Mapping (Test Design)</a></dd>
-        <dt>Connexions communes</dt><dd><a href="#parametres">Paramètres globaux</a></dd></dl></section></div></div>`;
+        <dt>Connexions communes</dt><dd><a href="#parametres">Paramètres globaux</a></dd></dl></section></div>
+      <section class="bloc-strat" style="margin-top:12px"><h3>Rôles et droits</h3><div id="ro-z" class="lib">Chargement…</div></section></div>`;
+    const rendreRoles = r => {
+      const lignes = Object.entries(r.utilisateurs).concat([["", "automaticien"]]);
+      $("#ro-z").innerHTML = `<p>${r.actifs ? `Actifs (fichier <code>${esc(r.fichier)}</code> du projet, partagé par Git). Vous : <b>${esc(r.utilisateur)}</b> — ${esc(r.role)}.`
+          : `Non activés : tout le monde a tous les droits. Pour les activer, déclarez-vous <b>responsable</b> (${esc(r.utilisateur)}).`}${r.erreur ? ` <span class="ko-t">${esc(r.erreur)}</span>` : ""}</p>
+        <table><tr><th>Compte du poste</th><th>Rôle</th></tr>${lignes.map(([u, ro], i) => `<tr><td><input class="in" data-ro-u="${i}" value="${esc(u)}" placeholder="${i === lignes.length - 1 ? "ajouter un compte…" : ""}" title="Identifiant de session du poste (getpass)"></td>
+          <td><select class="in" data-ro-r="${i}" title="${esc(Object.entries(r.roles).map(([k, v]) => k + " : " + v).join(" · "))}">${Object.keys(r.roles).map(x => `<option ${x === ro ? "selected" : ""}>${x}</option>`).join("")}</select></td></tr>`).join("")}</table>
+        <label title="Un relecteur ne peut pas approuver un script qu'il a lui-même soumis"><input type="checkbox" id="ro-4" ${r.quatre_yeux || !r.actifs ? "checked" : ""}> quatre yeux en revue</label>
+        <div class="btns" style="margin-top:6px"><button class="btn primaire" id="ro-ok" ${r.actifs && !r.droits.gerer_roles ? "disabled" : ""} title="Enregistre atelier_roles.yaml (rôle responsable requis quand les rôles sont actifs)">${ico("disque")}Enregistrer les rôles</button>
+          ${!r.actifs ? `<button class="btn" id="ro-moi" title="Pré-remplit votre compte comme responsable">Me déclarer responsable</button>` : ""}</div>
+        <p class="lib">Droits : ${Object.entries(r.libelles_droits).map(([d, l]) => `${r.droits[d] ? "✓" : "✕"} ${esc(l)}`).join(" · ")}</p>`;
+      if ($("#ro-moi")) $("#ro-moi").onclick = () => { $(`[data-ro-u="${lignes.length - 1}"]`).value = r.utilisateur; $(`[data-ro-r="${lignes.length - 1}"]`).value = "responsable"; };
+      $("#ro-ok").onclick = async () => { const u = {};
+        $$("[data-ro-u]").forEach(x => { if (x.value.trim()) u[x.value.trim()] = $(`[data-ro-r="${x.dataset.roU}"]`).value; });
+        try { rendreRoles(await api("/api/roles", {method: "POST", body: {utilisateurs: u, revue_par_un_autre: $("#ro-4").checked}})); toast("Rôles enregistrés.", "ok"); } catch (e) { toast(e.message, "ko"); } };
+    };
+    api("/api/roles").then(rendreRoles).catch(e => { $("#ro-z").textContent = e.message; });
   }
 })();

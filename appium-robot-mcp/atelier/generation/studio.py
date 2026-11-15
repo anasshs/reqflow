@@ -267,8 +267,15 @@ def revue_script(fichier: str) -> dict:
 def transition_script(fichier: str, action: str, commentaire: str = "") -> dict:
     if action not in TRANSITIONS:
         raise ValueError(f"Action inconnue : {action}")
+    from atelier.domain import roles
+
+    roles.exiger({"soumettre": "soumettre_revue", "publier": "publier"}.get(action, "decider_revue"))
     actuel = revue_script(fichier)
     depuis, vers = TRANSITIONS[action]
+    if action == "approuver" and roles.quatre_yeux():
+        soumis = next((h for h in reversed(actuel.get("historique") or []) if h.get("vers") == "Technical Review"), None)
+        if soumis and soumis.get("auteur") == roles.utilisateur():
+            raise PermissionError("Quatre yeux : un script ne s'approuve pas par la personne qui l'a soumis.")
     if actuel["statut"] not in depuis:
         raise ValueError(f"« {action} » impossible depuis {LIBELLES_REVUE[actuel['statut']]}.")
     if action == "demander_modifications" and not commentaire.strip():
@@ -373,7 +380,7 @@ def vue_ensemble() -> dict:
     auto = [c for c in plan if c["automatise"]]
     runs = historique.lister(5)
     gen = [j for j in journal(500) if j["op"].startswith("generation")]
-    return {"kpi": {"scenarios_bdd": len(bdd.lister()), "candidats": sum(not c["automatise"] for c in plan),
+    out = {"kpi": {"scenarios_bdd": len(bdd.lister()), "candidats": sum(not c["automatise"] for c in plan),
                     "tests_automatises": len(inv["tests"]), "en_revue": sum(r["statut"] == "Technical Review" for r in rev.values()),
                     "approuves": sum(r["statut"] in ("Approved", "Published") for r in rev.values()),
                     "locators_a_corriger": sum(l["etat"] in ("Obsolete", "Missing") for l in locs),
@@ -385,6 +392,17 @@ def vue_ensemble() -> dict:
             "keywords_reutilisation": {"réutilisés (2+)": sum(k["utilisations"] >= 2 for k in kws), "utilisés une fois": sum(k["utilisations"] == 1 for k in kws),
                                        "inutilisés": sum(k["inutilise"] for k in kws)},
             "activite": journal(10)}
+    from atelier.generation import studio_avance
+
+    try:
+        studio_avance.relever_tendance(out)  # un relevé réel par jour : les courbes ne sont jamais reconstituées
+    except OSError:
+        pass
+    out["tendance"] = studio_avance.tendance()
+    from atelier.domain import roles
+
+    out["roles"] = roles.etat()
+    return out
 
 
 # =========================================================================== Git en écriture (local, encadré)
@@ -408,6 +426,13 @@ def creer_branche(nom: str) -> dict:
 
 
 def commit(message: str, fichiers: list[str]) -> dict:
+    from atelier.domain import roles
+
+    roles.exiger("commit_local")
+    return _commit(message, fichiers)
+
+
+def _commit(message: str, fichiers: list[str]) -> dict:
     """Commit local des seuls fichiers donnés, jamais sur une branche protégée ; chaque suite .robot doit être
     approuvée ou publiée en revue technique. Aucun push : la publication passe par une merge request (phase 7)."""
     import subprocess
@@ -502,6 +527,13 @@ def _git_env_push(url_distant: str) -> dict:
 
 
 def proposer_mr(titre: str, description: str = "", cible: str = "", derogation: str = "", gitlab_client=None) -> dict:
+    from atelier.domain import roles
+
+    roles.exiger("merge_request")
+    return _proposer_mr(titre, description, cible, derogation, gitlab_client)
+
+
+def _proposer_mr(titre: str, description: str = "", cible: str = "", derogation: str = "", gitlab_client=None) -> dict:
     """Pousse la branche de travail et crée une merge request GitLab, jamais une fusion.
     Conditions : branche non protégée ; chaque suite .robot modifiée approuvée / publiée en revue technique (humaine)
     ET stable sur ses 3 dernières exécutions réelles, sauf dérogation justifiée (journalisée et écrite dans la MR).
@@ -583,29 +615,97 @@ def construire_test(nom: str, cle_xray: str, jdd: str, etapes: list[dict], tags:
         raise ValueError("Clé Xray invalide.")
     if not re.fullmatch(r"[A-Z0-9_]+", jdd or ""):
         raise ValueError("Jeu de données obligatoire (convention INITIALISATION + &{JDD_<NOM>}).")
-    inconnus = [e["keyword"] for e in etapes if normaliser(e.get("keyword", "")) not in par_nom]
+    inconnus = [e["keyword"] for e in etapes if e.get("type", "keyword") == "keyword" and normaliser(e.get("keyword", "")) not in par_nom]
     if inconnus:
         raise ValueError("Keywords absents du socle (à créer d'abord) : " + ", ".join(inconnus))
+    controle = _lignes_controle(etapes)  # blocs SI / POUR / ESSAYER validés (équilibre, champs sur une ligne)
     mots = {"given": "Given", "when": "When", "then": "Then", "and": "And", "but": "But"}
-    ressources = sorted({par_nom[normaliser(e["keyword"])]["fichier"] for e in etapes} | {par_nom[normaliser("Initialiser Le Test")]["fichier"]}
-                        if normaliser("Initialiser Le Test") in par_nom else {par_nom[normaliser(e["keyword"])]["fichier"] for e in etapes})
+    kw_etapes = [e for e in etapes if e.get("type", "keyword") == "keyword"]
+    if not kw_etapes:
+        raise ValueError("Au moins une étape keyword (les blocs seuls ne testent rien).")
+    ressources = sorted({par_nom[normaliser(e["keyword"])]["fichier"] for e in kw_etapes} | {par_nom[normaliser("Initialiser Le Test")]["fichier"]}
+                        if normaliser("Initialiser Le Test") in par_nom else {par_nom[normaliser(e["keyword"])]["fichier"] for e in kw_etapes})
     fichier = fichier or f"tests/{re.sub(r'[^a-z0-9]+', '_', nom.lower()).strip('_')}.robot"
     profondeur = fichier.count("/")
     lignes = ["*** Settings ***", f"Documentation    {nom} (assemblé dans Automation Studio depuis le socle).",
               *[f"Resource    {'../' * profondeur}{r}" for r in ressources], "", "*** Test Cases ***", nom,
-              f"    [Tags]    {'    '.join([t for t in [cle_xray, *(tags or [])] if t])}", "    # INITIALISATION",
+              *([f"    [Tags]    {'    '.join(etiquettes)}"] if (etiquettes := [t for t in [cle_xray, *(tags or [])] if t]) else []), "    # INITIALISATION",
               f"    Initialiser Le Test    &{{JDD_{jdd}}}", "    # SCÉNARIO"]
-    for e in etapes:
-        mot = mots.get(str(e.get("mot", "")).lower(), "And")
-        lignes.append(f"    {mot} {par_nom[normaliser(e['keyword'])]['nom']}")
+    for e, (niveau, ligne) in zip(etapes, controle):
+        if ligne is None:  # étape keyword, indentée selon les blocs ouverts
+            mot = mots.get(str(e.get("mot", "")).lower(), "And")
+            args = "".join(f"    {x}" for x in e.get("arguments") or [] if str(x).strip())
+            ligne = f"{mot} {par_nom[normaliser(e['keyword'])]['nom']}{args}"
+        lignes.append("    " * (niveau + 1) + ligne)
     contenu = "\n".join(lignes) + "\n"
     from atelier.generation import editeur
 
     return {"fichier": fichier, "contenu": contenu, "lint": editeur.lint(contenu, fichier), "existe": projet.safe_path(fichier).exists()}
 
 
+TYPES_CONTROLE = {"si": "IF", "sinon_si": "ELSE IF", "sinon": "ELSE", "pour": "FOR", "essayer": "TRY", "echec": "EXCEPT", "finalement": "FINALLY", "fin": "END"}
+
+
+def _lignes_controle(etapes: list[dict]) -> list[tuple[int, str | None]]:
+    """(niveau d'indentation, ligne Robot ou None pour un keyword) pour chaque étape ; blocs Robot 5+ :
+    IF / ELSE IF / ELSE / END, FOR … IN / IN RANGE / END, TRY / EXCEPT / FINALLY / END. Vérifie l'équilibre."""
+    pile, out = [], []
+
+    def propre(v, nom: str) -> str:
+        if re.search(r"[\r\n\t]", str(v)):
+            raise ValueError(f"{nom} : une seule ligne, sans tabulation.")
+        return str(v).strip()
+
+    for n, e in enumerate(etapes, 1):
+        t = e.get("type", "keyword")
+        if t == "keyword":
+            out.append((len(pile), None))
+            continue
+        if t not in TYPES_CONTROLE:
+            raise ValueError(f"Étape {n} : type inconnu « {t} ».")
+        if t == "si":
+            cond = propre(e.get("condition", ""), "Condition")
+            if not cond:
+                raise ValueError(f"Étape {n} : condition du SI obligatoire (ex. ${{DONNEES.type}} == 'externe').")
+            out.append((len(pile), f"IF    {cond}"))
+            pile.append("si")
+        elif t in ("sinon_si", "sinon"):
+            if not pile or pile[-1] != "si":
+                raise ValueError(f"Étape {n} : {TYPES_CONTROLE[t]} sans SI ouvert.")
+            cond = propre(e.get("condition", ""), "Condition") if t == "sinon_si" else ""
+            if t == "sinon_si" and not cond:
+                raise ValueError(f"Étape {n} : condition du SINON SI obligatoire.")
+            out.append((len(pile) - 1, f"ELSE IF    {cond}" if cond else "ELSE"))
+        elif t == "pour":
+            var, liste = propre(e.get("variable", ""), "Variable"), propre(e.get("liste", ""), "Liste")
+            if not re.fullmatch(r"\$\{[A-Za-z_]\w*\}", var) or not liste:
+                raise ValueError(f"Étape {n} : POUR attend une variable ${{nom}} et une liste (ex. @{{DONNEES.montants}} ou RANGE 3).")
+            m = re.fullmatch(r"(?i)range\s+(.+)", liste)
+            out.append((len(pile), f"FOR    {var}    IN RANGE    {m.group(1)}" if m else f"FOR    {var}    IN    {liste}"))
+            pile.append("pour")
+        elif t == "essayer":
+            out.append((len(pile), "TRY"))
+            pile.append("essayer")
+        elif t in ("echec", "finalement"):
+            if not pile or pile[-1] != "essayer":
+                raise ValueError(f"Étape {n} : {TYPES_CONTROLE[t]} sans ESSAYER ouvert.")
+            motif = propre(e.get("motif", ""), "Motif") if t == "echec" else ""
+            out.append((len(pile) - 1, f"EXCEPT    {motif}" if motif else TYPES_CONTROLE[t]))
+        else:  # fin
+            if not pile:
+                raise ValueError(f"Étape {n} : FIN sans bloc ouvert.")
+            pile.pop()
+            out.append((len(pile), "END"))
+    if pile:
+        raise ValueError(f"Bloc(s) non fermé(s) : {', '.join(x.upper() for x in pile)} (ajouter FIN).")
+    return out
+
+
 def ecrire_test(construit: dict) -> dict:
     """Écrit le test assemblé (jamais d'écrasement) ; il entre en revue technique à l'état « Generated »."""
+    from atelier.domain import roles
+
+    roles.exiger("construire")
     projet.ecrire_fichier(construit["fichier"], construit["contenu"], False)
     entrer_en_revue(construit["fichier"], "builder")
     return {"fichier": construit["fichier"], "revue": "Generated"}

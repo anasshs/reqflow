@@ -2499,6 +2499,89 @@ async def studio_builder(req: Request):
     return c
 
 
+@app.post("/api/studio/etape")
+async def studio_etape(req: Request):
+    """Exécute un seul keyword (INITIALISATION + JDD, puis l'étape) dans une suite temporaire, via la file."""
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    e = await asyncio.to_thread(_call, studio_avance.preparer_etape, b.get("keyword", ""), b.get("jdd", ""), b.get("arguments") or [])
+    params = {"target": e["cible"], "variables": {"PLATFORM": b.get("plateforme") or "web"}, "jdd_env": b.get("env") or ""}
+    job = await asyncio.to_thread(_call, _mettre_en_file, {k: v for k, v in params.items() if v}, "High", "", f"Étape isolée · {e['keyword']}")
+    return {**job, **e}
+
+
+@app.get("/api/studio/locators/corrections")
+async def studio_corrections():
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.propositions_correction)
+
+
+@app.post("/api/studio/locators/corriger")
+async def studio_corriger(req: Request):
+    """Applique une correction de locator validée par l'automaticien (éditeur : historique, revue des suites)."""
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio_avance.appliquer_correction, b.get("id", ""), b.get("valeur", ""))
+
+
+@app.get("/api/studio/keywords/factorisation")
+async def studio_factorisation(ia: bool = False):
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.propositions_factorisation, ia)
+
+
+@app.post("/api/studio/keywords/factoriser")
+async def studio_factoriser(req: Request):
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.appliquer_factorisation, (await req.json()).get("id", ""))
+
+
+@app.post("/api/donnees/importer")
+async def jdd_importer(req: Request):
+    """Aperçu (ecrire=false) ou import (ecrire=true) de jeux de données CSV / JSON."""
+    from atelier.execution import jdd as jdd_mod
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, jdd_mod.importer, b.get("env", ""), b.get("contenu", ""), b.get("format", ""),
+                                   bool(b.get("ecraser")), bool(b.get("ecrire")))
+
+
+@app.get("/api/donnees/apis")
+async def jdd_apis():
+    from atelier.execution import jdd as jdd_mod
+
+    return _call(lambda: {n: {k: d.get(k) for k in ("description", "methode", "environnements", "extraire")} for n, d in jdd_mod.apis().items()})
+
+
+@app.post("/api/donnees/apis/tester")
+async def jdd_api_tester(req: Request):
+    """Appel réel d'une API de préparation déclarée (environnement autorisé uniquement)."""
+    from atelier.execution import jdd as jdd_mod
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, jdd_mod.tester_api, b.get("env", ""), b.get("nom", ""), b.get("params") or {})
+
+
+@app.get("/api/roles")
+async def roles_etat():
+    from atelier.domain import roles
+
+    return _call(roles.etat)
+
+
+@app.post("/api/roles")
+async def roles_definir(req: Request):
+    from atelier.domain import roles
+
+    b = await req.json()
+    return _call(roles.definir, b.get("utilisateurs") or {}, bool(b.get("revue_par_un_autre", True)))
+
+
 @app.get("/api/studio/journal")
 def studio_journal():
     return _call(studio.journal)

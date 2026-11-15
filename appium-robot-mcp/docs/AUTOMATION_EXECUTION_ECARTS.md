@@ -69,6 +69,19 @@ jamais transformé silencieusement en réussite.
   commentaire (écart de l'audit « revue sans Refuser ; historique sans avant / après »).
 - 🆕 Candidats : « Créer le BDD » / Mapping / Graphe centré sur le test (plus de « scénario introuvable »).
 - 🆕 Rôle de chaque entrée et de chaque bouton au survol ; Réglages à jour (push et merge request GitLab existent).
-- ⏳ Restent : courbes de couverture dans le temps, blocs If / For / Try et exécution d'une étape isolée dans le
-  Builder, secours de locator réellement utilisé à l'exécution et correction assistée, factorisation IA des
-  keywords, import CSV / JSON et API de préparation des données, rôles et droits.
+- 🆕 Comblés ensuite (même jour) :
+  - courbes dans le temps : un relevé réel par jour (studio/tendance.jsonl), jamais reconstitué ;
+  - Builder : blocs SI / SINON SI / SINON, POUR (IN / IN RANGE), ESSAYER / EN CAS D'ÉCHEC / FINALEMENT avec contrôle
+    d'équilibre ; arguments par étape ; « Exécuter » une étape isolée (suite temporaire dans results/, via la file) ;
+  - locators : secours réellement utilisés lus dans les output.xml (WARN du keyword « Localiser ») ; correction
+    proposée (secours qui a servi, sinon valeur stable observée sur la carte) et appliquée après validation par
+    l'éditeur (historique) ; les suites repassent en revue, fiabilité confirmée après 3 runs stables ;
+  - keywords : factorisation des corps identiques (garder le plus utilisé, renommer les appels, retirer les doublons,
+    vérifier les imports) ; avis IA facultatif ; même nom / corps différents : décision humaine ;
+  - données : import CSV / JSON contrôlé (noms, secrets en clair refusés, pas d'écrasement implicite) ; API de
+    préparation déclarées dans data/jdd/api.yaml (environnements autorisés, jamais la production, HTTPS, secrets du
+    coffre), utilisables en prérequis {{api:NOM.champ}} ;
+  - rôles : atelier_roles.yaml du projet (lecteur, automaticien, relecteur, responsable), quatre yeux en revue ;
+    sans fichier, mode ouvert signalé. Droits vérifiés côté moteur (revue, publication, commit, merge request,
+    corrections, factorisation, import, appels d'API, étape isolée).
+- ⏳ Restent : authentification réelle des comptes (l'interface locale fait confiance au compte du poste).
