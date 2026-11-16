@@ -1,20 +1,20 @@
 /* Référentiel de pilotage (ex-module Test Strategy, supprimé comme écran le 2026-11-15).
    Les éléments utilisés par les calculs sont édités là où ils servent, avec ce composant (window.Pilotage) :
-     périmètre → Paramètres › Périmètre ; environnements → Execution Center › Infrastructure ;
+     exclusions et criticité (ex-périmètre) → Paramètres › Exclusions et criticité ; environnements → Execution Center › Infrastructure ;
      objectifs et critères d'entrée / sortie → Quality Governance › Release Readiness ;
      couverture → Application Intelligence › Couverture ; décisions du plan → Automation Studio › À automatiser ;
      export du document de stratégie → Quality Governance › Rapports.
    Une seule source (/api/strategie) ; indicateurs calculés côté serveur depuis les sources réelles (jamais saisis). */
 "use strict";
 (() => {
-  const MENU = [["vue", "Vue d'ensemble"], ["objectifs", "Objectifs"], ["perimetre", "Périmètre"], ["types_tests", "Types de tests"],
+  const MENU = [["vue", "Vue d'ensemble"], ["objectifs", "Objectifs"], ["perimetre", "Exclusions et criticité"], ["types_tests", "Types de tests"],
     ["niveaux", "Niveaux de tests"], ["environnements", "Environnements"], ["criteres", "Critères d'entrée et de sortie"],
     ["risques", "Risques et contraintes"], ["donnees", "Données de test"], ["outils", "Outils et intégrations"],
     ["couverture", "Couverture (Coverage Intelligence)"], ["plan", "Plan d'automatisation"], ["validation", "Validation et publication"],
     ["historique", "Historique des versions"]];
   const COLONNES = {
     objectifs: ["nom", "categorie", "indicateur", "_cible", "_valeur", "_etat", "echeance", "responsable"],
-    perimetre: ["_arbre", "niveau", "projet_jira", "criticite", "priorite", "_inclus", "jira", "xray"],
+    perimetre: ["_arbre", "niveau", "criticite", "priorite", "_inclus", "jira", "xray"],
     types_tests: ["nom", "methode", "_actif", "priorite", "_auto", "cible_auto", "responsable"],
     niveaux: ["nom", "part_cible", "automatisation", "outil", "environnement", "responsable"],
     environnements: ["nom", "type", "plateforme", "url", "jdd_env", "_defaut", "_verif"],
@@ -26,7 +26,7 @@
   const PILL_ETAT = {"atteint": "ok", "en cours": "info", "non atteint": "ko", "non mesurable": "", "satisfait": "ok", "non satisfait": "ko", "à valider": "warn"};
   const PILL_RISQUE = {critique: "ko", "élevé": "warn", moyen: "info", faible: ""};
   const PILL_STATUT = {Draft: "warn", "In Review": "info", Approved: "violet", Published: "ok", Archived: ""};
-  let E = null, R = "vue", SEL = null, FILTRE = "", TRI = null, SANTE = null, JEUX = null, PLAN = null, ZONE = null;
+  let E = null, R = "vue", SEL = null, FILTRE = "", TRI = null, SANTE = null, JEUX = null, PLAN = null, ZONE = null, POLITIQUE = null;
   const FILTRES = {};  // filtres multi-valeurs : « rubrique.champ » -> valeurs cochées (OU dans un champ, ET entre champs)
   const LOT = new Set(["types_tests", "niveaux", "outils"]);
 
@@ -49,7 +49,7 @@
   }
   window.Pilotage = {
     /* une rubrique (objectifs, criteres, perimetre, environnements…) rendue dans el */
-    async rubrique(el, rub) { ZONE = el; R = rub; SEL = null; FILTRE = ""; TRI = null; await recharger(); },
+    async rubrique(el, rub) { ZONE = el; R = rub; SEL = null; FILTRE = ""; TRI = null; POLITIQUE = null; await recharger(); },
     /* couverture des exigences (premier onglet de Couverture, Application Intelligence) */
     async couverture(el) { ZONE = el; R = "couverture"; E = E || await charger(); return couverture(el); },
     /* décision humaine sur un candidat à l'automatisation (Automation Studio) */
@@ -138,7 +138,7 @@
     }
     if (TRI) liste = [...liste].sort((a, b) => String(a[TRI.col] ?? "").localeCompare(String(b[TRI.col] ?? ""), "fr", {numeric: true}) * TRI.sens);
     const cols = COLONNES[rub];
-    const extra = ({perimetre: `<button class="btn" id="r-squads">Ajouter des squads</button><button class="btn" id="r-import">${ico("xray")}Importer depuis Xray / Jira</button>`}[rub] || "")
+    const extra = ({perimetre: `<button class="btn" id="r-import">${ico("xray")}Importer depuis Xray / Jira</button>`}[rub] || "")
       + (LOT.has(rub) ? `<button class="btn" id="r-lot">${ico("plus")}Ajout rapide (plusieurs)</button>` : "");
     const nbActifs = champsFiltre.reduce((n, c) => n + (FILTRES[`${rub}.${c.nom}`] || []).length, 0);
     const barreFiltres = champsFiltre.length ? `<div class="btns" style="margin-bottom:10px;flex-wrap:wrap">${champsFiltre.map(c => {
@@ -150,7 +150,7 @@
         ${nbActifs ? `<button class="btn petit" id="r-fm-x">Effacer les filtres (${nbActifs})</button>` : ""}</div>` : "";
     z.innerHTML = `${entete(sc.titre, `${extra}<input type="search" class="in" id="r-filtre" placeholder="Filtrer…" value="${esc(FILTRE)}" style="width:170px">
         <button class="btn primaire" id="r-ajout">${ico("plus")}Ajouter</button>`)}
-      <div class="corps-carte">${barreFiltres}${{niveaux: pyramide(), risques: matrice()}[rub] || ""}
+      <div class="corps-carte">${rub === "perimetre" ? squadsPolitique() : ""}${barreFiltres}${{niveaux: pyramide(), risques: matrice()}[rub] || ""}
         ${liste.length ? `<table class="table-strat"><tr>${cols.map(c => `<th data-tri="${c}" class="${TRI?.col === c ? "trie" : ""}">${esc(libCol(rub, c))}</th>`).join("")}<th></th></tr>
           ${liste.map(x => `<tr class="cliquable ${SEL === x.id ? "sel" : ""}" data-id="${x.id}">${cols.map(c => `<td>${valeurCellule(rub, x, c)}</td>`).join("")}
             <td><button class="icone" data-suppr="${x.id}" title="Supprimer">${ico("poubelle")}</button></td></tr>`).join("")}</table>`
@@ -167,7 +167,6 @@
     });
     if ($("#r-fm-x")) $("#r-fm-x").onclick = () => { champsFiltre.forEach(c => delete FILTRES[`${rub}.${c.nom}`]); rubrique(z); };
     if ($("#r-lot")) $("#r-lot").onclick = () => ajoutLot(rub);
-    if ($("#r-squads")) $("#r-squads").onclick = () => ajoutSquads();
     $$("[data-tri]", z).forEach(th => th.onclick = () => { const col = th.dataset.tri.replace(/^_(arbre|niveau)$/, m => m === "_arbre" ? "nom" : "score"); TRI = {col, sens: TRI?.col === col ? -TRI.sens : 1}; rubrique(z); });
     $$("tr[data-id]", z).forEach(tr => tr.onclick = e => { if (!e.target.closest("button")) formulaire(rub, tr.dataset.id); });
     $$("[data-suppr]", z).forEach(b => b.onclick = () => confirm("Supprimer cet élément ? (journalisé)") && operer("/api/strategie/elements/supprimer", {rubrique: rub, id: b.dataset.suppr}, "Supprimé."));
@@ -176,6 +175,12 @@
     if ($("#r-import")) $("#r-import").onclick = () => operer("/api/strategie/perimetre/importer", {}, "Périmètre importé (identifiants Jira / Xray conservés).");
     $$("[data-matrice]", z).forEach(td => td.onclick = () => { FILTRE = ""; TRI = {col: "score", sens: -1}; rubrique(z); });
     if (rub === "donnees" && JEUX === null) { JEUX = Atelier.env ? ((await api("/api/jdd/" + encodeURIComponent(Atelier.env)).catch(() => ({jeux: []}))).jeux || []).map(j => j.jeu) : []; if (R === rub) rubrique(z); }
+    if ($("#r-reprendre")) $("#r-reprendre").onclick = async () => {
+      if (!confirm("Reprendre ces squads dans la Politique des US de l'application active, puis les retirer d'ici ? (journalisé)")) return;
+      try { const r = await api("/api/strategie/squads/reprendre", {method: "POST", body: {}});
+        toast(`Squads reprises : ${r.ajoutees_politique.length} ajoutée(s) à la politique, ${r.deja_dans_politique.length} déjà suivie(s)${r.refusees.length ? ` ; refusées : ${r.refusees.map(x => x.projet_jira + " (" + x.raison + ")").join(", ")}` : ""}.`, r.refusees.length ? "ko" : "ok");
+        POLITIQUE = null; await recharger(r); } catch (e) { toast(e.message, "ko"); } };
+    if (rub === "perimetre" && POLITIQUE === null) { POLITIQUE = (await api("/api/testabilite/espaces").catch(() => ({espaces: []}))).espaces || []; if (R === rub) rubrique(z); }
     if (rub === "outils" && SANTE === null) { SANTE = await api("/api/sante").catch(() => []); if (R === rub) rubrique(z); }
     if (SEL && R === rub) formulaire(rub, SEL);
   }
@@ -203,48 +208,22 @@
     };
   }
 
-  /* Périmètre : squads concernées (projets Jira des équipes), recherche dans Jira et multi-sélection */
-  function ajoutSquads() {
-    const choisies = new Map();
-    const m = modale("Squads concernées par la stratégie", `<p class="lib">Rechercher les projets Jira des squads (nom ou clé) et cocher celles qui entrent dans le périmètre.</p>
-      <input class="in" id="sq-q" placeholder="ex. squad, cartes, SQ…" autocomplete="off">
-      <ul class="liste" id="sq-res" style="max-height:240px;overflow:auto;margin-top:6px"></ul>
-      <p class="lib" id="sq-sel">Aucune squad sélectionnée.</p>
-      <label class="lib"><input type="checkbox" id="sq-testa" checked> Activer aussi la testabilité des US de ces squads (Test Design › US à couvrir, sprint actif)</label>
-      <details style="margin-top:8px"><summary class="lib">Jira indisponible : saisir des clés à la main</summary><input class="in" id="sq-man" placeholder="SQ1, SQ2"></details>`,
-      `<button class="btn primaire" id="sq-ok">Ajouter au périmètre</button>`);
-    const majSel = () => { $("#sq-sel", m.el).innerHTML = choisies.size ? `Sélection : ${[...choisies.entries()].map(([k, n]) => `<b>${esc(k)}</b> ${esc(n)}`).join(", ")}` : "Aucune squad sélectionnée."; };
-    let t = null, derniere = "";
-    const chercher = async q => {
-      derniere = q;
-      try {
-        const l = await api("/api/testabilite/jira/projets?q=" + encodeURIComponent(q));
-        if (q !== derniere) return;
-        const dejaPerimetre = new Set(elements("perimetre").filter(x => x.niveau === "squad").map(x => (x.projet_jira || "").toUpperCase()));
-        $("#sq-res", m.el).innerHTML = l.map(p => `<li><label style="display:flex;gap:8px;align-items:center;width:100%">
-          <input type="checkbox" data-sq="${esc(p.cle)}" data-nom="${esc(p.nom)}" ${choisies.has(p.cle) || dejaPerimetre.has(p.cle) ? "checked" : ""} ${dejaPerimetre.has(p.cle) ? "disabled" : ""}>
-          <span class="mono">${esc(p.cle)}</span><span class="item">${esc(p.nom)}</span>${dejaPerimetre.has(p.cle) ? '<span class="pill ok">déjà dans le périmètre</span>' : ""}</label></li>`).join("")
-          || "<li class='lib'>Aucun projet visible pour cette recherche.</li>";
-        $$("[data-sq]", m.el).forEach(c => c.onchange = () => { c.checked ? choisies.set(c.dataset.sq, c.dataset.nom) : choisies.delete(c.dataset.sq); majSel(); });
-      } catch (e) { $("#sq-res", m.el).innerHTML = `<li class="ko-t">${esc(e.message)}</li>`; }
-    };
-    $("#sq-q", m.el).oninput = e => { clearTimeout(t); const q = e.target.value.trim(); if (q.length >= 2) t = setTimeout(() => chercher(q), 300); };
-    $("#sq-q", m.el).focus();
-    $("#sq-ok", m.el).onclick = async () => {
-      $("#sq-man", m.el).value.split(/[\s,;]+/).filter(Boolean).forEach(k => choisies.set(k.toUpperCase(), k.toUpperCase()));
-      if (!choisies.size) { toast("Aucune squad sélectionnée.", "ko"); return; }
-      const corps = {squads: [...choisies.entries()].map(([cle, nom]) => ({cle, nom})), testabilite: $("#sq-testa", m.el).checked};
-      try {
-        const r = await api("/api/strategie/squads", {method: "POST", body: corps});
-        const av = r.avertissements || [];
-        toast(`${r.ajoutees.length} squad(s) ajoutée(s) au périmètre${(r.testabilite_activee || []).length ? ` ; testabilité des US activée pour ${r.testabilite_activee.join(", ")}` : ""}${av.length ? " — " + av.join(" ; ") : ""}.`, av.length ? "ko" : "ok");
-        m.fermer(); await recharger(r);
-      } catch (e) { toast(e.message, "ko"); }
-    };
+  /* Squads : une seule source, la Politique des US (Paramètres › Configuration). Ici, rappel en lecture seule et reprise
+     des squads déclarées dans le périmètre avant le 2026-11-16. */
+  function squadsPolitique() {
+    const anciennes = E.squads_a_reprendre || [];
+    const pol = POLITIQUE === null ? '<span class="lib">chargement…</span>'
+      : POLITIQUE.length ? POLITIQUE.map(e => `<span class="pill${e.actif === false ? "" : " info"}" title="${esc(e.nom || "")}">${esc(e.projet_jira)}</span>`).join(" ")
+      : '<span class="lib">aucune squad suivie</span>';
+    return `<div class="bloc-strat" style="margin-bottom:10px"><p style="margin:0"><b>Squads</b> (Politique des US de l'application) : ${pol}
+        <a class="btn petit" href="#parametres/configuration" style="margin-left:8px">Gérer les squads</a></p>
+      <p class="lib" style="margin:4px 0 0">Les squads se déclarent uniquement dans Paramètres › Configuration › Politique des US. Ici : exclusions (une exigence ou un module exclu ne compte pas dans la couverture) et criticité des modules (risque, Quality Governance).</p>
+      ${anciennes.length ? `<p class="warn-t" style="margin:8px 0 4px">${anciennes.length} squad(s) encore déclarée(s) ici (ancienne organisation) : ${anciennes.map(q => `<b>${esc(q.projet_jira)}</b>${q.dans_politique ? " (déjà dans la politique)" : " (absente de la politique)"}`).join(", ")}.</p>
+        <button class="btn primaire petit" id="r-reprendre">Reprendre dans la politique et retirer d'ici</button>` : ""}</div>`;
   }
 
   const aideVide = rub => ({objectifs: "Ex. : automatiser 80 % de la régression (indicateur « Couverture automatisée », cible 80).",
-    perimetre: "« Ajouter des squads » (projets Jira des équipes), ajouter un module, ou importer modules et exigences depuis Xray / Jira.",
+    perimetre: "Importer modules et exigences depuis Xray / Jira, puis exclure ce qui n'entre pas dans la couverture et donner une criticité aux modules.",
     types_tests: "Ex. : Fonctionnel, Régression, API…", niveaux: "Définir la répartition visée (pyramide des tests).",
     environnements: "Ex. : TEST (recette), PREPROD. Les secrets restent dans un coffre ou l'environnement.",
     criteres: "Critères d'entrée (démarrer une campagne) et de sortie (la clôturer).",

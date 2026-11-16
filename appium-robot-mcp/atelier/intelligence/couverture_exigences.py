@@ -100,7 +100,9 @@ def reglages() -> dict:
 
     cfg = carte.config_app() if _app() else {}
     c = cfg.get("couverture") or {}
-    return {"jql": c.get("jql_exigences") or jql_deduite(), "deduite": not c.get("jql_exigences"),
+    deduite = jql_deduite()
+    # jql_deduite : celle que donnerait la politique des US ; une JQL enregistrée la remplace et ne suit plus la politique
+    return {"jql": c.get("jql_exigences") or deduite, "deduite": not c.get("jql_exigences"), "jql_deduite": deduite,
             "criteres_actifs": bool(c.get("criteres_actifs")), "champ_criteres": os.environ.get("JIRA_CHAMP_CRITERES", "").strip()}
 
 

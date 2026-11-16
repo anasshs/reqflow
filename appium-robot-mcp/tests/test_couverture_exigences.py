@@ -61,6 +61,18 @@ def projet(tmp_path, monkeypatch):
     return couverture_exigences
 
 
+def test_jql_des_exigences_figee_ou_deduite_de_la_politique(projet, monkeypatch):
+    from atelier.domain import projets
+    from atelier.intelligence import testabilite_us
+
+    monkeypatch.setattr(projets, "cle_xray", lambda: "DEMO")
+    testabilite_us.enregistrer_espace({"projet_jira": "SQA", "nom": "Squad A"})
+    r = projet.reglages()  # JQL enregistrée par la fixture : figée, la politique donne une autre JQL
+    assert not r["deduite"] and r["jql"].startswith('project = "DEMO"') and r["jql_deduite"].startswith('project in ("SQA")')
+    r = projet.enregistrer_reglages("")  # « Revenir à la JQL déduite »
+    assert r["deduite"] and r["jql"] == r["jql_deduite"]
+
+
 def test_import_hierarchie_liens_natifs_et_quatre_indicateurs(projet):
     b = projet.importer(FauxJira(list(EXIGENCES)))
     assert b["exigences"] == 3 and b["ajoutees"] == ["DEMO-11", "DEMO-12", "DEMO-21"]

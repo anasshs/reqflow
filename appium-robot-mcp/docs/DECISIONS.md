@@ -300,3 +300,19 @@ Une ligne datée par décision d'architecture ou de conception.
 - Registre de sécurité (`tests/test_securite_outils.py`) : tout outil MCP doit être classé (lecture, proposition,
   action, écriture locale, écriture externe) ; aucun outil git / fusion, aucune décision humaine par MCP.
 - Bilan des critères de succès et limites connues : `docs/V2_BILAN.md`.
+
+## 2026-11-16 — Squads : une seule source, la Politique des US
+
+- Les squads (projets Jira des équipes) se déclaraient à deux endroits : Paramètres › Configuration › Politique des US
+  (par application) et Paramètres › Périmètre (par projet, niveau « squad »). La synchronisation n'allait que dans un
+  sens et les deux listes avaient divergé ; les squads du périmètre n'entraient dans aucun calcul.
+- La Politique des US est désormais la seule source des squads. Le niveau « squad » et le champ « projet Jira de la
+  squad » sont retirés du périmètre ; « Ajouter des squads » est remplacé par un rappel des squads de la politique.
+  Les squads déjà déclarées dans le périmètre sont reprises dans la politique par une action explicite (« Reprendre dans
+  la politique et retirer d'ici », `POST /api/strategie/squads/reprendre`), journalisée ; la route
+  `POST /api/strategie/squads` est supprimée.
+- Paramètres › Périmètre devient « Exclusions et criticité » : il ne garde que ce qu'il est seul à faire (exigences et
+  modules exclus de la couverture, criticité des modules pour le risque). L'adresse `#parametres/perimetre` est conservée.
+- La JQL des exigences enregistrée est signalée « figée » : elle ne suit plus la politique des US ; un bouton permet de
+  revenir à la JQL déduite (`jql_deduite` exposée par `/api/couverture/reglages`).
+- Reste ouvert : le référentiel (exclusions, criticité) est par projet, la politique par application.

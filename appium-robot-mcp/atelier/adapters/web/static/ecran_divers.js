@@ -167,7 +167,7 @@
 
   /* ================================================================== Paramètres (section à part) */
   const SECTIONS = [["projets", "Projets"], ["connexions", "Connexions"], ["agents", "Cursor / Claude"], ["applications", "Applications"], ["configuration", "Configuration"],
-    ["perimetre", "Périmètre"], ["apparence", "Apparence"]];
+    ["perimetre", "Exclusions et criticité"], ["apparence", "Apparence"]];
   Atelier.enregistrer("parametres", {
     afficher(zone, sous) {
       const s = SECTIONS.some(x => x[0] === sous) ? sous : "projets";
@@ -178,8 +178,7 @@
       $$("[data-p]", zone).forEach(li => li.onclick = () => { location.hash = "parametres/" + li.dataset.p; });
       const corps = $("#p-corps");
       Promise.resolve().then(() => ({projets, connexions, agents, applications, configuration, apparence,
-        perimetre: x => { x.insertAdjacentHTML("beforebegin", '<p class="lib" style="margin:0 16px">Squads, modules et exigences du périmètre : un élément exclu ne compte pas dans la couverture ; la criticité d\'un module pèse sur le risque (Quality Governance).</p>');
-          return window.Pilotage.rubrique(x, "perimetre"); }})[s](corps)).catch(e => {
+        perimetre: x => window.Pilotage.rubrique(x, "perimetre")})[s](corps)).catch(e => {
         corps.innerHTML = `<p><span class="pill ko">Erreur</span> ${esc(e.message)}</p><p class="lib">${/Not Found|404/.test(e.message)
           ? "Le serveur ne connaît pas cette fonction : il tourne sans doute avec une version précédente. Arrêter le serveur (Ctrl+C), relancer « python web/app.py », puis recharger la page (Ctrl+F5)."
           : "Message complet dans le terminal du serveur."}</p>`;
@@ -541,6 +540,7 @@
         <div class="champ"><label for="cf-jqlx">JQL des exigences <span id="cf-jqlx-d"></span></label>
           <textarea class="in mono" id="cf-jqlx" rows="2" placeholder='project = "DEMO" AND issuetype in (Story, Requirement) AND component = "Mobile"'></textarea></div>
         <label class="ligne-champ" title="Mesure aussi la couverture de chaque critère d'acceptation (à activer si les Stories sont structurées en critères)"><span>Couverture par critère d'acceptation</span><input type="checkbox" class="bascule" id="cf-ac"></label>
+        <div id="cf-jqlx-fig" class="lib" style="margin:-2px 0 8px"></div>
         <div class="btns"><button class="btn" data-cf-tester="cf-jqlx" title="Nombre d'exigences renvoyées par cette JQL (lecture Jira)">Tester (exigences)</button>
           <button class="btn primaire" id="cf-couv" title="Enregistre la JQL des exigences et le réglage des critères pour cette application">${ico("disque")}Enregistrer</button></div></section>
       <section class="bloc-strat" style="margin-bottom:12px"><h3>TEST PLANS ET TEST EXECUTIONS</h3>
@@ -552,7 +552,7 @@
         <div class="btns"><button class="btn" data-cf-tester="cf-jqlp">Tester (plans)</button><button class="btn" data-cf-tester="cf-jqle">Tester (exécutions)</button>
           <button class="btn primaire" id="cf-cont">${ico("disque")}Enregistrer</button></div><div id="cf-res2" class="lib" style="margin-top:6px"></div></section>
       <section class="bloc-strat" style="margin-bottom:12px"><h3>POLITIQUE DES US (ESPACES JIRA)</h3>
-        <p class="lib">Espaces Jira (projets des squads) dont les US doivent être couvertes par des tests de cette application. « US à couvrir » lit ces espaces pour l'application sélectionnée.</p>
+        <p class="lib">Seul endroit qui déclare les squads : espaces Jira (projets des squads) dont les US doivent être couvertes par des tests de cette application. « US à couvrir » (Test Design) lit ces espaces ; la JQL des exigences ci-dessus en est déduite tant qu'elle n'est pas enregistrée. Exclusions et criticité des modules : Paramètres › Exclusions et criticité.</p>
         ${cf.espaces.length ? `<table><tr><th>Projet Jira</th><th>Nom</th><th>Types · portée</th><th>Tests créés</th><th></th></tr>${cf.espaces.map(e => ligneEsp(e, false)).join("")}</table>` : "<p class='lib'>Aucun espace rattaché.</p>"}
         ${cf.espaces_non_rattaches.length ? `<p class="warn-t" style="margin-top:8px">Espaces de l'ancienne politique, non rattachés (valent pour toutes les applications) :</p><table>${cf.espaces_non_rattaches.map(e => ligneEsp(e, true)).join("")}</table>` : ""}
         <div class="btns" style="margin-top:8px"><button class="btn primaire" id="cf-esp">Ajouter / modifier un espace</button></div></section>
@@ -573,7 +573,14 @@
         $("#cf-res2").innerHTML = `<b>${r.nombre}${r.plafond ? "+" : ""}</b> ticket(s) : ${r.exemples.map(x => `<span class="cle-xray">${esc(x.cle)}</span> ${esc(x.resume)} <span class="lib">(${esc(x.type)})</span>`).join(" · ")}`; }
       catch (e) { $("#cf-res2").innerHTML = `<span class="ko-t">${esc(e.message)}</span>`; } });
     api("/api/couverture/reglages").then(r => { $("#cf-jqlx").value = r.deduite ? "" : r.jql; $("#cf-ac").checked = r.criteres_actifs;
-      $("#cf-jqlx-d").innerHTML = r.deduite ? `<span class="pill" title="${esc(r.jql || "aucun espace rattaché")}">déduite des espaces</span>` : ""; }).catch(() => {});
+      $("#cf-jqlx-d").innerHTML = r.deduite ? `<span class="pill" title="${esc(r.jql || "aucun espace rattaché")}">déduite de la politique des US</span>` : '<span class="pill warn">figée</span>';
+      if (!r.deduite) {  // JQL enregistrée : elle ne suit plus la politique des US (une squad ajoutée n'y entre pas)
+        const norm = j => (j || "").replace(/[\s"]/g, "").toLowerCase();  // mêmes clauses, écriture différente (espaces, guillemets)
+        $("#cf-jqlx-fig").innerHTML = `${norm(r.jql) === norm(r.jql_deduite) ? "Identique à la JQL déduite de la politique des US, mais enregistrée : une squad ajoutée à la politique n'y entrera pas."
+          : `Différente de la JQL déduite de la politique des US (<code>${esc(r.jql_deduite || "aucun espace")}</code>).`} <button class="btn petit" id="cf-jqlx-rev">Revenir à la JQL déduite</button>`;
+        $("#cf-jqlx-rev").onclick = async () => { try { await api("/api/couverture/reglages", {method: "POST", body: {jql_exigences: "", criteres_actifs: $("#cf-ac").checked}});
+          toast("JQL des exigences : déduite de la politique des US.", "ok"); configuration(z); } catch (e) { toast(e.message, "ko"); } };
+      } }).catch(() => {});
     $("#cf-couv").onclick = async () => { try { await api("/api/couverture/reglages", {method: "POST", body: {jql_exigences: $("#cf-jqlx").value, criteres_actifs: $("#cf-ac").checked}});
       toast("Exigences de la couverture enregistrées.", "ok"); } catch (e) { toast(e.message, "ko"); } };
     $("#cf-cont").onclick = async () => { try { await api("/api/apps/source/conteneurs", {method: "POST", body: {jql_plans: $("#cf-jqlp").value, jql_executions: $("#cf-jqle").value}});

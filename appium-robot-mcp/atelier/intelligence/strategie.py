@@ -68,10 +68,10 @@ RUBRIQUES = [
         _c("echeance", "Échéance", "date"),
         _c("modules", "Modules associés", "refs", cible="perimetre"),
         _c("types", "Types de test associés", "refs", cible="types_tests")]},
-    {"id": "perimetre", "titre": "Périmètre", "numero": 3, "champs": [
+    # Les squads (projets Jira des équipes) ne se déclarent plus ici : Politique des US (Paramètres › Configuration).
+    {"id": "perimetre", "titre": "Exclusions et criticité", "numero": 3, "champs": [
         _c("nom", "Nom", obligatoire=True),
-        _c("niveau", "Niveau", "choix", ["squad", "domaine", "module", "fonctionnalite", "exigence", "interface"], obligatoire=True),
-        _c("projet_jira", "Projet Jira de la squad", aide="Niveau « squad » : projet Jira de l'équipe (ses US alimentent la stratégie)."),
+        _c("niveau", "Niveau", "choix", ["domaine", "module", "fonctionnalite", "exigence", "interface"], obligatoire=True),
         _c("parent", "Élément parent", "ref", cible="perimetre"), _c("description", "Description", "long"),
         _c("criticite", "Criticité métier", "choix", ["Critique", "Haute", "Moyenne", "Basse"]),
         _c("priorite", "Priorité", "choix", PRIORITES), _c("inclus", "Inclus dans le périmètre", "bool"),
@@ -474,31 +474,52 @@ def ajouter_en_lot(rubrique: str, valeurs: list[str], communs: dict | None = Non
     return {**etat(), "ajoutes": a_ajouter}
 
 
-def ajouter_squads(squads: list[dict]) -> dict:
-    """Périmètre : squads concernées par la stratégie (projets Jira des équipes). squads : [{cle, nom}]. Une squad déjà
-    présente (même projet Jira) n'est pas dupliquée."""
-    s = _exiger()
-    presentes = {(x.get("projet_jira") or "").upper() for x in s["rubriques"]["perimetre"] if x.get("niveau") == "squad"}
-    ajoutees = []
-    for q in squads:
-        cle = str(q.get("cle") or "").strip().upper()
-        if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,19}", cle) or cle in presentes:
-            continue
-        enregistrer_element("perimetre", {"nom": str(q.get("nom") or cle), "niveau": "squad", "projet_jira": cle, "inclus": True,
-                                          "priorite": "Moyenne"})
-        presentes.add(cle)
-        ajoutees.append(cle)
-    if not ajoutees:
-        raise ValueError("Aucune nouvelle squad (déjà dans le périmètre ou clé invalide).")
-    _journaliser("ajout_squads", charger(), squads=", ".join(ajoutees))
-    return {**etat(), "ajoutees": ajoutees}
+def squads_a_reprendre(s: dict | None = None) -> list[dict]:
+    """Squads déclarées dans le périmètre avant le 2026-11-16 (niveau « squad », supprimé) : à reprendre dans la
+    politique des US. Depuis, les squads ne se déclarent qu'à un endroit : Paramètres › Configuration › Politique des US
+    (espaces Jira, par application). dans_politique : déjà suivie par la politique (toutes applications confondues)."""
+    from atelier.intelligence import testabilite_us
 
-
-def squads() -> list[dict]:
-    """Squads du périmètre (niveau « squad »), incluses ou non."""
-    s = charger() or {"rubriques": {"perimetre": []}}
-    return [{"id": x["id"], "nom": x["nom"], "projet_jira": x.get("projet_jira", ""), "inclus": x.get("inclus", True)}
+    s = s if s is not None else charger()
+    if not s:
+        return []
+    suivies = {e["projet_jira"]: e.get("application", "") for e in testabilite_us.tous_espaces()}
+    return [{"id": x["id"], "nom": x.get("nom", ""), "projet_jira": (x.get("projet_jira") or "").upper(),
+             "dans_politique": (x.get("projet_jira") or "").upper() in suivies,
+             "application": suivies.get((x.get("projet_jira") or "").upper(), "")}
             for x in s["rubriques"].get("perimetre", []) if x.get("niveau") == "squad"]
+
+
+def reprendre_squads() -> dict:
+    """Reprend les squads du périmètre dans la politique des US (rattachées à l'application active si elles n'y sont pas
+    encore), puis les retire du périmètre. Action explicite, journalisée des deux côtés."""
+    from atelier.intelligence import testabilite_us
+
+    s = _exiger()
+    a_reprendre = squads_a_reprendre(s)
+    if not a_reprendre:
+        raise ValueError("Aucune squad à reprendre : le périmètre n'en contient plus.")
+    ajoutees, deja, refusees = [], [], []
+    for q in a_reprendre:
+        if q["dans_politique"]:
+            deja.append(q["projet_jira"])
+            continue
+        try:
+            testabilite_us.enregistrer_espace({"projet_jira": q["projet_jira"], "nom": q["nom"] or q["projet_jira"]})
+            ajoutees.append(q["projet_jira"])
+        except ValueError as e:  # clé invalide, projet Xray absent… : la squad reste dans le périmètre
+            refusees.append({"projet_jira": q["projet_jira"], "raison": str(e)})
+    retirer = {q["id"] for q in a_reprendre if q["projet_jira"] not in {r["projet_jira"] for r in refusees}}
+    if retirer:
+        _avant_modification(s, "squads reprises dans la politique des US")
+        s["rubriques"]["perimetre"] = [x for x in s["rubriques"]["perimetre"] if x["id"] not in retirer]
+        for x in s["rubriques"]["perimetre"]:  # un enfant d'une squad retirée remonte à la racine
+            if x.get("parent") in retirer:
+                x["parent"] = ""
+        _sauver(s)
+    _journaliser("squads_reprises_dans_politique", s, ajoutees=", ".join(ajoutees), deja=", ".join(deja),
+                 refusees=", ".join(r["projet_jira"] for r in refusees))
+    return {**etat(), "ajoutees_politique": ajoutees, "deja_dans_politique": deja, "refusees": refusees}
 
 
 def supprimer_element(rubrique: str, eid: str) -> dict:
@@ -825,7 +846,7 @@ def etat() -> dict:
     for e in s["rubriques"]["risques"]:
         e["score"], e["niveau"] = niveau_risque(e)
     ctl = controles(s)
-    return {**base, "existe": True, "strategie": s, "completude": completude(s), "controles": ctl,
+    return {**base, "existe": True, "strategie": s, "squads_a_reprendre": squads_a_reprendre(s), "completude": completude(s), "controles": ctl,
             "publiable": not any(c["gravite"] == "erreur" for c in ctl), "mesures": m,
             "synthese": synthese(s, m), "criteres": criteres_evalues(s, m), "versions": _index()}
 

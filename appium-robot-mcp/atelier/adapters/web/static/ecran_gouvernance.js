@@ -78,7 +78,7 @@
       <table class="table-strat"><tr><th>Exigence</th><th>Type</th><th>Module</th><th>Tests</th><th>Automatisés</th><th>Couverture</th></tr>${c.exigences.map(e => `<tr><td class="cle-xray">${esc(e.cle)}</td><td>${esc(e.type)}</td><td>${esc(e.module || "—")}</td>
         <td>${esc(e.tests.join(", ") || "—")}</td><td>${e.automatises}/${e.tests.length}</td><td>${etat(e.etat)}</td></tr>`).join("")}</table>
       <p style="margin-top:10px"><b>Tests sans exigence :</b> ${esc(c.sans_exigence.join(", ") || "aucun")}</p>
-      <div class="btns"><a class="btn" href="#parametres/perimetre">Périmètre de l'application</a><a class="btn" href="#intelligence/couverture">Exigences (Couverture)</a></div></div>`;
+      <div class="btns"><a class="btn" href="#parametres/perimetre">Exclusions et criticité</a><a class="btn" href="#intelligence/couverture">Exigences (Couverture)</a></div></div>`;
   }
 
   async function automatisation(z) {

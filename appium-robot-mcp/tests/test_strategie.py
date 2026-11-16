@@ -187,7 +187,33 @@ def test_ajout_en_lot_et_squads(tmp_path, monkeypatch):
     assert {x["nom"]: x["usage"] for x in st.charger()["rubriques"]["outils"]}["Jira"].startswith("Exigences")
     with pytest.raises(ValueError):
         st.ajouter_en_lot("outils", ["Jira"])
-    r = st.ajouter_squads([{"cle": "sqcarte", "nom": "Squad Cartes"}, {"cle": "SQPAY", "nom": "Squad Paiement"}])
-    assert r["ajoutees"] == ["SQCARTE", "SQPAY"] and [q["projet_jira"] for q in st.squads()] == ["SQCARTE", "SQPAY"]
+
+
+def test_squads_du_perimetre_reprises_dans_la_politique_des_us(tmp_path, monkeypatch):
+    """Les squads ne se déclarent plus que dans la politique des US : celles de l'ancien périmètre y sont reprises
+    (sans doublon), puis retirées du périmètre ; le niveau « squad » n'est plus accepté."""
+    from atelier.domain import projet, projets
+    from atelier.intelligence import strategie as st
+    from atelier.intelligence import testabilite_us
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+    monkeypatch.setattr(projets, "cle_xray", lambda: "TAM")
+    st.creer("Stratégie TAM", "TAM")
+    testabilite_us.enregistrer_espace({"projet_jira": "SQA", "nom": "Squad A"})  # déjà suivie par la politique
+    s = st.charger()  # périmètre écrit avant la correction : deux squads et un module rattaché à l'une d'elles
+    s["rubriques"]["perimetre"] += [{"id": "per_a", "nom": "Squad A", "niveau": "squad", "projet_jira": "SQA", "inclus": True},
+                                    {"id": "per_b", "nom": "Squad B", "niveau": "squad", "projet_jira": "sqb", "inclus": True},
+                                    {"id": "per_m", "nom": "Cartes", "niveau": "module", "parent": "per_b", "inclus": True}]
+    st._sauver(s)
+    assert [(q["projet_jira"], q["dans_politique"]) for q in st.etat()["squads_a_reprendre"]] == [("SQA", True), ("SQB", False)]
+    r = st.reprendre_squads()
+    assert r["ajoutees_politique"] == ["SQB"] and r["deja_dans_politique"] == ["SQA"] and r["refusees"] == []
+    assert sorted(e["projet_jira"] for e in testabilite_us.tous_espaces()) == ["SQA", "SQB"]
+    per = st.charger()["rubriques"]["perimetre"]
+    assert [x["id"] for x in per] == ["per_m"] and per[0]["parent"] == ""  # le module remonte à la racine
+    assert st.etat()["squads_a_reprendre"] == []
     with pytest.raises(ValueError):
-        st.ajouter_squads([{"cle": "SQCARTE"}])  # jamais dupliquée
+        st.reprendre_squads()  # plus rien à reprendre
+    with pytest.raises(ValueError):
+        st.enregistrer_element("perimetre", {"nom": "Squad C", "niveau": "squad"})
+    assert "squads_reprises_dans_politique" in (tmp_path / "strategie" / "journal.jsonl").read_text("utf-8")
