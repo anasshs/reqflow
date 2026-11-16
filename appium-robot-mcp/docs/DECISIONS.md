@@ -287,3 +287,9 @@ Une ligne datée par décision d'architecture ou de conception.
 - Un lien champ ↔ règle déduit du texte reste « à valider » ; une anomalie sans clé Jira n'est jamais créée dans Jira.
 - Failure Analysis enregistre le contexte de l'anomalie à la décision (jamais bloquant).
 - 2 outils MCP ajoutés (87).
+
+## 2026-11-16 — V2 phase 6 : échecs reliés à la connaissance
+- Localisation d'un échec (écran, composant) calculée une fois et mémorisée ; étape sans locator = « sans écran »,
+  jamais deviné.
+- Régression = réussi au run précédent puis échec ; récurrente = ≥ 2 sur le même composant (ou test), runs différents.
+- Lecture seule : aucune décision ni anomalie créée ; outil MCP `failure_connaissance` (88).

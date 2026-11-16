@@ -9,7 +9,7 @@
     ["inbox", "Échecs à traiter", [["inbox", "Échecs à traiter"]], "File des échecs : filtrer, ouvrir, analyser par lot"],
     ["investigation", "Investigation", [["investigation", "Diagnostic et preuves"], ["jira", "Anomalie Jira"], ["retest", "Retests et clôture"]],
       "Un échec : étape fautive, preuves, diagnostic (règles puis IA), décision, anomalie Jira, retest"],
-    ["causes", "Causes et corrections", [["causes", "Causes racines"], ["corrections", "Corrections recommandées"], ["locators", "Locators en cause"]],
+    ["causes", "Causes et corrections", [["causes", "Causes racines"], ["composants", "Par composant"], ["corrections", "Corrections recommandées"], ["locators", "Locators en cause"]],
       "Échecs regroupés par cause, corrections à faire et où (les corrections de locators se gèrent dans le Studio)"],
     ["parametres", "Réglages", [["parametres", "Réglages"]], "Catégories, règles de classification, regroupement, IA, clôture"]];
   const MENU = GROUPES.flatMap(g => g[2]);
@@ -43,7 +43,7 @@
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "echecs/" + b.dataset.r; });
       $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = "echecs/" + b.dataset.onglet; });
       const z = $("#fa-contenu");
-      try { await ({vue, inbox, investigation, locators, causes, corrections, retest, jira, parametres}[R])(z); }
+      try { await ({vue, inbox, investigation, locators, causes, composants, corrections, retest, jira, parametres}[R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
   });
@@ -151,6 +151,17 @@
     };
     if (!$("#iv-ia-hist")) $("#iv-ia-res").insertAdjacentHTML("afterend", '<div id="iv-ia-hist"></div>');
     iaHistorique();
+    api("/api/echecs/connaissance?id=" + encodeURIComponent(SEL)).then(k => {  // V2 : l'échec dans la connaissance
+      const corps = $(".corps-carte", z);
+      if (!corps || !k) return;
+      corps.insertAdjacentHTML("afterbegin", `<section class="bloc-strat" style="margin-bottom:10px"><h3>Dans la connaissance</h3>
+        <p>${k.composant ? `Composant <b>${esc(k.composant)}</b>${k.est_champ ? ' <span class="pill info">champ</span>' : ""}` : '<span class="lib">Écran / composant non trouvés (locator hors référentiel)</span>'}
+          ${k.regression ? ' <span class="pill warn" title="Réussi au run précédent">régression</span>' : ""}${k.regression_recurrente ? ' <span class="pill ko">régression récurrente</span>' : ""}
+          ${k.cause_dominante ? ` · cause dominante ${k.composant ? "sur ce composant" : "pour ce test"} : ${esc(k.cause_dominante)}` : ""}</p>
+        ${k.meme_composant.length ? `<p class="lib">Autres échecs du même composant : ${k.meme_composant.slice(-5).map(x => `${esc((x.date || "").slice(0, 10))} ${esc(x.test)} (${esc(x.cause)})`).join(" · ")}</p>` : ""}
+        ${k.anomalies_connues.length || k.anomalies_jira.length ? `<p class="lib">Anomalies déjà connues : ${[...new Set([...k.anomalies_jira, ...k.anomalies_connues.map(a => a.id_jira || a.id)])].map(x => `<span class="cle-xray">${esc(x)}</span>`).join(", ")} — vérifier avant d'en créer une.</p>` : ""}
+        <a class="lien" href="#echecs/composants">Échecs par composant</a></section>`);
+    }).catch(() => {});
   }
 
   async function locators(z) {
@@ -162,6 +173,23 @@
         ${pb.map(x => `<tr><td class="mono">${esc(x.cle)}</td><td>${esc(x.ecran)}</td><td class="mono">${esc(x.valeur || "—")}</td><td><span class="pill ${x.etat === "Fragile" ? "warn" : "ko"}">${esc(x.etat)}</span></td><td>${x.utilisations}</td><td class="lib">${esc(x.secours.join(" || ") || "—")}</td></tr>`).join("") || "<tr><td colspan='6' class='lib'>Aucun locator à risque.</td></tr>"}</table>
       <p class="lib" style="margin-top:10px">Proposition de remplacement : valeurs observées pour la même clé dans la carte (investigation). Toute modification du référentiel passe par Automation Studio, après validation.</p></div>`;
     $$("[data-id]", z).forEach(b => b.onclick = () => ouvrir(b.dataset.id));
+  }
+
+  /* Échecs × Knowledge Graph (V2, phase 6) : par composant, causes historisées, régressions récurrentes */
+  async function composants(z) {
+    const r = await api("/api/echecs/composants");
+    z.innerHTML = `${entete("Échecs par composant", `<button class="btn" id="ec-loc" title="Relit l'étape fautive des échecs récents pas encore localisés pour trouver écran et composant (une fois par échec)">Localiser les échecs</button>`)}<div class="corps-carte">
+      <p class="lib">Régression : ${esc(r.definitions["régression"])}. Régression récurrente : ${esc(r.definitions["régression récurrente"])}. Cause : ${esc(r.definitions.cause)}.
+        ${r.non_localises ? `${r.non_localises} groupe(s) sans écran : étape fautive sans locator du référentiel (ex. initialisation, données), ou échecs pas encore localisés.` : ""}</p>
+      ${r.regressions_recurrentes.length ? `<p class="ko-t" style="margin:8px 0">Régressions récurrentes : ${esc(r.regressions_recurrentes.join(", "))}</p>` : ""}
+      ${r.composants.length ? `<table class="table-strat"><tr><th>Composant</th><th>Échecs</th><th>Régressions</th><th>Cause dominante</th><th>Causes historisées</th><th>Anomalies</th></tr>
+        ${r.composants.map(c => `<tr><td><b>${esc(c.cle)}</b>${c.est_champ ? ' <span class="pill info">champ</span>' : ""}${c.regression_recurrente ? ' <span class="pill ko">régression récurrente</span>' : ""}
+            <div class="lib">${esc(c.tests.join(", "))}</div></td><td>${c.echecs}<div class="lib">${c.runs.length} run(s) · dernier ${esc((c.dernier || "").slice(0, 10))}</div></td>
+          <td>${c.regressions}</td><td>${esc(c.cause_dominante)}</td>
+          <td class="lib">${c.causes.slice(-4).reverse().map(x => `${esc((x.date || "").slice(0, 10))} · ${esc(x.cause)}${x.confirmee ? " ✓" : ""}${x.jira ? ` · <span class="cle-xray">${esc(x.jira)}</span>` : ""}`).join("<br>")}</td>
+          <td class="lib">${[...c.anomalies_jira.map(k => `<span class="cle-xray">${esc(k)}</span>`), ...c.anomalies_connues.filter(a => !c.anomalies_jira.includes(a.id_jira)).map(a => esc(a.id_jira || a.id))].join(", ") || "—"}</td></tr>`).join("")}</table>`
+        : vide("Aucun échec", "Les échecs des runs réels récents apparaissent ici.")}</div>`;
+    $("#ec-loc").onclick = async () => { try { const x = await api("/api/echecs/localiser", {method: "POST", body: {}}); toast(`${x.localises} échec(s) localisé(s).`, "ok"); composants(z); } catch (e) { toast(e.message, "ko"); } };
   }
 
   async function causes(z) {

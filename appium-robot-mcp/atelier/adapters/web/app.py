@@ -2746,6 +2746,28 @@ async def echecs_liste():
     return await asyncio.to_thread(_call, echecs.collecter)
 
 
+@app.get("/api/echecs/composants")
+async def echecs_composants():
+    """Échecs par composant : causes historisées, régressions, régressions récurrentes, anomalies connues."""
+    from atelier.execution import echecs_connaissance as ec
+
+    return await asyncio.to_thread(_call, ec.par_composant)
+
+
+@app.post("/api/echecs/localiser")
+async def echecs_localiser():
+    from atelier.execution import echecs_connaissance as ec
+
+    return await asyncio.to_thread(_call, ec.localiser_tous)
+
+
+@app.get("/api/echecs/connaissance")
+async def echecs_connaissance_route(id: str):
+    from atelier.execution import echecs_connaissance as ec
+
+    return await asyncio.to_thread(_call, ec.connaissance_echec, id)
+
+
 @app.get("/api/echecs/investigation")
 async def echecs_investigation(id: str):
     return await asyncio.to_thread(_call, echecs.investigation, id)

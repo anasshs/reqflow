@@ -944,3 +944,15 @@ def knowledge_proposer_champ(ecran: str, champ: str, regle: str, description: st
     from atelier.discovery import entites
 
     return entites.proposer_regle_champ(ecran, champ, regle, description)
+
+
+# =========================================================================== Failure Analysis × connaissance (V2, phase 6)
+@outil
+def failure_connaissance(echec_id: str = "") -> dict:
+    """Échecs reliés à la connaissance. Sans echec_id : échecs regroupés par composant (écran.clé), causes historisées,
+    régressions (réussi au run précédent, échec maintenant) et régressions récurrentes (≥ 2 sur le même composant).
+    Avec echec_id (« RUN-…::id du test ») : écran / composant / champ touchés, autres échecs du même composant,
+    anomalies déjà connues sur l'écran, cause dominante, régression ou non. Lecture seule."""
+    from atelier.execution import echecs_connaissance as ec
+
+    return ec.connaissance_echec(echec_id) if echec_id else ec.par_composant()

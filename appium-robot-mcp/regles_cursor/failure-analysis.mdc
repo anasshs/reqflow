@@ -5,7 +5,9 @@ alwaysApply: false
 - Lire l'échec : parse_robot_output (test, keyword fautif, message), puis l'écran et le locator concernés (screen_info).
 - Classer la cause probable : défaut applicatif, défaut du script, locator obsolète, environnement, réseau, données
   de test, synchronisation, indéterminée ; dire sur quoi repose le diagnostic.
-- Comparer avec les exécutions précédentes avant de conclure à une régression.
+- Comparer avec les exécutions précédentes avant de conclure à une régression : failure_connaissance(echec_id) donne
+  l'écran / le composant touché, les autres échecs du même composant, les anomalies déjà connues et si c'est une
+  régression (récurrente ou non) ; failure_connaissance() liste les composants en échec.
 - Locator obsolète : studio_corrections_locators puis studio_corriger_locator (les suites repassent en revue).
 - Qualification Xray : qualify_failure dépose une demande ; une anomalie Jira n'est jamais créée par toi.
 - Aucune correction n'est déclarée fiable sans 3 exécutions stables et revue humaine.

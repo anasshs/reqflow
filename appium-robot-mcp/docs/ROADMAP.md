@@ -259,5 +259,5 @@ aucune MR proposée avant 3 passages stables, aucune modification silencieuse.
 - [x] Phase 3 — Coverage avancé (parcours, composants UI, niveaux de couverture) — docs/V2_PHASE3_COUVERTURE.md
 - [x] Phase 4 — Test Design avancé (catégories de scénarios, doublons) — docs/V2_PHASE4_TEST_DESIGN.md
 - [x] Phase 5 — Knowledge Graph (Champ, Anomalie) — docs/V2_PHASE5_KNOWLEDGE_GRAPH.md
-- [ ] Phase 6 — Failure Analysis (liens échecs ↔ écrans, composants, champs, anomalies)
+- [x] Phase 6 — Failure Analysis (liens échecs ↔ écrans, composants, champs, anomalies) — docs/V2_PHASE6_FAILURE_ANALYSIS.md
 - [ ] Phase 7 — Consolidation (non-régression, intégration MCP, sécurité)
