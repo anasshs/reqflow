@@ -17,6 +17,11 @@ Automation Studio et Execution Center : voir docs/AUTOMATION_EXECUTION_ECARTS.md
 Application Intelligence, Failure Analysis, Quality Governance : docs/INTELLIGENCE_ECHECS_GOUVERNANCE_ECARTS.md.
 Testabilité des US (stratégie actionnable) : docs/TESTABILITE_US.md.
 Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).
+V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
+fonctionnalité, demandes d'action validées côté serveur, 11 règles Cursor versionnées, couverture parcours / UI, Test
+Design par catégories et doublons, Champ / Anomalie, échecs reliés à la connaissance. 88 outils MCP (76 historiques
+inchangés) ; classement de sécurité de chaque outil : tests/test_securite_outils.py (à compléter pour tout nouvel outil) ;
+client MCP de test : tests/client_mcp.py.
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).
 Les fichiers racine `server.py`, `app_map.py`, `jdd.py`, `xray_client.py`, `web_backend.py`,
 `xray_live_listener.py`, `cartographie_listener.py` et `web/app.py` ne sont plus que des points

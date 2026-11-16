@@ -293,3 +293,10 @@ Une ligne datée par décision d'architecture ou de conception.
   jamais deviné.
 - Régression = réussi au run précédent puis échec ; récurrente = ≥ 2 sur le même composant (ou test), runs différents.
 - Lecture seule : aucune décision ni anomalie créée ; outil MCP `failure_connaissance` (88).
+
+## 2026-11-16 — V2 phase 7 : consolidation
+- Client MCP de test (`tests/client_mcp.py`) : lance le serveur comme Cursor ; scénario de bout en bout (parcours,
+  suspension, reprise, décisions humaines dans le web) et contrat des 88 outils vérifiés par ce client.
+- Registre de sécurité (`tests/test_securite_outils.py`) : tout outil MCP doit être classé (lecture, proposition,
+  action, écriture locale, écriture externe) ; aucun outil git / fusion, aucune décision humaine par MCP.
+- Bilan des critères de succès et limites connues : `docs/V2_BILAN.md`.

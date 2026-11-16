@@ -260,4 +260,4 @@ aucune MR proposée avant 3 passages stables, aucune modification silencieuse.
 - [x] Phase 4 — Test Design avancé (catégories de scénarios, doublons) — docs/V2_PHASE4_TEST_DESIGN.md
 - [x] Phase 5 — Knowledge Graph (Champ, Anomalie) — docs/V2_PHASE5_KNOWLEDGE_GRAPH.md
 - [x] Phase 6 — Failure Analysis (liens échecs ↔ écrans, composants, champs, anomalies) — docs/V2_PHASE6_FAILURE_ANALYSIS.md
-- [ ] Phase 7 — Consolidation (non-régression, intégration MCP, sécurité)
+- [x] Phase 7 — Consolidation (non-régression, intégration MCP, sécurité) — docs/V2_BILAN.md

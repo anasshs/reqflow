@@ -8,7 +8,7 @@ Date : 2026-11-15. Base : branche `claude/zip-review-dev-o5q90v` (commit de l'au
 
 | Indicateur | Valeur |
 |---|---|
-| Outils MCP | **76** (37 lecture, 7 propositions validées dans l'atelier, 10 actions device, 18 écritures locales, 4 écritures externes Jira / Xray) |
+| Outils MCP | **76** à l'audit (88 après la V2, voir V2_BILAN.md) (37 lecture, 7 propositions validées dans l'atelier, 10 actions device, 18 écritures locales, 4 écritures externes Jira / Xray) |
 | Routes API web | **329** (studio 32, conception 29, centre 27, discovery 23, graphes 22, strategie 20, carte 19, echecs 16, testabilite 14, …) |
 | Tests automatisés | **461** tests dans 55 fichiers, tous verts |
 | Types du Knowledge Graph | 33 types de nœuds en 7 catégories, 11 types de relations, 3 provenances (observé / déclaré / déduit) |
