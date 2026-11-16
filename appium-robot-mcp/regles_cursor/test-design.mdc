@@ -4,8 +4,10 @@ alwaysApply: false
 ---
 - Partir des exigences : testabilite_us_a_traiter (US à couvrir), xray_search_tests / xray_get_test (tests existants),
   plan_de_test(module) (écrans, parcours, règles, exigences et ce qui n'est pas couvert).
-- Avant de proposer un scénario, chercher un test existant équivalent (mêmes étapes, préconditions, résultat
-  attendu) : proposer de le réutiliser ou de le faire évoluer plutôt que d'en créer un doublon.
+- Avant de proposer un scénario : test_design_doublons(titre, etapes, gherkin) ; « réutiliser » ou « faire évoluer »
+  → proposer le test existant plutôt qu'un doublon.
+- test_design_proposer(cle, categories) génère les cas par catégorie (source, confiance, manques, observé / déduit,
+  doublon) dans À concevoir : compléter ensuite ce qui manque, ne pas valider à la place de l'automaticien.
 - Couvrir, selon la fonctionnalité : nominal, alternatifs, négatifs, limites, validation des champs, erreurs,
   navigation, permissions, règles métier.
 - Chaque proposition dit sa source (US, critère, écran observé, règle), sa justification, sa confiance et ce qui

@@ -273,3 +273,10 @@ Une ligne datée par décision d'architecture ou de conception.
   par la fonctionnalité, affichée comme telle.
 - Lieu unique : Application Intelligence › Couverture (onglet Parcours et UI) ; résumé au tableau de bord ;
   outil MCP `coverage_ui` (83 outils).
+
+## 2026-11-16 — V2 phase 4 : Test Design par catégories, doublons
+- Cas proposés pour 9 catégories à partir des critères, règles, champs, messages, transitions et rôles du graphe ;
+  observé / déduit, confiance et manques explicites ; règles déterministes (pas d'IA requise).
+- Doublons sur titre, étapes, préconditions, résultats attendus et texte complet ; seuils réutiliser 0,70 / faire
+  évoluer 0,40 ; similarité du moteur de Coverage Intelligence (aucun second moteur).
+- 2 outils MCP ajoutés (85).

@@ -1497,6 +1497,17 @@ def testabilite_detail(cle: str):
     return _call(testabilite_us.detail, cle)
 
 
+def _cat():
+    from atelier.intelligence import conception_avancee
+
+    return conception_avancee
+
+
+@app.get("/api/conception/categories")
+def conception_categories():
+    return _cat().CATEGORIES
+
+
 @app.post("/api/testabilite/us/{cle}/{action}")
 async def testabilite_action(cle: str, action: str, req: Request):
     """Actions explicites sur une US ; les écritures Jira / Xray (envoyer, publier) ne partent que d'ici."""
@@ -1508,7 +1519,9 @@ async def testabilite_action(cle: str, action: str, req: Request):
                "reponses": lambda: t.relever_reponses(cle), "proposer-cas": lambda: t.proposer_cas(cle),
                "cas": lambda: t.modifier_cas(cle, b.get("id", ""), b), "decision": lambda: t.decider_cas(cle, b.get("id", ""), b.get("decision", ""), b.get("motif", "")),
                "publier": lambda: t.publier_cas(cle), "non-testable": lambda: t.non_testable(cle, b.get("justification", "")),
-               "convertir": lambda: t.convertir_cas(cle, b.get("id", ""), b.get("vers", ""))}
+               "convertir": lambda: t.convertir_cas(cle, b.get("id", ""), b.get("vers", "")),
+               "proposer-categories": lambda: _cat().proposer(cle, b.get("categories") or None)["us"],
+               "doublons": lambda: _cat().verifier_doublons(cle)["us"]}
     if action not in actions:
         raise HTTPException(404, f"Action inconnue : {action}")
     return await asyncio.to_thread(_call, actions[action])

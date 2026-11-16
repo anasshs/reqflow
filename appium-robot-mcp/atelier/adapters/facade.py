@@ -893,3 +893,30 @@ def coverage_ui(module: str = "", detail: bool = False) -> dict:
     if not detail:
         r["composants"] = [c for c in r["composants"] if c["niveau"] == "découvert"][:50]
     return r
+
+
+# =========================================================================== Test Design avancé (V2, phase 4)
+@outil
+def test_design_proposer(cle: str, categories: list[str] | None = None) -> dict:
+    """Propose des cas pour une US de Test Design (À concevoir) par catégorie : nominal, alternatif, negatif,
+    limites, champs, erreurs, navigation, permissions, regles (toutes par défaut). Chaque cas porte sa source, sa
+    justification, sa confiance, ce qui manque, observé / déduit, et une recommandation de doublon (réutiliser,
+    faire évoluer, créer) face aux tests Xray existants. Cas « Proposé » : l'automaticien valide dans l'atelier."""
+    from atelier.intelligence import conception_avancee
+
+    r = conception_avancee.proposer(cle, categories, origine="cursor")
+    u = r.pop("us")
+    r["cas"] = [{k: c.get(k) for k in ("id", "categorie", "titre", "confiance", "provenance", "source_detail", "manquant", "statut")}
+                | {"doublon": (c.get("doublon") or {}).get("recommandation"), "proche": ((c.get("doublon") or {}).get("meilleur") or {}).get("cle")}
+                for c in u.get("cas") or [] if c.get("categorie")]
+    return r
+
+
+@outil
+def test_design_doublons(titre: str, etapes: list[dict] | None = None, gherkin: str = "") -> dict:
+    """Avant de proposer un scénario : tests Xray existants les plus proches (titre, étapes, préconditions, résultats
+    attendus comparés) et recommandation : réutiliser (≥ 0,70), faire évoluer (≥ 0,40) ou créer. etapes :
+    [{"action", "donnees", "resultat"}] ; gherkin : texte Given / When / Then."""
+    from atelier.intelligence import conception_avancee
+
+    return conception_avancee.doublons(titre, etapes or [], gherkin)
