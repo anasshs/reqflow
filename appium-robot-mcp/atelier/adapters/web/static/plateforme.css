@@ -409,6 +409,9 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
 .g-strat { grid-template-columns: 250px minmax(0, 1fr) auto; }
 .g-strat > .corps-strat { min-height: 0; }
 .g-strat > .corps-strat > .corps-carte { overflow: auto; }
+/* conteneur de contenu des modules (#ai-contenu, #ce-contenu, #td-contenu…) : sans lui, une page plus haute que l'écran
+   était coupée (#ecran est en overflow: hidden) et le bas restait inaccessible */
+.g-strat > .corps-strat > [id$="-contenu"] { flex: 1; min-height: 0; overflow: auto; }
 .panneau-strat { width: 340px; min-height: 0; }
 .panneau-strat > .corps-carte { overflow: auto; }
 .panneau-strat[hidden] { display: none; }
