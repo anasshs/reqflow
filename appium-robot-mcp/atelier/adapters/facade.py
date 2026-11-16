@@ -878,3 +878,18 @@ def cursor_regles(regle: str = "") -> list[dict]:
     if regle:
         return [x for x in l if x["id"] == regle] or [{"erreur": f"Règle inconnue : {regle}"}]
     return [{k: v for k, v in x.items() if k != "contenu"} for x in l]
+
+
+# =========================================================================== couverture avancée (V2, phase 3)
+@outil
+def coverage_ui(module: str = "", detail: bool = False) -> dict:
+    """Couverture des parcours et des composants UI, par niveau : découvert → associé (utilisé par un test) →
+    automatisé (test tracé dans Xray) → exécuté → réussi. Indicateurs (écrans, composants, parcours, automatisation,
+    réussite) avec définition et détail, écrans / composants / parcours sans test. detail=True : liste complète des
+    composants et de leurs tests."""
+    from atelier.intelligence import couverture_avancee
+
+    r = couverture_avancee.calculer(module=module)
+    if not detail:
+        r["composants"] = [c for c in r["composants"] if c["niveau"] == "découvert"][:50]
+    return r

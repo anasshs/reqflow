@@ -265,3 +265,11 @@ Une ligne datée par décision d'architecture ou de conception.
   n'est remplacé que s'il est choisi (sauvegarde `.bak`) ; les règles livrées avant la V2 sont reconnues par empreinte.
 - « Tester le serveur MCP » démarre réellement le serveur comme Cursor (preuve de connexion, pas une supposition).
 - Outil MCP `cursor_regles` ajouté (82 outils).
+
+## 2026-11-16 — V2 phase 3 : couverture des parcours et composants UI
+- Cinq niveaux explicables (découvert, associé, automatisé, exécuté, réussi) calculés sur le Knowledge Graph ;
+  « vérifié » = exécuté (au moins une exécution réelle), seul sens mesurable sans inventer.
+- Tests manuels : pas de couverture au niveau composant (texte libre Xray) ; association écran ↔ test Xray déduite
+  par la fonctionnalité, affichée comme telle.
+- Lieu unique : Application Intelligence › Couverture (onglet Parcours et UI) ; résumé au tableau de bord ;
+  outil MCP `coverage_ui` (83 outils).

@@ -2929,6 +2929,14 @@ async def cerveau_module(module: str):
     return await asyncio.to_thread(_call, plan_test.plan, module)
 
 
+@app.get("/api/couverture-avancee")
+async def couverture_avancee(module: str = ""):
+    """Couverture des parcours et composants UI par niveau (découvert, associé, automatisé, exécuté, réussi)."""
+    from atelier.intelligence import couverture_avancee as ca
+
+    return await asyncio.to_thread(_call, ca.calculer, None, module)
+
+
 @app.get("/api/cursor/regles")
 def cursor_regles_etat():
     from atelier.integrations import regles_cursor

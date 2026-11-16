@@ -17,6 +17,7 @@
       const [cv, an, runs, bdd, dev, strat] = await Promise.all([api("/api/graphes/couverture").catch(() => null), api("/api/graphes/anomalies").catch(() => []),
         api("/api/executions").catch(() => []), api("/api/bdd").catch(() => []), api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []})),
         api("/api/strategie").catch(() => null)]);
+      const cui = await api("/api/couverture-avancee").catch(() => null);
       const ind = cv?.indicateurs, g = ind?.disponible ? ind.global : null;
       const reels = runs.filter(r => !r.dry_run && r.passes !== null && r.passes !== undefined);
       const enCours = runs.filter(r => r.statut === "en cours").length;
@@ -57,6 +58,11 @@
               <td class="mono">${d === null ? "—" : new Date(d * 1000).toISOString().slice(14, 19)}</td><td>${xrayStatut(r)}</td>
               <td>${r.statut === "échec" ? `<span class="ko-t">${ico("aide")}</span>` : r.statut === "réussi" ? `<span class="ok-t">${ico("check")}</span>` : ""}</td></tr>`; }).join("")}</table>`
             : vide("Aucun run", "Les exécutions lancées depuis l'atelier apparaissent ici.")}</div></section>
+        ${cui ? `<section class="carte s12"><h2 class="titre-carte">Couverture fonctionnelle et UI<span class="actions-titre"><a class="btn" href="#intelligence/couverture" title="Détail : niveaux, écrans, composants, parcours">Détail ${ico("ext")}</a></span></h2>
+          <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">${[["couverture_ecrans", "écrans couverts"], ["couverture_composants", "composants couverts"],
+            ["couverture_parcours", "parcours couverts"], ["automatisation_composants", "composants automatisés"], ["reussite_composants", "composants en succès"]].map(([cle, l]) => {
+              const x = cui.indicateurs[cle]; return `<div class="kpi" title="${esc(x.detail)}"><div class="v">${x.valeur === null ? "—" : String(x.valeur).replace(".", ",") + " %"}</div><div class="l">${l}</div></div>`; }).join("")}</div>
+            <p class="lib" style="margin-top:6px">Sans test : ${cui.sans_test.ecrans.length} écran(s), ${cui.sans_test.composants.length} composant(s), ${cui.sans_test.parcours.length} parcours incomplet(s).</p></div></section>` : ""}
         ${strat?.existe ? (() => { const y = strat.synthese, PE = {"atteint": "ok", "en cours": "info", "non atteint": "ko", "non mesurable": ""};
           return `<section class="carte s12"><h2 class="titre-carte">Objectifs et critères
             <span class="actions-titre"><a class="btn" href="#gouvernance/objectifs">Objectifs et critères ${ico("ext")}</a></span></h2><div class="corps-carte" style="display:grid;grid-template-columns:2fr 1fr;gap:16px">

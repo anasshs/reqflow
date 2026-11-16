@@ -256,7 +256,7 @@ aucune MR proposée avant 3 passages stables, aucune modification silencieuse.
 - [x] Phase 0 bis — Validation côté serveur des outils MCP d'écriture (jira_transition, import_results_to_xray, qualify_failure, transitions de run_robot, fusion d'écrans / remplacement de locator, tap / type_text hors Discovery)
 - [x] Phase 1 — Parcours de fonctionnalité (web + MCP) — docs/V2_PHASE1_PARCOURS.md
 - [x] Phase 2 — Cursor Integration (règles structurées, versionnement, export, configuration MCP) — docs/V2_PHASE2_CURSOR.md
-- [ ] Phase 3 — Coverage avancé (parcours, composants UI, niveaux de couverture)
+- [x] Phase 3 — Coverage avancé (parcours, composants UI, niveaux de couverture) — docs/V2_PHASE3_COUVERTURE.md
 - [ ] Phase 4 — Test Design avancé (catégories de scénarios, doublons)
 - [ ] Phase 5 — Knowledge Graph (Champ, Anomalie)
 - [ ] Phase 6 — Failure Analysis (liens échecs ↔ écrans, composants, champs, anomalies)

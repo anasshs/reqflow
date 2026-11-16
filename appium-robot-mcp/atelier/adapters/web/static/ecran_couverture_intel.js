@@ -9,6 +9,7 @@
     ["mapping", "Test Mapping", "Liens exigence ↔ test Xray : existants et proposés, avec score et justification, validés par un humain"],
     ["manquants", "Missing Tests", "Exigences sans test ou à vérifier ; envoi vers Test Design pour concevoir les cas"],
     ["orphelins", "Orphan Tests", "Tests Xray sans exigence : candidats de rattachement ou classement"],
+    ["ui", "Parcours et UI", "Couverture des parcours, des écrans et des composants par niveau : découvert, associé, automatisé, exécuté, réussi"],
     ["graphe", "Coverage Graph ↗", "Macro-fonctionnalité → Feature → Story → test Xray → exécution, avec écrans et parcours"]];
   const CRIT = {haute: "ko", moyenne: "warn", basse: ""};
   const ORI = {observe: ["ok", "observé"], deduit: ["info", "déduit"], ia: ["violet", "proposé par l'IA"], a_confirmer: ["warn", "à confirmer par le métier"]};
@@ -33,7 +34,7 @@
       <div class="corps-carte" id="ci-c">${vide("Analyse…")}</div>`;
     $$("[data-ci]", z).forEach(b => b.onclick = () => window.CoverageIntelligence(z, b.dataset.ci));
     const c = $("#ci-c", z);
-    try { await ({exigences: x => OPTIONS.exigences(x), overview, documentation, reconstruction, mapping, manquants, orphelins}[ONGLET])(c, z); }
+    try { await ({exigences: x => OPTIONS.exigences(x), overview, documentation, reconstruction, mapping, manquants, orphelins, ui}[ONGLET])(c, z); }
     catch (e) { c.innerHTML = `<p class="ko-t">${esc(e.message)}</p>`; }
   };
   const recharger = z => window.CoverageIntelligence(z, ONGLET);
@@ -209,5 +210,33 @@
       const justification = classe === "conserver" ? prompt("Justification (exigence implicite, réglementaire…) :", "") || "" : "";
       try { await post("orphelin", {test: s.dataset.cl, classe, cible, justification}); toast("Classement proposé (à valider).", "ok"); recharger(z); } catch (e) { toast(e.message, "ko"); s.value = ""; } });
     propositionsListe($("#or-p", c), "classement_orphelin", z);
+  }
+  /* ------------------------------------------------------------------ parcours et composants UI (V2, phase 3) */
+  const NIV = {"découvert": "", "associé": "info", "automatisé": "violet", "exécuté": "warn", "réussi": "ok"};
+  async function ui(c) {
+    const r = await api("/api/couverture-avancee");
+    const k = (x, l) => `<div class="kpi" title="${esc(x.detail)}"><div class="v">${pc(x.valeur)}</div><div class="l">${l}</div><div class="lib" style="font-size:11px">${esc(x.detail)}</div></div>`;
+    const barre = (rep, total) => `<div style="display:flex;gap:4px;flex-wrap:wrap">${r.niveaux.map(n => `<span class="pill ${NIV[n]}" title="${esc(r.definitions[n])}">${esc(n)} ${rep[n]}/${total}</span>`).join("")}</div>`;
+    const pill = n => `<span class="pill ${NIV[n]}" title="${esc(r.definitions[n])}">${esc(n)}</span>`;
+    c.innerHTML = `<div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px">${k(r.indicateurs.couverture_ecrans, "écrans")}${k(r.indicateurs.couverture_composants, "composants UI")}
+        ${k(r.indicateurs.couverture_parcours, "parcours")}${k(r.indicateurs.automatisation_composants, "composants automatisés")}${k(r.indicateurs.reussite_composants, "composants en succès")}</div>
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>Niveaux de couverture (chaque niveau inclut le précédent)</h3>
+        <ul class="liste">${r.niveaux.map(n => `<li>${pill(n)}<span class="item lib">${esc(r.definitions[n])}</span></li>`).join("")}</ul>
+        <p class="lib">Composants : ${barre(r.repartition.composants, r.repartition.composants["découvert"])}</p>
+        <p class="lib">Source : ${esc(r.source)}. ${esc(r.limites)}</p></section>
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>Écrans (${r.ecrans.length})</h3>${r.ecrans.length ? `<table class="table-strat"><tr><th>Écran</th><th>Module</th><th>Niveau</th><th>Composants par niveau</th><th>Tests Robot</th><th>Tests Xray (déduits)</th></tr>
+        ${r.ecrans.map(e => `<tr><td><a href="#intelligence/ecrans" title="Voir l'écran, ses composants et locators">${esc(e.nom)}</a></td><td>${esc(e.module || "—")}</td>
+          <td>${pill(e.niveau)}${e.association_deduite ? ' <span class="lib">(déduit)</span>' : ""}</td><td>${barre(e.composants_par_niveau, e.composants)}</td>
+          <td class="lib">${esc(e.tests_robot.slice(0, 4).join(", ") || "—")}${e.tests_robot.length > 4 ? ` +${e.tests_robot.length - 4}` : ""}</td>
+          <td class="lib">${esc(e.tests_xray_deduits.slice(0, 3).join(" · ") || "—")}</td></tr>`).join("")}</table>` : vide("Aucun écran", "Explorer l'application (Discovery) ou importer les .resource.")}</section>
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>Parcours (${r.parcours.length})</h3>${r.parcours.length ? `<table class="table-strat"><tr><th>Parcours</th><th>Niveau</th><th>Étapes associées</th><th>Étapes</th></tr>
+        ${r.parcours.map(p => `<tr><td>${esc(p.libelle)}</td><td>${pill(p.niveau)}</td><td>${p.etapes_associees}/${p.etapes.length} (${pc(p.couverture_etapes)})</td>
+          <td>${p.etapes.map(x => `${esc(x.ecran)} ${pill(x.niveau)}`).join(" → ")}</td></tr>`).join("")}</table>`
+        : `<p class="lib">Aucun parcours validé dans le Knowledge Graph : les parcours se proposent en Discovery (discovery_proposer « parcours ») et se valident dans À valider.</p>`}</section>
+      <section class="bloc-strat"><h3>Sans test</h3><p><b>Écrans</b> : ${esc(r.sans_test.ecrans.join(", ") || "aucun")}</p>
+        <p><b>Composants</b> (${r.sans_test.composants.length}) : <span class="lib">${esc(r.sans_test.composants.slice(0, 40).join(", ") || "aucun")}</span></p>
+        <p><b>Parcours incomplets</b> : ${esc(r.sans_test.parcours.join(", ") || "aucun")}</p>
+        <div class="btns"><a class="btn" href="#parcours" title="Suivre une fonctionnalité de bout en bout pour couvrir ces écrans">Parcours de fonctionnalité</a>
+          <a class="btn" href="#studio/candidats">À automatiser (Studio)</a></div></section>`;
   }
 })();

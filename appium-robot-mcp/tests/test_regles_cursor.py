@@ -91,8 +91,15 @@ def test_outil_mcp_cursor_regles(rc):
 def test_serveur_mcp_verifie_par_un_vrai_client_stdio():
     from atelier.integrations import agents_ia
 
+    import ast
+
+    from atelier.domain import projet
+
+    src = (projet.RACINE_OUTIL / "atelier" / "adapters" / "facade.py").read_text("utf-8")
+    attendus = sum(1 for n in ast.parse(src).body if isinstance(n, ast.FunctionDef)
+                   and any(isinstance(d, ast.Name) and d.id == "outil" for d in n.decorator_list))
     r = agents_ia.verifier(8765)
-    assert r["ok"] and r["outils"] == 82 and r["serveur"]["name"] == "appium-robot"
+    assert r["ok"] and r["outils"] == attendus and r["serveur"]["name"] == "appium-robot"  # tous les outils exposés
 
 
 def test_anciennes_regles_livrees_reconnues(rc):
