@@ -280,3 +280,10 @@ Une ligne datée par décision d'architecture ou de conception.
 - Doublons sur titre, étapes, préconditions, résultats attendus et texte complet ; seuils réutiliser 0,70 / faire
   évoluer 0,40 ; similarité du moteur de Coverage Intelligence (aucun second moteur).
 - 2 outils MCP ajoutés (85).
+
+## 2026-11-16 — V2 phase 5 : Champ et Anomalie dans le Knowledge Graph
+- Champ = composant de genre « champ » (pas de nouveau type de nœud) ; Anomalie = nœud « bug » enrichi par Failure
+  Analysis. Relations ajoutées : possede, concerne, detecte_par, associe_a.
+- Un lien champ ↔ règle déduit du texte reste « à valider » ; une anomalie sans clé Jira n'est jamais créée dans Jira.
+- Failure Analysis enregistre le contexte de l'anomalie à la décision (jamais bloquant).
+- 2 outils MCP ajoutés (87).

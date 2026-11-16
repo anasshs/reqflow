@@ -247,6 +247,39 @@ def _maj(eid: str, op: str, **champs) -> dict:
     return s
 
 
+def contexte_anomalie(eid: str) -> dict:
+    """Ce qui relie un échec à la connaissance : test, exécution, date, message, étape fautive, locator, écran et clé
+    du composant (via le référentiel de locators). Enregistré au moment d'une décision (confirmation d'un défaut
+    applicatif, association Jira) pour que le Knowledge Graph le lise sans relire les runs."""
+    e = _evenement(eid)
+    ctx = {"nom": e.get("nom", ""), "cle_xray": e.get("cle_xray", ""), "run": e.get("run", ""), "date": e.get("date", ""), "message": str(e.get("message", ""))[:300],
+           "plateforme": e.get("plateforme", ""), "ecran": "", "composant": "", "locator": "", "etape": ""}
+    try:
+        from atelier.execution import historique
+        from atelier.generation import studio
+
+        d = historique.detail_test(e["run"], e["test_id"])
+        f = d["etapes"][d["etape_en_echec"]] if d.get("etape_en_echec") is not None else None
+        if f:
+            ctx["etape"] = str(f.get("nom") or f.get("keyword") or "")[:160]
+            ctx["locator"] = f.get("locator") or ""
+            l = next((x for x in studio.locators() if ctx["locator"] and x["valeur"] == ctx["locator"]), None)
+            if l:
+                ctx["ecran"], ctx["composant"] = l["ecran"], l["cle"]
+    except Exception:  # noqa: BLE001 — contexte partiel plutôt qu'aucune trace
+        pass
+    return ctx
+
+
+def _contexte_sur(eid: str) -> dict:
+    """Le contexte d'anomalie ne bloque jamais une décision : en cas d'échec, une trace minimale est gardée."""
+    try:
+        return contexte_anomalie(eid)
+    except Exception as e:  # noqa: BLE001
+        run, _, test = eid.partition("::")
+        return {"nom": "", "run": run, "test_id": test, "erreur_contexte": str(e)[:200]}
+
+
 def decider(eid: str, decision: str, categorie: str = "", commentaire: str = "") -> dict:
     """confirmer (avec catégorie) / rejeter / inconclusif / faux_positif (justifié) / correction_en_cours / corrige / clore / rouvrir."""
     _evenement(eid)
@@ -263,6 +296,8 @@ def decider(eid: str, decision: str, categorie: str = "", commentaire: str = "")
     champs = {"statut": cibles[decision], "commentaire": commentaire.strip()}
     if categorie:
         champs["categorie"] = categorie
+    if decision == "confirmer" and categorie == "Application Defect" and not _stock().get(eid, {}).get("anomalie"):
+        champs["anomalie"] = _contexte_sur(eid)
     return _maj(eid, f"decision_{decision}", **champs)
 
 
@@ -274,7 +309,10 @@ def regrouper(eid: str, groupe: str) -> dict:
 def associer_jira(eid: str, cle: str) -> dict:
     if cle and not re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", cle):
         raise ValueError("Clé Jira attendue (ex. DEMO-42).")
-    return _maj(eid, "jira", jira=cle)
+    champs = {"jira": cle}
+    if cle and not _stock().get(eid, {}).get("anomalie"):
+        champs["anomalie"] = _contexte_sur(eid)
+    return _maj(eid, "jira", **champs)
 
 
 def noter_retest(eid: str, run_id: str) -> dict:

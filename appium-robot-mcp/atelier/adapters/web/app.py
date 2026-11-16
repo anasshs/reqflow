@@ -2942,6 +2942,13 @@ async def cerveau_module(module: str):
     return await asyncio.to_thread(_call, plan_test.plan, module)
 
 
+@app.get("/api/connaissance/entites")
+async def connaissance_entites(type: str = "champ", ecran: str = ""):
+    from atelier.discovery import entites
+
+    return await asyncio.to_thread(_call, entites.champs if type == "champ" else entites.anomalies, *( [ecran] if type == "champ" else []))
+
+
 @app.get("/api/couverture-avancee")
 async def couverture_avancee(module: str = ""):
     """Couverture des parcours et composants UI par niveau (découvert, associé, automatisé, exécuté, réussi)."""

@@ -8,7 +8,7 @@
      Les anciennes adresses restent valides (ALIAS). */
   const GROUPES = [
     ["vue", "Cerveau", [["vue", "Cerveau"]], "Ce que l'atelier sait de l'application, d'où, depuis quand, ce qui manque et quoi faire"],
-    ["exigences", "Connaissance", [["exigences", "Exigences et règles"], ["ecrans", "Écrans et parcours"], ["api", "API"], ["graphe", "Knowledge Graph"]],
+    ["exigences", "Connaissance", [["exigences", "Exigences et règles"], ["ecrans", "Écrans et parcours"], ["entites", "Champs et anomalies"], ["api", "API"], ["graphe", "Knowledge Graph"]],
       "Ce qui est demandé (Jira) et ce qui existe (écrans, parcours, API), reliés dans un seul graphe"],
     ["couverture", "Couverture", [["couverture", "Couverture"]], "Couverture des exigences et Coverage Intelligence : documentation, reconstruction, liens, tests manquants et orphelins"],
     ["a_valider", "À valider", [["a_valider", "À valider"]], "Toutes les propositions en attente : Discovery, Cursor, graphe, Coverage Intelligence"],
@@ -41,7 +41,7 @@
       $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = GRAPHE[b.dataset.onglet] || "intelligence/" + b.dataset.onglet; });
       api("/api/cerveau/a-valider").then(l => { const c = $('[data-compte="a_valider"]', zone); if (c && l.length) c.textContent = l.length; }).catch(() => {});
       const z = $("#ai-contenu");
-      try { await ({vue, exigences, ecrans: ecransParcours, a_valider: aValider, historique,
+      try { await ({vue, exigences, ecrans: ecransParcours, a_valider: aValider, historique, entites,
         couverture: x => window.CoverageIntelligence(x, undefined, {exigences: window.Pilotage.couverture}),
         api: liste("api", "API", "Endpoints et entités déclarés ou importés depuis les contrats OpenAPI / Swagger du projet (api/*.yaml|json ; module par tag, stories par x-jira).")}[R])(z); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
@@ -88,6 +88,31 @@
   }
 
   const entete = (t, a = "") => `<h2 class="titre-carte">${esc(t)}<span class="actions-titre">${a}</span></h2>`;
+
+  /* ------------------------------------------------------------------ Champs et anomalies (V2, phase 5) */
+  async function entites(z) {
+    const [ch, an] = await Promise.all([api("/api/connaissance/entites?type=champ"), api("/api/connaissance/entites?type=anomalie")]);
+    const oui = v => v === true ? '<span class="pill warn">obligatoire</span>' : v === false ? "facultatif" : '<span class="lib">non renseigné</span>';
+    z.innerHTML = `${entete("Champs et anomalies")}<div class="corps-carte">
+      <section class="bloc-strat" style="margin-bottom:12px"><h3>Champs (${ch.length})</h3>
+        <p class="lib">Champs observés dans la carte. Obligatoire, format et valeur par défaut viennent des règles de validation liées (un lien « déduit » reste à valider).
+          Cursor peut proposer une règle (knowledge_proposer_champ) : elle passe par À valider.</p>
+        ${ch.length ? `<table class="table-strat"><tr><th>Champ</th><th>Écran</th><th>Obligatoire</th><th>Format</th><th>Règles de validation</th><th>Messages d'erreur</th><th>Tests</th><th>Anomalies</th></tr>
+          ${ch.map(c => `<tr><td><b>${esc(c.libelle || c.nom_technique)}</b><div class="lib mono">${esc(c.nom_technique)}</div></td><td>${esc(c.ecran)}${c.fonctionnalite ? `<div class="lib">${esc(c.fonctionnalite)}</div>` : ""}</td>
+            <td>${oui(c.obligatoire)}</td><td>${esc(c.format || "—")}</td>
+            <td class="lib">${c.regles_validation.map(r => `${esc(r.libelle)} <span class="pill ${r.statut === "validé" ? "ok" : "warn"}">${esc(r.lien)}${r.statut === "validé" ? "" : " · à valider"}</span>`).join("<br>") || "—"}</td>
+            <td class="lib mono">${esc(c.messages_erreur.join(", ") || "—")}</td><td>${c.tests.length}</td><td>${c.anomalies.length || "—"}</td></tr>`).join("")}</table>`
+          : vide("Aucun champ", "Les champs apparaissent quand la carte observe des zones de saisie (Discovery, cartographie des runs).")}</section>
+      <section class="bloc-strat"><h3>Anomalies (${an.length})</h3>
+        <p class="lib">Bugs Jira et échecs analysés dans Failure Analysis (confirmés « défaut applicatif » ou associés à une anomalie Jira), reliés à l'écran, au composant, au test et à l'exécution.
+          Une anomalie n'est jamais créée dans Jira ni confirmée sans décision humaine.</p>
+        ${an.length ? `<table class="table-strat"><tr><th>Anomalie</th><th>Type</th><th>Statut</th><th>Écran / composant</th><th>Détectée par</th><th>Exécution</th><th>Validation</th></tr>
+          ${an.map(a => `<tr><td>${a.id_jira ? `<span class="cle-xray">${esc(a.id_jira)}</span> ` : ""}${esc(a.titre)}<div class="lib">${esc(a.message || "")}</div></td><td>${esc(a.type)}</td><td>${esc(a.statut || "—")}</td>
+            <td class="lib">${esc([...a.ecrans, ...a.composants].join(" · ") || "—")}${a.fonctionnalites.length ? `<br>${esc(a.fonctionnalites.join(", "))}` : ""}</td><td class="lib">${esc(a.tests.join(", ") || "—")}</td>
+            <td class="mono lib">${esc(a.execution || "—")}${a.date_detection ? `<br>${esc(a.date_detection.slice(0, 10))}` : ""}</td>
+            <td><span class="pill ${a.statut_validation === "validé" ? "ok" : "warn"}">${esc(a.statut_validation)}</span> <span class="lib">${Math.round(a.confiance * 100)} %</span></td></tr>`).join("")}</table>`
+          : vide("Aucune anomalie", "Elles apparaissent quand un échec est confirmé « défaut applicatif » ou associé à une anomalie Jira dans Failure Analysis.")}</section></div>`;
+  }
   const date = d => d ? esc(String(d).replace("T", " ").slice(0, 16)) : "—";
 
   /* ------------------------------------------------------------------ cerveau de l'application */

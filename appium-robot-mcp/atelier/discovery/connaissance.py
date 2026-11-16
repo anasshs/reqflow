@@ -14,7 +14,9 @@ test:DEMO-1, test_robot:tests/virement.robot::Virement Nominal, keyword:saisirle
 """
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 
 from atelier.domain import declarations
 from atelier.domain.graphe import Graphe
@@ -40,6 +42,8 @@ def construire(avec_declarations: bool = True, inventaire: dict | None = None) -
     _resultats(g, derniers_resultats())
     if avec_declarations:
         declarations.appliquer(g)
+    _enrichir_champs(g)
+    _depuis_anomalies(g)
     _marquer_automatisation(g)
     return g
 
@@ -103,6 +107,15 @@ def _depuis_carte(g: Graphe):
                                     "fiabilite": carte.robustesse(locs[0]), "libelle_ecran": el.get("libelle", ""),
                                     "classe_action": classe})
                 g.relier(n.id, lid, "contient", source="carte")
+            if el.get("type") in ("champ", "case", "liste", "select", "input") or classe == "controlled" or cle.startswith(("champ", "input", "saisie")):
+                cid = f"composant:{e.get('nom') or e['id']}.{cle}"  # V2 : le Champ est un composant de genre « champ »
+                g.noeud(cid, "composant", el.get("libelle") or cle, source="carte", plateformes=sorted(el.get("locators") or {}),
+                        proprietes={"genre": "champ", "nom_technique": cle, "libelle": el.get("libelle", ""), "type": el.get("type", ""),
+                                    "ecran": e.get("nom") or e["id"], "format": None, "obligatoire": None, "valeur_defaut": None,
+                                    "regles_validation": [], "messages_erreur": []})
+                g.relier(n.id, cid, "contient", source="carte")
+                for plat in el.get("locators") or {}:
+                    g.relier(cid, f"locator:{e.get('nom') or e['id']}.{cle}@{plat}", "utilise", source="carte")
         for cle_test in e.get("utilise_par", []):
             g.noeud(f"test:{cle_test}", "test", cle_test, source="carte (TNR)")
             g.relier(n.id, f"test:{cle_test}", "teste_par", source="carte (TNR)")
@@ -346,6 +359,110 @@ def _resultats(g: Graphe, res: dict):
         n = g.noeuds.get(f"test_robot:{tid}")
         if n:
             n.proprietes.update(dernier_statut=r["statut"], dernier_message=r["message"], derniere_fin=r["fin"])
+
+
+OBLIGATOIRE = re.compile(r"\b(obligatoire|requis|ne peut pas être vide|doit être renseign)", re.I)
+FORMAT = re.compile(r"(format[^.;,]{0,60}|\d+\s*(?:chiffres|caractères)[^.;,]{0,30}|(?:adresse )?e-?mail|iban|date[^.;,]{0,20})", re.I)
+DEFAUT = re.compile(r"par défaut[^.;,]{0,60}", re.I)
+
+
+def _enrichir_champs(g: Graphe):
+    """Champs (composants de genre « champ ») : règles de validation (liées par une déclaration ou dont le texte cite
+    le champ — lien déduit), obligatoire / format / valeur par défaut lus dans ces règles, messages d'erreur de l'écran,
+    fonctionnalités de l'écran, tests qui vérifient le champ (test Robot → keyword → locator du champ)."""
+    import re as _re
+
+    champs = [n for n in g.noeuds.values() if n.type == "composant" and n.proprietes.get("genre") == "champ"]
+    if not champs:
+        return
+    regles = [n for n in g.noeuds.values() if n.type == "regle"]
+    tests_par_locator: dict = {}
+    for tid, t in g.noeuds.items():
+        if t.type != "test_robot":
+            continue
+        vus, pile = set(), [r.vers for r in g.sortants(tid) if r.type == "appelle"]
+        while pile:
+            k = pile.pop()
+            if k in vus or k not in g.noeuds or g.noeuds[k].type != "keyword":
+                continue
+            vus.add(k)
+            pile += [r.vers for r in g.sortants(k) if r.type == "appelle"]
+        for k in vus:
+            for r in g.sortants(k):
+                if r.type == "utilise":
+                    tests_par_locator.setdefault(r.vers, set()).add(tid)
+    for c in champs:
+        p = c.proprietes
+        ecran_id = next((r.de for r in g.entrants(c.id) if r.type == "contient" and g.noeuds.get(r.de) and g.noeuds[r.de].type == "ecran"), None)
+        mots = {m for m in _re.findall(r"[a-zà-ÿ]{4,}", f"{p.get('libelle', '')} {p['nom_technique'].replace('_', ' ')}".lower()) if m not in ("champ", "saisie", "input")}
+        for rg in regles:
+            texte = f"{rg.libelle} {rg.proprietes.get('description', '')}".lower()
+            declare = any(r.type == "possede" and r.vers == rg.id for r in g.sortants(c.id))
+            if not declare and mots and any(m in texte for m in mots):
+                g.relier(c.id, rg.id, "possede", provenance="déduit", source="texte de la règle", statut="à valider")
+        liees = [g.noeuds[r.vers] for r in g.sortants(c.id) if r.type == "possede" and r.vers in g.noeuds]
+        textes = " ".join(f"{x.libelle}. {x.proprietes.get('description', '')}" for x in liees)
+        p["regles_validation"] = [x.libelle for x in liees]
+        p["obligatoire"] = True if OBLIGATOIRE.search(textes) else p.get("obligatoire")
+        m = FORMAT.search(textes)
+        p["format"] = m.group(0).strip() if m else p.get("format")
+        m = DEFAUT.search(textes)
+        p["valeur_defaut"] = m.group(0).strip() if m else p.get("valeur_defaut")
+        if ecran_id:
+            p["messages_erreur"] = sorted({g.noeuds[r.vers].libelle for r in g.sortants(ecran_id) if r.vers in g.noeuds
+                                           and g.noeuds[r.vers].type == "locator" and _re.search(r"message|erreur|alerte", g.noeuds[r.vers].libelle, _re.I)})
+            for r in g.entrants(ecran_id):
+                if r.type == "contient" and g.noeuds.get(r.de) and g.noeuds[r.de].type == "fonctionnalite":
+                    g.relier(r.de, c.id, "contient", source="carte (écran de la fonctionnalité)", provenance="déduit")
+                    p["fonctionnalite"] = g.noeuds[r.de].libelle
+        locs = [r.vers for r in g.sortants(c.id) if r.type == "utilise"]
+        for t in sorted({t for l in locs for t in tests_par_locator.get(l, set())}):
+            g.relier(t, c.id, "verifie", source="dépôt Robot (keyword → locator)")
+
+
+def _depuis_anomalies(g: Graphe):
+    """Anomalies : bugs Jira (patrimoine) enrichis par Failure Analysis — échecs associés à une anomalie Jira ou
+    confirmés « défaut applicatif ». Sans clé Jira, l'anomalie reste « à valider » (jamais créée dans Jira ici)."""
+    try:
+        from atelier.execution import echecs
+
+        st = echecs._stock()
+    except Exception:  # noqa: BLE001
+        return
+    for eid, s in st.items():
+        a = s.get("anomalie")
+        if not a or not (s.get("jira") or s.get("categorie") == "Application Defect"):
+            continue
+        cle = s.get("jira") or ""
+        bid = f"bug:{cle}" if cle else f"bug:FA-{hashlib.sha1(eid.encode()).hexdigest()[:8].upper()}"  # identifiant stable
+        confirme = s.get("categorie") == "Application Defect"
+        existant = g.noeuds.get(bid)
+        n = g.noeud(bid, "bug", existant.libelle if existant else (f"{cle} " if cle else "") + f"Échec : {a.get('nom', '')}"[:150],
+                    source="Failure Analysis", provenance="observé" if cle else "déduit",
+                    statut="validé" if (cle or confirme) else "à valider", confiance=1.0 if cle and confirme else 0.8 if cle or confirme else 0.5,
+                    proprietes={"id_interne": eid, "id_jira": cle, "type_anomalie": "défaut applicatif" if confirme else "à qualifier",
+                                "statut_analyse": s.get("statut", ""), "test": a.get("nom", ""), "execution": a.get("run", ""),
+                                "date_detection": a.get("date", ""), "message": a.get("message", ""), "ecran": a.get("ecran", ""),
+                                "composant": a.get("composant", ""), "historique": [f"{h.get('date', '')[:16]} {h.get('op', '')} {h.get('auteur', '')}" for h in s.get("historique", [])][-10:]})
+        if a.get("ecran"):
+            eid_ = f"ecran:{a['ecran']}"
+            if eid_ in g.noeuds:
+                g.relier(n.id, eid_, "concerne", source="Failure Analysis")
+                for r in g.entrants(eid_):
+                    if r.type == "contient" and g.noeuds.get(r.de) and g.noeuds[r.de].type in ("fonctionnalite", "module"):
+                        g.relier(n.id, r.de, "concerne", source="Failure Analysis (écran de la fonctionnalité)", provenance="déduit")
+            cid = f"composant:{a['ecran']}.{a.get('composant', '')}"
+            if a.get("composant") and cid in g.noeuds:
+                g.relier(n.id, cid, "concerne", source="Failure Analysis (étape fautive)")
+        tr = next((i for i, x in g.noeuds.items() if x.type == "test_robot" and x.libelle == a.get("nom")), None)
+        if tr:
+            g.relier(n.id, tr, "detecte_par", source="Failure Analysis")
+        if a.get("cle_xray") and f"test:{a['cle_xray']}" in g.noeuds:
+            g.relier(n.id, f"test:{a['cle_xray']}", "detecte_par", source="Failure Analysis")
+        if a.get("run"):
+            rid = f"resultat:{a['run']}"
+            g.noeud(rid, "resultat", f"Exécution {a['run']}", source="Execution Center", proprietes={"run": a["run"], "date": a.get("date", "")})
+            g.relier(n.id, rid, "associe_a", source="Failure Analysis")
 
 
 def _marquer_automatisation(g: Graphe):

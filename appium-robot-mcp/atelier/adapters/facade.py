@@ -920,3 +920,27 @@ def test_design_doublons(titre: str, etapes: list[dict] | None = None, gherkin: 
     from atelier.intelligence import conception_avancee
 
     return conception_avancee.doublons(titre, etapes or [], gherkin)
+
+
+# =========================================================================== Champ et Anomalie (V2, phase 5)
+@outil
+def knowledge_entites(type: str = "champ", ecran: str = "") -> list[dict]:
+    """Entités Champ et Anomalie du Knowledge Graph. type « champ » : champs observés (nom technique, libellé, type,
+    format, obligatoire, valeur par défaut, règles de validation, messages d'erreur, fonctionnalité, tests qui le
+    vérifient, anomalies) ; ecran pour filtrer. type « anomalie » : bugs Jira et échecs analysés (écran, composant,
+    test, exécution, date, statut, source, confiance, statut de validation)."""
+    from atelier.discovery import entites
+
+    if type not in ("champ", "anomalie"):
+        raise ValueError("type : champ ou anomalie.")
+    return entites.champs(ecran) if type == "champ" else entites.anomalies()
+
+
+@outil
+def knowledge_proposer_champ(ecran: str, champ: str, regle: str, description: str = "") -> dict:
+    """Propose une règle de validation pour un champ (ex. « montant obligatoire, 2 décimales maximum ») : règle et
+    lien « possède » à valider dans l'atelier ; après validation, obligatoire / format / valeur par défaut du champ
+    en sont déduits. N'invente rien : uniquement ce qui est observé à l'écran ou lu dans une exigence."""
+    from atelier.discovery import entites
+
+    return entites.proposer_regle_champ(ecran, champ, regle, description)

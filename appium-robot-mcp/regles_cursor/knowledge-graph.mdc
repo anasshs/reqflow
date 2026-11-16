@@ -5,6 +5,8 @@ alwaysApply: false
 - Consulter : knowledge_graph(recherche="…", centre="…") pour un élément et ses voisins ; impact_analysis(element)
   avant de modifier un locator, un keyword, un écran ou un jeu de données.
 - Chaque connaissance a une provenance (observé, déclaré, déduit), une source, une confiance et un statut.
-- Enrichir uniquement par propositions (discovery_proposer, coverage_proposer_*) : jamais de modification directe ;
+- Champs et anomalies : knowledge_entites(type="champ"|"anomalie", ecran="…") ; règle de validation d'un champ
+  observée à l'écran ou lue dans une exigence : knowledge_proposer_champ(ecran, champ, regle).
+- Enrichir uniquement par propositions (discovery_proposer, coverage_proposer_*, knowledge_proposer_champ) : jamais de modification directe ;
   l'automaticien valide dans À valider, un rejet est définitif.
 - Ne pas confondre une hypothèse avec un fait observé ; signaler les incohérences constatées.

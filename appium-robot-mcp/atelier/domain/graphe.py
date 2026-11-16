@@ -33,6 +33,8 @@ TYPES_RELATIONS = {
     "appelle": "Appelle", "verifie": "Vérifie", "couvre": "Couvre",
     "implemente_par": "Est implémenté par", "teste_par": "Est testé par",
     "execute_par": "Est exécuté par", "impacte": "Impacte", "utilise": "Utilise",
+    # V2, phase 5 : champs et anomalies
+    "possede": "Possède", "concerne": "Concerne", "detecte_par": "Est détectée par", "associe_a": "Est associée à",
 }
 PROVENANCES = ("observé", "déclaré", "déduit")
 
