@@ -5,8 +5,9 @@
   coffre du système, lus par le serveur lui-même).
 - Installer = fusionner l'entrée « appium-robot » dans le fichier de configuration de l'agent sur ce poste, en gardant
   les autres serveurs et une copie de sauvegarde (.bak) du fichier précédent.
-- Les règles Cursor (.mdc) sont copiées dans <projet de tests>/.cursor/rules/ : elles ne contiennent aucun chemin
-  local et peuvent être versionnées avec le projet ; un fichier existant différent n'est remplacé qu'avec accord.
+- Les règles Cursor (11 fichiers .mdc, versionnés par projet : atelier/integrations/regles_cursor.py) sont copiées
+  dans <projet de tests>/.cursor/rules/ : aucun chemin local ; un fichier modifié localement n'est remplacé qu'avec accord.
+- verifier() lance réellement le serveur MCP (stdio) et liste ses outils : la connexion est prouvée, pas supposée.
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ from pathlib import Path
 from atelier.domain import projet
 
 NOM = "appium-robot"
-REGLES = {"atelier-automatisation.mdc": "cursor_rules_automatisation.mdc", "atelier-discovery.mdc": "cursor_rules_discovery.mdc"}
 
 
 def fichier_config(agent: str) -> Path:
@@ -69,11 +69,10 @@ def etat(port: int) -> dict:
             actuel, erreur = None, str(e)
         agents[a] = {"fichier": str(f), "installe": bool(actuel), "a_jour": actuel == attendu, "erreur": erreur,
                      "dossier_agent": f.parent.exists()}
-    regles = {}
-    for cible, source in REGLES.items():
-        f = projet.PROJECT_DIR / ".cursor" / "rules" / cible
-        src = projet.RACINE_OUTIL / source
-        regles[cible] = {"present": f.exists(), "a_jour": f.exists() and src.exists() and f.read_bytes() == src.read_bytes()}
+    from atelier.integrations import regles_cursor
+
+    regles = {x["fichier"]: {"present": x["statut"] != "nouveau", "a_jour": x["statut"] == "identique", "statut": x["statut"]}
+              for x in regles_cursor.apercu()}
     return {"agents": agents, "regles": regles, "projet": str(projet.PROJECT_DIR), "config": config(port)}
 
 
@@ -94,16 +93,44 @@ def installer(agent: str, port: int) -> dict:
 
 
 def installer_regles(ecraser: bool = False) -> dict:
-    """Copie les règles Cursor dans le projet de tests actif ; un fichier modifié localement n'est remplacé qu'avec
-    ecraser=True (pas d'écrasement implicite)."""
-    dossier = projet.safe_path(".cursor/rules")
-    dossier.mkdir(parents=True, exist_ok=True)
-    out = {"copiees": [], "differentes": []}
-    for cible, source in REGLES.items():
-        src, f = projet.RACINE_OUTIL / source, dossier / cible
-        if f.exists() and f.read_bytes() != src.read_bytes() and not ecraser:
-            out["differentes"].append(cible)
+    """Copie les règles Cursor (version active du projet) dans le projet de tests ; un fichier modifié localement
+    n'est remplacé qu'avec ecraser=True (sauvegarde .bak ; pas d'écrasement implicite)."""
+    from atelier.integrations import regles_cursor
+
+    tous = [r[0] for r in regles_cursor.RUBRIQUES] if ecraser else []
+    r = regles_cursor.synchroniser(tous)
+    return {"copiees": r["copiees"], "differentes": r["ignorees"], "identiques": r["identiques"], "sauvegardes": r["sauvegardes"]}
+
+
+def verifier(port: int, delai_s: int = 40) -> dict:
+    """Démarre le serveur MCP comme le fera Cursor (même commande, stdio), fait l'initialisation et liste les outils."""
+    import subprocess
+    import time
+
+    e = entree(port)
+    debut = time.monotonic()
+    env = {**os.environ, **e["env"], "PYTHONIOENCODING": "utf-8"}
+    p = subprocess.Popen([e["command"], *e["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, encoding="utf-8", env=env)
+    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                                                                           "clientInfo": {"name": "atelier-verification", "version": "1"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+    try:
+        out, err = p.communicate("".join(json.dumps(m) + "\n" for m in msgs), timeout=delai_s)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        out, err = p.communicate()
+    reponses = {}
+    for l in (out or "").splitlines():
+        try:
+            m = json.loads(l)
+        except ValueError:
             continue
-        shutil.copyfile(src, f)
-        out["copiees"].append(cible)
-    return out
+        if isinstance(m, dict) and "id" in m:
+            reponses[m["id"]] = m
+    outils = [t["name"] for t in ((reponses.get(2) or {}).get("result") or {}).get("tools", [])]
+    ok = bool(outils) and "result" in (reponses.get(1) or {})
+    return {"ok": ok, "outils": len(outils), "serveur": ((reponses.get(1) or {}).get("result") or {}).get("serverInfo", {}),
+            "duree_s": round(time.monotonic() - debut, 1), "commande": " ".join([e["command"], *e["args"]]),
+            "erreur": "" if ok else (err or "")[-600:] or "aucune réponse du serveur MCP"}

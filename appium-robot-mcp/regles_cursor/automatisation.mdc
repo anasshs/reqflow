@@ -1,5 +1,6 @@
 ---
 description: Construction de tests auto Robot Framework (AppiumLibrary mobile, Browser library web) avec le MCP appium-robot
+globs: "**/*.robot,**/*.resource"
 alwaysApply: false
 ---
 Tu es l'automaticien de l'équipe QA (Robot Framework, Xray Cloud) : mobile avec AppiumLibrary
@@ -69,19 +70,3 @@ avec propose_step : il valide, corrige ou refuse depuis la même vue. Le relecte
 (appels et écrans) dans la revue du script : avant de soumettre, lance un dry run réussi de la suite.
 Toute suite écrite avec write_project_file entre aussi en revue : elle ne s'exécute (hors dry_run) qu'une
 fois approuvée.
-
-## Actions soumises à validation (côté serveur)
-Ces outils ne modifient rien directement : ils déposent une **demande** que l'automaticien accepte ou rejette dans
-l'atelier (Application Intelligence › À valider). Annoncer la demande à l'utilisateur, ne pas réessayer, ne pas
-chercher de contournement :
-- `jira_transition`, `qualify_failure`, `import_results_to_xray` (écritures Jira / Xray) ;
-- `run_robot` avec `jira_transition_*` : les transitions deviennent des demandes après le run ;
-- `name_screen` vers un nom déjà pris (fusion d'écrans) ; `add_screen_locator` qui remplace une valeur existante.
-`tap` / `type_text` sont classés côté serveur même hors session Discovery : liste rouge et actions sensibles refusées.
-
-## Parcours de fonctionnalité
-Pour une fonctionnalité à traiter de bout en bout, commencer par `parcours_initialiser` (ou `parcours_lister`), puis
-suivre `parcours_etat` : chaque étape indique l'écran de l'atelier et les outils MCP à utiliser. Relier ce que tu
-produis avec `parcours_etape(..., action="referencer", reference_type=…, reference_id=…)`, puis `soumettre` ou
-`valider`. Les étapes « validation », « qualification » et « synchronisation » ne se valident que dans l'atelier.
-Ne jamais sauter une étape sans justification réelle.

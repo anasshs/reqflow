@@ -63,5 +63,5 @@ def test_server_py_se_charge_dans_un_processus_neuf():
                        cwd=RACINE, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
     noms = json.loads(r.stdout)
-    assert len(noms) == 81  # 48 historiques + 4 espaces de travail + 2 testabilité des US + 5 Discovery + plan_de_test + 11 Construire / Studio + 2 cerveau + 3 Coverage Intelligence + 5 parcours de fonctionnalité
+    assert len(noms) == 82  # 48 historiques + 4 espaces de travail + 2 testabilité des US + 5 Discovery + plan_de_test + 11 Construire / Studio + 2 cerveau + 3 Coverage Intelligence + 5 parcours de fonctionnalité + cursor_regles
     assert {"knowledge_graph", "impact_analysis", "coverage_report", "automation_flow"} <= set(noms)

@@ -2929,6 +2929,83 @@ async def cerveau_module(module: str):
     return await asyncio.to_thread(_call, plan_test.plan, module)
 
 
+@app.get("/api/cursor/regles")
+def cursor_regles_etat():
+    from atelier.integrations import regles_cursor
+
+    return _call(regles_cursor.etat)
+
+
+@app.get("/api/cursor/regles/contenu")
+def cursor_regles_contenu(regle: str, version: int = 0):
+    from atelier.integrations import regles_cursor
+
+    return {"regle": regle, "version": version, "contenu": _call(regles_cursor.contenu, regle, version or None)}
+
+
+@app.post("/api/cursor/regles/enregistrer")
+async def cursor_regles_enregistrer(req: Request):
+    from atelier.integrations import regles_cursor
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, regles_cursor.enregistrer, b.get("regle", ""), b.get("contenu", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/cursor/regles/contexte")
+async def cursor_regles_contexte(req: Request):
+    from atelier.integrations import regles_cursor
+
+    return await asyncio.to_thread(_call, regles_cursor.regenerer_contexte, (await req.json()).get("commentaire", ""))
+
+
+@app.post("/api/cursor/regles/activer")
+async def cursor_regles_activer(req: Request):
+    from atelier.integrations import regles_cursor
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, regles_cursor.activer, int(b.get("version") or 0), b.get("commentaire", ""))
+
+
+@app.get("/api/cursor/regles/comparer")
+def cursor_regles_comparer(a: int, b: int):
+    from atelier.integrations import regles_cursor
+
+    return _call(regles_cursor.comparer, a, b)
+
+
+@app.get("/api/cursor/regles/apercu")
+def cursor_regles_apercu():
+    from atelier.integrations import regles_cursor
+
+    return _call(regles_cursor.apercu)
+
+
+@app.post("/api/cursor/regles/synchroniser")
+async def cursor_regles_synchroniser(req: Request):
+    """Écrit la version active dans .cursor/rules/ ; « remplacer » liste les fichiers modifiés localement à écraser."""
+    from atelier.integrations import regles_cursor
+
+    return await asyncio.to_thread(_call, regles_cursor.synchroniser, (await req.json()).get("remplacer") or [])
+
+
+@app.get("/api/cursor/regles/export")
+def cursor_regles_export():
+    from fastapi.responses import Response
+
+    from atelier.integrations import agents_ia, regles_cursor
+
+    z = _call(regles_cursor.exporter_zip, agents_ia.config(PORT))
+    return Response(z, media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="regles-cursor-atelier.zip"'})
+
+
+@app.post("/api/agents-ia/verifier")
+async def agents_ia_verifier():
+    """Lance réellement le serveur MCP (stdio) comme Cursor et liste ses outils."""
+    from atelier.integrations import agents_ia
+
+    return await asyncio.to_thread(_call, agents_ia.verifier, PORT)
+
+
 @app.get("/api/parcours")
 def parcours_liste():
     from atelier.intelligence import parcours_fonctionnalite as pf

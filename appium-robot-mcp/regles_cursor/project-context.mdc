@@ -1,0 +1,9 @@
+---
+description: Contexte du projet de tests actif (régénéré depuis l'atelier)
+alwaysApply: true
+---
+Le projet de tests, l'application active, les plateformes, les environnements et les projets Jira / Xray sont ceux
+sélectionnés dans l'atelier (header). Le serveur MCP suit automatiquement le projet actif : ne jamais passer de
+chemin de projet. map_apps() et cerveau_application() donnent l'application et ses modules.
+
+{{CONTEXTE_PROJET}}

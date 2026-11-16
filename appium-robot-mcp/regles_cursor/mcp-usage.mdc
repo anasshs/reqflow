@@ -1,0 +1,21 @@
+---
+description: Utilisation des outils MCP de l'atelier (toujours appliquée)
+alwaysApply: true
+---
+Les outils sont regroupés par préfixe ; choisir le plus précis :
+- Contexte : cerveau_application, cerveau_question, plan_de_test, knowledge_graph, impact_analysis.
+- Session device / navigateur : start_session, get_screen_elements, element_at, tap, type_text, swipe, press_back,
+  wait_for, screenshot, stop_session.
+- Carte : where_am_i, list_screens, screen_info, goto_screen, name_screen, export_screen_resource, map_*.
+- Discovery : discovery_demarrer, discovery_ecran_courant, discovery_proposer, discovery_parcours_vers_bdd, discovery_terminer.
+- Construction : studio_socle, studio_scenario_bdd, studio_generer_depuis_bdd, studio_construire_test,
+  studio_executer_etape, studio_soumettre_revue, studio_revue, studio_corrections_locators, studio_corriger_locator.
+- Données : list_jdd, get_jdd, check_jdd, find_test_data. Exécution : run_robot, parse_robot_output.
+- Xray / Jira (lecture) : xray_get_test, xray_search_tests, xray_inspect_ticket, jira_subtasks.
+- Couverture : coverage_intelligence, coverage_report, coverage_proposer_story, coverage_proposer_lien.
+- Parcours : parcours_lister, parcours_initialiser, parcours_etat, parcours_etape, parcours_reprendre.
+- Règles : cursor_regles (instructions actives de ce projet).
+
+Bonnes pratiques : lire avant d'écrire ; aperçu (ecrire=False, dry_run=True) avant d'écrire ou d'exécuter ; une
+réponse « en attente de validation » ou un refus (PermissionError) est un résultat normal : l'expliquer à
+l'automaticien. Ne pas boucler sur un outil qui échoue : rapporter le message d'erreur.

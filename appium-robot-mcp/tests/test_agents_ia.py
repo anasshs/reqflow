@@ -51,12 +51,14 @@ def test_regles_sans_ecrasement_implicite(poste):
     from atelier.domain import projet
 
     r = poste.installer_regles()
-    assert sorted(r["copiees"]) == ["atelier-automatisation.mdc", "atelier-discovery.mdc"]
+    assert len(r["copiees"]) == 11 and "atelier-automatisation.mdc" in r["copiees"] and "atelier-security.mdc" in r["copiees"]
     f = projet.PROJECT_DIR / ".cursor" / "rules" / "atelier-discovery.mdc"
     f.write_text("règle adaptée par l'équipe", "utf-8")
     r = poste.installer_regles()
     assert r["differentes"] == ["atelier-discovery.mdc"] and f.read_text("utf-8") == "règle adaptée par l'équipe"
-    assert poste.installer_regles(ecraser=True)["copiees"] and poste.etat(8765)["regles"]["atelier-discovery.mdc"]["a_jour"]
+    r = poste.installer_regles(ecraser=True)
+    assert r["copiees"] == ["atelier-discovery.mdc"] and r["sauvegardes"] == ["atelier-discovery.mdc.bak"]
+    assert poste.etat(8765)["regles"]["atelier-discovery.mdc"]["a_jour"]
 
 
 def test_mcp_suit_le_projet_actif(tmp_path, monkeypatch):

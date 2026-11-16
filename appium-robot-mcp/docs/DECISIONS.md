@@ -257,3 +257,11 @@ Une ligne datée par décision d'architecture ou de conception.
 - Décision humaine imposée côté serveur pour la validation des scénarios, la qualification et la synchronisation
   Xray (depuis Cursor : mise en attente de validation ; dans l'atelier : rôle relecteur).
 - Stockage dans `<projet>/parcours/` (état de travail de l'atelier, ignoré par les contrôles Git du Studio).
+
+## 2026-11-16 — V2 phase 2 : règles Cursor structurées et versionnées
+- 11 règles (`regles_cursor/`), installées sous `.cursor/rules/atelier-<id>.mdc` ; les deux règles historiques gardent
+  leur nom installé (`atelier-automatisation.mdc`, `atelier-discovery.mdc`) : pas de fichier orphelin chez les équipes.
+- Versions par projet dans `<projet>/atelier_regles/` ; synchronisation avec aperçu, un fichier modifié localement
+  n'est remplacé que s'il est choisi (sauvegarde `.bak`) ; les règles livrées avant la V2 sont reconnues par empreinte.
+- « Tester le serveur MCP » démarre réellement le serveur comme Cursor (preuve de connexion, pas une supposition).
+- Outil MCP `cursor_regles` ajouté (82 outils).

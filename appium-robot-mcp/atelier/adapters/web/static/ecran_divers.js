@@ -181,6 +181,57 @@
     },
   });
 
+  /* Règles Cursor versionnées (V2, phase 2) : consulter, modifier (nouvelle version), régénérer le contexte projet,
+     comparer, activer / restaurer, synchroniser avec aperçu (jamais d'écrasement silencieux), exporter. */
+  const PST = {"identique": "ok", "nouveau": "", "à mettre à jour": "info", "modifié localement": "warn"};
+  async function reglesCursor(el, recharger) {
+    const e = await api("/api/cursor/regles");
+    el.innerHTML = `<p>Version active <b>v${e.active}</b> · ${e.versions.length} version(s) · installées dans <span class="mono">.cursor/rules/</span> du projet de tests</p>
+      <table class="table-strat"><tr><th>Règle</th><th>Rôle</th><th>Portée</th><th>Dans le projet</th><th></th></tr>
+        ${e.regles.map(r => `<tr><td class="mono">${esc(r.fichier)}</td><td>${esc(r.role)}</td><td class="lib">${esc(r.portee)}</td>
+          <td><span class="pill ${PST[r.statut] || ""}">${esc(r.statut)}</span></td>
+          <td><button class="btn petit" data-rg-voir="${esc(r.id)}" title="Lire et modifier (une modification crée une nouvelle version)">Ouvrir</button></td></tr>`).join("")}</table>
+      <div class="btns" style="margin-top:8px"><button class="btn primaire" id="rg-sync" title="Aperçu fichier par fichier, puis écriture dans .cursor/rules/ (sauvegarde .bak des fichiers remplacés)">Synchroniser vers le projet…</button>
+        <button class="btn" id="rg-ctx" title="Recalcule le contexte projet (projet, application, modules, environnements, rangement) dans une nouvelle version">Régénérer le contexte projet</button>
+        <a class="btn" href="/api/cursor/regles/export" title="Archive .cursor/rules/ + exemple de configuration MCP (sans secret)">Exporter (zip)</a></div>
+      <details style="margin-top:8px"><summary class="lib">Versions (${e.versions.length}) : comparer, restaurer</summary>
+        <div class="btns" style="margin:6px 0">Comparer <select class="in" id="rg-a" style="width:auto">${e.versions.map(v => `<option value="${v.n}">v${v.n}</option>`).join("")}</select> avec
+          <select class="in" id="rg-b" style="width:auto">${e.versions.map(v => `<option value="${v.n}" ${v.n === e.active ? "selected" : ""}>v${v.n}</option>`).join("")}</select><button class="btn" id="rg-cmp">Comparer</button></div>
+        <table class="table-strat"><tr><th>Version</th><th>Date</th><th>Auteur</th><th>Commentaire</th><th></th></tr>${e.versions.map(v => `<tr><td>v${v.n}${v.n === e.active ? ' <span class="pill ok">active</span>' : ""}</td>
+          <td class="mono">${esc(v.date.slice(0, 16).replace("T", " "))}</td><td>${esc(v.auteur)}</td><td>${esc(v.commentaire)}</td>
+          <td>${v.n === e.active ? "" : `<button class="btn petit" data-rg-act="${v.n}" title="Rendre cette version active (restauration ; la synchronisation reste à faire)">Activer</button>`}</td></tr>`).join("")}</table></details>`;
+    const diffHtml = l => l.length ? l.map(x => `<h3 class="lib">${esc(x.fichier)}</h3><pre class="code-bloc" style="max-height:260px">${esc(x.diff)}</pre>`).join("") : "<p class='lib'>Aucune différence.</p>";
+    $$("[data-rg-voir]", el).forEach(b => b.onclick = async () => {
+      const r = await api("/api/cursor/regles/contenu?regle=" + encodeURIComponent(b.dataset.rgVoir));
+      const m = modale(`Règle ${b.dataset.rgVoir} · v${e.active}`, `<textarea class="in mono" id="rg-txt" rows="22" style="width:100%">${esc(r.contenu)}</textarea>
+        <div class="champ"><label for="rg-com">Commentaire de version (obligatoire pour enregistrer)</label><input class="in" id="rg-com"></div>`,
+        `<button class="btn primaire" id="rg-ok">Enregistrer une nouvelle version</button>`);
+      $("#rg-ok", m.el).onclick = async () => {
+        try { await api("/api/cursor/regles/enregistrer", {method: "POST", body: {regle: b.dataset.rgVoir, contenu: $("#rg-txt", m.el).value, commentaire: $("#rg-com", m.el).value}});
+          m.fermer(); toast("Nouvelle version enregistrée et activée. Synchroniser pour l'installer dans le projet.", "ok"); recharger(); }
+        catch (err) { toast(err.message, "ko"); } };
+    });
+    $("#rg-ctx").onclick = async () => { try { const r = await api("/api/cursor/regles/contexte", {method: "POST", body: {}});
+      toast(r.inchange ? "Contexte projet déjà à jour." : `Contexte régénéré : v${r.active}.`, "ok"); recharger(); } catch (err) { toast(err.message, "ko"); } };
+    $("#rg-cmp").onclick = async () => { try { const l = await api(`/api/cursor/regles/comparer?a=${$("#rg-a").value}&b=${$("#rg-b").value}`);
+      modale(`Différences v${$("#rg-a").value} → v${$("#rg-b").value}`, diffHtml(l)); } catch (err) { toast(err.message, "ko"); } };
+    $$("[data-rg-act]", el).forEach(b => b.onclick = async () => { try { await api("/api/cursor/regles/activer", {method: "POST", body: {version: +b.dataset.rgAct, commentaire: "restauration"}});
+      toast(`v${b.dataset.rgAct} active.`, "ok"); recharger(); } catch (err) { toast(err.message, "ko"); } });
+    $("#rg-sync").onclick = async () => {
+      const ap = await api("/api/cursor/regles/apercu");
+      const loc = ap.filter(x => x.statut === "modifié localement");
+      const m = modale("Synchroniser les règles vers .cursor/rules/", `<table class="table-strat"><tr><th>Fichier</th><th>État</th><th>Action</th></tr>${ap.map(x => `<tr><td class="mono">${esc(x.fichier)}</td>
+          <td><span class="pill ${PST[x.statut] || ""}">${esc(x.statut)}</span></td>
+          <td>${x.statut === "identique" ? "—" : x.statut === "modifié localement" ? `<label><input type="checkbox" data-rempl="${esc(x.id)}"> remplacer (sauvegarde .bak)</label>` : "écrit"}</td></tr>`).join("")}</table>
+        ${loc.length ? `<h3 class="lib" style="margin-top:10px">MODIFICATIONS LOCALES (non remplacées sauf case cochée)</h3>${diffHtml(loc)}` : ""}`,
+        `<button class="btn primaire" id="sy-ok">Synchroniser</button>`);
+      $("#sy-ok", m.el).onclick = async () => {
+        try { const r = await api("/api/cursor/regles/synchroniser", {method: "POST", body: {remplacer: $$("[data-rempl]", m.el).filter(c => c.checked).map(c => c.dataset.rempl)}});
+          m.fermer(); toast(`${r.copiees.length} écrite(s), ${r.identiques.length} identique(s), ${r.ignorees.length} conservée(s) (modifiées localement).`, "ok"); recharger(); }
+        catch (err) { toast(err.message, "ko"); } };
+    };
+  }
+
   /* liaison avec Cursor / Claude Desktop : trois étapes, sans chemin de projet ni secret à recopier */
   async function agents(z) {
     const d = await api("/api/agents-ia");
@@ -194,13 +245,11 @@
       ${etape(1, c.a_jour, "Installer le MCP dans Cursor", `<p>${statut(c)} <span class="lib mono">${esc(c.fichier)}</span></p>
         <div class="btns"><button class="btn primaire" data-inst="cursor">${c.a_jour ? "Réinstaller" : "Installer dans Cursor"}</button><button class="btn" id="ag-copie">Copier la configuration</button></div>
         <p class="lib">Les autres serveurs MCP de Cursor sont conservés ; l'ancien fichier est sauvegardé (.bak). Ensuite dans Cursor : Settings › MCP, vérifier « appium-robot » (activer / rafraîchir).</p>`)}
-      ${etape(2, regles.every(r => r.a_jour), "Ajouter les règles au projet de tests", `<p>${Object.entries(d.regles).map(([n, r]) => `<span class="pill ${r.a_jour ? "ok" : r.present ? "warn" : ""}">${esc(n)}</span>`).join(" ")}
-        <span class="lib mono">${esc(d.projet)}/.cursor/rules/</span></p>
-        <div class="btns"><button class="btn primaire" id="ag-regles">${regles.every(r => r.a_jour) ? "Recopier" : "Ajouter les règles"}</button></div>
-        <p class="lib">Méthode et conventions (construction de tests, Discovery) ; sans chemin local : à versionner avec le projet pour toute l'équipe.</p>`)}
+      ${etape(2, regles.every(r => r.a_jour), "Règles Cursor du projet (11 fichiers, versionnées)", `<div id="ag-rg">${vide("Chargement des règles…")}</div>`)}
       ${etape(3, actif, "Vérifier la connexion", `<p>${actif ? `<span class="pill ok">Cursor connecté</span> dernière action il y a ${Math.round(d.derniere_activite_s / 60)} min` : '<span class="pill">pas encore vu</span>'}</p>
         <p class="lib">Dans Cursor, demander par exemple : « Où suis-je dans l'application ? » (outil where_am_i) ou « Démarre une Discovery de l'application en recette ». L'atelier doit être lancé (python web/app.py).</p>
-        <button class="btn" id="ag-rafr">Actualiser</button>`)}
+        <div class="btns"><button class="btn primaire" id="ag-test" title="Démarre le serveur MCP exactement comme Cursor (même commande, stdio), l'initialise et liste ses outils">Tester le serveur MCP</button>
+          <button class="btn" id="ag-rafr">Actualiser</button></div><div id="ag-test-r" class="lib"></div>`)}
       <details><summary class="lib">Claude Desktop</summary><p style="margin-top:6px">${statut(cl)} <span class="lib mono">${esc(cl.fichier)}</span></p>
         <div class="btns"><button class="btn" data-inst="claude">${cl.a_jour ? "Réinstaller" : "Installer dans Claude Desktop"}</button></div>
         <p class="lib">Redémarrer Claude Desktop ensuite. Les règles .mdc peuvent servir d'instructions de projet Claude.</p></details>
@@ -209,14 +258,13 @@
       try { const r = await api("/api/agents-ia/installer", {method: "POST", body: {agent: b.dataset.inst}}); toast(`Installé dans ${r.fichier}${r.sauvegarde ? " (sauvegarde .bak)" : ""}. Recharger le MCP dans ${b.dataset.inst === "cursor" ? "Cursor" : "Claude Desktop"}.`, "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); }
     });
-    $("#ag-regles").onclick = async () => {
-      try {
-        let r = await api("/api/agents-ia/installer", {method: "POST", body: {regles: true}});
-        if (r.differentes.length && confirm(`Modifié(s) dans le projet : ${r.differentes.join(", ")}. Remplacer par la version de l'atelier ?`))
-          r = await api("/api/agents-ia/installer", {method: "POST", body: {regles: true, ecraser: true}});
-        toast(`Règles ajoutées : ${r.copiees.join(", ") || "aucune"}.`, "ok"); agents(z);
-      } catch (e) { toast(e.message, "ko"); }
-    };
+    reglesCursor($("#ag-rg", z), () => agents(z));
+    $("#ag-test").onclick = async () => {
+      $("#ag-test-r").textContent = "Démarrage du serveur MCP…";
+      try { const r = await api("/api/agents-ia/verifier", {method: "POST", body: {}});
+        $("#ag-test-r").innerHTML = r.ok ? `<span class="pill ok">serveur MCP opérationnel</span> ${esc(r.serveur.name || "")} · ${r.outils} outils · ${r.duree_s} s`
+          : `<span class="pill ko">échec</span> <span class="mono">${esc(r.erreur)}</span>`; }
+      catch (e) { $("#ag-test-r").textContent = e.message; } };
     $("#ag-copie").onclick = () => navigator.clipboard.writeText(JSON.stringify(d.config, null, 2)).then(() => toast("Configuration copiée.", "ok"), () => toast("Copie impossible : la sélectionner dans « Configuration ».", "ko"));
     $("#ag-rafr").onclick = () => agents(z);
   }

@@ -864,3 +864,17 @@ def parcours_reprendre(parcours_id: str, action: str = "reprendre", motif: str =
     from atelier.intelligence import parcours_fonctionnalite as pf
 
     return pf.changer_etat(parcours_id, action, motif, origine="mcp")
+
+
+# =========================================================================== règles Cursor (V2, phase 2)
+@outil
+def cursor_regles(regle: str = "") -> list[dict]:
+    """Instructions actives de ce projet (règles Cursor versionnées dans l'atelier) : sans argument, la liste
+    (id, fichier, rôle, portée, version) ; avec regle (global, project-context, security, mcp-usage, discovery,
+    test-design, automation, execution, failure-analysis, coverage, knowledge-graph), son contenu complet."""
+    from atelier.integrations import regles_cursor
+
+    l = regles_cursor.actives()
+    if regle:
+        return [x for x in l if x["id"] == regle] or [{"erreur": f"Règle inconnue : {regle}"}]
+    return [{k: v for k, v in x.items() if k != "contenu"} for x in l]

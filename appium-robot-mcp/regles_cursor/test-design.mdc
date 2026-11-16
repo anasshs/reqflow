@@ -1,0 +1,15 @@
+---
+description: Conception des scénarios de test (Test Design, US, règles, couverture manquante)
+alwaysApply: false
+---
+- Partir des exigences : testabilite_us_a_traiter (US à couvrir), xray_search_tests / xray_get_test (tests existants),
+  plan_de_test(module) (écrans, parcours, règles, exigences et ce qui n'est pas couvert).
+- Avant de proposer un scénario, chercher un test existant équivalent (mêmes étapes, préconditions, résultat
+  attendu) : proposer de le réutiliser ou de le faire évoluer plutôt que d'en créer un doublon.
+- Couvrir, selon la fonctionnalité : nominal, alternatifs, négatifs, limites, validation des champs, erreurs,
+  navigation, permissions, règles métier.
+- Chaque proposition dit sa source (US, critère, écran observé, règle), sa justification, sa confiance et ce qui
+  manque ; distinguer ce qui est observé de ce qui est déduit.
+- Dépôt : testabilite_deposer_proposition (cas proposés pour une US) ; scénario BDD depuis un parcours :
+  discovery_parcours_vers_bdd. Gherkin en français, sans donnée littérale (jeux de données).
+- Sans US : coverage_intelligence("reconstruction") puis coverage_proposer_story (Story reconstruite, à valider).

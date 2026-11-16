@@ -47,7 +47,7 @@ et le bouton **Lancer une Discovery** ouvre le Studio.
 ## Discovery piloté par Cursor / Claude (MCP)
 
 L'atelier observe la mécanique (écrans, transitions, locators, réseau) ; l'agent apporte le sens, toujours en
-propositions à valider. Règle Cursor : `cursor_rules_discovery.mdc`.
+propositions à valider. Règle Cursor : `regles_cursor/discovery.mdc`.
 
 | Outil MCP | Rôle |
 |---|---|

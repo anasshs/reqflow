@@ -1,0 +1,10 @@
+---
+description: Consultation et enrichissement du Knowledge Graph
+alwaysApply: false
+---
+- Consulter : knowledge_graph(recherche="…", centre="…") pour un élément et ses voisins ; impact_analysis(element)
+  avant de modifier un locator, un keyword, un écran ou un jeu de données.
+- Chaque connaissance a une provenance (observé, déclaré, déduit), une source, une confiance et un statut.
+- Enrichir uniquement par propositions (discovery_proposer, coverage_proposer_*) : jamais de modification directe ;
+  l'automaticien valide dans À valider, un rejet est définitif.
+- Ne pas confondre une hypothèse avec un fait observé ; signaler les incohérences constatées.
