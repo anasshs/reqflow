@@ -510,7 +510,7 @@ def importer_plans(xray=None) -> dict:
             data["executions_xray"] = meta  # la période lue par le tableau de bord ne change pas
     data["plans_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "jql": r["jql"], "absents": r["absents"],
                           "application": slug, "executions_lues": lues,
-                          "plans": [{k: p.get(k) for k in ("cle", "resume", "statut", "cree", "tests", "tests_total", "executions", "executions_total")}
+                          "plans": [{k: p.get(k) for k in ("cle", "resume", "statut", "ferme", "cree", "tests", "tests_total", "executions", "executions_total")}
                                     for p in r["plans"]]}
     enregistrer(data, data.get("source") or "Xray")
     return {k: v for k, v in data["plans_xray"].items() if k != "plans"} | {"nombre": len(r["plans"])}

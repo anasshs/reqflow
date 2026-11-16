@@ -679,6 +679,17 @@ def vue_xray(limite: int = 20, depuis: str = "", jusqu: str = "") -> dict:
             "recentes": execs}
 
 
+STATUTS_FERMES = re.compile(r"done|termin|closed|ferm|cl[oô]tur|annul|cancel|abandon|rejet|reject", re.I)
+
+
+def plan_ferme(p: dict) -> bool:
+    """Plan fermé : catégorie de statut Jira « done » lue à l'import ; à défaut (copie locale plus ancienne),
+    nom du statut (Terminé, Clôturé, Annulé, Closed…)."""
+    if p.get("ferme") is not None:
+        return bool(p["ferme"])
+    return bool(STATUTS_FERMES.search(p.get("statut") or ""))
+
+
 def vue_plans() -> dict:
     """Test Plans de l'application (copie locale « plans_xray ») : statut Jira, campagne liée, et pour chaque plan le
     dernier statut de chacun de ses tests dans ses Test Executions (la plus récente qui le contient), d'où :
@@ -719,7 +730,8 @@ def vue_plans() -> dict:
         bugs_plan = {b["cle"]: b for e in es for b in e.get("bugs") or []}
         plans.append({"bugs_ouverts": sorted(k for k, b in bugs_plan.items() if not b.get("ferme")),
                       "bugs_fermes": sorted(k for k, b in bugs_plan.items() if b.get("ferme")),
-                      "cle": p["cle"], "resume": p.get("resume", ""), "statut": p.get("statut", ""), "cree": p.get("cree", ""),
+                      "cle": p["cle"], "resume": p.get("resume", ""), "statut": p.get("statut", ""), "ferme": plan_ferme(p),
+                      "cree": p.get("cree", ""),
                       "campagne": noms.get(p["cle"], ""), "tests": len(tests), "tests_total": p.get("tests_total") or len(tests),
                       "executions": [e["cle"] for e in es], "executions_inconnues": len([k for k in cles_exe if k not in execs]),
                       "source_executions": "xray" if p.get("executions") is not None else "runs de l'atelier",
@@ -728,7 +740,7 @@ def vue_plans() -> dict:
                       "avancement": round(100 * executes / len(tests), 1) if tests else None, "statuts_tests": dernier})
     executes = tot["reussi"] + tot["echec"]
     return {"import": imp, "plans": plans,
-            "kpi": {"plans": len(plans), "plans_ouverts": sum(1 for p in plans if not re.search(r"done|termin|closed|ferm", p["statut"], re.I)),
+            "kpi": {"plans": len(plans), "plans_ouverts": sum(1 for p in plans if not p["ferme"]),
                     "tests": tot["tests"], "reussi": tot["reussi"], "echec": tot["echec"], "non_execute": tot["non_execute"],
                     "taux_reussite": round(100 * tot["reussi"] / executes, 1) if executes else None,
                     "avancement": round(100 * executes / tot["tests"], 1) if tot["tests"] else None}}

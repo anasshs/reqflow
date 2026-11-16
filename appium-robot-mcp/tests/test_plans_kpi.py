@@ -7,8 +7,9 @@ from atelier.integrations.xray import XrayClient
 class FauxXray(XrayClient):
     """getTestPlans (avec testExecutions) et getTestExecutions simulés."""
 
-    def __init__(self, avec_execs=True):
+    def __init__(self, avec_execs=True, statut=None):
         self.avec_execs, self.jql = avec_execs, []
+        self.statut = statut or {"name": "En cours"}
 
     def _type_champs(self, nom):
         if nom == "Query":
@@ -25,7 +26,7 @@ class FauxXray(XrayClient):
         self.jql.append(v.get("jql"))
         if "getTestPlans" in q:
             assert ("testExecutions" in q) == self.avec_execs
-            plan = {"issueId": "50", "jira": {"key": "DEMO-50", "summary": "Release 3", "status": {"name": "En cours"}, "created": "2026-11-01T09:00:00"},
+            plan = {"issueId": "50", "jira": {"key": "DEMO-50", "summary": "Release 3", "status": self.statut, "created": "2026-11-01T09:00:00"},
                     "tests": {"total": 3, "results": [{"jira": {"key": k}} for k in ("DEMO-1", "DEMO-2", "DEMO-3")]}}
             if self.avec_execs:
                 plan["testExecutions"] = {"total": 2, "results": [{"jira": {"key": "DEMO-90"}}, {"jira": {"key": "DEMO-91"}}]}
@@ -74,3 +75,23 @@ def test_plan_sans_executions_exposees_utilise_les_runs_atelier(projet):
     p = centre.vue_plans()["plans"][0]
     assert p["source_executions"] == "runs de l'atelier" and p["executions"] == ["DEMO-90"]
     assert (p["reussi"], p["echec"], p["non_execute"]) == (1, 1, 1)
+
+
+def test_plan_ferme_selon_la_categorie_jira(projet):
+    """« Validé » rangé par Jira dans la catégorie done : plan fermé, quel que soit son nom."""
+    from atelier.execution import centre
+
+    projet.importer_plans(xray=FauxXray(statut={"name": "Validé", "statusCategory": {"key": "done"}}))
+    v = centre.vue_plans()
+    assert v["plans"][0]["ferme"] is True and v["kpi"]["plans_ouverts"] == 0
+    projet.importer_plans(xray=FauxXray(statut={"name": "Clôturé", "statusCategory": {"key": "indeterminate"}}))
+    assert centre.vue_plans()["kpi"]["plans_ouverts"] == 1  # la catégorie Jira prime sur le nom
+
+
+@pytest.mark.parametrize("statut,ferme", [("Clôturé", True), ("Cloturé", True), ("Annulé", True), ("Terminé", True),
+                                          ("Done", True), ("Closed", True), ("Cancelled", True),
+                                          ("Campagne en cours", False), ("À cadrer", False), ("À valider", False), ("", False)])
+def test_plan_ferme_sans_categorie_copie_locale_ancienne(statut, ferme):
+    from atelier.execution import centre
+
+    assert centre.plan_ferme({"statut": statut}) is ferme

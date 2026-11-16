@@ -188,7 +188,10 @@ class XrayClient:
             for x in brut:
                 j = x.get("jira") or {}
                 tests = x.get("tests") or {}
-                item = {"cle": j.get("key"), "resume": j.get("summary") or "", "statut": (j.get("status") or {}).get("name", ""),
+                st = j.get("status") or {}
+                categorie = (st.get("statusCategory") or {}).get("key")
+                item = {"cle": j.get("key"), "resume": j.get("summary") or "", "statut": st.get("name", ""),
+                        "ferme": categorie == "done" if categorie else None,  # catégorie Jira ; None : inconnue
                         "issueId": x.get("issueId"), "tests": [(t.get("jira") or {}).get("key") for t in tests.get("results") or []],
                         "tests_total": tests.get("total"), "cree": (j.get("created") or "")[:19]}
                 if "testExecutions" in x:
