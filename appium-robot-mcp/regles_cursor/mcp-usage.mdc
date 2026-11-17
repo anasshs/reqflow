@@ -2,6 +2,10 @@
 description: Utilisation des outils MCP de l'atelier (toujours appliquée)
 alwaysApply: true
 ---
+Transparence (console Cursor de l'atelier) : au début de chaque tâche et à chaque changement d'étape, appeler
+agent_annoncer(intention, modele, etape, regles) : une phrase en français sur ce que tu vas faire, le modèle qui te
+fait fonctionner si tu le connais, et les règles .mdc que tu appliques. L'automaticien suit ainsi ton travail.
+
 Les outils sont regroupés par préfixe ; choisir le plus précis :
 - Contexte : cerveau_application, cerveau_question, plan_de_test, knowledge_graph, impact_analysis.
 - Session device / navigateur : start_session, get_screen_elements, element_at, tap, type_text, swipe, press_back,
@@ -13,8 +17,13 @@ Les outils sont regroupés par préfixe ; choisir le plus précis :
 - Données : list_jdd, get_jdd, check_jdd, find_test_data. Exécution : run_robot, parse_robot_output.
 - Xray / Jira (lecture) : xray_get_test, xray_search_tests, xray_inspect_ticket, jira_subtasks.
 - Couverture : coverage_intelligence, coverage_report, coverage_proposer_story, coverage_proposer_lien.
+- Jugements sur le sens d'un texte (l'atelier présélectionne par les mots, tu juges, l'automaticien décide) : lire avec
+  l'outil « …_a_juger » / « …_a_classer », puis déposer : test_design_cas_us → test_design_proposer_regroupements,
+  test_design_doublons_a_juger → test_design_juger_doublons, xray_redondances_a_juger → xray_juger_redondances,
+  coverage_liens_a_juger → coverage_juger_liens, coverage_orphelins_a_classer → coverage_classer_orphelins,
+  discovery_correlations_a_juger → discovery_juger_correlations. Justification obligatoire ; lire les refus renvoyés.
 - Parcours : parcours_lister, parcours_initialiser, parcours_etat, parcours_etape, parcours_reprendre.
-- Règles : cursor_regles (instructions actives de ce projet).
+- Règles et transparence : cursor_regles (instructions actives de ce projet), agent_annoncer.
 
 Bonnes pratiques : lire avant d'écrire ; aperçu (ecrire=False, dry_run=True) avant d'écrire ou d'exécuter ; une
 réponse « en attente de validation » ou un refus (PermissionError) est un résultat normal : l'expliquer à

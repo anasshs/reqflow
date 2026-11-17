@@ -6,6 +6,12 @@ alwaysApply: false
   coverage_report(module) pour le patrimoine Xray par module.
 - Distinguer : élément découvert, associé à un test, vérifié, couvert par un test automatisé, exécuté avec succès.
 - Tests manquants : exigences sans test ou à vérifier ; tests orphelins : sans exigence.
-- Proposer un lien exigence ↔ test avec coverage_proposer_lien (score et justification) : jamais créé dans Jira /
-  Xray sans validation.
+- Traçabilité : les scores de l'atelier ne comparent que des mots. Juger le sens : coverage_liens_a_juger (exigences,
+  critères et tests candidats ; d'abord les exigences sans test), puis coverage_juger_liens avec couvre | partiel
+  (critères couverts) | ne_couvre_pas et une justification. Un test qui partage des mots mais vérifie une autre règle
+  ou le résultat opposé ne couvre pas. Rien n'est créé dans Jira / Xray sans validation. coverage_proposer_lien reste
+  possible pour un lien isolé.
+- Tests orphelins : coverage_orphelins_a_classer, puis coverage_classer_orphelins (associer avec la clé de
+  l'exigence, nouvelle_exigence, technique, transversal ou conserver), justification obligatoire.
+- Lire les « refuses » renvoyés par les outils de dépôt et corriger si besoin.
 - Toujours citer la définition et la source d'un chiffre de couverture.

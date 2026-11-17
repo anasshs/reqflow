@@ -222,16 +222,46 @@ async def events(req: Request):
     if ev.get("source") == "mcp":
         state["dernier_mcp"] = time.time()
     if ev.get("type") == "mcp_outil":  # activité de l'agent, gardée pour la vue « Cursor en direct » et pour la revue
-        ev = {**ev, "heure": time.strftime("%H:%M:%S")}
+        ev = {**ev, "heure": time.strftime("%H:%M:%S"), **_expliquer_appel(ev)}
+        if ev.get("client"):
+            state.setdefault("agent", {})["client"] = ev["client"]
         state.setdefault("activite_mcp", collections.deque(maxlen=300)).append(ev)
         _call_silencieux(sessions_agent.enregistrer_appel, ev)
         if ev.get("etat") == "fin" and ev.get("famille") == "ecran" and state["flux"].get("platform") in ("android", "ios"):
             asyncio.get_running_loop().run_in_executor(None, _tracer_ecran_mobile, ev.get("nom", ""))
+    if ev.get("type") == "mcp_annonce":  # Cursor dit ce qu'il va faire (outil agent_annoncer) : console Cursor
+        ev = {**ev, "heure": time.strftime("%H:%M:%S")}
+        a = state.setdefault("agent", {})
+        a.update({"intention": ev.get("intention", ""), "etape": ev.get("etape", ""), "heure": ev["heure"]})
+        if ev.get("modele"):
+            a["modele"] = ev["modele"]
+        state.setdefault("activite_mcp", collections.deque(maxlen=300)).append(ev)
     if ev.get("type") == "session" and ev.get("etat") == "ouverte":
         state["flux"] = {"platform": ev.get("platform"), "udid": ev.get("udid") or None}
     emit(ev)
     _call_silencieux(sessions_discovery.observer_evenement, ev)  # MCP / listener : timeline de la session Discovery
     return {"ok": True}
+
+
+_DOCS_OUTILS = {f.__name__: f.__doc__ or "" for f in outils.OUTILS}
+
+
+def _regles_outils() -> dict:
+    try:
+        from atelier.integrations import regles_cursor
+
+        return regles_cursor.regles_par_outil(list(_DOCS_OUTILS))
+    except Exception:  # noqa: BLE001 - règles illisibles : la console reste utilisable
+        return {"outils": {}, "toujours": [], "version": 0}
+
+
+def _expliquer_appel(ev: dict) -> dict:
+    """Console Cursor : l'appel en français et les règles .mdc du projet qui encadrent cet outil."""
+    from atelier.domain import activite_agent
+
+    nom = ev.get("nom", "")
+    return {"phrase": activite_agent.decrire(nom, ev.get("args") or {}, _DOCS_OUTILS.get(nom, "")),
+            "regles": _regles_outils()["outils"].get(nom, [])}
 
 
 SANS_CACHE = {"Cache-Control": "no-cache"}  # le navigateur revalide : après un git pull, les nouveaux écrans apparaissent
@@ -636,7 +666,9 @@ async def mcp_activite(depuis: int = 0):
     l = list(state.get("activite_mcp") or [])
     actif = time.time() - (state.get("dernier_mcp") or 0) < 120
     im = state.get("image_mcp")
+    r = _regles_outils()
     return {"actif": actif, "dernier": state.get("dernier_mcp"), "evenements": l[-max(1, min(300, depuis or 150)):],
+            "agent": state.get("agent") or {}, "regles_toujours": r["toujours"], "regles_version": r["version"],
             "controle": state.get("controle_agent", "actif"), "attente": _attente_courante(),
             "flux": state["flux"], "image_agent": {"t": im["t"], "outil": im["outil"]} if im else None}
 
@@ -1503,6 +1535,12 @@ def _cat():
     return conception_avancee
 
 
+def _gran():
+    from atelier.intelligence import granularite_tests
+
+    return granularite_tests
+
+
 @app.get("/api/conception/categories")
 def conception_categories():
     return _cat().CATEGORIES
@@ -1521,7 +1559,14 @@ async def testabilite_action(cle: str, action: str, req: Request):
                "publier": lambda: t.publier_cas(cle), "non-testable": lambda: t.non_testable(cle, b.get("justification", "")),
                "convertir": lambda: t.convertir_cas(cle, b.get("id", ""), b.get("vers", "")),
                "proposer-categories": lambda: _cat().proposer(cle, b.get("categories") or None)["us"],
-               "doublons": lambda: _cat().verifier_doublons(cle)["us"]}
+               "doublons": lambda: _cat().verifier_doublons(cle)["us"],
+               # granularité : un test = un objectif ; regroupements toujours décidés par l'automaticien
+               "consolider": lambda: _gran().proposer(cle),
+               "consolider-ia": lambda: _gran().consolider_ia(cle),
+               "doublons-ia": lambda: _cat().juger_doublons_ia(cle),
+               "consolidation": lambda: _gran().decider_proposition(cle, b.get("id", ""), b.get("decision", ""), b.get("titre", "")),
+               "regrouper": lambda: _gran().regrouper(cle, b.get("ids") or [], b.get("mode", ""), b.get("titre", ""), "regroupement manuel"),
+               "degrouper": lambda: _gran().degrouper(cle, b.get("id", ""))}
     if action not in actions:
         raise HTTPException(404, f"Action inconnue : {action}")
     return await asyncio.to_thread(_call, actions[action])
@@ -1648,6 +1693,31 @@ async def discovery_correlation_ecran(eid: str):
     from atelier.discovery import correlation
 
     return await asyncio.to_thread(_call, correlation.ecran, eid)
+
+
+@app.post("/api/discovery/correlation/ia")
+async def discovery_correlation_ia(req: Request):
+    """Corrélations écran ↔ exigence jugées par l'IA à appel direct (avec « cursor » : passer par le MCP)."""
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.juger_ia, (await req.json()).get("ecran", ""))
+
+
+@app.get("/api/ia/etat")
+async def ia_etat():
+    """Fournisseur d'IA : « cursor » (jugements déposés via le MCP), appel direct (interne / Claude) ou aucun (règles)."""
+    from atelier.intelligence import fournisseur_ia
+
+    return fournisseur_ia.etat()
+
+
+@app.post("/api/redondances/ia")
+async def redondances_ia(req: Request):
+    """Tests Xray redondants jugés par l'IA à appel direct (avec « cursor » : passer par le MCP)."""
+    from atelier.intelligence import couverture, patrimoine_xray
+
+    module = (await req.json()).get("module", "")
+    return await asyncio.to_thread(_call, lambda: couverture.juger_redondances_ia((patrimoine_xray.charger_vue() or {}).get("tests") or [], module))
 
 
 @app.post("/api/discovery/correlation/confirmer")
@@ -3141,6 +3211,8 @@ async def ci_action(action: str, req: Request):
     fn = {"story": lambda: ci.proposer_story(b.get("capacite", ""), bool(b.get("ia"))),
           "criteres": lambda: ci.proposer_criteres(b.get("cle", ""), bool(b.get("ia"))),
           "analyser-liens": lambda: ci.analyser_liens(),
+          "liens-ia": lambda: ci.juger_liens_ia(b.get("cle", "")),
+          "orphelins-ia": lambda: ci.classer_orphelins_ia(),
           "decider": lambda: ci.decider(b.get("id", ""), b.get("decision", ""), b.get("motif", ""), b.get("modifications") or {}),
           "regrouper": lambda: ci.regrouper(b.get("ids") or [], b.get("titre", "")),
           "synchroniser": lambda: ci.synchroniser(b.get("id", "")),

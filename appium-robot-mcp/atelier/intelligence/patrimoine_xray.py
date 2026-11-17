@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import json
 import os
+import pickle
 import re
+import threading
+import zlib
 from datetime import datetime
 from pathlib import Path
 
@@ -33,9 +36,41 @@ def fichier() -> Path:
     return projet.PROJECT_DIR / os.environ.get("PATRIMOINE_FICHIER", "patrimoine/xray.json")
 
 
-def charger() -> dict | None:
+# Cache de l'instantané : un écran le relisait jusqu'à 50 fois par requête (2,3 Mo de JSON à chaque fois).
+# Clé = (chemin, taille, empreinte CRC32 du contenu) : relire les octets coûte ~2 ms, les décoder ~40 ms. Toute
+# écriture (enregistrer, ou une copie déposée à la main) change la clé, même deux écritures dans la même tranche de
+# 15 ms (pas de la date de modification sous Windows). Chaque appel reçoit sa propre copie (pickle), jamais l'objet
+# du cache : un appelant qui modifie ce qu'il a lu ne peut pas altérer les lectures suivantes.
+_CACHE: dict = {}
+_VERROU = threading.Lock()
+_VUES_MAX = 8  # vues filtrées gardées par instantané (une par application consultée)
+
+
+def _entree() -> dict | None:
     f = fichier()
-    return valider(json.loads(f.read_text("utf-8"))) if f.exists() else None
+    try:
+        brut = f.read_bytes()
+    except OSError:
+        return None
+    cle = (str(f.resolve()), len(brut), zlib.crc32(brut))
+    with _VERROU:
+        e = _CACHE.get("courant")
+        if e is None or e["cle"] != cle:
+            data = valider(json.loads(brut.decode("utf-8")))
+            e = {"cle": cle, "octets": pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL),
+                 "marque": any(t.get("applications") for t in data.get("tests") or []), "vues": {}}
+            _CACHE["courant"] = e
+        return e
+
+
+def vider_cache():
+    with _VERROU:
+        _CACHE.clear()
+
+
+def charger() -> dict | None:
+    e = _entree()
+    return pickle.loads(e["octets"]) if e else None
 
 
 def valider(data: dict) -> dict:
@@ -64,6 +99,7 @@ def enregistrer(data: dict, source: str) -> dict:
     tmp = f.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), "utf-8")
     os.replace(tmp, f)
+    vider_cache()  # la clé change déjà avec le fichier ; on libère aussi la mémoire de l'ancien instantané
     return etat()
 
 
@@ -706,14 +742,28 @@ def appliquer_filtre(pat: dict | None, f: dict) -> dict | None:
 
 def charger_brut_marque() -> bool:
     """La copie locale a-t-elle été synchronisée par application (tests marqués) ?"""
-    d = charger()
-    return bool(d and any(t.get("applications") for t in d.get("tests") or []))
+    e = _entree()
+    return bool(e and e["marque"])
 
 
 def charger_vue() -> dict | None:
     """Instantané vu par les écrans (lecture seule) : restreint à l'application active si elle a une règle.
-    Les écritures (synchronisation, import des définitions) utilisent toujours charger() : tout le projet."""
-    return appliquer_filtre(charger(), filtre_application())
+    Les écritures (synchronisation, import des définitions) utilisent toujours charger() : tout le projet.
+    La vue filtrée est gardée en cache par instantané et par filtre (appliquer_filtre ne dépend que des deux)."""
+    filtre = filtre_application()
+    e = _entree()
+    if e is None:
+        return appliquer_filtre(None, filtre)
+    k = json.dumps(filtre, sort_keys=True, ensure_ascii=False, default=str)
+    octets = e["vues"].get(k)
+    if octets is None:
+        vue = appliquer_filtre(pickle.loads(e["octets"]), filtre)
+        octets = pickle.dumps(vue, protocol=pickle.HIGHEST_PROTOCOL)
+        with _VERROU:
+            if len(e["vues"]) >= _VUES_MAX:
+                e["vues"].clear()
+            e["vues"][k] = octets
+    return pickle.loads(octets)
 
 
 def _type_exigence(f: dict) -> str:

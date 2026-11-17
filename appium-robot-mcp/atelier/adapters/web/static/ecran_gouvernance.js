@@ -91,10 +91,21 @@
   }
 
   async function efficacite(z) {
-    const e = await api("/api/gouvernance/efficacite");
+    const [e, ia] = await Promise.all([api("/api/gouvernance/efficacite"), EtatIA()]);
+    const RED = {redondants: "ko", distincts: "ok"};
     z.innerHTML = `${entete("Efficacité des tests")}<div class="corps-carte"><p>Défauts applicatifs confirmés : <b>${e.defauts_confirmes}</b> · échecs confirmés sans défaut applicatif : <b>${e.echecs_sans_defaut}</b> · échecs par module : ${Object.entries(e.echecs_par_module).map(([m, n]) => `${esc(m)} ${n}`).join(", ") || "—"}</p>
       <table class="table-strat"><tr><th>Test</th><th>Clé</th><th>Exécutions</th><th>Échecs</th><th>Taux d'échec</th></tr>${e.tests.map(t => `<tr><td>${esc(t.test)}</td><td class="cle-xray">${esc(t.cle_xray || "—")}</td><td>${t.executions}</td><td>${t.echecs}</td><td>${val(t.taux_echec, "%")}</td></tr>`).join("")}</table>
-      <p style="margin-top:10px"><b>Tests redondants (candidats) :</b> ${esc(e.redondances.map(r => r.tests.join(" ≈ ")).join(" ; ") || "aucun")}</p><p class="lib">${esc(e.note)} Défauts après livraison : indisponible (Jira non connecté).</p></div>`;
+      <section class="bloc-strat" style="margin-top:10px"><h3>Tests redondants <span class="lib">(candidats)</span> <span class="btns" style="display:inline-flex">${BoutonIA(ia, "red")}</span></h3>
+        <p class="lib">Les règles repèrent les titres presque identiques (mots communs, sans compréhension du texte)${AvecIA(ia) ? " ; l'IA lit les étapes et juge « redondants » ou « distincts », avec une justification. Aucun test n'est modifié ni supprimé" : ""}.</p>
+        ${e.redondances.length ? `<ul class="liste">${[...e.redondances].sort((a, b) => (b.jugement ? 1 : 0) - (a.jugement ? 1 : 0)).map(r => `<li><span style="white-space:nowrap"><span class="cle-xray">${esc(r.tests[0])}</span> ≈ <span class="cle-xray">${esc(r.tests[1])}</span></span>
+          ${r.similarite !== null && r.similarite !== undefined ? `<span class="lib">mots ${Math.round(r.similarite * 100)} %</span>` : ""} ${PastilleJugement(r.jugement, RED)}${r.jugement ? ` <span class="lib">${esc(r.jugement.justification)}</span>` : ""}</li>`).join("")}</ul>` : "<p class='lib'>Aucun.</p>"}</section>
+      <p class="lib">${esc(e.note)} Défauts après livraison : indisponible (Jira non connecté).</p></div>`;
+    if ($("#red-ia", z)) $("#red-ia", z).onclick = async () => { try { const r = await api("/api/redondances/ia", {method: "POST", body: {}}); if (r.disponible === false) return toast(r.raison, "ko");
+      toast(`IA : ${r.redondants} paire(s) redondante(s), ${r.distincts} distincte(s).`, "ok"); efficacite(z); } catch (x) { toast(x.message, "ko"); } };
+    if ($("#red-cursor", z)) $("#red-cursor", z).onclick = () => DemanderCursor("Tests redondants : demander à Cursor", "Repère les tests Xray redondants de l'application active. "
+      + "Lis les paires présélectionnées avec xray_redondances_a_juger, puis dépose ton verdict avec xray_juger_redondances : redondants (même objectif et même résultat attendu) "
+      + "ou distincts (résultat opposé, autre profil, autre donnée métier significative), avec une justification. Aucun test n'est supprimé : je décide.");
+    SuivreCursor("redondances", ["xray_juger_redondances"], z, () => efficacite(z));
   }
 
   async function sante(z) {

@@ -202,9 +202,12 @@
         ${Object.entries(SPRINTS).filter(([, v]) => v.erreur).map(([e, v]) => `<span class="pill warn" title="${esc(v.erreur)}">${esc(e)} : sprints non lus (API agile)</span>`).join("")}</div>
       <p class="lib">Chaque US d'un espace activé doit être comprise, clarifiée puis couverte par au moins un test Xray. Rien n'est écrit dans Jira ni Xray
         sans action explicite. IA : <b>${esc(cfg.ia.fournisseur)}</b> — ${esc(cfg.ia.detail)}.</p>
-      <div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr));margin:10px 0">${[[ind.us, "US suivies"], [ind.couvertes, "couvertes"],
+      <div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:10px 0">${[[ind.us, "US suivies"], [ind.couvertes, "couvertes"],
         [ind.taux_couverture === null ? "—" : String(ind.taux_couverture).replace(".", ",") + " %", "taux de couverture"], [ind.en_attente_reponse, "en attente de réponse"],
-        [ind.non_testables, "non testables"]].map(([v, t]) => `<div class="kpi"><div class="v">${v ?? "—"}</div><div class="l">${t}</div></div>`).join("")}</div>
+        [ind.non_testables, "non testables"],
+        [ind.comportements_par_test === null || ind.comportements_par_test === undefined ? "—" : String(ind.comportements_par_test).replace(".", ","),
+         `comportements par test (${ind.comportements ?? 0} / ${ind.tests_actifs ?? 0})`, "Comportements des US couverts / tests actifs : le nombre de tests n'est pas un objectif, la couverture si."]]
+        .map(([v, t, aide]) => `<div class="kpi" ${aide ? `title="${esc(aide)}"` : ""}><div class="v">${v ?? "—"}</div><div class="l">${t}</div></div>`).join("")}</div>
       ${!cfg.espaces.length ? vide("Aucun espace activé", "« Politique (espaces Jira) » : choisir les projets Jira des squads à suivre.")
         : l.length ? `<table class="table-strat"><tr><th>US</th><th>Espace</th><th>Sprint</th><th>Résumé</th><th>Statut Jira</th><th>Testabilité</th><th>Constats</th><th>Cas</th><th>Tests liés</th></tr>
           ${l.map(x => `<tr class="cliquable" data-us="${esc(x.cle)}"><td class="cle-xray">${esc(x.cle)}${x.alertes ? ' <span class="pill warn" title="modifiée dans Jira">!</span>' : ""}</td><td>${esc(x.espace)}</td>
@@ -229,7 +232,8 @@
     if ($("#us-bil")) $("#us-bil").onclick = () => bilanSprint(espSel, idSel);
     $("[data-manquants]", z).onclick = () => { try { sessionStorage.setItem("ci-onglet", "manquants"); } catch (e) { /* facultatif */ } };
     $("#us-rep").onclick = async () => { try { const r = await api("/api/testabilite/reponses", {method: "POST", body: {}}); toast(`${r.nouvelles} réponse(s) nouvelle(s).`, "ok"); us(z); } catch (e) { toast(e.message, "ko"); } };
-    $$("[data-us]", z).forEach(tr => tr.onclick = () => panneauUS(tr.dataset.us, z));
+    LISTE_US = l.map(x => x.cle);  // ordre de la liste : US précédente / suivante dans le panneau
+    $$("[data-us]", z).forEach(tr => tr.onclick = () => { FILTRE_CAS = ""; panneauUS(tr.dataset.us, z); });
     recherche(z, "us");
   }
 
@@ -306,48 +310,152 @@
     $$("[data-sup]", m.el).forEach(b => b.onclick = async () => { await api("/api/testabilite/espaces/supprimer", {method: "POST", body: {projet_jira: b.dataset.sup}}); m.fermer(); Atelier.ouvrir(); });
   }
 
+  /* Panneau d'une US (À concevoir) : trois tailles (normal à droite, large, plein écran), onglets (US, analyse et
+     questions, cas de test, historique), cas filtrables par statut, passage à l'US précédente / suivante de la liste.
+     La taille choisie est mémorisée dans le navigateur. */
+  let LISTE_US = [], ONGLET_US = "us", FILTRE_CAS = "", DESABO_US = null;
+  const tailleUS = () => { try { return localStorage.getItem("td-us-taille") || "normal"; } catch (e) { return "normal"; } };
+  const fixerTailleUS = t => { try { localStorage.setItem("td-us-taille", t); } catch (e) { /* préférence locale facultative */ } };
+  const ST_CAS = {"Proposé": "info", "Validé": "ok", "Rejeté": "ko", "Publié": "violet", "Regroupé": ""};
+  const MODES_RG = {donnees: "Même chemin, données différentes : un test, une variante par cas", controle: "Points de contrôle : les détails deviennent des vérifications d'un test"};
+
   async function panneauUS(cle, z) {
     const u = await api("/api/testabilite/us/" + encodeURIComponent(cle));
     const p = $(".panneau-strat");
     p.hidden = false;
+    const taille = tailleUS();
+    p.classList.toggle("pu-large", taille === "large");
+    p.classList.toggle("pu-plein", taille === "plein");
+    $$("[data-us]", z).forEach(tr => tr.classList.toggle("sel", tr.dataset.us === cle));
     const act = (a, b = {}) => api(`/api/testabilite/us/${encodeURIComponent(cle)}/${a}`, {method: "POST", body: b});
-    const q = u.questions || {};
-    const casHtml = c => `<div class="bloc-strat" style="margin-top:8px"><div class="btns"><b class="item">${esc(c.titre)}</b><span class="pill ${c.statut === "Validé" ? "ok" : c.statut === "Publié" ? "violet" : c.statut === "Rejeté" ? "ko" : "info"}">${esc(c.statut)}</span>
+    const q = u.questions || {}, cas = u.cas || [], constats = u.constats || [];
+    const i = LISTE_US.indexOf(cle), prec = i > 0 ? LISTE_US[i - 1] : "", suiv = i >= 0 && i < LISTE_US.length - 1 ? LISTE_US[i + 1] : "";
+    const nb = s => cas.filter(c => c.statut === s).length;
+    const sources = [...new Set(cas.map(c => c.source))];
+    const titreDe = id => (cas.find(x => x.id === id) || {}).titre || id;
+    const selectionnable = c => !["Publié", "Rejeté", "Regroupé"].includes(c.statut);
+    const casHtml = c => `<div class="bloc-strat pu-cas" data-statut="${esc(c.statut)}"><div class="btns">${selectionnable(c) ? `<input type="checkbox" data-pu-sel="${c.id}" title="Sélectionner pour regrouper">` : ""}<b class="item">${esc(c.titre)}</b><span class="pill ${ST_CAS[c.statut] || "info"}">${esc(c.statut)}</span>
         <span class="lib">${esc(c.source)}</span>${c.cle_xray ? `<span class="cle-xray">${esc(c.cle_xray)}</span>` : ""}</div>
-      ${u.politique.type_test === "Cucumber" ? `<textarea class="in mono" rows="4" data-g="${c.id}" ${c.statut === "Publié" ? "disabled" : ""}>${esc(c.gherkin)}</textarea>`
-        : `<table><tr><th>Action</th><th>Données</th><th>Résultat attendu</th></tr>${c.etapes.map((e, i) => `<tr>${["action", "donnees", "resultat"].map(k => `<td><input class="in" data-e="${c.id}" data-i="${i}" data-k="${k}" value="${esc(e[k])}" ${c.statut === "Publié" ? "disabled" : ""}></td>`).join("")}</tr>`).join("")}</table>`}
+      ${c.statut === "Regroupé" ? `<p class="lib">Regroupé dans « ${esc(titreDe(c.regroupe_dans))} ».</p>` : ""}
+      ${(c.regroupe || []).length ? `<p class="lib"><span class="pill violet">regroupe ${c.regroupe.length} cas</span> ${esc(c.justification || "")}
+        ${c.statut !== "Publié" ? `<button class="btn petit" data-pu-degrouper="${c.id}" title="Revenir aux cas d'origine">Défaire le regroupement</button>` : ""}</p>` : ""}
+      ${(c.couvre || []).length ? `<div class="pu-couvre"><span class="lib">Couvre ${c.couvre.length} comportement(s) :</span>${c.couvre.map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>` : ""}
+      ${u.politique.type_test === "Cucumber" ? `<textarea class="in mono" rows="${taille === "normal" ? 4 : 6}" data-g="${c.id}" ${c.statut === "Publié" ? "disabled" : ""}>${esc(c.gherkin)}</textarea>`
+        : `<table><tr><th>#</th><th>Action</th><th>Données</th><th>Résultat attendu</th></tr>${c.etapes.map((e, n) => `<tr><td class="lib">${n + 1}</td>${["action", "donnees", "resultat"].map(k => `<td><textarea class="in pu-etape" rows="2" data-e="${c.id}" data-i="${n}" data-k="${k}" ${c.statut === "Publié" ? "disabled" : ""}>${esc(e[k])}</textarea></td>`).join("")}</tr>`).join("")}</table>`}
       ${c.notes ? `<p class="lib">${esc(c.notes)}</p>` : ""}${c.avertissement ? `<p class="warn-t">${esc(c.avertissement)}</p>` : ""}
       ${c.categorie ? `<p class="lib"><span class="pill info">${esc(CAT[c.categorie] || c.categorie)}</span> <span class="pill ${c.provenance === "observé" ? "ok" : "warn"}" title="Observé : lu dans l'US, une règle ou la carte ; déduit : hypothèse à confirmer">${esc(c.provenance)}</span>
         confiance ${Math.round((c.confiance || 0) * 100)} % · source : ${esc(c.source_detail || "")}<br>${esc(c.justification || "")}${(c.manquant || []).length ? `<br><span class="warn-t">Manque : ${esc(c.manquant.join(", "))}</span>` : ""}</p>` : ""}
-      ${c.doublon && c.doublon.meilleur ? `<p class="lib"><span class="pill ${c.doublon.recommandation === "réutiliser" ? "ko" : c.doublon.recommandation === "faire évoluer" ? "warn" : "ok"}" title="Seuils : réutiliser ≥ 0,70 ; faire évoluer ≥ 0,40">${esc(c.doublon.recommandation)}</span>
+      ${c.doublon && c.doublon.jugement ? `<p class="lib">Doublon : ${PastilleJugement(c.doublon.jugement, {"réutiliser": "ko", "faire évoluer": "warn", "créer": "ok"})}
+        ${c.doublon.jugement.test ? `<span class="cle-xray">${esc(c.doublon.jugement.test)}</span> ${esc(c.doublon.jugement.titre)} · ` : ""}${esc(c.doublon.jugement.justification)}</p>` : ""}
+      ${c.doublon && c.doublon.meilleur ? `<p class="lib">${c.doublon.jugement ? "Présélection par les mots :" : `<span class="pill ${c.doublon.recommandation === "réutiliser" ? "ko" : c.doublon.recommandation === "faire évoluer" ? "warn" : "ok"}" title="Règles (secours) : ressemblance des mots, sans compréhension du texte. Seuils : réutiliser ≥ 0,70 ; faire évoluer ≥ 0,40">${esc(c.doublon.recommandation)} · règles</span>`}
         le plus proche : <span class="cle-xray">${esc(c.doublon.meilleur.cle)}</span> ${esc(c.doublon.meilleur.titre)} (${String(c.doublon.meilleur.score).replace(".", ",")} ; ${esc(Object.entries(c.doublon.meilleur.facettes).map(([k, v]) => `${k} ${v}`).join(", "))})</p>` : ""}
-      ${c.statut === "Publié" || c.statut === "Rejeté" ? `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button></div>` : `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button><button class="btn petit" data-cas-ok="${c.id}">Enregistrer</button><button class="btn petit succes" data-cas-v="${c.id}">Valider</button><button class="btn petit danger" data-cas-r="${c.id}">Rejeter</button></div>`}</div>`;
-    p.innerHTML = `${entete(cle, `<button class="icone" id="pu-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
-      <p><b>${esc(u.resume)}</b></p><p><span class="pill ${ST_US[u.statut] || ""}">${esc(u.statut)}</span> <span class="lib">${esc(u.espace)} · Jira : ${esc(u.statut_jira)}${u.assigne ? " · " + esc(u.assigne) : ""}</span></p>
-      ${(u.alertes || []).map(a => `<p class="warn-t">${esc(a.message)}</p>`).join("")}
-      <p class="lib">Tests Xray liés : ${(u.tests_lies || []).map(k => `<span class="cle-xray">${esc(k)}</span>`).join(", ") || "aucun"} · <span class="cle-xray" data-jira="${esc(cle)}">Ouvrir ${esc(cle)} dans Jira</span></p>
-      ${(u.liens_ignores || []).length ? `<p class="warn-t">Liens non comptés comme couverture : ${u.liens_ignores.map(x => `<span class="cle-xray">${esc(x.cle)}</span> (${esc(x.type)}, lien « ${esc(x.lien)} »)`).join(", ")}</p>` : ""}
-      <details><summary>Description et critères</summary><pre class="code-bloc" style="white-space:pre-wrap">${esc(u.description || "(vide)")}${u.criteres_jira ? "\n\nCritères :\n" + esc(u.criteres_jira) : ""}</pre></details>
-      <div class="btns" style="margin-top:8px"><button class="btn" id="pu-an">Analyser (règles)</button><button class="btn" id="pu-ia">Analyse IA</button><button class="btn" id="pu-cas">Proposer des cas</button><button class="btn primaire" id="pu-cat" title="Cas par catégorie (nominal, alternatif, négatif, limites, champs, erreurs, navigation, permissions, règles), avec source, confiance et doublons">Proposer par catégories</button>
-        <button class="btn" id="pu-dbl" title="Comparer chaque cas aux tests Xray existants : réutiliser, faire évoluer ou créer">Vérifier les doublons</button>
-        <button class="btn danger" id="pu-nt">Non testable</button></div>
-      <h3 class="lib" style="margin-top:12px">CONSTATS (${(u.constats || []).length})</h3><ul class="liste">${(u.constats || []).map(c => `<li><span class="pill ${GRAV[c.gravite] || ""}">${esc(c.gravite)}</span>
-        <span class="item">${esc(c.message)}${c.extrait ? `<br><span class="lib">« ${esc(c.extrait)} »</span>` : ""}</span><span class="lib">${esc(c.source)}</span></li>`).join("") || "<li class='lib'>Analyse non faite.</li>"}</ul>
-      <h3 class="lib" style="margin-top:12px">QUESTIONS À L'ÉQUIPE (commentaire Jira, relu avant envoi)</h3>
-      <textarea class="in" id="pu-q" rows="6">${esc(q.brouillon || "")}</textarea>
-      <div class="btns"><button class="btn" id="pu-qs">Enregistrer le brouillon</button><button class="btn primaire" id="pu-qe">Envoyer en commentaire Jira</button></div>
-      ${(q.envois || []).map(e => `<p class="lib">Envoyé le ${esc(e.date.replace("T", " ").slice(0, 16))} par ${esc(e.auteur)}</p>`).join("")}
-      ${(q.reponses || []).length ? `<h3 class="lib">RÉPONSES</h3><ul class="liste">${q.reponses.map(r => `<li><b>${esc(r.auteur)}</b><span class="item">${esc(r.texte)}</span><span class="lib">${esc(String(r.date).slice(0, 16).replace("T", " "))}</span></li>`).join("")}</ul>` : ""}
-      <h3 class="lib" style="margin-top:12px">CAS DE TEST (${(u.cas || []).length}) · ${esc(u.politique.type_test || "")} dans ${esc(u.politique.projet_xray || "")}
-        ${(u.cas || []).length ? `<button class="btn petit" id="pu-vue" style="float:right">Visualiser les cas</button>` : ""}</h3>
-      ${(u.cas || []).map(casHtml).join("") || "<p class='lib'>Aucun cas : « Proposer des cas » (règles) ou analyse IA / Cursor.</p>"}
-      ${(u.cas || []).some(c => c.statut === "Validé") ? `<div class="btns" style="margin-top:8px"><button class="btn primaire" id="pu-pub">${ico("xray")}Publier les cas validés dans Xray et lier à l'US</button></div>` : ""}
-      <h3 class="lib" style="margin-top:12px">HISTORIQUE</h3><ul class="liste">${(u.historique || []).slice().reverse().map(h => `<li class="lib">${esc(h.date.replace("T", " ").slice(0, 16))} · ${esc(h.auteur)} · ${esc(h.de || "—")} → ${esc(h.vers)} ${esc(h.detail || "")}</li>`).join("")}</ul></div>`;
+      ${["Publié", "Rejeté", "Regroupé"].includes(c.statut) ? `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button></div>` : `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button><button class="btn petit" data-cas-ok="${c.id}">Enregistrer</button><button class="btn petit succes" data-cas-v="${c.id}">Valider</button><button class="btn petit danger" data-cas-r="${c.id}">Rejeter</button></div>`}</div>`;
+    const gr = u.granularite || {};
+    const propsRg = ((u.consolidation || {}).propositions || []).filter(x => x.statut === "Proposé");
+    const ia = u.ia || {fournisseur: "aucun"};
+    const ONGLETS = [["us", "US"], ["analyse", `Analyse et questions (${constats.length})`], ["cas", `Cas de test (${cas.length - nb("Regroupé")})`], ["historique", "Historique"]];
+    if (!ONGLETS.some(o => o[0] === ONGLET_US)) ONGLET_US = "us";
+    const section = (id, html) => `<div class="pu-onglet" data-pu-o="${id}" ${ONGLET_US === id ? "" : "hidden"}>${html}</div>`;
+    const tailleBtn = (t, titre, libelle) => `<button class="btn petit ${taille === t ? "primaire" : ""}" data-pu-taille="${t}" title="${titre}">${libelle}</button>`;
+    p.innerHTML = `${entete(cle, `<button class="btn petit" data-pu-nav="${esc(prec)}" ${prec ? "" : "disabled"} title="US précédente de la liste">‹</button>
+        <span class="lib">${i >= 0 ? `${i + 1} / ${LISTE_US.length}` : ""}</span><button class="btn petit" data-pu-nav="${esc(suiv)}" ${suiv ? "" : "disabled"} title="US suivante de la liste">›</button>
+        ${tailleBtn("normal", "Panneau à droite", "Normal")}${tailleBtn("large", "Panneau élargi, à côté de la liste", "Large")}${tailleBtn("plein", "Plein écran", "Plein écran")}
+        <button class="icone" id="pu-x" aria-label="Fermer">${ico("x")}</button>`)}
+      <div class="pu-tete"><p style="margin:0"><b>${esc(u.resume)}</b></p>
+        <p style="margin:4px 0 0"><span class="pill ${ST_US[u.statut] || ""}">${esc(u.statut)}</span> <span class="lib">${esc(u.espace)} · Jira : ${esc(u.statut_jira)}${u.assigne ? " · " + esc(u.assigne) : ""}</span>
+          <span class="pu-resume-cas">${["Proposé", "Validé", "Rejeté", "Publié"].map(s => nb(s) ? `<span class="pill ${ST_CAS[s]}">${nb(s)} ${s.toLowerCase()}${nb(s) > 1 ? "s" : ""}</span>` : "").join(" ")}
+          ${gr.tests ? `<span class="pill ${gr.par_test >= 1.5 ? "ok" : ""}" title="Comportements de l'US couverts / tests actifs (proposés, validés, publiés). Un test = un objectif : viser le minimum de tests qui couvre tous les comportements.">${gr.comportements} comportement(s) · ${gr.tests} test(s) · ${String(gr.par_test).replace(".", ",")} par test</span>` : ""}</span></p>
+        <div class="btns" style="margin-top:8px">${ia.fournisseur === "cursor" ? `<button class="btn primaire" id="pu-cursor" title="Cursor lit l'US (texte masqué), les cas existants et les réponses de l'équipe, pose ses questions et propose des cas en comprenant le texte ; vous validez ici">Demander à Cursor</button>`
+            : ia.appel_direct ? `<button class="btn primaire" id="pu-ia" title="L'IA ${esc(ia.fournisseur)} lit l'US (texte masqué), pose ses questions et propose des cas ; vous validez ici">Analyse IA</button>` : ""}
+          <button class="btn" id="pu-an" title="Ambiguïtés repérées par des règles (mots-clés), sans compréhension du texte">Analyser (règles${AvecIA(ia) ? ", secours" : ""})</button>
+          <button class="btn ${AvecIA(ia) ? "" : "primaire"}" id="pu-cat" title="Règles, sans compréhension du texte : un cas par critère d'acceptation, plus les cas tirés du Knowledge Graph (règles, champs, messages, transitions, rôles), par catégorie (nominal, alternatif, négatif, limites, champs, erreurs, navigation, permissions, règles), avec source, confiance et doublons">Proposer par catégories${AvecIA(ia) ? " (secours)" : ""}</button>
+          ${ia.fournisseur === "cursor" ? `<button class="btn" id="pu-dbl-cursor" title="Cursor compare chaque cas aux tests existants en comprenant le texte (résultat opposé = pas un doublon) et justifie ; vous décidez">Doublons : demander à Cursor</button>`
+            : ia.appel_direct ? `<button class="btn" id="pu-dbl-ia" title="L'IA ${esc(ia.fournisseur)} compare chaque cas aux tests existants (texte masqué) et justifie ; vous décidez">Doublons : avis de l'IA</button>` : ""}
+          <button class="btn" id="pu-dbl" title="Comparer chaque cas aux tests Xray existants par ressemblance des mots (sans compréhension du texte) : réutiliser, faire évoluer ou créer">${AvecIA(ia) ? "Doublons par règles (secours)" : "Vérifier les doublons"}</button>
+          <button class="btn danger" id="pu-nt">Non testable</button></div></div>
+      <div class="sous-onglets" role="tablist">${ONGLETS.map(([id, lib]) => `<button role="tab" data-pu-onglet="${id}" aria-selected="${ONGLET_US === id}">${esc(lib)}</button>`).join("")}</div>
+      <div class="corps-carte">
+      ${section("us", `${(u.alertes || []).map(a => `<p class="warn-t">${esc(a.message)}</p>`).join("")}
+        <p class="lib">Tests Xray liés : ${(u.tests_lies || []).map(k => `<span class="cle-xray">${esc(k)}</span>`).join(", ") || "aucun"} · <span class="cle-xray" data-jira="${esc(cle)}">Ouvrir ${esc(cle)} dans Jira</span></p>
+        ${(u.liens_ignores || []).length ? `<p class="warn-t">Liens non comptés comme couverture : ${u.liens_ignores.map(x => `<span class="cle-xray">${esc(x.cle)}</span> (${esc(x.type)}, lien « ${esc(x.lien)} »)`).join(", ")}</p>` : ""}
+        <h3 class="lib">DESCRIPTION</h3><pre class="code-bloc pu-texte">${esc(u.description || "(vide)")}</pre>
+        ${u.criteres_jira ? `<h3 class="lib">CRITÈRES D'ACCEPTATION</h3><pre class="code-bloc pu-texte">${esc(u.criteres_jira)}</pre>` : ""}`)}
+      ${section("analyse", `<div class="${taille === "normal" ? "" : "grille-2"}" style="align-items:start"><div>
+        <h3 class="lib">CONSTATS (${constats.length})</h3><ul class="liste">${constats.map(c => `<li><span class="pill ${GRAV[c.gravite] || ""}">${esc(c.gravite)}</span>
+          <span class="item">${esc(c.message)}${c.extrait ? `<br><span class="lib">« ${esc(c.extrait)} »</span>` : ""}</span><span class="lib">${esc(c.source)}</span></li>`).join("") || "<li class='lib'>Analyse non faite : « Analyser (règles) », « Analyse IA » ou Cursor.</li>"}</ul></div>
+        <div><h3 class="lib">QUESTIONS À L'ÉQUIPE (commentaire Jira, relu avant envoi)</h3>
+        <textarea class="in" id="pu-q" rows="${taille === "normal" ? 6 : 10}">${esc(q.brouillon || "")}</textarea>
+        <div class="btns"><button class="btn" id="pu-qs">Enregistrer le brouillon</button><button class="btn primaire" id="pu-qe">Envoyer en commentaire Jira</button></div>
+        ${(q.envois || []).map(e => `<p class="lib">Envoyé le ${esc(e.date.replace("T", " ").slice(0, 16))} par ${esc(e.auteur)}</p>`).join("")}
+        ${(q.reponses || []).length ? `<h3 class="lib">RÉPONSES</h3><ul class="liste">${q.reponses.map(r => `<li><b>${esc(r.auteur)}</b><span class="item">${esc(r.texte)}</span><span class="lib">${esc(String(r.date).slice(0, 16).replace("T", " "))}</span></li>`).join("")}</ul>` : ""}</div></div>`)}
+      ${section("cas", `<div class="btns" style="margin-bottom:8px"><span class="lib">${esc(u.politique.type_test || "")} dans ${esc(u.politique.projet_xray || "")} · afficher</span>
+          ${[["", `Tous (${cas.length - nb("Regroupé")})`], ...["Proposé", "Validé", "Rejeté", "Publié", "Regroupé"].filter(s => s !== "Regroupé" || nb(s)).map(s => [s, `${s} (${nb(s)})`])].map(([s, l]) => `<button class="btn petit ${FILTRE_CAS === s ? "primaire" : ""}" data-pu-filtre="${esc(s)}">${esc(l)}</button>`).join("")}
+          ${sources.length ? `<span class="lib">sources : ${sources.map(s => `${esc(s)} (${cas.filter(c => c.source === s).length})`).join(", ")}</span>` : ""}
+          ${cas.length ? `<button class="btn petit" id="pu-vue">Visualiser les cas</button>` : ""}</div>
+        ${cas.length > 1 ? `<div class="btns pu-granu"><b>Granularité</b><span class="lib">Un test = un objectif : regrouper ce qui ne diffère que par les données, intégrer les détails comme points de contrôle, garder séparés les résultats métier différents.</span>
+          ${ia.fournisseur === "cursor" ? `<button class="btn petit primaire" id="pu-cons-cursor" title="Cursor lit l'US et les cas (MCP), comprend le texte et propose les regroupements ; vous appliquez ou écartez ici">Demander à Cursor de consolider</button>`
+            : ia.appel_direct ? `<button class="btn petit primaire" id="pu-cons-ia" title="L'IA ${esc(ia.fournisseur)} lit l'US et les cas (texte masqué) et propose les regroupements ; vous appliquez ou écartez ici">Consolider avec l'IA</button>` : ""}
+          <button class="btn petit ${ia.fournisseur === "cursor" || ia.appel_direct ? "" : "primaire"}" id="pu-cons" title="Secours sans IA : suggestions par similarité des mots (actions, résultats, titres), sans compréhension du texte. Jamais appliquées sans votre accord.">Suggestions par règles${ia.fournisseur === "cursor" || ia.appel_direct ? " (secours)" : ""}</button>
+          <button class="btn petit" id="pu-rg" disabled title="Cocher au moins deux cas">Regrouper la sélection</button></div>` : ""}
+        ${propsRg.length ? `<div class="bloc-strat pu-props"><h3 class="lib">REGROUPEMENTS SUGGÉRÉS (${propsRg.length}) · ${u.consolidation.avant} → ${u.consolidation.apres} test(s) si tout est appliqué</h3>
+          ${propsRg.some(x => !x.source || x.source.startsWith("règles")) ? `<p class="warn-t">Suggestions par règles : simple ressemblance des mots, sans compréhension du texte. Vérifier que les cas ont bien le même objectif avant d'appliquer.</p>` : ""}
+          ${propsRg.map(x => `<div class="pu-prop"><span class="pill ${x.mode === "donnees" ? "info" : "violet"}">${x.mode === "donnees" ? "données" : "point de contrôle"}</span>
+            <div class="item">${x.titre ? `<div><b>${esc(x.titre)}</b></div>` : ""}<div>${esc(x.justification)}</div><ul class="lib">${x.cas.map(i => `<li>${esc(titreDe(i))}</li>`).join("")}</ul>
+              ${(x.couvre || []).length ? `<div class="pu-couvre"><span class="lib">Couvre :</span>${x.couvre.map(c => `<span class="pill">${esc(c)}</span>`).join("")}</div>` : ""}
+              <span class="lib">source : ${esc(x.source || "règles (secours, sans compréhension du texte)")}</span></div>
+            <button class="btn petit succes" data-pu-prop="${x.id}" data-dec="appliquer">Appliquer</button><button class="btn petit" data-pu-prop="${x.id}" data-dec="ecarter">Écarter</button></div>`).join("")}</div>` : ""}
+        <div class="pu-cas-grille">${cas.filter(c => FILTRE_CAS ? c.statut === FILTRE_CAS : c.statut !== "Regroupé").map(casHtml).join("") || `<p class='lib'>${cas.length ? "Aucun cas pour ce filtre." : "Aucun cas : « Demander à Cursor » ou « Analyse IA » (comprennent le texte), sinon « Proposer par catégories » (règles, secours)."}</p>`}</div>
+        ${cas.some(c => c.statut === "Validé") ? `<div class="btns" style="margin-top:8px"><button class="btn primaire" id="pu-pub">${ico("xray")}Publier les cas validés dans Xray et lier à l'US</button></div>` : ""}`)}
+      ${section("historique", `<ul class="liste">${(u.historique || []).slice().reverse().map(h => `<li class="lib">${esc(h.date.replace("T", " ").slice(0, 16))} · ${esc(h.auteur)} · ${esc(h.de || "—")} → ${esc(h.vers)} ${esc(h.detail || "")}</li>`).join("")}</ul>`)}
+      </div>`;
+    // étapes : hauteur ajustée au texte (une étape longue reste lisible en entier), y compris pendant la saisie
+    const ajuster = () => $$(".pu-etape", p).forEach(t => { if (t.offsetParent) { t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px"; } });
+    $$(".pu-etape", p).forEach(t => t.addEventListener("input", () => { t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px"; }));
+    requestAnimationFrame(ajuster);
+    $$("[data-pu-onglet]", p).forEach(b => b.onclick = () => { ONGLET_US = b.dataset.puOnglet;
+      $$("[data-pu-onglet]", p).forEach(x => x.setAttribute("aria-selected", x === b)); $$("[data-pu-o]", p).forEach(s => { s.hidden = s.dataset.puO !== ONGLET_US; });
+      requestAnimationFrame(ajuster); });
+    $$("[data-pu-taille]", p).forEach(b => b.onclick = () => { fixerTailleUS(b.dataset.puTaille); panneauUS(cle, z); });
+    $$("[data-pu-nav]", p).forEach(b => b.onclick = () => { if (b.dataset.puNav) { FILTRE_CAS = ""; panneauUS(b.dataset.puNav, z); } });
+    $$("[data-pu-filtre]", p).forEach(b => b.onclick = () => { FILTRE_CAS = b.dataset.puFiltre; panneauUS(cle, z); });
+    // granularité : regroupements suggérés, regroupement manuel d'une sélection, retour arrière
+    const choisis = () => $$("[data-pu-sel]:checked", p).map(x => x.dataset.puSel);
+    $$("[data-pu-sel]", p).forEach(x => x.onchange = () => { if ($("#pu-rg", p)) $("#pu-rg", p).disabled = choisis().length < 2; });
+    if ($("#pu-cons", p)) $("#pu-cons", p).onclick = () => ok(act("consolider"), "Suggestions par règles (sans compréhension du texte) : à vérifier, appliquer ou écarter.");
+    if ($("#pu-cons-ia", p)) $("#pu-cons-ia", p).onclick = () => ok(act("consolider-ia"), "Regroupements proposés par l'IA : à appliquer ou écarter.");
+    if ($("#pu-cons-cursor", p)) $("#pu-cons-cursor", p).onclick = () => {
+      const texte = `Consolide les cas de test de l'US ${cle} (granularité : un test = un objectif). Lis l'US et ses cas avec test_design_cas_us, `
+        + `puis dépose tes regroupements avec test_design_proposer_regroupements : mode donnees (même chemin, données différentes) ou controle `
+        + `(un détail devient un point de contrôle d'un autre cas), avec titre, justification et comportements couverts. `
+        + `Ne regroupe jamais des cas dont le résultat métier diffère ; s'il n'y a rien à regrouper, dis-le.`;
+      DemanderCursor("Demander à Cursor de consolider", texte, "Cursor comprend le texte et propose ; rien n'est regroupé sans vous. Ses propositions apparaissent ici dès qu'il les dépose, avec leur justification et les comportements couverts.");
+    };
+    // une proposition déposée par Cursor s'affiche sans recharger
+    if (DESABO_US) DESABO_US();
+    DESABO_US = Atelier.on("mcp_outil", e => { if (["test_design_proposer_regroupements", "test_design_juger_doublons", "testabilite_deposer_proposition"].includes(e.nom) && e.etat === "fin" && !p.hidden) panneauUS(cle, z); });
+    $$("[data-pu-prop]", p).forEach(b => b.onclick = () => ok(act("consolidation", {id: b.dataset.puProp, decision: b.dataset.dec}),
+      b.dataset.dec === "appliquer" ? "Cas regroupés en un test (à valider)." : "Suggestion écartée."));
+    $$("[data-pu-degrouper]", p).forEach(b => b.onclick = () => confirm("Défaire ce regroupement ? Les cas d'origine reviennent à leur statut précédent.")
+      && ok(act("degrouper", {id: b.dataset.puDegrouper}), "Regroupement défait."));
+    if ($("#pu-rg", p)) $("#pu-rg", p).onclick = () => {
+      const ids = choisis();
+      const m = modale(`Regrouper ${ids.length} cas en un test`, `<ul class="lib">${ids.map(i => `<li>${esc(titreDe(i))}</li>`).join("")}</ul>
+        ${Object.entries(MODES_RG).map(([k, l], n) => `<label class="lib" style="display:block;margin:6px 0"><input type="radio" name="rg-mode" value="${k}" ${n ? "" : "checked"}> ${esc(l)}</label>`).join("")}
+        <div class="champ"><label for="rg-titre">Titre du test (vide : proposé automatiquement)</label><input class="in" id="rg-titre"></div>
+        <p class="lib">Les cas d'origine passent « Regroupé » (jamais supprimés) ; le test obtenu est « Proposé » et doit être validé. Garder séparés les cas dont le résultat métier diffère.</p>`,
+        `<button class="btn primaire" id="rg-ok">Regrouper</button>`);
+      $("#rg-ok", m.el).onclick = () => { m.fermer(); ok(act("regrouper", {ids, mode: $("[name=rg-mode]:checked", m.el).value, titre: $("#rg-titre", m.el).value}), "Cas regroupés en un test (à valider)."); };
+    };
     const ok = async (promesse, msg) => { try { const r = await promesse; if (r?.disponible === false) toast(r.raison, "ko"); else toast(msg, "ok"); panneauUS(cle, z); } catch (e) { toast(e.message, "ko"); } };
-    $("#pu-x").onclick = () => { p.hidden = true; us(z); };
+    $("#pu-x").onclick = () => { p.hidden = true; p.classList.toggle("pu-large", false); p.classList.toggle("pu-plein", false); us(z); };
     $("#pu-an").onclick = () => ok(act("analyser"), "Analyse faite.");
-    $("#pu-ia").onclick = () => ok(act("analyser-ia"), "Propositions de l'IA ajoutées (à valider).");
-    $("#pu-cas").onclick = () => ok(act("proposer-cas"), "Cas proposés (à compléter et valider).");
+    if ($("#pu-ia")) $("#pu-ia").onclick = () => ok(act("analyser-ia"), "Propositions de l'IA ajoutées (à valider).");
+    if ($("#pu-cursor")) $("#pu-cursor").onclick = () => DemanderCursor("Analyser l'US avec Cursor", `Analyse l'US ${cle} et propose ses cas de test. `
+      + `Lis l'US, ses cas existants et les réponses de l'équipe avec test_design_cas_us ; vérifie avec test_design_doublons qu'un test Xray proche n'existe pas déjà. `
+      + `Dépose avec testabilite_deposer_proposition tes constats (ambiguïtés, chacune avec sa question) et les cas manquants : un test = un objectif, `
+      + `étapes action / données / résultat, Gherkin en français sans donnée littérale, et « couvre » (les comportements de l'US vérifiés). `
+      + `N'invente aucune règle métier : une information absente devient une question.`,
+      "Cursor comprend le texte et propose ; rien n'est validé sans vous. Ses constats, questions et cas apparaissent ici dès qu'il les dépose.");
     $("#pu-cat").onclick = () => {
       const m = modale("Proposer par catégories", `<p class="lib">Un cas par critère, règle, champ, message, transition ou rôle trouvé ; chaque cas dit sa source, sa confiance et ce qui manque.</p>
         ${Object.entries(CAT).map(([k, l]) => `<label class="lib" style="display:block"><input type="checkbox" data-cat="${k}" checked> ${esc(l)}</label>`).join("")}`,
@@ -355,6 +463,11 @@
       $("#pc-ok", m.el).onclick = () => { m.fermer(); ok(act("proposer-categories", {categories: $$("[data-cat]", m.el).filter(x => x.checked).map(x => x.dataset.cat)}), "Cas proposés par catégorie (doublons vérifiés)."); };
     };
     $("#pu-dbl").onclick = () => ok(act("doublons"), "Doublons vérifiés.");
+    if ($("#pu-dbl-ia")) $("#pu-dbl-ia").onclick = () => ok(act("doublons-ia"), "Doublons jugés par l'IA : verdict et justification sur chaque cas.");
+    if ($("#pu-dbl-cursor")) $("#pu-dbl-cursor").onclick = () => DemanderCursor("Doublons : demander à Cursor", `Vérifie les doublons des cas de test de l'US ${cle}. `
+      + `Lis les cas et les tests existants présélectionnés avec test_design_doublons_a_juger, puis dépose ton verdict pour chaque cas avec `
+      + `test_design_juger_doublons : reutiliser (un test existant vérifie déjà le même objectif et le même résultat), faire_evoluer (même objectif, `
+      + `test à compléter) ou creer, en citant le test et en justifiant. Un résultat opposé n'est jamais un doublon ; en cas de doute, faire_evoluer.`);
     $("#pu-nt").onclick = () => { const j = prompt("Pourquoi cette US n'est-elle pas testable ? (historisé)"); if (j) ok(act("non-testable", {justification: j}), "US marquée non testable."); };
     $("#pu-qs").onclick = () => ok(act("questions", {texte: $("#pu-q").value}), "Brouillon enregistré.");
     $("#pu-qe").onclick = async () => {

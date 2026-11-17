@@ -16,17 +16,86 @@ from __future__ import annotations
 
 import hashlib
 import os
+import pickle
 import re
+import threading
+import time
+from pathlib import Path
 
-from atelier.domain import declarations
+from atelier.domain import declarations, projet
 from atelier.domain.graphe import Graphe
 
 # Relations suivies vers l'amont pour trouver qui dépend d'un élément modifié.
 RELATIONS_DEPENDANCE = {"appelle", "utilise", "depend_de"}
 
 
+# =========================================================================== cache du graphe
+# Le graphe se reconstruit depuis les fichiers du projet (carte, dépôt Robot, JDD, instantané Xray, résultats,
+# déclarations…) : 1 à 3 s, et un écran l'appelait plusieurs fois. Il est gardé tant que l'empreinte du projet
+# (chemin, taille et date de modification de chaque fichier) ne change pas. Prudence liée au pas de la date de
+# modification (~15 ms sous Windows) : si un fichier a été modifié il y a moins de STABILITE_S secondes, le cache
+# n'est pas utilisé (une seconde écriture rapprochée pourrait ne pas changer la date). Chaque appel reçoit sa propre
+# copie du graphe (pickle) : les appelants peuvent la modifier librement.
+DOSSIERS_IGNORES = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".mcp_snapshots", ".idea", ".vscode"}
+VARIABLES = ("APP_MAP_DIR", "CONNAISSANCE_DIR", "PATRIMOINE_FICHIER", "MAP_SEUIL_SIMILARITE", "ATELIER_PROJETS")
+STABILITE_S = 2.0
+_CACHE_GRAPHE: dict = {}
+_VERROU_GRAPHE = threading.Lock()
+
+
+def _empreinte_projet() -> tuple[str, float]:
+    """(empreinte des fichiers du projet et des réglages qui influencent le graphe, date de modification la plus récente)."""
+    racine = projet.PROJECT_DIR
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(racine).encode())
+    for v in VARIABLES:
+        h.update(f"|{v}={os.environ.get(v, '')}".encode())
+    recent = 0.0
+    projets_f = Path(os.environ.get("ATELIER_PROJETS", Path.home() / ".atelier-projets.json")).expanduser()
+    for r, ds, fs in os.walk(racine):
+        ds[:] = sorted(d for d in ds if d not in DOSSIERS_IGNORES)
+        for nom in sorted(fs):
+            p = os.path.join(r, nom)
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            h.update(f"\n{p}|{st.st_size}|{st.st_mtime_ns}".encode())
+            recent = max(recent, st.st_mtime)
+    try:
+        st = projets_f.stat()
+        h.update(f"\n{projets_f}|{st.st_size}|{st.st_mtime_ns}".encode())
+    except OSError:
+        pass
+    return h.hexdigest(), recent
+
+
+def vider_cache():
+    with _VERROU_GRAPHE:
+        _CACHE_GRAPHE.clear()
+
+
 # =========================================================================== construction
 def construire(avec_declarations: bool = True, inventaire: dict | None = None) -> Graphe:
+    """Graphe de connaissance de l'application active ; mis en cache tant que le projet ne change pas (voir plus haut).
+    Un inventaire fourni par l'appelant (dépôt simulé, sous-ensemble) contourne le cache."""
+    if inventaire is not None:
+        return _construire(avec_declarations, inventaire)
+    empreinte, recent = _empreinte_projet()
+    cle = (empreinte, avec_declarations)
+    if time.time() - recent < STABILITE_S:  # projet en cours de modification : pas de cache
+        return _construire(avec_declarations, None)
+    with _VERROU_GRAPHE:  # un seul calcul à la fois : les requêtes parallèles attendent le résultat au lieu de le refaire
+        octets = _CACHE_GRAPHE.get(cle)
+        if octets is None:
+            octets = pickle.dumps(_construire(avec_declarations, None), protocol=pickle.HIGHEST_PROTOCOL)
+            if len(_CACHE_GRAPHE) >= 4:
+                _CACHE_GRAPHE.clear()
+            _CACHE_GRAPHE[cle] = octets
+    return pickle.loads(octets)
+
+
+def _construire(avec_declarations: bool = True, inventaire: dict | None = None) -> Graphe:
     from atelier.execution import depot_robot
     from atelier.execution.robot import derniers_resultats
     from atelier.intelligence import patrimoine_xray

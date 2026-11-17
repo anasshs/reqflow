@@ -83,6 +83,7 @@
   }
 
   /* liste de propositions d'un type, avec décision / synchronisation */
+  const AVIS = {"couvre": "ok", "couvre partiellement": "warn", "ne couvre pas": "ko", "associer": "ok", "nouvelle_exigence": "info", "technique": "", "transversal": "", "conserver": "warn"};
   async function propositionsListe(cible, type, z) {
     const l = (await api(`/api/ci/propositions?type=${type}`)).filter(p => p.statut !== "regroupee").reverse();
     cible.innerHTML = l.length ? l.map(p => carteProposition(p)).join("") : "<p class='lib'>Aucune proposition.</p>";
@@ -104,6 +105,7 @@
         <span class="lib">Epic : ${esc(c.epic || "à choisir")} · projet ${esc(c.projet_jira || "?")}</span></p>` : ""}
       ${p.type === "lien_test" ? `<p><span class="cle-xray">${esc(c.exigence)}</span> ${esc(c.exigence_resume || "")} ↔ <span class="cle-xray">${esc(c.test)}</span> ${esc(c.test_resume || "")}
         ${c.fonctionnalite ? `<span class="lib">· ${esc(c.fonctionnalite)}</span>` : ""} <span class="pill">${esc(c.decision || "")}</span></p>` : ""}
+      ${p.avis_ia ? `<p class="lib">Avis : ${PastilleJugement(p.avis_ia, AVIS)} ${p.avis_ia.cible ? `<span class="cle-xray">${esc(p.avis_ia.cible)}</span> ` : ""}${esc(p.avis_ia.justification)}${(p.avis_ia.criteres_couverts || []).length ? ` <span class="lib">· critères couverts : ${esc(p.avis_ia.criteres_couverts.join(" ; "))}</span>` : ""}</p>` : ""}
       ${crit ? `<ul class="liste">${crit}</ul>` : ""}${(p.justification || []).length ? `<p class="lib">Justification : ${esc(p.justification.join(" · "))}</p>` : ""}
       ${(c.observations || []).length ? `<details><summary class="lib">${c.observations.length} observation(s) qui la justifient</summary><ul class="liste">${c.observations.slice(0, 25).map(o => `<li class="lib">${esc(o.texte)} <span class="pill">${esc(o.statut || "observé")}</span></li>`).join("")}</ul></details>` : ""}</div>`;
   }
@@ -154,21 +156,31 @@
 
   /* ------------------------------------------------------------------ test mapping */
   async function mapping(c, z) {
-    c.innerHTML = `<p class="lib">Rapprochement exigence ↔ test Xray : similarité des textes (Story, description, critères ↔ test, étapes, préconditions), module / composant,
-        libellés et versions, critères retrouvés dans les étapes. Un score ne crée jamais de lien : validation par un relecteur, puis lien natif « Test » créé sur demande.</p>
-      <div class="btns" style="margin-bottom:8px"><button class="btn primaire" id="tm-an" title="Calcule les correspondances manquantes (les liens existants et les rejets ne sont pas reproposés)">${ico("rejouer")}Analyser les correspondances</button>
+    const ia = await EtatIA();
+    c.innerHTML = `<p class="lib">Rapprochement exigence ↔ test Xray. ${AvecIA(ia) ? "<b>L'IA juge si un test vérifie vraiment l'exigence</b> (couvre, partiellement, ne couvre pas), avec une justification ; les règles ne font que présélectionner" : "Règles seules (aucune IA configurée)"} :
+        similarité des textes (Story, description, critères ↔ test, étapes, préconditions), module / composant, libellés et versions, critères retrouvés dans les étapes : <b>des mots communs, sans compréhension du texte</b>.
+        Rien ne crée de lien : validation par un relecteur, puis lien natif « Test » créé sur demande.</p>
+      <div class="btns" style="margin-bottom:8px">${BoutonIA(ia, "tm")}<button class="btn ${AvecIA(ia) ? "" : "primaire"}" id="tm-an" title="Calcule les correspondances manquantes par ressemblance des mots (les liens existants et les rejets ne sont pas reproposés)">${ico("rejouer")}${AvecIA(ia) ? "Analyser par règles (secours)" : "Analyser les correspondances"}</button>
         <select class="in" id="tm-f" style="width:auto" title="Filtrer par statut"><option value="">Tous statuts</option>${Object.entries(ST).map(([k, v]) => `<option value="${k}">${v[1]}</option>`).join("")}</select></div>
       <div id="tm-p"></div>`;
     const rendre = async () => { const f = $("#tm-f", c).value;
-      const l = (await api("/api/ci/propositions?type=lien_test" + (f ? "&statut=" + f : ""))).sort((a, b) => (b.score || 0) - (a.score || 0));
+      const l = (await api("/api/ci/propositions?type=lien_test" + (f ? "&statut=" + f : ""))).sort((a, b) => (b.avis_ia ? 1 : 0) - (a.avis_ia ? 1 : 0) || (b.score || 0) - (a.score || 0));  // jugés par l'IA d'abord
       $("#tm-p", c).innerHTML = l.length ? `<table class="table-strat"><tr><th>Exigence Jira</th><th>Test Xray</th><th>Confiance</th><th>Justification</th><th>Fonctionnalité</th><th>Statut</th><th></th></tr>
         ${l.map(p => { const x = p.contenu; return `<tr><td><span class="cle-xray">${esc(x.exigence)}</span> ${esc(x.exigence_resume || "")}</td><td><span class="cle-xray">${esc(x.test)}</span> ${esc(x.test_resume || "")}</td>
-          <td><span class="pill ${(p.score || 0) >= 70 ? "ok" : "warn"}">${p.score ?? "—"} %</span><div class="lib">${esc(x.decision || "")}</div></td><td class="lib">${esc((p.justification || []).join(" · "))}</td>
+          <td>${p.avis_ia ? PastilleJugement(p.avis_ia, AVIS) + " " : ""}${p.score !== null && p.score !== undefined ? `<span class="pill ${p.score >= 70 ? "ok" : "warn"}" title="Score des règles (mots communs)">${p.score} %</span>` : ""}<div class="lib">${esc(x.decision || "")}</div></td>
+          <td class="lib">${p.avis_ia ? `<b>${esc(/cursor/i.test(p.avis_ia.source) ? "Cursor" : "IA")} :</b> ${esc(p.avis_ia.justification)}${(p.avis_ia.criteres_couverts || []).length ? ` (critères : ${esc(p.avis_ia.criteres_couverts.join(" ; "))})` : ""}<br>` : ""}${p.avis_ia && p.source !== "analyse" ? "" : `${p.source === "analyse" ? "Règles : " : ""}${esc((p.justification || []).join(" · "))}`}</td>
           <td class="lib">${esc(x.fonctionnalite || "—")}</td><td>${pillSt(p.statut)}</td><td style="white-space:nowrap">${p.statut === "proposee" ? `<button class="btn petit succes" data-dec="valider" data-id="${p.id}" title="Valider (relecteur)">Valider</button>
             <button class="btn petit danger" data-dec="rejeter" data-id="${p.id}" title="Rejeter (motif) : jamais reproposé">Rejeter</button>` : p.statut === "validee" ? `<button class="btn petit primaire" data-sync="${p.id}" title="Créer le lien natif « Test » dans Jira / Xray (sans doublon)">Créer le lien</button>` : ""}</td></tr>`; }).join("")}</table>`
         : "<p class='lib'>Aucune proposition : lancer l'analyse.</p>";
       lier($("#tm-p", c), l, rendre); };
     $("#tm-an", c).onclick = async () => { try { const r = await post("analyser-liens", {}); toast(`${r.nouvelles} nouvelle(s) proposition(s), ${r.propositions} en attente.`, "ok"); rendre(); } catch (e) { toast(e.message, "ko"); } };
+    if ($("#tm-ia", c)) $("#tm-ia", c).onclick = async () => { try { const r = await post("liens-ia", {}); if (r.disponible === false) return toast(r.raison, "ko");
+      toast(`IA : ${r.couvre} couvre, ${r.partiel} partiel, ${r.ne_couvre_pas} ne couvre pas${r.refuses.length ? ` · ${r.refuses.length} refusé(s)` : ""}.`, "ok"); rendre(); } catch (e) { toast(e.message, "ko"); } };
+    if ($("#tm-cursor", c)) $("#tm-cursor", c).onclick = () => DemanderCursor("Traçabilité : demander à Cursor", "Juge la traçabilité exigence ↔ test de l'application active. "
+      + "Lis les exigences et les tests candidats avec coverage_liens_a_juger (d'abord les exigences sans test), puis dépose tes verdicts avec coverage_juger_liens : "
+      + "couvre (le test vérifie le comportement demandé), partiel (citer les critères couverts) ou ne_couvre_pas (seuls des mots sont communs), avec une justification. "
+      + "Tu peux citer un autre test de l'application s'il est plus pertinent. Aucun lien n'est créé dans Jira / Xray : je valide dans l'atelier.");
+    SuivreCursor("ci-liens", ["coverage_juger_liens", "coverage_proposer_lien"], c, rendre);
     $("#tm-f", c).onchange = rendre;
     rendre();
   }
@@ -192,8 +204,10 @@
 
   /* ------------------------------------------------------------------ orphan tests */
   async function orphelins(c, z) {
-    const l = await api("/api/ci/orphelins");
-    c.innerHTML = `<p class="lib">Un test sans exigence n'est pas forcément inutile : il peut couvrir une exigence implicite, technique ou réglementaire. Chaque classement est une proposition à valider.</p>
+    const [l, ia] = await Promise.all([api("/api/ci/orphelins"), EtatIA()]);
+    c.innerHTML = `<p class="lib">Un test sans exigence n'est pas forcément inutile : il peut couvrir une exigence implicite, technique ou réglementaire. Chaque classement est une proposition à valider.
+        Les candidats ci-dessous viennent des mots communs (sans compréhension du texte)${AvecIA(ia) ? " ; l'IA lit le test et les exigences, propose un classement et le justifie" : ""}.</p>
+      ${AvecIA(ia) ? `<div class="btns" style="margin-bottom:8px">${BoutonIA(ia, "or", "de classer")}</div>` : ""}
       <table class="table-strat"><tr><th>Test Xray</th><th>Candidats</th><th>Statut</th><th>Classement</th></tr>
         ${l.map(x => `<tr><td><span class="cle-xray">${esc(x.test)}</span> ${esc(x.resume)}<div class="lib">${esc(x.module || "")}</div></td>
           <td class="lib">${x.candidats.map(k => `${esc(k.nature)} <b>${esc(k.cle.replace(/^cap:/, ""))}</b> ${esc(k.libelle)} (${k.score} %)`).join("<br>") || "—"}</td>
@@ -209,6 +223,12 @@
       if (classe === "associer" && !cible) cible = (prompt("Clé de l'exigence (ex. DEMO-12) :", "") || "").trim();
       const justification = classe === "conserver" ? prompt("Justification (exigence implicite, réglementaire…) :", "") || "" : "";
       try { await post("orphelin", {test: s.dataset.cl, classe, cible, justification}); toast("Classement proposé (à valider).", "ok"); recharger(z); } catch (e) { toast(e.message, "ko"); s.value = ""; } });
+    if ($("#or-ia", c)) $("#or-ia", c).onclick = async () => { try { const r = await post("orphelins-ia", {}); if (r.disponible === false) return toast(r.raison, "ko");
+      toast(`IA : ${r.retenus} classement(s) proposé(s)${r.refuses.length ? `, ${r.refuses.length} refusé(s)` : ""} (à valider).`, "ok"); recharger(z); } catch (e) { toast(e.message, "ko"); } };
+    if ($("#or-cursor", c)) $("#or-cursor", c).onclick = () => DemanderCursor("Tests orphelins : demander à Cursor", "Classe les tests Xray sans exigence de l'application active. "
+      + "Lis-les avec coverage_orphelins_a_classer, puis propose un classement avec coverage_classer_orphelins : associer (à une exigence qu'il vérifie vraiment, cible = sa clé), "
+      + "nouvelle_exigence, technique, transversal ou conserver, avec une justification. Pas de rattachement sur des mots communs seulement. Je valide dans l'atelier.");
+    SuivreCursor("ci-orphelins", ["coverage_classer_orphelins"], c, () => recharger(z));
     propositionsListe($("#or-p", c), "classement_orphelin", z);
   }
   /* ------------------------------------------------------------------ parcours et composants UI (V2, phase 3) */

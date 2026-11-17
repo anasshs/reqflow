@@ -316,3 +316,65 @@ Une ligne datée par décision d'architecture ou de conception.
 - La JQL des exigences enregistrée est signalée « figée » : elle ne suit plus la politique des US ; un bouton permet de
   revenir à la JQL déduite (`jql_deduite` exposée par `/api/couverture/reglages`).
 - Reste ouvert : le référentiel (exclusions, criticité) est par projet, la politique par application.
+
+## 2026-11-16 — Performances : trois caches, résultats inchangés
+
+Mesures sur le projet TAM (465 exigences, 3 429 tests, instantané Xray de 2,3 Mo), avant → après, résultats
+comparés à une référence capturée avant modification (identiques) :
+Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s → 0,2 s ; anomalies 0,8 s → 0,1 s.
+- Découpage des textes (`intelligence_couverture.jetons`) mémorisé par texte, et détection des doublons qui
+  découpe chaque exigence une seule fois : la boucle n² redécoupait les mêmes textes 216 000 fois.
+- Instantané Xray (`patrimoine_xray.charger`, `charger_vue`) en cache, clé = chemin + taille + CRC32 du contenu
+  (la date de modification avance par pas de ~15 ms sous Windows). Chaque appel reçoit une copie (pickle) : un
+  appelant qui modifie ce qu'il lit n'altère jamais le cache. Vue filtrée gardée par filtre d'application.
+- Graphe de connaissance (`connaissance.construire`) en cache tant que l'empreinte du projet (chemin, taille, date
+  de chaque fichier, variables de réglage) ne change pas ; pas de cache si un fichier a été modifié depuis moins de
+  2 s ; un seul calcul à la fois (les requêtes parallèles attendent au lieu de recalculer) ; copie par appel.
+  Un inventaire fourni par l'appelant contourne le cache.
+- Pas de base de données ni de dépendance ajoutée (bibliothèque standard : functools, pickle, zlib, hashlib).
+
+## 2026-11-16 — Console Cursor et granularité des tests
+
+- Console Cursor (`static/console_agent.js`, flottante sur tous les écrans) : chaque appel MCP décrit en français
+  (`activite_agent.decrire`, phrase dédiée ou première phrase de la documentation de l'outil), règles `.mdc` du projet
+  qui citent l'outil (`regles_cursor.regles_par_outil`, lecture seule), client MCP (poignée de main), identifiant
+  d'appel (début / fin reliés). Le protocole MCP ne transmet pas le modèle : nouvel outil `agent_annoncer` (89 outils,
+  classé lecture, n'écrit rien) que la règle `mcp-usage.mdc` demande d'appeler à chaque tâche (intention, modèle, étape).
+- US à couvrir : panneau en trois tailles (normal, large, plein écran, mémorisé dans le navigateur), onglets, cas
+  filtrables, US précédente / suivante.
+- Granularité (`intelligence/granularite_tests.py`) : un test = un objectif ; indicateur « comportements couverts par
+  test » (champ `couvre` des cas, sinon leur titre) au lieu du nombre de tests. Regroupement « données » (un test, une
+  variante par cas, plan du scénario) ou « contrôle » (points de contrôle) : toujours décidé par l'automaticien, cas
+  d'origine « Regroupé » (jamais supprimés), réversible avant publication. Suggestions par règles explicables,
+  volontairement prudentes ; deux cas au résultat opposé (forme négative d'un seul côté) ne sont jamais regroupés.
+  Les regroupements de sens reviennent à Cursor (règle `test-design.mdc` : minimum de tests couvrant tous les
+  comportements, `couvre` par cas) ou à l'automaticien. Contrat des 76 outils historiques inchangé.
+- Révision le même jour : décider que deux cas ont le même objectif est un jugement sur le sens, que les règles (mots
+  communs) ne savent pas faire (sur une US réelle : un regroupement trouvé sur trois ou quatre, et un premier essai qui
+  rapprochait « éligible » et « non éligible »). Les suggestions passent donc à l'IA : deux outils MCP (91 outils)
+  `test_design_cas_us` (lecture : US masquée, cas regroupables avec identifiants, consigne) et
+  `test_design_proposer_regroupements` (proposition : cas, mode, titre, justification obligatoire, couvre ; contrôlée
+  côté serveur, refus motivés renvoyés à l'agent) ; avec un LLM interne ou Claude, `consolider_ia` (appel direct, texte
+  masqué). Les règles restent en secours quand l'IA est désactivée, affichées « sans compréhension du texte ». Dans
+  tous les cas l'atelier ne fait que proposer : l'automaticien applique ou écarte ; la mécanique (test regroupé, cas
+  « Regroupé », retour arrière, indicateur) reste dans l'atelier.
+
+## 2026-11-17 — Jugements sur le sens délégués à Cursor (même modèle que la granularité)
+- Constat : cinq analyses décidaient du SENS d'un texte en ne comparant que des mots — doublons de Test Design
+  (Jaccard / recouvrement → réutiliser, faire évoluer, créer), tests Xray redondants (Jaccard des titres), liens
+  exigence ↔ test (TF-IDF, module, libellés), classement des tests orphelins, corrélation écran ↔ exigence (mots
+  communs). Elles confondent un résultat opposé avec un doublon et ratent une reformulation.
+- Décision : partage unique, décrit dans `atelier/intelligence/jugement_ia.py` — les règles présélectionnent (rappel
+  large, explicable) ; l'IA juge, justification obligatoire ; le serveur contrôle chaque jugement (objets connus,
+  verdict connu, lien ni existant ni déjà rejeté…) et renvoie des refus motivés ; l'automaticien décide. Rien n'est
+  appliqué, lié, supprimé ni écrit dans Jira / Xray par l'IA.
+- Dix outils MCP (101 au total, contrat des 76 historiques inchangé), une lecture et un dépôt par analyse :
+  `test_design_doublons_a_juger` / `test_design_juger_doublons`, `xray_redondances_a_juger` / `xray_juger_redondances`,
+  `coverage_liens_a_juger` / `coverage_juger_liens`, `coverage_orphelins_a_classer` / `coverage_classer_orphelins`,
+  `discovery_correlations_a_juger` / `discovery_juger_correlations`. Lectures « L », dépôts « P » (registre de sécurité).
+- Avec un LLM interne ou Claude : même lecture, appel direct (texte masqué), même dépôt contrôlé. Avec « cursor »,
+  l'atelier n'appelle rien : bouton « Demander à Cursor » (demande à copier) et rafraîchissement dès le dépôt.
+- Les jugements se superposent aux règles sans les effacer : verdict et justification affichés à côté de la
+  présélection (« règles, sans compréhension du texte ») ; une paire jugée « distincts » reste visible.
+- Restent aux règles : diagnostic de base des échecs (motifs techniques fiables), indicateurs et comptages, classement
+  de sécurité des actions et droits des rôles (invariants, jamais confiés à un LLM).

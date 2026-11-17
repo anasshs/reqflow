@@ -81,6 +81,47 @@ function modale(titre, html, actions = "") {
   return {el: m, fermer};
 }
 
+/* Jugements délégués à l'IA (atelier/intelligence/jugement_ia.py) : les règles présélectionnent par les mots ; Cursor (via
+   le MCP) ou l'IA à appel direct juge le sens avec une justification ; l'automaticien décide. Règles = secours. */
+let ETAT_IA = null;
+window.EtatIA = () => (ETAT_IA = ETAT_IA || api("/api/ia/etat").catch(() => ({fournisseur: "aucun"})));
+window.AvecIA = ia => !!ia && (ia.fournisseur === "cursor" || !!ia.appel_direct);
+/* bouton principal : « Demander à Cursor » (id-cursor) ou « Avis de l'IA » (id-ia) ; rien sans IA */
+window.BoutonIA = (ia, id, quoi = "") => !ia ? "" : ia.fournisseur === "cursor"
+  ? `<button class="btn petit primaire" id="${id}-cursor" title="Cursor lit le texte via le MCP, juge le sens et justifie chaque verdict ; vous décidez ici">Demander à Cursor${quoi ? ` ${esc(quoi)}` : ""}</button>`
+  : ia.appel_direct ? `<button class="btn petit primaire" id="${id}-ia" title="L'IA ${esc(ia.fournisseur)} lit le texte (masqué avant envoi), juge le sens et justifie ; vous décidez ici">Avis de l'IA${quoi ? ` ${esc(quoi)}` : ""}</button>` : "";
+/* lien profond Cursor : ouvre Cursor avec la demande déjà écrite dans le chat (l'utilisateur relit et envoie).
+   « & » remplacé (texte tronqué après « & » signalé sur certaines versions) ; au-delà de 8 000 caractères : copier seulement. */
+const lienCursor = texte => {
+  const url = "cursor://anysphere.cursor-deeplink/prompt?text=" + encodeURIComponent(texte.replace(/&/g, "et"));
+  return url.length <= 8000 ? url : "";
+};
+window.DemanderCursor = (titre, texte, explication = "Cursor comprend le texte et juge ; rien n'est appliqué sans vous. Ses jugements apparaissent ici dès qu'il les dépose, avec leur justification.") => {
+  const lien = lienCursor(texte);
+  const m = modale(titre, `<p>${lien ? "« Ouvrir dans Cursor » ouvre le chat de Cursor avec cette demande déjà écrite : relisez-la et envoyez-la. Si Cursor ne s'ouvre pas, collez-la (elle est aussi copiée)." : "Collez cette demande dans le chat de Cursor."}
+      <span class="lib">Règles de l'atelier installées depuis Paramètres › Cursor / Claude.</span></p>
+    <textarea class="in mono" rows="6" readonly style="width:100%">${esc(texte)}</textarea>
+    <p class="lib">${explication}</p>`,
+    `<button class="btn" data-copier>Copier</button>${lien ? `<a class="btn primaire" data-ouvrir href="${esc(lien)}" title="Ouvre Cursor avec la demande pré-remplie dans le chat (le navigateur peut demander d'autoriser l'ouverture)">Ouvrir dans Cursor</a>` : ""}`);
+  const copier = async (silencieux = false) => {
+    try { await navigator.clipboard.writeText(texte); if (!silencieux) toast("Demande copiée : la coller dans Cursor.", "ok"); return true; }
+    catch (e) { $("textarea", m.el).select(); if (!silencieux) toast("Sélectionnée : Ctrl + C pour copier.", "ok"); return false; }
+  };
+  $("[data-copier]", m.el).onclick = async () => { if (await copier()) m.fermer(); };
+  if (lien) $("[data-ouvrir]", m.el).onclick = () => { copier(true); toast("Cursor s'ouvre avec la demande : relisez-la puis envoyez. Les résultats s'afficheront ici.", "ok"); setTimeout(m.fermer, 300); };
+};
+/* rafraîchit une vue quand Cursor dépose un jugement (un seul abonnement par vue ; s'arrête quand la vue a disparu) */
+const ABOS_IA = {};
+window.SuivreCursor = (vue, outils, el, rafraichir) => {
+  if (ABOS_IA[vue]) ABOS_IA[vue]();
+  ABOS_IA[vue] = Atelier.on("mcp_outil", e => {
+    if (!document.body.contains(el)) { ABOS_IA[vue](); delete ABOS_IA[vue]; return; }
+    if (outils.includes(e.nom) && e.etat === "fin") rafraichir();
+  });
+};
+/* pastille d'un jugement d'IA : verdict, source au survol avec la justification */
+window.PastilleJugement = (j, couleurs = {}) => !j ? "" : `<span class="pill ${couleurs[j.verdict] || "info"}" title="${esc(`${j.justification || ""}\n— ${j.source || "IA"}, ${(j.date || "").slice(0, 16).replace("T", " ")}`)}">${esc(j.verdict)} · ${esc(/cursor/i.test(j.source || "") ? "Cursor" : "IA")}</span>`;
+
 /* Ouvre le Knowledge Graph centré sur un nœud (ex. "test:DEMO-12") */
 window.OuvrirGraphe = id => {
   try { sessionStorage.setItem("kg-centre", id); } catch (e) { /* stockage indisponible : graphe complet */ }
@@ -240,24 +281,7 @@ const Atelier = {
 };
 window.Atelier = Atelier;
 
-/* Indicateur « Cursor agit » : visible partout pendant que l'agent appelle des outils MCP ; clic = vue en direct */
-(() => {
-  let puce = null, extinction = null;
-  Atelier.on("mcp_outil", e => {
-    if (!puce) {
-      puce = document.createElement("a");
-      puce.href = "#studio/direct";
-      puce.className = "btn primaire";
-      puce.title = "Cursor agit sur l'automatisation : voir l'écran piloté et chaque appel en direct";
-      puce.style.cssText = "position:fixed;left:16px;bottom:16px;z-index:50;box-shadow:0 4px 14px #0003";
-      document.body.appendChild(puce);
-    }
-    puce.hidden = false;
-    puce.innerHTML = `${ico("ia")}Cursor : ${esc(e.nom)}${e.etat === "debut" ? "…" : e.etat === "erreur" ? " ✕" : " ✓"}`;
-    clearTimeout(extinction);
-    extinction = setTimeout(() => { if (puce) puce.hidden = true; }, 20000);
-  });
-})();
+/* Activité de Cursor : console flottante (console_agent.js), disponible sur tous les écrans. */
 
 /* Clés de tickets (DEMO-735, SQ1-10…) cliquables partout : ouverture du ticket dans Jira, nouvel onglet.
    Un clic sur la clé n'active pas la ligne qui la contient (pas d'ouverture de panneau en même temps). */

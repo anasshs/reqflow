@@ -186,15 +186,23 @@
 
   /* ------------------------------------------------------------------ corrélation Jira / Xray / GitLab */
   async function correlation(z) {
-    const s = await api("/api/discovery/correlation");
-    z.innerHTML = `${entete("Corrélation Jira / Xray / GitLab")}<div class="corps-carte">
-      <p class="lib">Liens établis par le Knowledge Graph (locators du dépôt → tests Robot → clés Xray en tag → exigences Jira de la copie locale) et liens proposés par les mots communs entre l'écran et les exigences (à confirmer). ${s.copie_jira ? "" : '<b class="warn-t">Aucune copie locale Jira : synchroniser d\'abord (Rapports › Patrimoine).</b>'}</p>
+    const [s, ia] = await Promise.all([api("/api/discovery/correlation"), EtatIA()]);
+    z.innerHTML = `${entete("Corrélation Jira / Xray / GitLab", `<span class="btns">${BoutonIA(ia, "co")}</span>`)}<div class="corps-carte">
+      <p class="lib">Liens établis par le Knowledge Graph (locators du dépôt → tests Robot → clés Xray en tag → exigences Jira de la copie locale) et liens proposés, à confirmer :
+      ${AvecIA(ia) ? "<b>jugés par l'IA</b> (l'exigence décrit-elle un comportement de cet écran ?), avec une justification ; à défaut, " : ""}mots communs entre l'écran et les exigences (sans compréhension du texte). ${s.copie_jira ? "" : '<b class="warn-t">Aucune copie locale Jira : synchroniser d\'abord (Rapports › Patrimoine).</b>'}</p>
       ${kpis([[s.ecrans.length, "écrans"], [s.sans_test, "écrans sans test", s.sans_test ? "warn-t" : ""], [s.sans_exigence, "écrans sans exigence", s.sans_exigence ? "warn-t" : ""], [s.ecrans.reduce((a, x) => a + x.proposees, 0), "liens proposés"]])}
       ${s.ecrans.length ? `<table class="table-strat"><tr><th>Écran</th><th>Module</th><th>Exigences Jira</th><th>Tests Xray</th><th>Tests Robot</th><th>Fichiers</th><th>Proposés</th></tr>
         ${s.ecrans.map(e => `<tr class="cliquable" data-c="${esc(e.id)}"><td><b>${esc(e.nom)}</b></td><td>${esc(e.module || "—")}</td><td>${e.exigences || '<span class="warn-t">0</span>'}</td><td>${e.tests_xray}</td><td>${e.tests_robot || '<span class="warn-t">0</span>'}</td><td>${e.fichiers}</td><td>${e.proposees ? `<span class="pill warn">${e.proposees}</span>` : ""}</td></tr>`).join("")}</table>`
         : vide("Aucun écran", "Lancer une session Discovery.")}<div id="co-det" style="margin-top:12px"></div></div>`;
     $$("[data-c]", z).forEach(tr => tr.onclick = () => detailCorrelation(tr.dataset.c));
     recherche(z);
+    if ($("#co-ia", z)) $("#co-ia", z).onclick = async () => { try { const r = await api("/api/discovery/correlation/ia", {method: "POST", body: {ecran: ECRAN || ""}});
+      if (r.disponible === false) return toast(r.raison, "ko"); toast(`IA : ${r.concerne} exigence(s) concernent les écrans, ${r.ne_concerne_pas} non (à confirmer).`, "ok"); correlation(z); } catch (e) { toast(e.message, "ko"); } };
+    if ($("#co-cursor", z)) $("#co-cursor", z).onclick = () => DemanderCursor("Corrélation écran ↔ exigence : demander à Cursor", "Relie les écrans de la carte de l'application active aux exigences Jira. "
+      + "Lis les écrans (éléments observés), les exigences et les candidates avec discovery_correlations_a_juger (d'abord les écrans sans exigence), puis dépose tes verdicts avec "
+      + "discovery_juger_correlations : concerne (l'exigence décrit un comportement visible ou déclenché sur cet écran) ou ne_concerne_pas (un mot commun ne suffit pas), avec une justification. "
+      + "Je confirme chaque lien dans l'atelier avant qu'il entre dans le Knowledge Graph.");
+    SuivreCursor("correlation", ["discovery_juger_correlations"], z, () => correlation(z));
     if (ECRAN && s.ecrans.some(e => e.id === ECRAN)) detailCorrelation(ECRAN);
   }
 
@@ -204,7 +212,8 @@
     const cle = k => `<button class="lien mono" data-jira="${esc(k)}">${esc(k)}</button>`;
     d.innerHTML = `<section class="bloc-strat"><h3>${esc(c.nom)} <span class="lib mono">${esc(c.noeud)}</span></h3><div class="grille-2">
       <div><h3 class="lib">EXIGENCES JIRA</h3><ul class="liste">${c.exigences.map(x => `<li>${cle(x.cle)}<span class="item">${esc(x.resume)}</span><span class="lib">${x.via === "déclaré" ? "confirmé" : "via " + esc(x.via)}</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul>
-        ${c.exigences_proposees.length ? `<h3 class="lib">PROPOSÉES (mots communs)</h3><ul class="liste">${c.exigences_proposees.map(x => `<li>${cle(x.cle)}<span class="item">${esc(x.resume)} <span class="lib">(${esc(x.mots.join(", "))})</span></span><button class="btn petit" data-conf="${esc(x.cle)}">Confirmer</button></li>`).join("")}</ul>` : ""}
+        ${c.exigences_proposees.length ? `<h3 class="lib">PROPOSÉES</h3><ul class="liste">${c.exigences_proposees.map(x => `<li>${cle(x.cle)}<span class="item">${esc(x.resume)} ${PastilleJugement(x.jugement, {"concerne": "ok", "ne_concerne_pas": "ko"})}
+          ${x.jugement ? `<span class="lib">${esc(x.jugement.justification)}</span>` : ""}${x.mots.length ? ` <span class="lib" title="Mots communs (règles, sans compréhension du texte)">(mots : ${esc(x.mots.join(", "))})</span>` : ""}</span><button class="btn petit" data-conf="${esc(x.cle)}">Confirmer</button></li>`).join("")}</ul>` : ""}
         <h3 class="lib">TESTS XRAY</h3><ul class="liste">${c.tests_xray.map(t => `<li>${cle(t.cle)}<span class="item">${esc(t.resume || (t.connu ? "" : "absent de la copie locale"))}</span></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul></div>
       <div><h3 class="lib">TESTS ROBOT</h3><ul class="liste">${c.tests_robot.map(t => `<li><span class="item">${esc(t.nom)}</span><span class="lib mono">${esc(t.fichier || "")}</span></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul>
         <h3 class="lib">FICHIERS DU DÉPÔT (GitLab)</h3><ul class="liste">${c.fichiers.map(f => `<li><span class="item mono">${esc(f)}</span></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul>

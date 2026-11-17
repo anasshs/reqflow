@@ -396,7 +396,8 @@ def _dans(u: dict, sprint: str) -> bool:
 def file(espace: str = "", statut: str = "", sprint: str = "") -> list[dict]:
     mes_espaces = {e["projet_jira"] for e in espaces()}  # US des espaces de l'application active
     return [{k: u.get(k) for k in ("cle", "espace", "resume", "statut", "statut_jira", "assigne", "tests_lies")}
-            | {"constats": len(u.get("constats") or []), "cas": len(u.get("cas") or []), "alertes": len(u.get("alertes") or []),
+            | {"constats": len(u.get("constats") or []), "alertes": len(u.get("alertes") or []),
+               "cas": sum(c.get("statut") != "Regroupé" for c in u.get("cas") or []),  # un cas regroupé n'est plus un test
                "sprints": [s["nom"] for s in (u.get("sprints") or {}).values()]}
             for u in _us().values() if u["espace"] in mes_espaces and (not espace or u["espace"] == espace)
             and (not statut or u["statut"] == statut) and _dans(u, sprint)]
@@ -455,7 +456,10 @@ def detail(cle: str) -> dict:
     e = next((x for x in tous_espaces() if x["projet_jira"] == u["espace"]), {})
     cas = [{**c, "verification": {"manuel": verifier_cas(c, "Manual"), "bdd": verifier_cas(c, "Cucumber")},
             "format_publication": e.get("type_test") or "Manual"} for c in u.get("cas") or []]
-    return {**u, "cas": cas, "politique": e, "journal": journal(cle, 50)}
+    from atelier.intelligence import fournisseur_ia, granularite_tests
+
+    return {**u, "cas": cas, "politique": e, "journal": journal(cle, 50), "granularite": granularite_tests.indicateur(u),
+            "ia": fournisseur_ia.etat()}
 
 
 # =========================================================================== deux formats d'un cas : BDD et étapes manuelles
@@ -569,8 +573,18 @@ def indicateurs(sprint: str = "") -> dict:
     couvertes = sum(u["statut"].startswith("Couverte") for u in d)
     return {"us": tot, "couvertes": couvertes, "taux_couverture": round(100 * couvertes / tot, 1) if tot else None,
             "en_attente_reponse": sum(u["statut"] == "Questions envoyées" for u in d),
-            "non_testables": sum(u["statut"] == "Non testable" for u in d),
+            "non_testables": sum(u["statut"] == "Non testable" for u in d), **_granularite(d),
             "par_espace": {k: dict(v) for k, v in par_espace.items()}}
+
+
+def _granularite(us_: list[dict]) -> dict:
+    """Comportements couverts par test, sur les US qui ont des cas (le nombre de tests n'est pas un objectif)."""
+    from atelier.intelligence import granularite_tests
+
+    ind = [granularite_tests.indicateur(u) for u in us_ if u.get("cas")]
+    tests, comp = sum(i["tests"] for i in ind), sum(i["comportements"] for i in ind)
+    return {"tests_actifs": tests, "comportements": comp, "comportements_par_test": round(comp / tests, 2) if tests else None,
+            "cas_regroupes": sum(i["regroupes"] for i in ind)}
 
 
 # =========================================================================== analyse
@@ -765,6 +779,9 @@ def _ajouter_cas(u: dict, c: dict, source: str) -> dict:
                "resultat": str(e.get("resultat") or e.get("result") or "")} for e in c.get("etapes") or []]
     cas = {"id": "C" + secrets.token_hex(3), "titre": str(c.get("titre") or u["resume"])[:250], "etapes": etapes,
            "gherkin": str(c.get("gherkin") or ""), "statut": "Proposé", "source": source, "date": _maintenant(), "cle_xray": ""}
+    couvre = [" ".join(str(x).split())[:160] for x in (c.get("couvre") or []) if str(x).strip()][:20]
+    if couvre:  # comportements de l'US couverts par ce cas (granularité : comportements par test)
+        cas["couvre"] = couvre
     u.setdefault("cas", []).append(cas)
     return cas
 
@@ -783,7 +800,8 @@ def proposer_cas(cle: str) -> dict:
                  [{"action": s["action"] or c, "donnees": "", "resultat": s["resultat"] or "à préciser"}]
         g = "\n".join(x for x in (f"Given {s['condition']}" if s["condition"] else "Given le contexte de l'US est en place",
                                   f"When {s['action'] or c}", f"Then {s['resultat'] or 'le résultat attendu (à préciser)'}") if x)
-        nouveaux.append(_ajouter_cas(u, {"titre": f"{u['resume'][:180]} — critère {n}", "etapes": etapes, "gherkin": g}, "règles"))
+        nouveaux.append(_ajouter_cas(u, {"titre": f"{u['resume'][:180]} — critère {n}", "etapes": etapes, "gherkin": g,
+                                         "couvre": [f"critère {n} : {c[:120]}"]}, "règles"))
     if not crit:
         nouveaux.append(_ajouter_cas(u, {"titre": f"{u['resume'][:200]} — cas nominal", "etapes": [
             {"action": "À compléter depuis l'US et les réponses de l'équipe", "donnees": "", "resultat": "à préciser"}],
@@ -809,6 +827,8 @@ def modifier_cas(cle: str, cid: str, champs: dict) -> dict:
         raise KeyError(f"Cas inconnu : {cid}")
     if c["statut"] == "Publié":
         raise PermissionError("Cas déjà publié dans Xray : le modifier dans Xray (Test Design).")
+    if c["statut"] == "Regroupé":
+        raise PermissionError("Cas regroupé dans un autre test : modifier ce test, ou défaire le regroupement.")
     for k in ("titre", "gherkin"):
         if k in champs:
             c[k] = str(champs[k])
@@ -830,6 +850,8 @@ def decider_cas(cle: str, cid: str, decision: str, motif: str = "") -> dict:
         raise ValueError("Décision : valider ou rejeter.")
     if c["statut"] == "Publié":
         raise PermissionError("Cas déjà publié.")
+    if c["statut"] == "Regroupé":
+        raise PermissionError("Cas regroupé dans un autre test : décider sur ce test.")
     if decision == "rejeter" and not motif.strip():
         raise ValueError("Un rejet doit être motivé.")
     if decision == "valider":  # vérifié dans le format qui sera publié (type de test de l'espace)

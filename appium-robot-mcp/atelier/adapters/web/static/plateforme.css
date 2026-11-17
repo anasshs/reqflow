@@ -464,3 +464,59 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
   .carte { min-height: 300px; } .gros-btns { grid-template-columns: 1fr 1fr; }
 }
 .code-bloc { white-space: pre; overflow: auto; max-height: 60vh; font: 12px/1.5 ui-monospace, monospace; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0 0 8px; }
+
+/* ------------------------------------------------------------------ Console Cursor (console_agent.js) */
+.ca-pastille { position: fixed; left: 16px; bottom: 16px; z-index: 46; box-shadow: 0 4px 14px #0004; max-width: 46vw; gap: 8px; }
+.ca-pastille[hidden] { display: none; }
+.ca-point { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.ca-point.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ca-der { color: var(--muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30vw; }
+.console-agent { position: fixed; left: 16px; bottom: 16px; z-index: 47; width: 500px; height: 560px; min-width: 340px; min-height: 260px;
+  max-width: 98vw; max-height: 94vh; resize: both; overflow: hidden; box-shadow: 0 18px 50px #0007; display: flex; flex-direction: column; }
+.console-agent[hidden] { display: none; }
+.console-agent.ca-grand { left: 4vw !important; top: 4vh !important; width: 92vw !important; height: 90vh !important; }
+.ca-tete { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: move; user-select: none;
+  background: var(--surface-2); border-radius: 10px 10px 0 0; flex: none; }
+.ca-tete svg { color: var(--violet-ink); }
+.ca-esp { flex: 1; }
+.ca-id { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 12px; padding: 8px 12px; font-size: 12px; border-bottom: 1px solid var(--line); flex: none; }
+.ca-id > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-id .lib { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
+.ca-intention { padding: 8px 12px; background: var(--violet-soft); border-bottom: 1px solid var(--line); font-size: 12.5px; flex: none; }
+.ca-int { font-size: 13.5px; font-weight: 600; margin: 2px 0; }
+.ca-barre { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); flex: none; }
+.ca-fil { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; min-height: 0; }
+.ca-fil > li { display: flex; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; line-height: 1.4; }
+.ca-fil > li.ca-annonce { background: var(--violet-soft); }
+.ca-fil > li.ca-ko { background: var(--ko-soft); }
+.ca-h { color: var(--faint); font-size: 11px; flex: none; padding-top: 2px; }
+.ca-corps { flex: 1; min-width: 0; }
+.ca-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; font-size: 11.5px; }
+.ca-regle { font-family: ui-monospace, Consolas, monospace; font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--accent-soft);
+  color: var(--accent-ink); border: 1px solid var(--accent-line); }
+.ca-tech { margin-top: 4px; font-size: 11px; color: var(--muted); word-break: break-word; }
+.console-agent footer { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line);
+  font-size: 11.5px; color: var(--muted); flex: none; }
+
+/* ------------------------------------------------------------------ Test Design › À concevoir : panneau d'une US */
+.panneau-strat.pu-large { width: min(64vw, 1100px); }
+.panneau-strat.pu-plein { position: fixed; inset: 12px; z-index: 44; width: auto; box-shadow: 0 18px 60px #0008; }
+.panneau-strat .pu-tete { padding: 10px 14px; border-bottom: 1px solid var(--line); flex: none; }
+.panneau-strat > .sous-onglets { flex: none; }
+.panneau-strat .pu-texte { white-space: pre-wrap; max-height: none; }
+.panneau-strat .pu-resume-cas { margin-left: 6px; }
+.pu-cas-grille { display: grid; gap: 10px; }
+.pu-large .pu-cas-grille, .pu-plein .pu-cas-grille { grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); align-items: start; }
+.pu-cas { margin: 0; }
+.pu-cas table { width: 100%; }
+.pu-cas table td:first-child { width: 22px; }
+tr.sel > td { background: var(--accent-soft); }
+.pu-etape { width: 100%; min-height: 36px; resize: vertical; line-height: 1.35; font-size: 12.5px; padding: 5px 7px; }
+.pu-cas table td { vertical-align: top; }
+.pu-granu { align-items: center; padding: 8px 10px; border: 1px dashed var(--line-2); border-radius: 8px; margin-bottom: 10px; }
+.pu-granu .lib { flex: 1; min-width: 240px; }
+.pu-props { margin-bottom: 10px; border-color: var(--violet); }
+.pu-prop { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+.pu-prop ul { margin: 4px 0 0; padding-left: 18px; }
+.pu-couvre { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 6px; }
+.pu-couvre .pill { font-size: 11px; }

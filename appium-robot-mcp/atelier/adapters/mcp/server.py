@@ -26,12 +26,26 @@ _coffre_lu = {"t": 0.0}
 _image = {"t": 0.0}
 
 
+_client = {"v": None}
+
+
+def _client_mcp() -> str:
+    """Client MCP déclaré à la poignée de main (ex. « cursor 1.2.3 ») ; le protocole ne transmet pas le modèle."""
+    if _client["v"] is None:
+        try:
+            info = mcp.get_context().session.client_params.clientInfo
+            _client["v"] = f"{info.name} {info.version or ''}".strip()
+        except Exception:  # noqa: BLE001 - hors requête ou client muet
+            return ""
+    return _client["v"]
+
+
 def _publier_activite(nom: str, etat: str, args: dict | None = None, **extra):
-    """Appel d'outil visible en temps réel dans l'atelier (vue « Cursor en direct ») ; jamais bloquant."""
+    """Appel d'outil visible en temps réel dans l'atelier (vue « Cursor en direct », console Cursor) ; jamais bloquant."""
     try:
         from atelier.domain import activite_agent
 
-        evenements.publier({"type": "mcp_outil", "nom": nom, "etat": etat, "famille": activite_agent.famille(nom),
+        evenements.publier({"type": "mcp_outil", "nom": nom, "etat": etat, "famille": activite_agent.famille(nom), "client": _client_mcp(),
                             **({"args": activite_agent.resumer_arguments(nom, args or {})} if args is not None else {}), **extra})
     except Exception:  # noqa: BLE001
         pass
@@ -103,16 +117,19 @@ def _suivre_projet(fn):
         except TypeError:
             args = dict(k)
         _attendre_autorisation(fn.__name__)
-        _publier_activite(fn.__name__, "debut", args)
+        import uuid
+
+        appel = uuid.uuid4().hex[:10]  # relie le début et la fin d'un même appel (console Cursor)
+        _publier_activite(fn.__name__, "debut", args, appel=appel)
         t0 = time.time()
         try:
             r = _executer(*a, **k)
         except Exception as e:
-            _publier_activite(fn.__name__, "erreur", duree=round(time.time() - t0, 2), message=str(e)[:300])
+            _publier_activite(fn.__name__, "erreur", appel=appel, duree=round(time.time() - t0, 2), message=str(e)[:300])
             raise
         from atelier.domain import activite_agent
 
-        _publier_activite(fn.__name__, "fin", duree=round(time.time() - t0, 2), resultat=activite_agent.resumer_resultat(r))
+        _publier_activite(fn.__name__, "fin", appel=appel, duree=round(time.time() - t0, 2), resultat=activite_agent.resumer_resultat(r))
         _envoyer_image(fn.__name__)
         return r
 

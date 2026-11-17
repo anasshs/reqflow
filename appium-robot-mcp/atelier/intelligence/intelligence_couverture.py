@@ -22,6 +22,7 @@ import secrets
 import unicodedata
 from collections import Counter
 from datetime import datetime
+from functools import lru_cache
 
 from atelier.domain import projet
 
@@ -52,14 +53,24 @@ def _sans_accents(t: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", t) if unicodedata.category(c) != "Mn")
 
 
+@lru_cache(maxsize=50_000)
+def _jetons(texte: str) -> tuple[str, ...]:
+    mots = re.findall(r"[a-z0-9]{3,}", _sans_accents(texte.lower()))
+    return tuple(m[:6] for m in mots if m not in MOTS_VIDES)
+
+
 def jetons(texte: str) -> list[str]:
-    """Mots significatifs, sans accents, racinés grossièrement (6 premières lettres) : « virements » ≈ « virement »."""
-    mots = re.findall(r"[a-z0-9]{3,}", _sans_accents((texte or "").lower()))
-    return [m[:6] for m in mots if m not in MOTS_VIDES]
+    """Mots significatifs, sans accents, racinés grossièrement (6 premières lettres) : « virements » ≈ « virement ».
+    Résultat mémorisé par texte : un même texte est comparé des milliers de fois (doublons, rapprochements)."""
+    return list(_jetons(texte or ""))
 
 
 def similarite(a: str, b: str) -> float:
-    ja, jb = set(jetons(a)), set(jetons(b))
+    ja, jb = set(_jetons(a or "")), set(_jetons(b or ""))
+    return _jaccard(ja, jb)
+
+
+def _jaccard(ja: set, jb: set) -> float:
     return len(ja & jb) / len(ja | jb) if ja and jb else 0.0
 
 
@@ -169,7 +180,11 @@ def _texte_exigence(e: dict) -> str:
 
 def _texte_test(t: dict) -> str:
     etapes = " ".join(f"{s.get('action', '')} {s.get('donnees', '')} {s.get('resultat', '')}" for s in t.get("etapes") or [] if isinstance(s, dict))
-    return " ".join([t.get("resume") or "", t.get("gherkin") or "", etapes, " ".join(t.get("preconditions") or []) if isinstance(t.get("preconditions"), list) else str(t.get("preconditions") or "")])
+    pre = t.get("preconditions")
+    # Xray : préconditions en texte ou en objets ({cle, resume, definition}) selon la synchronisation
+    pre = " ".join(str(p.get("resume") or p.get("definition") or p.get("cle") or "") if isinstance(p, dict) else str(p) for p in pre) \
+        if isinstance(pre, list) else str(pre or "")
+    return " ".join([t.get("resume") or "", t.get("gherkin") or "", etapes, pre])
 
 
 # =========================================================================== F1 : qualité documentaire Jira
@@ -217,9 +232,10 @@ def qualite_documentaire() -> list[dict]:
             anomalie(p, info.get("resume", ""), info.get("type_jira") or "Feature", "fonctionnalite_sans_detail", "moyenne",
                      f"Fonctionnalité dont les {len(ks)} Stories n'ont ni description ni critères.", "Détailler au moins les Stories prioritaires.", "proposer_criteres")
     cles = sorted(ex)
+    mots = {k: set(_jetons(_texte_exigence(ex[k]))) for k in cles}  # chaque texte découpé une seule fois (n² comparaisons)
     for i, a in enumerate(cles):  # doublons : titres et descriptions très proches
         for b in cles[i + 1:]:
-            s = similarite(_texte_exigence(ex[a]), _texte_exigence(ex[b]))
+            s = _jaccard(mots[a], mots[b])
             if s >= 0.75:
                 anomalie(a, ex[a].get("resume", ""), ex[a].get("type_jira") or "Story", "doublon", "moyenne",
                          f"Très proche de {b} « {ex[b].get('resume', '')} » (similarité {round(100 * s)} %).", "Fusionner ou différencier les deux Stories.", "jira")
@@ -588,7 +604,7 @@ def orphelins() -> list[dict]:
     return out
 
 
-def classer_orphelin(test: str, classe: str, cible: str = "", justification: str = "") -> dict:
+def classer_orphelin(test: str, classe: str, cible: str = "", justification: str = "", propose_par: str = "") -> dict:
     """associer (à une exigence → proposition de lien) / nouvelle_exigence (→ proposition de Story) / technique /
     transversal / conserver (justification). Proposition à valider, jamais appliquée directement."""
     if classe not in ("associer", "nouvelle_exigence", "technique", "transversal", "conserver"):
@@ -615,6 +631,10 @@ def classer_orphelin(test: str, classe: str, cible: str = "", justification: str
             raise ValueError("Conserver un test non rattaché demande une justification.")
         p = _ajouter(l, "classement_orphelin", "utilisateur", test, "", None, [justification] if justification else [],
                      {"test": test, "classe": classe, "justification_utilisateur": justification}, cle_unique=f"orphelin:{test}")
+    if propose_par and p["statut"] == "proposee":  # classement proposé par une IA : l'automaticien valide ou rejette
+        p["propose_par"] = propose_par
+        p["avis_ia"] = {"verdict": classe, "cible": cible, "justification": justification, "source": propose_par, "date": _maintenant()}
+        p["historique"][-1]["auteur"] = propose_par
     _sauver(l)
     return p
 
@@ -665,3 +685,188 @@ def vue() -> dict:
         "automatisation": {"taux": pct(auto["automatisees"] + auto["partielles"], n), **auto,
                            "definition": "Exigence automatisée : tous ses tests automatisés ; partielle : certains ; manuelle seulement : aucun."},
         "propositions": Counter(f"{p['type']}:{p['statut']}" for p in ps)}
+
+
+# =========================================================================== jugements d'une IA (Cursor / LLM) : liens et orphelins
+VERDICTS_LIEN = {"couvre": "couvre", "partiel": "couvre partiellement", "ne_couvre_pas": "ne couvre pas"}
+CONSIGNE_LIENS = (
+    "Pour chaque exigence, dire quels tests la vérifient vraiment : « couvre » si le test vérifie le comportement demandé (au moins "
+    "un critère d'acceptation, avec le bon résultat attendu), « partiel » s'il n'en vérifie qu'une partie (citer les critères "
+    "couverts), « ne_couvre_pas » sinon, en particulier quand seuls des mots sont communs (même écran mais autre règle, résultat "
+    "opposé). Les candidats sont une présélection par ressemblance des mots : un autre test de l'application peut être cité s'il est "
+    "plus pertinent. Justification obligatoire. Aucun lien n'est créé dans Jira / Xray : l'automaticien valide.")
+CLASSES_ORPHELIN = {"associer": "rattacher à une exigence existante (cible = clé de l'exigence)",
+                    "nouvelle_exigence": "le test couvre un besoin qu'aucune exigence ne documente (Story à créer)",
+                    "technique": "test technique (pas d'exigence métier attendue)",
+                    "transversal": "test transverse (non-régression, parcours de bout en bout, plusieurs exigences)",
+                    "conserver": "garder sans rattachement (justifier pourquoi)"}
+CONSIGNE_ORPHELINS = (
+    "Pour chaque test Xray sans exigence, choisir une classe : " + " ; ".join(f"« {k} » : {v}" for k, v in CLASSES_ORPHELIN.items())
+    + ". Rattacher seulement si le test vérifie vraiment un comportement de l'exigence, pas sur des mots communs. Les candidats sont "
+    "une présélection par mots ; toute exigence de la liste peut être citée. Justification obligatoire. Proposition à valider.")
+
+
+def _source_courte(source: str) -> str:
+    return "cursor" if "cursor" in source.lower() else "ia"
+
+
+def liens_a_juger(exigence: str = "", limite: int = 10, candidats: int = 8) -> dict:
+    """Pour une IA : exigences (texte et critères masqués) et tests candidats PRÉSÉLECTIONNÉS par les mots (TF-IDF) ou par
+    une proposition des règles en attente. Sans exigence : d'abord celles sans test, puis celles dont une proposition attend."""
+    from atelier.intelligence.jugement_ia import SECOURS, court, etapes_courtes
+
+    d = _donnees()
+    ex, tests = d["exigences"], d["tests"]
+    if exigence and exigence not in ex:
+        raise KeyError(f"Exigence {exigence} hors périmètre importé.")
+    par_exigence: dict = {}
+    for tk, ks in d["liens"].items():
+        for k in ks:
+            par_exigence.setdefault(k, set()).add(tk)
+    props = [p for p in _charger() if p["type"] == "lien_test"]
+    attente: dict = {}
+    for p in props:
+        if p["statut"] == "proposee":
+            attente.setdefault(p["objet_source"], {})[p["objet_cible"]] = p
+    traites = {p["objet_source"] for p in props if p.get("avis_ia")}
+    cles = [exigence] if exigence else sorted(ex, key=lambda k: (bool(par_exigence.get(k)), k not in attente, k in traites, k))
+    cles = cles[:max(1, min(limite, 30))]
+    textes = {**{f"E:{k}": _texte_exigence(e) for k, e in ex.items()}, **{f"T:{k}": _texte_test(t) for k, t in tests.items()}}
+    corpus = Corpus(textes)
+
+    def vue(tk: str) -> dict:
+        t = tests[tk]
+        return {"cle": tk, "titre": court(t.get("resume"), 200), "module": t.get("module") or "",
+                "etapes": etapes_courtes(t.get("etapes"), 8, 160), "gherkin": court(t.get("gherkin"), 600)}
+
+    out = []
+    for k in cles:
+        e = ex[k]
+        deja = par_exigence.get(k, set())
+        scores = sorted(((corpus.cosinus(f"E:{k}", f"T:{tk}")[0], tk) for tk in tests if tk not in deja), reverse=True)[:candidats]
+        choisis = {tk: round(s, 2) for s, tk in scores if s > 0}
+        for tk in attente.get(k, {}):
+            choisis.setdefault(tk, None)
+        out.append({"exigence": k, "resume": court(e.get("resume"), 200), "description": court(e.get("description"), 1200),
+                    "criteres": [court(c, 300) for c in e.get("criteres") or []][:15], "tests_deja_lies": sorted(deja),
+                    "candidats": [{**vue(tk), "proximite_mots": s,
+                                   "proposition_regles": (attente.get(k, {}).get(tk) or {}).get("score"),
+                                   "avis_ia": (attente.get(k, {}).get(tk) or {}).get("avis_ia")} for tk, s in choisis.items() if tk in tests]})
+    return {"consigne": CONSIGNE_LIENS, "verdicts": list(VERDICTS_LIEN), "candidats_par": SECOURS, "exigences": out,
+            "exigences_sans_test": sum(1 for k in ex if not par_exigence.get(k))}
+
+
+def deposer_jugements_liens(jugements: list[dict], source: str = "Cursor (MCP)") -> dict:
+    """Jugements d'une IA sur des paires exigence ↔ test, contrôlés (exigence du périmètre, test de l'application, verdict
+    connu, justification, lien ni déjà présent ni rejeté). « couvre » / « partiel » : proposition de lien (ou avis ajouté à la
+    proposition des règles) ; « ne_couvre_pas » : avis ajouté à la proposition des règles. L'automaticien valide ou rejette."""
+    from atelier.intelligence.jugement_ia import justification as _j
+
+    d = _donnees()
+    l = _charger()
+    par_cle = {p.get("cle_unique"): p for p in l if p["type"] == "lien_test"}
+    compte, refuses = {v: 0 for v in VERDICTS_LIEN}, []
+    for n, j in enumerate(jugements or [], 1):
+        j = j if isinstance(j, dict) else {}
+        k, tk = str(j.get("exigence") or "").strip(), str(j.get("test") or "").strip()
+        v = str(j.get("verdict") or "").strip().lower().replace(" ", "_").replace("couvre_partiellement", "partiel")
+        just = _j(j.get("justification"))
+        ex = par_cle.get(f"lien:{k}:{tk}")
+        raison = ("exigence inconnue (périmètre importé)" if k not in d["exigences"]
+                  else "test inconnu (tests de l'application)" if tk not in d["tests"]
+                  else "verdict inconnu (couvre, partiel ou ne_couvre_pas)" if v not in VERDICTS_LIEN
+                  else "justification manquante" if not just
+                  else "lien déjà présent dans Jira / Xray" if k in d["liens"].get(tk, set())
+                  else "lien déjà rejeté par l'automaticien : jamais reproposé" if ex and ex["statut"] == "rejetee"
+                  else f"lien déjà {ex['statut']}" if ex and ex["statut"] != "proposee" else "")
+        if raison:
+            refuses.append({"index": n, "exigence": k, "test": tk, "raison": raison})
+            continue
+        avis = {"verdict": VERDICTS_LIEN[v], "justification": just, "source": source, "date": _maintenant(),
+                "criteres_couverts": [str(c)[:300] for c in j.get("criteres_couverts") or []][:15]}
+        if ex:
+            ex["avis_ia"] = avis
+            ex["historique"].append({"date": _maintenant(), "auteur": _source_courte(source), "action": "avis", "detail": f"{avis['verdict']} ({source})"})
+        elif v != "ne_couvre_pas":
+            p = _ajouter(l, "lien_test", _source_courte(source), k, tk, None, [just],
+                         {"exigence": k, "exigence_resume": d["exigences"][k].get("resume", ""), "test": tk,
+                          "test_resume": d["tests"][tk].get("resume", ""), "decision": "à valider" if v == "couvre" else "analyse nécessaire"},
+                         cle_unique=f"lien:{k}:{tk}")
+            p["avis_ia"] = avis
+            par_cle[p["cle_unique"]] = p
+        compte[v] += 1
+    _sauver(l)
+    return {"retenus": sum(compte.values()), **compte, "refuses": refuses}
+
+
+def orphelins_a_classer(limite: int = 20) -> dict:
+    """Pour une IA : tests sans exigence et sans classement en cours (texte masqué), candidats PRÉSÉLECTIONNÉS par les mots,
+    et la liste des exigences du périmètre (toute exigence peut être citée)."""
+    from atelier.intelligence.jugement_ia import SECOURS, court, etapes_courtes
+
+    d = _donnees()
+    a_classer = [o for o in orphelins() if not o.get("classement")]
+    return {"consigne": CONSIGNE_ORPHELINS, "classes": CLASSES_ORPHELIN, "candidats_par": SECOURS, "total": len(a_classer),
+            "tests": [{"test": o["test"], "titre": court(o["resume"], 200), "module": o["module"],
+                       "etapes": etapes_courtes(d["tests"][o["test"]].get("etapes"), 8, 160),
+                       "gherkin": court(d["tests"][o["test"]].get("gherkin"), 600),
+                       "candidats": [{**c, "libelle": court(c["libelle"], 200)} for c in o["candidats"]]}
+                      for o in a_classer[:max(1, min(limite, 50))]],
+            "exigences": [{"cle": k, "resume": court(e.get("resume"), 160)} for k, e in sorted(d["exigences"].items())][:400],
+            "exigences_total": len(d["exigences"]),
+            "note": "Liste des exigences limitée à 400 : pour une exigence absente, la chercher avec coverage_liens_a_juger(exigence)."
+            if len(d["exigences"]) > 400 else ""}
+
+
+def deposer_classements_orphelins(classements: list[dict], source: str = "Cursor (MCP)") -> dict:
+    """Classements de tests orphelins proposés par une IA : mêmes contrôles que le classement manuel, plus un test
+    réellement sans exigence et une justification obligatoire. Propositions à valider, jamais appliquées."""
+    from atelier.intelligence.jugement_ia import justification as _j
+
+    d = _donnees()
+    retenus, refuses = {c: 0 for c in CLASSES_ORPHELIN}, []
+    for n, c in enumerate(classements or [], 1):
+        c = c if isinstance(c, dict) else {}
+        tk, classe = str(c.get("test") or "").strip(), str(c.get("classe") or "").strip().lower()
+        cible, just = str(c.get("cible") or "").strip(), _j(c.get("justification"))
+        raison = ("test inconnu (tests de l'application)" if tk not in d["tests"]
+                  else "test déjà rattaché à une exigence" if d["liens"].get(tk)
+                  else "justification manquante" if not just else "")
+        if not raison:
+            try:
+                classer_orphelin(tk, classe, cible, just, propose_par=source)
+            except (KeyError, ValueError) as e:
+                raison = str(e.args[0] if e.args else e)
+        if raison:
+            refuses.append({"index": n, "test": tk, "raison": raison})
+            continue
+        retenus[classe] += 1
+    return {"retenus": sum(retenus.values()), **{k: v for k, v in retenus.items() if v}, "refuses": refuses}
+
+
+SYSTEME_LIENS = ("Tu es un ingénieur de test. On te donne des exigences et des tests candidats. " + CONSIGNE_LIENS
+                 + ' Réponds uniquement en JSON : {"jugements": [{"exigence": "clé", "test": "clé", "verdict": "couvre|partiel|ne_couvre_pas", '
+                 '"criteres_couverts": ["..."], "justification": "..."}]}. En français.')
+SYSTEME_ORPHELINS = ("Tu es un ingénieur de test. On te donne des tests Xray sans exigence et les exigences du périmètre. " + CONSIGNE_ORPHELINS
+                     + ' Réponds uniquement en JSON : {"classements": [{"test": "clé", "classe": "' + "|".join(CLASSES_ORPHELIN)
+                     + '", "cible": "clé de l\'exigence si associer", "justification": "..."}]}. En français.')
+
+
+def juger_liens_ia(exigence: str = "") -> dict:
+    """Liens exigence ↔ test jugés par le LLM interne ou Claude (appel direct, texte masqué), mêmes contrôles que Cursor."""
+    from atelier.intelligence import jugement_ia
+
+    vue = liens_a_juger(exigence, limite=5)
+    return jugement_ia.appel_direct({"exigences": vue["exigences"]}, SYSTEME_LIENS, "jugements", deposer_jugements_liens,
+                                    "coverage_liens_a_juger puis coverage_juger_liens", 4000)
+
+
+def classer_orphelins_ia() -> dict:
+    """Tests orphelins classés par le LLM interne ou Claude (appel direct, texte masqué), mêmes contrôles que Cursor."""
+    from atelier.intelligence import jugement_ia
+
+    vue = orphelins_a_classer(limite=15)
+    if not vue["tests"]:
+        return {"disponible": False, "raison": "Aucun test orphelin à classer."}
+    return jugement_ia.appel_direct({k: vue[k] for k in ("tests", "exigences")}, SYSTEME_ORPHELINS, "classements",
+                                    deposer_classements_orphelins, "coverage_orphelins_a_classer puis coverage_classer_orphelins", 4000)

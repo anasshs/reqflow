@@ -11,42 +11,54 @@
   /* ================================================================== Dashboard (style « Centre d'exécution ») */
   const PLATICO = p => ico({android: "android", ios: "pomme", web: "globe"}[p] || "mobile");
   Atelier.enregistrer("dashboard", {
-    async afficher(zone) {
+    /* Affichage progressif : chaque bloc apparaît dès que sa source répond (les exécutions répondent en quelques
+       millisecondes ; le graphe de couverture et la stratégie peuvent prendre plus de 10 s sur un gros projet).
+       Avant : un seul Promise.all, l'écran restait sur « Chargement… » jusqu'à la réponse la plus lente. */
+    afficher(zone) {
       zone.className = "g-dash";
-      zone.innerHTML = `<section class="carte s12"><div class="corps-carte">${vide("Chargement…")}</div></section>`;
-      const [cv, an, runs, bdd, dev, strat] = await Promise.all([api("/api/graphes/couverture").catch(() => null), api("/api/graphes/anomalies").catch(() => []),
-        api("/api/executions").catch(() => []), api("/api/bdd").catch(() => []), api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []})),
-        api("/api/strategie").catch(() => null)]);
-      const cui = await api("/api/couverture-avancee").catch(() => null);
-      const ind = cv?.indicateurs, g = ind?.disponible ? ind.global : null;
-      const reels = runs.filter(r => !r.dry_run && r.passes !== null && r.passes !== undefined);
-      const enCours = runs.filter(r => r.statut === "en cours").length;
-      const reussis = reels.filter(r => r.statut === "réussi").length, echoues = reels.filter(r => r.statut === "échec").length;
-      const tp = reels.reduce((a, r) => a + r.passes, 0), te = reels.reduce((a, r) => a + r.echecs, 0);
-      const kpi = (icone, couleur, v, l) => `<div class="kpi kpi-rond"><span class="rond" style="color:var(--${couleur})">${ico(icone)}</span><div class="v" style="color:var(--${couleur})">${v}</div><div class="l">${l}</div></div>`;
-      // tendance sur 7 jours (tests réussis / échoués des runs réels, runs en cours)
-      const jours = [...Array(7)].map((_, k) => new Date(Date.now() - (6 - k) * 864e5).toISOString().slice(0, 10));
-      const parJour = jours.map(d => { const l = runs.filter(r => (r.debut || "").startsWith(d));
-        return {d, ok: l.reduce((a, r) => a + (r.dry_run ? 0 : r.passes || 0), 0), ko: l.reduce((a, r) => a + (r.dry_run ? 0 : r.echecs || 0), 0), run: l.filter(r => r.statut === "en cours").length}; });
-      const max = Math.max(1, ...parJour.map(x => x.ok + x.ko + x.run));
-      const devices = [...dev.android.map(x => ["android", x.udid, x.details]), ...dev.ios_simulateurs.map(x => ["ios", x.udid, `${x.nom} ${x.runtime}`]), ...dev.ios_physiques.map(u => ["ios", u, "physique"])];
-      const xrayStatut = r => !r.xray ? '<span class="lib">—</span>' : `<span class="ok-t">Synchronisé ${ico("check")}</span>`;
+      const jeton = Symbol("dashboard");
+      this._jeton = jeton;
+      // une réponse arrivée après un changement d'écran (ou un nouvel affichage) est ignorée
+      const actif = () => this._jeton === jeton && Atelier.ecranCourant === this && zone.isConnected;
+      const poser = (id, html) => { if (!actif()) return null; const el = $("#" + id, zone); if (el) el.outerHTML = html; return $("#" + id, zone); };
+      const attente = (m = "Chargement…") => `<div class="corps-carte">${vide(m)}</div>`;
+      const titre = (t, a = "") => `<h2 class="titre-carte">${t}${a ? `<span class="actions-titre">${a}</span>` : ""}</h2>`;
+      const LEGENDE = `<span class="lib"><span class="pt ok"></span> Réussis</span><span class="lib"><span class="pt ko"></span> Échoués</span><span class="lib"><span class="pt" style="background:var(--accent)"></span> En cours</span>`;
+      const LIEN_RUNS = `<a class="btn" href="#execution">Centre d'exécution ${ico("ext")}</a>`, LIEN_ANO = `<a class="btn" href="#graphe/anomalies">Tout voir</a>`;
       zone.innerHTML = `
-        <section class="carte s4"><div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+        <section class="carte s4" id="db-kpi">${attente()}</section>
+        <section class="carte s5" id="db-tendance">${titre("Tendance des exécutions (7 derniers jours)", LEGENDE)}${attente()}</section>
+        <section class="carte s3" id="db-devices">${titre("Disponibilité des devices")}${attente("Recherche des appareils…")}</section>
+        <section class="carte s12" id="db-runs">${titre("Exécutions", LIEN_RUNS)}${attente()}</section>
+        <section class="carte s12" id="db-cui" hidden></section>
+        <section class="carte s12" id="db-objectifs" hidden></section>
+        <section class="carte s8" id="db-modules">${titre("Couverture par module")}${attente("Calcul de la couverture…")}</section>
+        <section class="carte s4" id="db-anomalies">${titre("Anomalies prioritaires", LIEN_ANO)}${attente("Analyse du graphe…")}</section>`;
+
+      /* exécutions de l'atelier : compteurs, tendance, liste */
+      api("/api/executions").catch(() => []).then(runs => {
+        const reels = runs.filter(r => !r.dry_run && r.passes !== null && r.passes !== undefined);
+        const enCours = runs.filter(r => r.statut === "en cours").length;
+        const reussis = reels.filter(r => r.statut === "réussi").length, echoues = reels.filter(r => r.statut === "échec").length;
+        const tp = reels.reduce((a, r) => a + r.passes, 0), te = reels.reduce((a, r) => a + r.echecs, 0);
+        const kpi = (icone, couleur, v, l) => `<div class="kpi kpi-rond"><span class="rond" style="color:var(--${couleur})">${ico(icone)}</span><div class="v" style="color:var(--${couleur})">${v}</div><div class="l">${l}</div></div>`;
+        poser("db-kpi", `<section class="carte s4" id="db-kpi"><div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
           ${kpi("execution", "accent-ink", enCours, "en cours")}${kpi("check", "ok", reussis, "réussis")}${kpi("x", "ko", echoues, "échoués")}
-          ${kpi("rapports", "violet-ink", tp + te ? pct(tp / (tp + te)) : "—", "taux de réussite")}</div></div></section>
-        <section class="carte s5"><h2 class="titre-carte">Tendance des exécutions (7 derniers jours)<span class="actions-titre">
-            <span class="lib"><span class="pt ok"></span> Réussis</span><span class="lib"><span class="pt ko"></span> Échoués</span><span class="lib"><span class="pt" style="background:var(--accent)"></span> En cours</span></span></h2>
+          ${kpi("rapports", "violet-ink", tp + te ? pct(tp / (tp + te)) : "—", "taux de réussite")}</div></div></section>`);
+        // tendance sur 7 jours (tests réussis / échoués des runs réels, runs en cours)
+        const jours = [...Array(7)].map((_, k) => new Date(Date.now() - (6 - k) * 864e5).toISOString().slice(0, 10));
+        const parJour = jours.map(d => { const l = runs.filter(r => (r.debut || "").startsWith(d));
+          return {d, ok: l.reduce((a, r) => a + (r.dry_run ? 0 : r.passes || 0), 0), ko: l.reduce((a, r) => a + (r.dry_run ? 0 : r.echecs || 0), 0), run: l.filter(r => r.statut === "en cours").length}; });
+        const max = Math.max(1, ...parJour.map(x => x.ok + x.ko + x.run));
+        poser("db-tendance", `<section class="carte s5" id="db-tendance">${titre("Tendance des exécutions (7 derniers jours)", LEGENDE)}
           <div class="corps-carte"><div style="display:flex;align-items:flex-end;gap:14px;height:120px">${parJour.map(x => `
             <div title="${x.d} : ${x.ok} réussi(s), ${x.ko} échec(s)" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;align-items:center">
               <span style="width:16px;background:var(--accent);height:${x.run / max * 100}%;border-radius:2px"></span>
               <span style="width:16px;background:var(--ko);height:${x.ko / max * 100}%"></span>
               <span style="width:16px;background:var(--ok);height:${x.ok / max * 100}%;border-radius:0 0 2px 2px"></span>
-              <small class="lib" style="margin-top:4px">${x.d.slice(8, 10)}/${x.d.slice(5, 7)}</small></div>`).join("")}</div></div></section>
-        <section class="carte s3"><h2 class="titre-carte">Disponibilité des devices</h2><div class="corps-carte">
-          ${devices.length ? `<ul class="liste">${devices.map(([p, u, det]) => `<li>${PLATICO(p)}<div class="item"><b class="ellipse" style="display:block">${esc(u)}</b><span class="sous">${esc(det || "")}</span></div><span class="pill ok">connecté</span></li>`).join("")}</ul>`
-            : vide("Aucun device détecté", "adb / simctl ne voient aucun appareil.")}</div></section>
-        <section class="carte s12"><h2 class="titre-carte">Exécutions<span class="actions-titre"><a class="btn" href="#execution">Centre d'exécution ${ico("ext")}</a></span></h2><div class="corps-carte" style="max-height:330px">
+              <small class="lib" style="margin-top:4px">${x.d.slice(8, 10)}/${x.d.slice(5, 7)}</small></div>`).join("")}</div></div></section>`);
+        const xrayStatut = r => !r.xray ? '<span class="lib">—</span>' : `<span class="ok-t">Synchronisé ${ico("check")}</span>`;
+        const s = poser("db-runs", `<section class="carte s12" id="db-runs">${titre("Exécutions", LIEN_RUNS)}<div class="corps-carte" style="max-height:330px">
           ${runs.length ? `<table><tr><th>Run</th><th>Suite</th><th>Type</th><th>Plateforme</th><th>Statut</th><th style="width:22%">Progression</th><th>Durée</th><th>Xray</th><th></th></tr>
           ${runs.slice(0, 12).map(r => { const total = (r.passes || 0) + (r.echecs || 0), prog = r.statut === "en cours" ? null : total ? 100 : 0;
             const d = r.debut && r.fin ? (new Date(r.fin) - new Date(r.debut)) / 1000 : null;
@@ -57,30 +69,57 @@
               <td><div style="display:flex;gap:8px;align-items:center"><div class="barre ${r.statut === "échec" ? "rouge" : r.statut === "en cours" ? "bleu" : ""}" style="flex:1"><i style="width:${prog ?? 50}%"></i></div><span class="mono">${prog === null ? "…" : prog + " %"}</span></div></td>
               <td class="mono">${d === null ? "—" : new Date(d * 1000).toISOString().slice(14, 19)}</td><td>${xrayStatut(r)}</td>
               <td>${r.statut === "échec" ? `<span class="ko-t">${ico("aide")}</span>` : r.statut === "réussi" ? `<span class="ok-t">${ico("check")}</span>` : ""}</td></tr>`; }).join("")}</table>`
-            : vide("Aucun run", "Les exécutions lancées depuis l'atelier apparaissent ici.")}</div></section>
-        ${cui ? `<section class="carte s12"><h2 class="titre-carte">Couverture fonctionnelle et UI<span class="actions-titre"><a class="btn" href="#intelligence/couverture" title="Détail : niveaux, écrans, composants, parcours">Détail ${ico("ext")}</a></span></h2>
+            : vide("Aucun run", "Les exécutions lancées depuis l'atelier apparaissent ici.")}</div></section>`);
+        if (s) $$("[data-run]", s).forEach(tr => tr.onclick = () => { location.hash = "execution/" + tr.dataset.run; });
+      });
+
+      /* appareils connectés (adb / simctl : quelques secondes) */
+      api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []})).then(dev => {
+        const devices = [...dev.android.map(x => ["android", x.udid, x.details]), ...dev.ios_simulateurs.map(x => ["ios", x.udid, `${x.nom} ${x.runtime}`]), ...dev.ios_physiques.map(u => ["ios", u, "physique"])];
+        poser("db-devices", `<section class="carte s3" id="db-devices">${titre("Disponibilité des devices")}<div class="corps-carte">
+          ${devices.length ? `<ul class="liste">${devices.map(([p, u, det]) => `<li>${PLATICO(p)}<div class="item"><b class="ellipse" style="display:block">${esc(u)}</b><span class="sous">${esc(det || "")}</span></div><span class="pill ok">connecté</span></li>`).join("")}</ul>`
+            : vide("Aucun device détecté", "adb / simctl ne voient aucun appareil.")}</div></section>`);
+      });
+
+      /* couverture fonctionnelle et UI */
+      api("/api/couverture-avancee").catch(() => null).then(cui => {
+        if (!cui) { poser("db-cui", ""); return; }
+        poser("db-cui", `<section class="carte s12" id="db-cui">${titre("Couverture fonctionnelle et UI", `<a class="btn" href="#intelligence/couverture" title="Détail : niveaux, écrans, composants, parcours">Détail ${ico("ext")}</a>`)}
           <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">${[["couverture_ecrans", "écrans couverts"], ["couverture_composants", "composants couverts"],
             ["couverture_parcours", "parcours couverts"], ["automatisation_composants", "composants automatisés"], ["reussite_composants", "composants en succès"]].map(([cle, l]) => {
               const x = cui.indicateurs[cle]; return `<div class="kpi" title="${esc(x.detail)}"><div class="v">${x.valeur === null ? "—" : String(x.valeur).replace(".", ",") + " %"}</div><div class="l">${l}</div></div>`; }).join("")}</div>
-            <p class="lib" style="margin-top:6px">Sans test : ${cui.sans_test.ecrans.length} écran(s), ${cui.sans_test.composants.length} composant(s), ${cui.sans_test.parcours.length} parcours incomplet(s).</p></div></section>` : ""}
-        ${strat?.existe ? (() => { const y = strat.synthese, PE = {"atteint": "ok", "en cours": "info", "non atteint": "ko", "non mesurable": ""};
-          return `<section class="carte s12"><h2 class="titre-carte">Objectifs et critères
-            <span class="actions-titre"><a class="btn" href="#gouvernance/objectifs">Objectifs et critères ${ico("ext")}</a></span></h2><div class="corps-carte" style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+            <p class="lib" style="margin-top:6px">Sans test : ${cui.sans_test.ecrans.length} écran(s), ${cui.sans_test.composants.length} composant(s), ${cui.sans_test.parcours.length} parcours incomplet(s).</p></div></section>`);
+      });
+
+      /* objectifs et critères (référentiel de pilotage) */
+      api("/api/strategie").catch(() => null).then(strat => {
+        if (!strat?.existe) { poser("db-objectifs", ""); return; }
+        const y = strat.synthese, PE = {"atteint": "ok", "en cours": "info", "non atteint": "ko", "non mesurable": ""};
+        poser("db-objectifs", `<section class="carte s12" id="db-objectifs">${titre("Objectifs et critères", `<a class="btn" href="#gouvernance/objectifs">Objectifs et critères ${ico("ext")}</a>`)}<div class="corps-carte" style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
             <table><tr><th>Objectif</th><th>Indicateur</th><th>Cible</th><th>Actuel</th><th>État</th></tr>${y.objectifs.liste.map(o => `<tr><td>${esc(o.nom)}</td>
               <td class="lib">${esc(strat.indicateurs_disponibles[o.indicateur] || "")}</td><td>${esc(o.comparateur || ">=")} ${esc(o.cible)}</td>
               <td>${o.valeur ?? "—"}</td><td><span class="pill ${PE[o.etat]}">${esc(o.etat)}</span></td></tr>`).join("") || "<tr><td colspan='5' class='lib'>Aucun objectif.</td></tr>"}</table>
             <div><div class="lib" style="margin-bottom:6px">Risques ouverts</div><div class="btns"><span class="pill ko">${y.risques.critique} critique(s)</span><span class="pill warn">${y.risques["élevé"]} élevé(s)</span>
               <span class="pill info">${y.risques.moyen} moyen(s)</span><span class="pill">${y.risques.faible} faible(s)</span></div>
-              <div class="lib" style="margin:10px 0 6px">Critères d'entrée</div>${strat.criteres.filter(c => c.type === "entrée").map(c => `<div><span class="pill ${c.etat === "satisfait" ? "ok" : c.etat === "à valider" ? "warn" : "ko"}">${esc(c.etat)}</span> ${esc(c.description)}</div>`).join("") || "<span class='lib'>Aucun.</span>"}</div></div></section>`; })() : ""}
-        <section class="carte s8"><h2 class="titre-carte">Couverture par module</h2><div class="corps-carte">${ind?.disponible
+              <div class="lib" style="margin:10px 0 6px">Critères d'entrée</div>${strat.criteres.filter(c => c.type === "entrée").map(c => `<div><span class="pill ${c.etat === "satisfait" ? "ok" : c.etat === "à valider" ? "warn" : "ko"}">${esc(c.etat)}</span> ${esc(c.description)}</div>`).join("") || "<span class='lib'>Aucun.</span>"}</div></div></section>`);
+      });
+
+      /* couverture par module (graphe de connaissance + scénarios BDD) */
+      Promise.all([api("/api/graphes/couverture").catch(() => null), api("/api/bdd").catch(() => [])]).then(([cv, bdd]) => {
+        const ind = cv?.indicateurs, g = ind?.disponible ? ind.global : null;
+        poser("db-modules", `<section class="carte s8" id="db-modules">${titre("Couverture par module")}<div class="corps-carte">${ind?.disponible
           ? `<table><tr><th>Module</th><th>Tests</th><th>Automatisés</th><th>Manuels</th><th style="width:40%">Couverture automatisée</th></tr>${ind.modules.map(m => `<tr><td>${esc(m.module)}</td><td>${m.tests}</td>
             <td>${m.automatises}</td><td>${m.manuels}</td><td><div style="display:flex;gap:10px;align-items:center"><div class="barre" style="flex:1"><i style="width:${(m.couverture_automatisee || 0) * 100}%"></i></div>${pct(m.couverture_automatisee)}</div></td></tr>`).join("")}</table>
             <p class="lib">Couverture globale ${pct(g.couverture_automatisee)} (${g.automatises}/${g.tests}). Définition : ${esc(ind.definitions.test_automatise)} Scénarios BDD validés : ${bdd.filter(b => b.statut === "validé").length}/${bdd.length}.</p>`
-          : vide("Aucun instantané Xray", `<a href="#rapports/patrimoine">Importer ou synchroniser le patrimoine</a>`)}</div></section>
-        <section class="carte s4"><h2 class="titre-carte">Anomalies prioritaires<span class="actions-titre"><a class="btn" href="#graphe/anomalies">Tout voir</a></span></h2><div class="corps-carte">
+          : vide("Aucun instantané Xray", `<a href="#rapports/patrimoine">Importer ou synchroniser le patrimoine</a>`)}</div></section>`);
+      });
+
+      /* anomalies du graphe */
+      api("/api/graphes/anomalies").catch(() => []).then(an => {
+        poser("db-anomalies", `<section class="carte s4" id="db-anomalies">${titre("Anomalies prioritaires", LIEN_ANO)}<div class="corps-carte">
           <ul class="liste">${an.slice(0, 7).map(a => `<li><span class="pill ${a.gravite === "haute" ? "ko" : a.gravite === "moyenne" ? "warn" : a.gravite === "info" ? "info" : ""}">${esc(a.gravite)}</span>
-            <span class="item">${esc(a.message)}</span></li>`).join("") || "<li class='lib'>Aucune anomalie.</li>"}</ul></div></section>`;
-      $$("[data-run]", zone).forEach(tr => tr.onclick = () => { location.hash = "execution/" + tr.dataset.run; });
+            <span class="item">${esc(a.message)}</span></li>`).join("") || "<li class='lib'>Aucune anomalie.</li>"}</ul></div></section>`);
+      });
     },
   });
 

@@ -309,7 +309,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       <h3 class="lib" style="margin:12px 0 4px">EXIGENCES NON COUVERTES (${ind.exigences_non_couvertes.length})</h3>
       <ul class="liste">${ind.exigences_non_couvertes.map(e => `<li><button class="lien" data-sel="${esc(e.type + ":" + e.cle)}">${esc(e.cle)}</button> ${esc(e.resume || "")}</li>`).join("") || "<li class='lib'>Aucune</li>"}</ul>
       <h3 class="lib" style="margin:12px 0 4px">TESTS REDONDANTS (CANDIDATS)</h3>
-      <ul class="liste">${ind.redondances.map(r => `<li><button class="lien" data-sel="test:${esc(r.tests[0])}">${esc(r.tests[0])}</button>≈<button class="lien" data-sel="test:${esc(r.tests[1])}">${esc(r.tests[1])}</button><span class="compte">${pct(r.similarite)}</span></li>`).join("") || "<li class='lib'>Aucun</li>"}</ul>
+      <ul class="liste">${ind.redondances.map(r => `<li><button class="lien" data-sel="test:${esc(r.tests[0])}">${esc(r.tests[0])}</button>≈<button class="lien" data-sel="test:${esc(r.tests[1])}">${esc(r.tests[1])}</button>${r.similarite !== null && r.similarite !== undefined ? `<span class="compte">${pct(r.similarite)}</span>` : ""}${PastilleJugement(r.jugement, {redondants: "ko", distincts: "ok"})}</li>`).join("") || "<li class='lib'>Aucun</li>"}</ul>
       <details style="margin-top:10px"><summary class="lib">Définitions utilisées</summary><ul class="lib">${Object.values(ind.definitions).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>`);
   }
 

@@ -34,6 +34,9 @@ Ce que tu proposes (discovery_proposer), écran par écran :
   avec dans la description ce qui l'a montrée (message affiché, état d'un bouton).
 - action, role, entite : action métier, rôle utilisateur, objet métier (compte, bénéficiaire, carte).
 - lien_exigence : si une exigence de la copie locale Jira correspond à l'écran (knowledge_graph pour chercher).
+Corrélation écran ↔ exigence pour toute la carte : discovery_correlations_a_juger (écrans, éléments observés,
+exigences ; d'abord les écrans sans exigence), puis discovery_juger_correlations avec concerne | ne_concerne_pas et
+une justification. Un mot commun ne suffit pas : l'exigence peut porter sur un autre écran du parcours.
 N'invente rien : uniquement ce que tu as vu à l'écran ou lu dans une exigence. Un doute = une question à
 l'automaticien, pas une proposition.
 

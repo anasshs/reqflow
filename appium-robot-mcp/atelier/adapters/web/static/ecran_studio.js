@@ -193,12 +193,8 @@
 
   /* demande prête à coller dans Cursor (chat de l'agent) : Cursor construit, l'automaticien valide ici */
   function demandeCursor(texte) {
-    const m = modale("Faire construire par Cursor", `<p>Collez cette demande dans le chat de Cursor (règle « atelier-automatisation » installée depuis Paramètres › Connexions) :</p>
-      <textarea class="in mono" rows="6" readonly style="width:100%">${esc(texte)}</textarea>
-      <p class="lib">Cursor lit le socle et le scénario, écrit le test (qui entre en revue « Généré »), le vérifie en dry run puis le soumet. Il ne peut ni approuver ni publier :
-        vous décidez dans <a href="#studio/revue">Revue et publication</a>.</p>`, `<button class="btn primaire" id="dc-copier">Copier</button>`);
-    $("#dc-copier", m.el).onclick = async () => { try { await navigator.clipboard.writeText(texte); toast("Demande copiée : la coller dans Cursor.", "ok"); m.fermer(); }
-      catch (e) { $("textarea", m.el).select(); toast("Sélectionnée : Ctrl + C pour copier.", "ok"); } };
+    DemanderCursor("Faire construire par Cursor", texte, `Cursor lit le socle et le scénario, écrit le test (qui entre en revue « Généré »), le vérifie en dry run puis le soumet.
+      Il ne peut ni approuver ni publier : vous décidez dans <a href="#studio/revue">Revue et publication</a>.`);
   }
 
   async function productivite() {

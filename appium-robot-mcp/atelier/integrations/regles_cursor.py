@@ -14,6 +14,7 @@ import difflib
 import hashlib
 import io
 import json
+import re
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -292,6 +293,34 @@ def etat() -> dict:
     return {"active": ix["active"], "versions": list(reversed(ix["versions"])), "journal": list(reversed(ix.get("journal", [])))[:20],
             "regles": [{"id": rid, "fichier": cible, "role": role, "portee": ap[rid]["portee"], "statut": ap[rid]["statut"]}
                        for rid, _, cible, role in RUBRIQUES]}
+
+
+_CACHE_OUTILS: dict = {}
+
+
+def regles_par_outil(noms_outils: list[str]) -> dict:
+    """Pour la console Cursor : quelles règles du projet encadrent chaque outil MCP (l'outil est cité dans la règle),
+    et quelles règles s'appliquent toujours. Lecture seule : sans version dans le projet, les règles livrées font foi.
+    {"outils": {nom: [fichier installé…]}, "toujours": [fichier…], "version": n}"""
+    ix = _index()
+    f = _dossier() / "index.json"
+    cle = (str(_dossier()), ix.get("active"), f.stat().st_mtime_ns if f.exists() else 0, len(noms_outils))
+    if _CACHE_OUTILS.get("cle") == cle:
+        return _CACHE_OUTILS["valeur"]
+    textes = {}
+    for rid, _, cible, _role in RUBRIQUES:
+        try:
+            textes[cible] = contenu(rid) if ix["versions"] else _texte_base(rid)
+        except (KeyError, OSError):
+            continue
+    toujours = [c for c, t in textes.items() if portee(t) == "toujours"]
+    outils = {}
+    for nom in noms_outils:
+        motif = re.compile(r"(?<![\w])" + re.escape(nom) + r"(?![\w])")
+        outils[nom] = [c for c, t in textes.items() if c not in toujours and motif.search(t)]
+    valeur = {"outils": outils, "toujours": toujours, "version": ix.get("active") or 0}
+    _CACHE_OUTILS.update(cle=cle, valeur=valeur)
+    return valeur
 
 
 def actives() -> list[dict]:

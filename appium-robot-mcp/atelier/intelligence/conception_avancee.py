@@ -260,3 +260,100 @@ def verifier_doublons(cle: str) -> dict:
         n += 1
     t._sauver_us(d)
     return {"verifies": n, "us": t.detail(cle)}
+
+
+# =========================================================================== doublons jugés par une IA (Cursor / LLM)
+VERDICTS_DOUBLON = {"reutiliser": "réutiliser", "faire_evoluer": "faire évoluer", "creer": "créer"}
+CONSIGNE_DOUBLONS = (
+    "Pour chaque cas, dire s'il existe déjà : « reutiliser » si un test existant vérifie le même objectif avec le même résultat "
+    "attendu (le cas n'est pas à créer) ; « faire_evoluer » si un test existant vise le même objectif mais doit être complété ou "
+    "ajusté ; « creer » sinon. Les mots communs ne suffisent pas : un résultat opposé (accepté / refusé, éligible / non éligible, "
+    "succès / erreur) n'est jamais un doublon ; une reformulation du même contrôle en est un. Les candidats sont une présélection "
+    "par ressemblance des mots : le bon test peut manquer, et aucun peut ne convenir. En cas de doute entre réutiliser et créer : "
+    "« faire_evoluer » (l'automaticien comparera). Justification obligatoire : ce qui est identique, ce qui diffère.")
+
+
+def _jugeables(u: dict) -> list[dict]:
+    return [c for c in u.get("cas") or [] if c.get("statut") not in ("Publié", "Rejeté", "Regroupé")]
+
+
+def _verdict(v) -> str:
+    v = str(v or "").strip().lower().replace("é", "e").replace("è", "e").replace(" ", "_").replace("-", "_")
+    return {"reutiliser": "reutiliser", "faire_evoluer": "faire_evoluer", "evoluer": "faire_evoluer", "creer": "creer"}.get(v, v)
+
+
+def doublons_pour_agent(cle: str, limite: int = 6) -> dict:
+    """Pour une IA : chaque cas non publié de l'US (texte masqué) et les tests les plus proches PRÉSÉLECTIONNÉS par les mots
+    (tests Xray avec leurs étapes, autres cas de l'US), à juger : réutiliser, faire évoluer ou créer."""
+    from atelier.intelligence import patrimoine_xray, testabilite_us as t
+    from atelier.intelligence.jugement_ia import SECOURS, court, etapes_courtes
+
+    _, u = t._exiger(cle)
+    tests = {x["cle"]: x for x in (patrimoine_xray.charger_vue() or {}).get("tests") or []}
+    out = []
+    for c in _jugeables(u):
+        autres = [x for x in u["cas"] if x["id"] != c["id"] and x.get("statut") not in ("Rejeté", "Regroupé")]
+        cands = []
+        for x in doublons(c["titre"], c.get("etapes") or [], c.get("gherkin") or "", autres, limite)["candidats"]:
+            cand = {"type": x["type"], "cle": x["cle"], "titre": court(x["titre"], 200), "proximite_mots": x["score"]}
+            if x["type"] == "test Xray":
+                tx = tests.get(x["cle"]) or {}
+                cand.update(etapes=etapes_courtes(tx.get("etapes"), 8, 160), gherkin=court(tx.get("gherkin"), 600))
+            cands.append(cand)
+        out.append({"id": c["id"], "titre": court(c.get("titre"), 200), "statut": c.get("statut"), "etapes": etapes_courtes(c.get("etapes")),
+                    "gherkin": court(c.get("gherkin"), 800), "candidats": cands, "jugement": (c.get("doublon") or {}).get("jugement")})
+    return {"cle": u["cle"], "resume": u.get("resume", ""), "texte": court(t._texte(u), 1500), "consigne": CONSIGNE_DOUBLONS,
+            "verdicts": list(VERDICTS_DOUBLON), "candidats_par": SECOURS, "cas": out}
+
+
+def deposer_jugements_doublons(cle: str, jugements: list[dict], source: str = "Cursor (MCP)") -> dict:
+    """Jugements de doublon d'une IA, contrôlés (cas jugeable, verdict connu, test cité connu pour réutiliser / faire
+    évoluer, justification), puis affichés sur chaque cas. Rien n'est rejeté, fusionné ni publié : l'automaticien décide."""
+    from atelier.intelligence import patrimoine_xray, testabilite_us as t
+    from atelier.intelligence.jugement_ia import justification as _j, maintenant
+
+    d, u = t._exiger(cle)
+    jug = {c["id"]: c for c in _jugeables(u)}
+    xray = {x["cle"]: x for x in (patrimoine_xray.charger_vue() or {}).get("tests") or []}
+    de_l_us = {c["id"]: c for c in u.get("cas") or []} | {c["cle_xray"]: c for c in u.get("cas") or [] if c.get("cle_xray")}
+    retenus, refuses, vus = [], [], set()
+    for n, j in enumerate(jugements or [], 1):
+        j = j if isinstance(j, dict) else {}
+        cid, v, test, just = str(j.get("cas") or ""), _verdict(j.get("verdict")), str(j.get("test") or "").strip(), _j(j.get("justification"))
+        raison = ("cas inconnu ou non jugeable (publié, rejeté ou regroupé)" if cid not in jug
+                  else "cas déjà jugé dans cet envoi" if cid in vus
+                  else "verdict inconnu (reutiliser, faire_evoluer ou creer)" if v not in VERDICTS_DOUBLON
+                  else "citer le test existant pour réutiliser ou faire évoluer" if v != "creer" and not test
+                  else "test inconnu (ni test Xray de l'instantané, ni autre cas de l'US)" if test and test not in xray
+                  and (test not in de_l_us or de_l_us[test]["id"] == cid)
+                  else "justification manquante" if not just else "")
+        if raison:
+            refuses.append({"index": n, "cas": cid, "raison": raison})
+            continue
+        vus.add(cid)
+        c = jug[cid]
+        c.setdefault("doublon", {"recommandation": None, "meilleur": None, "candidats": []})["jugement"] = {
+            "verdict": VERDICTS_DOUBLON[v], "test": test, "type": "test Xray" if test in xray else "cas de l'US" if test else "",
+            "titre": (xray[test].get("resume", "") if test in xray else de_l_us[test].get("titre", "")) if test else "",
+            "justification": just, "source": source, "date": maintenant()}
+        retenus.append(VERDICTS_DOUBLON[v])
+    t._sauver_us(d)
+    t._journaliser("doublons_juges", cle=cle, jugements=len(retenus), refuses=len(refuses), source=source)
+    return {"cle": cle, "retenus": len(retenus), "refuses": refuses, **{k: retenus.count(k) for k in VERDICTS_DOUBLON.values()}}
+
+
+SYSTEME_DOUBLONS = ("Tu es un ingénieur de test. On te donne une User Story, ses cas de test et, pour chacun, des tests existants "
+                    "présélectionnés. " + CONSIGNE_DOUBLONS + ' Réponds uniquement en JSON : {"jugements": [{"cas": "id", "verdict": '
+                    '"reutiliser|faire_evoluer|creer", "test": "clé du test existant ou vide", "justification": "..."}]}. En français.')
+
+
+def juger_doublons_ia(cle: str) -> dict:
+    """Doublons jugés par le LLM interne ou Claude (appel direct, texte masqué), mêmes contrôles que pour Cursor."""
+    from atelier.intelligence import jugement_ia, testabilite_us as t
+
+    vue = doublons_pour_agent(cle)
+    if not vue["cas"]:
+        return {"disponible": False, "raison": "Aucun cas à juger (tous publiés, rejetés ou regroupés)."}
+    r = jugement_ia.appel_direct({k: vue[k] for k in ("cle", "resume", "texte", "cas")}, SYSTEME_DOUBLONS, "jugements",
+                                 lambda l, s: deposer_jugements_doublons(cle, l, s), "test_design_doublons_a_juger puis test_design_juger_doublons")
+    return {**r, "us": t.detail(cle)} if r.get("disponible") else r

@@ -810,6 +810,110 @@ def coverage_proposer_lien(exigence: str, test: str, score: int, justification: 
     return p
 
 
+
+# =========================================================================== jugements délégués à Cursor (comprendre le texte)
+# Les règles présélectionnent par ressemblance des mots ; Cursor juge le sens, avec justification ; le serveur contrôle et
+# renvoie les refus motivés ; l'automaticien décide dans l'atelier (voir atelier/intelligence/jugement_ia.py).
+@outil
+def test_design_doublons_a_juger(cle: str) -> dict:
+    """Doublons : chaque cas non publié d'une US de Test Design (texte masqué) avec les tests Xray et autres cas de l'US
+    présélectionnés par les mots, la consigne et les verdicts possibles. Lire avant test_design_juger_doublons. Lecture seule."""
+    from atelier.intelligence import conception_avancee
+
+    return conception_avancee.doublons_pour_agent(cle)
+
+
+@outil
+def test_design_juger_doublons(cle: str, jugements: list[dict]) -> dict:
+    """Doublons : dépose ton jugement pour des cas d'une US. jugements : [{"cas": id, "verdict": "reutiliser" (un test
+    existant vérifie déjà le même objectif et le même résultat) | "faire_evoluer" (même objectif, test à compléter) |
+    "creer", "test": clé Xray ou id d'un autre cas de l'US (obligatoire sauf pour creer), "justification": ce qui est
+    identique, ce qui diffère}]. Un résultat opposé n'est jamais un doublon ; en cas de doute, faire_evoluer. Rien n'est
+    rejeté ni publié : l'automaticien décide. Renvoie les jugements retenus et refusés (avec la raison)."""
+    from atelier.intelligence import conception_avancee
+
+    return conception_avancee.deposer_jugements_doublons(cle, jugements or [], "Cursor (MCP)")
+
+
+@outil
+def xray_redondances_a_juger(module: str = "", limite: int = 30) -> dict:
+    """Tests Xray redondants : paires de tests d'un même module présélectionnées par les mots (titres et étapes
+    masqués), avec la consigne. Lire avant xray_juger_redondances. Lecture seule."""
+    from atelier.intelligence import couverture, patrimoine_xray
+
+    return couverture.redondances_pour_agent((patrimoine_xray.charger_vue() or {}).get("tests") or [], module, limite)
+
+
+@outil
+def xray_juger_redondances(jugements: list[dict]) -> dict:
+    """Tests Xray redondants : dépose ton jugement. jugements : [{"tests": [clé, clé], "verdict": "redondants" (même
+    objectif, même résultat attendu) | "distincts", "justification"}]. Aucun test n'est modifié ni supprimé :
+    l'automaticien décide. Renvoie les jugements retenus et refusés (avec la raison)."""
+    from atelier.intelligence import couverture, patrimoine_xray
+
+    return couverture.deposer_jugements_redondances((patrimoine_xray.charger_vue() or {}).get("tests") or [], jugements or [], "Cursor (MCP)")
+
+
+@outil
+def coverage_liens_a_juger(exigence: str = "", limite: int = 10) -> dict:
+    """Traçabilité : exigences (texte et critères masqués) avec les tests Xray candidats présélectionnés par les mots,
+    les tests déjà liés et la consigne. Sans exigence : d'abord celles sans test. Lire avant coverage_juger_liens.
+    Lecture seule."""
+    from atelier.intelligence import intelligence_couverture as ci
+
+    return ci.liens_a_juger(exigence, limite)
+
+
+@outil
+def coverage_juger_liens(jugements: list[dict]) -> dict:
+    """Traçabilité : dépose ton jugement exigence ↔ test. jugements : [{"exigence": clé, "test": clé, "verdict": "couvre"
+    | "partiel" | "ne_couvre_pas", "criteres_couverts": [...], "justification"}]. couvre / partiel : lien proposé (ou
+    avis sur la proposition des règles) ; ne_couvre_pas : avis sur la proposition des règles. Aucun lien n'est créé dans
+    Jira / Xray : l'automaticien valide. Renvoie les jugements retenus et refusés (avec la raison)."""
+    from atelier.intelligence import intelligence_couverture as ci
+
+    return ci.deposer_jugements_liens(jugements or [], "Cursor (MCP)")
+
+
+@outil
+def coverage_orphelins_a_classer(limite: int = 20) -> dict:
+    """Tests orphelins : tests Xray sans exigence et sans classement en cours (texte masqué), candidats présélectionnés
+    par les mots, exigences du périmètre et classes possibles. Lire avant coverage_classer_orphelins. Lecture seule."""
+    from atelier.intelligence import intelligence_couverture as ci
+
+    return ci.orphelins_a_classer(limite)
+
+
+@outil
+def coverage_classer_orphelins(classements: list[dict]) -> dict:
+    """Tests orphelins : propose un classement. classements : [{"test": clé, "classe": "associer" | "nouvelle_exigence" |
+    "technique" | "transversal" | "conserver", "cible": clé de l'exigence (pour associer), "justification"}]. Propositions
+    à valider dans l'atelier, jamais appliquées. Renvoie les classements retenus et refusés (avec la raison)."""
+    from atelier.intelligence import intelligence_couverture as ci
+
+    return ci.deposer_classements_orphelins(classements or [], "Cursor (MCP)")
+
+
+@outil
+def discovery_correlations_a_juger(ecran: str = "", limite: int = 15) -> dict:
+    """Corrélation écran ↔ exigence : écrans de la carte (éléments observés, libellés masqués), exigences déjà liées,
+    candidates présélectionnées par les mots et exigences de la copie locale Jira. Sans écran : d'abord ceux sans
+    exigence. Lire avant discovery_juger_correlations. Lecture seule."""
+    from atelier.discovery import correlation
+
+    return correlation.correlations_a_juger(ecran, limite)
+
+
+@outil
+def discovery_juger_correlations(jugements: list[dict]) -> dict:
+    """Corrélation écran ↔ exigence : dépose ton jugement. jugements : [{"ecran": id ou nom, "exigence": clé, "verdict":
+    "concerne" | "ne_concerne_pas", "justification"}]. Le lien n'entre dans le Knowledge Graph qu'après confirmation de
+    l'automaticien. Renvoie les jugements retenus et refusés (avec la raison)."""
+    from atelier.discovery import correlation
+
+    return correlation.deposer_correlations(jugements or [], "Cursor (MCP)")
+
+
 __all__ = [f.__name__ for f in OUTILS]
 
 
@@ -880,6 +984,23 @@ def cursor_regles(regle: str = "") -> list[dict]:
     return [{k: v for k, v in x.items() if k != "contenu"} for x in l]
 
 
+@outil
+def agent_annoncer(intention: str, modele: str = "", etape: str = "", regles: list[str] | None = None) -> dict:
+    """Annonce à l'automaticien, en une phrase, ce que tu vas faire (console Cursor de l'atelier). À appeler au début
+    de chaque tâche et à chaque changement d'étape. intention : phrase en français (« J'analyse les US de la squad DRE
+    pour proposer les cas de test ») ; modele : le modèle qui te fait fonctionner, si tu le connais ; etape : étape du
+    parcours ou du travail ; regles : règles .mdc du projet que tu appliques. N'écrit rien : simple annonce."""
+    from atelier.domain import evenements
+
+    propre = lambda t, n: " ".join(str(t or "").split())[:n]  # noqa: E731
+    ev = {"type": "mcp_annonce", "intention": propre(intention, 400), "modele": propre(modele, 80), "etape": propre(etape, 120),
+          "regles": [propre(r, 60) for r in (regles or [])][:6]}
+    if not ev["intention"]:
+        return {"ok": False, "erreur": "intention vide : une phrase en français est attendue."}
+    evenements.publier(ev)
+    return {"ok": True, "affiche": "Annonce visible dans la console Cursor de l'atelier."}
+
+
 # =========================================================================== couverture avancée (V2, phase 3)
 @outil
 def coverage_ui(module: str = "", detail: bool = False) -> dict:
@@ -914,12 +1035,36 @@ def test_design_proposer(cle: str, categories: list[str] | None = None) -> dict:
 
 @outil
 def test_design_doublons(titre: str, etapes: list[dict] | None = None, gherkin: str = "") -> dict:
-    """Avant de proposer un scénario : tests Xray existants les plus proches (titre, étapes, préconditions, résultats
-    attendus comparés) et recommandation : réutiliser (≥ 0,70), faire évoluer (≥ 0,40) ou créer. etapes :
+    """Avant de proposer un scénario : tests Xray existants les plus proches par RESSEMBLANCE DES MOTS (titre, étapes,
+    préconditions, résultats attendus) et recommandation des règles : réutiliser (≥ 0,70), faire évoluer (≥ 0,40) ou
+    créer. Présélection seulement, sans compréhension du texte : juger le sens toi-même (résultat opposé = pas un
+    doublon) ; pour les cas d'une US, utiliser test_design_doublons_a_juger puis test_design_juger_doublons. etapes :
     [{"action", "donnees", "resultat"}] ; gherkin : texte Given / When / Then."""
     from atelier.intelligence import conception_avancee
 
     return conception_avancee.doublons(titre, etapes or [], gherkin)
+
+
+@outil
+def test_design_cas_us(cle: str) -> dict:
+    """Une US de Test Design (texte et réponses de l'équipe masqués) et ses cas regroupables (id, titre, statut, source,
+    étapes, Gherkin, couvre), avec la consigne de regroupement. À lire avant test_design_proposer_regroupements, et
+    avant testabilite_deposer_proposition pour une US précise. Lecture seule."""
+    from atelier.intelligence import granularite_tests
+
+    return granularite_tests.cas_pour_agent(cle)
+
+
+@outil
+def test_design_proposer_regroupements(cle: str, propositions: list[dict]) -> dict:
+    """Granularité : propose de regrouper des cas d'une US (un test = un objectif). propositions : [{"cas": [id, id, ...],
+    "mode": "donnees" (même chemin, données différentes : un test à variantes) | "controle" (un détail devient un point
+    de contrôle d'un autre cas), "titre", "justification" (obligatoire : pourquoi c'est le même objectif), "couvre":
+    [comportements de l'US vérifiés]}]. Ne jamais regrouper des résultats métier différents. Rien n'est regroupé :
+    l'automaticien applique ou écarte chaque proposition dans l'atelier. Renvoie les propositions retenues et refusées."""
+    from atelier.intelligence import granularite_tests
+
+    return granularite_tests.deposer_regroupements(cle, propositions or [], "Cursor (MCP)")
 
 
 # =========================================================================== Champ et Anomalie (V2, phase 5)
