@@ -84,3 +84,40 @@ def test_mcp_suit_le_projet_actif(tmp_path, monkeypatch):
     projets.suivre_actif()
     assert projet.PROJECT_DIR == b.resolve()
     del pb
+
+
+def test_mode_http_entree_url_pour_cursor_seulement(poste, monkeypatch):
+    """Équipe Cursor qui n'autorise que des URL : MCP_HTTP_PORT → Cursor reçoit {"url": …}, Claude Desktop reste en stdio."""
+    monkeypatch.setenv("MCP_HTTP_PORT", "8000")
+    assert poste.entree(8765, "cursor") == {"url": "http://localhost:8000/mcp"}
+    assert poste.entree(8765, "claude")["args"][0].endswith("server.py")
+    poste.installer("cursor", 8765)
+    d = json.loads(poste.fichier_config("cursor").read_text("utf-8"))
+    assert d["mcpServers"]["appium-robot"] == {"url": "http://localhost:8000/mcp"}
+    e = poste.etat(8765)
+    assert e["agents"]["cursor"]["a_jour"] and e["http"] == {"url": "http://localhost:8000/mcp", "actif": False}
+    monkeypatch.setenv("MCP_HTTP_PORT", "huit-mille")
+    with pytest.raises(ValueError):
+        poste.port_http()
+    monkeypatch.delenv("MCP_HTTP_PORT")
+    assert "command" in poste.entree(8765, "cursor") and poste.etat(8765)["http"] is None
+
+
+def test_mode_http_serveur_reel_local_et_arret_avec_l_atelier(poste, monkeypatch):
+    """Serveur MCP réellement démarré en HTTP : 127.0.0.1 seulement, outils listés par l'URL, arrêté avec l'atelier."""
+    import socket
+
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    monkeypatch.setenv("MCP_HTTP_PORT", str(port))
+    p = poste.demarrer_serveur_http(8765)
+    try:
+        r = poste.verifier(8765, 60)
+        assert r["ok"] and r["outils"] >= 101 and r["commande"] == f"http://localhost:{port}/mcp", r
+    finally:
+        poste.arreter_serveur_http()
+    assert p.wait(10) is not None
+    r = poste.verifier_http(f"http://localhost:{port}/mcp", 2)
+    assert not r["ok"] and "injoignable" in r["erreur"]

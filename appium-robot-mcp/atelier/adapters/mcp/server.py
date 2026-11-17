@@ -203,14 +203,36 @@ def __getattr__(nom: str):
     raise AttributeError(nom)
 
 
-def main():
+def main(argv: list[str] | None = None):
+    """stdio par défaut (Cursor lance le serveur) ; « --http » : HTTP streamable sur http://127.0.0.1:<MCP_HTTP_PORT, 8000>/mcp,
+    pour une équipe Cursor qui n'autorise que des URL (l'atelier le démarre lui-même, voir agents_ia)."""
+    import os
+    import sys
+
+    args = sys.argv[1:] if argv is None else argv
     try:
         from atelier.domain import projets
 
         projets.au_demarrage()  # dernier projet actif de l'atelier, connexions et coffre (sauf ROBOT_PROJECT_DIR imposé)
     except Exception:  # noqa: BLE001
         pass
-    mcp.run()
+    if "--http" in args:
+        from atelier.integrations import agents_ia
+
+        mcp.settings.host = "127.0.0.1"  # interface locale uniquement, jamais exposée
+        mcp.settings.port = agents_ia.port_http() or 8000
+        if os.environ.get("ATELIER_SURVEILLER_PARENT") == "1":  # démarré par l'atelier : s'arrêter avec lui
+            def _surveiller():
+                try:
+                    while sys.stdin.read(4096):
+                        pass
+                finally:
+                    os._exit(0)
+
+            threading.Thread(target=_surveiller, daemon=True, name="surveillance-atelier").start()
+        mcp.run(transport="streamable-http")
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":

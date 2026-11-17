@@ -8,6 +8,9 @@
 - Les règles Cursor (11 fichiers .mdc, versionnés par projet : atelier/integrations/regles_cursor.py) sont copiées
   dans <projet de tests>/.cursor/rules/ : aucun chemin local ; un fichier modifié localement n'est remplacé qu'avec accord.
 - verifier() lance réellement le serveur MCP (stdio) et liste ses outils : la connexion est prouvée, pas supposée.
+- Mode HTTP (MCP_HTTP_PORT, ex. 8000) : quand l'équipe Cursor n'autorise que des URL (liste blanche d'administration,
+  ex. http://localhost:8000/mcp), l'atelier démarre lui-même le serveur MCP en HTTP sur 127.0.0.1 (jamais exposé) et
+  l'entrée Cursor devient {"url": …}. Claude Desktop garde le mode stdio.
 """
 from __future__ import annotations
 
@@ -34,17 +37,69 @@ def fichier_config(agent: str) -> Path:
     raise ValueError("Agent : cursor ou claude.")
 
 
-def entree(port: int) -> dict:
-    """Entrée « appium-robot » : Python de l'atelier (son environnement virtuel), server.py, interface locale."""
+def port_http() -> int | None:
+    """Port du serveur MCP en HTTP (variable MCP_HTTP_PORT) ; None = mode stdio (Cursor lance le serveur lui-même)."""
+    v = os.environ.get("MCP_HTTP_PORT", "").strip()
+    if not v:
+        return None
+    if not v.isdigit() or not 0 < int(v) < 65536:
+        raise ValueError(f"MCP_HTTP_PORT invalide : {v!r} (attendu : un numéro de port, ex. 8000).")
+    return int(v)
+
+
+def url_http() -> str:
+    return f"http://localhost:{port_http()}/mcp"
+
+
+def _env_serveur(port: int) -> dict:
     env = {"WEB_EVENTS_URL": f"http://127.0.0.1:{port}/api/events"}
     for v in ("APPIUM_URL", "ATELIER_JETON_FICHIER", "ATELIER_PROJETS"):  # réglages non secrets du poste, s'ils sont imposés
         if os.environ.get(v):
             env[v] = os.environ[v]
-    return {"command": sys.executable, "args": [str(projet.RACINE_OUTIL / "server.py")], "env": env}
+    return env
+
+
+def entree(port: int, agent: str = "cursor") -> dict:
+    """Entrée « appium-robot » : Python de l'atelier (son environnement virtuel), server.py, interface locale ;
+    en mode HTTP (Cursor seulement), l'URL du serveur MCP que l'atelier a démarré."""
+    if agent == "cursor" and port_http():
+        return {"url": url_http()}
+    return {"command": sys.executable, "args": [str(projet.RACINE_OUTIL / "server.py")], "env": _env_serveur(port)}
 
 
 def config(port: int) -> dict:
     return {"mcpServers": {NOM: entree(port)}}
+
+
+_serveur_http: dict = {}
+
+
+def demarrer_serveur_http(port: int):
+    """Mode HTTP : démarre le serveur MCP (python server.py --http) à côté de l'interface ; None en mode stdio."""
+    import subprocess
+
+    if not port_http():
+        return None
+    env = {**os.environ, **_env_serveur(port), "PYTHONIOENCODING": "utf-8", "FASTMCP_LOG_LEVEL": "WARNING",
+           "ATELIER_SURVEILLER_PARENT": "1"}
+    # stdin relié à l'atelier : s'il s'arrête, même brutalement, le serveur MCP voit la fin du flux et s'arrête (port libéré)
+    p = subprocess.Popen([sys.executable, str(projet.RACINE_OUTIL / "server.py"), "--http"], env=env, stdin=subprocess.PIPE)
+    _serveur_http["p"] = p
+    return p
+
+
+def arreter_serveur_http() -> None:
+    p = _serveur_http.pop("p", None)
+    if p and p.poll() is None:
+        try:
+            p.stdin.close()
+        except OSError:
+            pass
+        p.terminate()
+        try:
+            p.wait(5)
+        except Exception:  # noqa: BLE001
+            p.kill()
 
 
 def _lire(f: Path) -> dict:
@@ -58,9 +113,9 @@ def _lire(f: Path) -> dict:
 
 def etat(port: int) -> dict:
     """Pour chaque agent : fichier, installé ou non, à jour ou non (chemins / port différents) ; règles du projet."""
-    attendu = entree(port)
     agents = {}
     for a in ("cursor", "claude"):
+        attendu = entree(port, a)
         f = fichier_config(a)
         try:
             actuel = (_lire(f).get("mcpServers") or {}).get(NOM)
@@ -73,7 +128,9 @@ def etat(port: int) -> dict:
 
     regles = {x["fichier"]: {"present": x["statut"] != "nouveau", "a_jour": x["statut"] == "identique", "statut": x["statut"]}
               for x in regles_cursor.apercu()}
-    return {"agents": agents, "regles": regles, "projet": str(projet.PROJECT_DIR), "config": config(port)}
+    p = _serveur_http.get("p")
+    http = {"url": url_http(), "actif": bool(p and p.poll() is None)} if port_http() else None
+    return {"agents": agents, "regles": regles, "projet": str(projet.PROJECT_DIR), "config": config(port), "http": http}
 
 
 def installer(agent: str, port: int) -> dict:
@@ -84,7 +141,7 @@ def installer(agent: str, port: int) -> dict:
     if f.exists():
         sauvegarde = str(f) + ".bak"
         shutil.copyfile(f, sauvegarde)
-    d.setdefault("mcpServers", {})[NOM] = entree(port)
+    d.setdefault("mcpServers", {})[NOM] = entree(port, agent)
     f.parent.mkdir(parents=True, exist_ok=True)
     tmp = f.with_suffix(".tmp")
     tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), "utf-8")
@@ -103,11 +160,14 @@ def installer_regles(ecraser: bool = False) -> dict:
 
 
 def verifier(port: int, delai_s: int = 40) -> dict:
-    """Démarre le serveur MCP comme le fera Cursor (même commande, stdio), fait l'initialisation et liste les outils."""
+    """Démarre le serveur MCP comme le fera Cursor (même commande, stdio), fait l'initialisation et liste les outils ;
+    en mode HTTP, interroge le serveur que l'atelier a démarré, à l'URL configurée dans Cursor."""
     import subprocess
     import time
 
-    e = entree(port)
+    if port_http():
+        return verifier_http(url_http(), delai_s)
+    e = entree(port, "claude")
     debut = time.monotonic()
     env = {**os.environ, **e["env"], "PYTHONIOENCODING": "utf-8"}
     p = subprocess.Popen([e["command"], *e["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -134,3 +194,51 @@ def verifier(port: int, delai_s: int = 40) -> dict:
     return {"ok": ok, "outils": len(outils), "serveur": ((reponses.get(1) or {}).get("result") or {}).get("serverInfo", {}),
             "duree_s": round(time.monotonic() - debut, 1), "commande": " ".join([e["command"], *e["args"]]),
             "erreur": "" if ok else (err or "")[-600:] or "aucune réponse du serveur MCP"}
+
+
+def _post_http(url: str, corps: dict, session: str, delai_s: float):
+    """Un message JSON-RPC en HTTP « streamable » : réponse JSON ou flux SSE (lignes « data: »)."""
+    import urllib.request
+
+    h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    if session:
+        h["Mcp-Session-Id"] = session
+    req = urllib.request.Request(url, json.dumps(corps).encode("utf-8"), h, method="POST")
+    with urllib.request.urlopen(req, timeout=delai_s) as rep:  # noqa: S310 (URL locale construite par l'atelier)
+        texte = rep.read().decode("utf-8", "replace")
+        sid = rep.headers.get("Mcp-Session-Id") or session
+    for ligne in texte.splitlines() if "data:" in texte else [texte]:
+        ligne = ligne[5:].strip() if ligne.startswith("data:") else ligne.strip()
+        try:
+            m = json.loads(ligne)
+        except ValueError:
+            continue
+        if isinstance(m, dict) and m.get("id") == corps.get("id"):
+            return m, sid
+    return None, sid
+
+
+def verifier_http(url: str, delai_s: int = 40) -> dict:
+    """Initialise une session MCP sur l'URL (le serveur peut encore démarrer : nouvel essai pendant delai_s) et liste les outils."""
+    import time
+
+    debut = time.monotonic()
+    erreur = ""
+    init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+                                                                         "clientInfo": {"name": "atelier-verification", "version": "1"}}}
+    while time.monotonic() - debut < delai_s:
+        try:
+            r1, sid = _post_http(url, init, "", 15)
+            _post_http(url, {"jsonrpc": "2.0", "method": "notifications/initialized"}, sid, 15)
+            r2, _ = _post_http(url, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, sid, 30)
+            outils = [t["name"] for t in ((r2 or {}).get("result") or {}).get("tools", [])]
+            ok = bool(outils) and "result" in (r1 or {})
+            return {"ok": ok, "outils": len(outils), "serveur": ((r1 or {}).get("result") or {}).get("serverInfo", {}),
+                    "duree_s": round(time.monotonic() - debut, 1), "commande": url,
+                    "erreur": "" if ok else "réponse MCP inattendue"}
+        except OSError as e:  # serveur pas encore prêt, ou port occupé par un autre programme
+            erreur = str(getattr(e, "reason", "") or e)
+            time.sleep(1)
+    return {"ok": False, "outils": 0, "serveur": {}, "duree_s": round(time.monotonic() - debut, 1), "commande": url,
+            "erreur": f"serveur MCP injoignable sur {url} ({erreur}). Lancer l'atelier avec MCP_HTTP_PORT défini ; "
+                      "si le port est pris par un autre programme, en choisir un autre autorisé par l'équipe Cursor."}

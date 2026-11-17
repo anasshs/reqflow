@@ -287,12 +287,14 @@
     z.innerHTML = `<p class="lib" style="max-width:900px">Cursor (ou Claude Desktop) pilote l'atelier par le MCP : il navigue sur le device, construit les tests, mène les Discovery et dépose ses propositions,
         que vous validez ici. La configuration ne contient <b>ni secret ni chemin de projet</b> : le MCP utilise le projet actif de l'atelier et ses connexions.</p>
       ${etape(1, c.a_jour, "Installer le MCP dans Cursor", `<p>${statut(c)} <span class="lib mono">${esc(c.fichier)}</span></p>
+        ${d.http ? `<p>Mode HTTP : Cursor se connecte à <span class="mono">${esc(d.http.url)}</span> ${d.http.actif ? '<span class="pill ok">serveur MCP démarré</span>' : '<span class="pill ko">serveur MCP arrêté</span>'}
+          <span class="lib">(adresse à faire autoriser par l'administrateur de l'équipe Cursor ; l'atelier doit rester ouvert)</span></p>` : ""}
         <div class="btns"><button class="btn primaire" data-inst="cursor">${c.a_jour ? "Réinstaller" : "Installer dans Cursor"}</button><button class="btn" id="ag-copie">Copier la configuration</button></div>
         <p class="lib">Les autres serveurs MCP de Cursor sont conservés ; l'ancien fichier est sauvegardé (.bak). Ensuite dans Cursor : Settings › MCP, vérifier « appium-robot » (activer / rafraîchir).</p>`)}
       ${etape(2, regles.every(r => r.a_jour), "Règles Cursor du projet (11 fichiers, versionnées)", `<div id="ag-rg">${vide("Chargement des règles…")}</div>`)}
       ${etape(3, actif, "Vérifier la connexion", `<p>${actif ? `<span class="pill ok">Cursor connecté</span> dernière action il y a ${Math.round(d.derniere_activite_s / 60)} min` : '<span class="pill">pas encore vu</span>'}</p>
         <p class="lib">Dans Cursor, demander par exemple : « Où suis-je dans l'application ? » (outil where_am_i) ou « Démarre une Discovery de l'application en recette ». L'atelier doit être lancé (python web/app.py).</p>
-        <div class="btns"><button class="btn primaire" id="ag-test" title="Démarre le serveur MCP exactement comme Cursor (même commande, stdio), l'initialise et liste ses outils">Tester le serveur MCP</button>
+        <div class="btns"><button class="btn primaire" id="ag-test" title="Interroge le serveur MCP comme Cursor (même commande en stdio, même URL en mode HTTP), l'initialise et liste ses outils">Tester le serveur MCP</button>
           <button class="btn" id="ag-rafr">Actualiser</button></div><div id="ag-test-r" class="lib"></div>`)}
       <details><summary class="lib">Claude Desktop</summary><p style="margin-top:6px">${statut(cl)} <span class="lib mono">${esc(cl.fichier)}</span></p>
         <div class="btns"><button class="btn" data-inst="claude">${cl.a_jour ? "Réinstaller" : "Installer dans Claude Desktop"}</button></div>

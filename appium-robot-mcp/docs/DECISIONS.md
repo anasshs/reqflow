@@ -398,3 +398,14 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   granularité ne remplacent plus les propositions d'une IA ni l'historique ; un classement déjà décidé n'est pas
   compté comme déposé ; écriture atomique avec un fichier temporaire par écriture.
 - Tests propres à Linux (droits 0600 du fichier de jeton, lien symbolique) : adaptés, pas le code.
+
+## 2026-11-17 — Serveur MCP en HTTP pour une équipe Cursor qui n'autorise que des URL
+- Contexte : l'administrateur de l'équipe Cursor bloque les serveurs MCP absents de sa liste blanche (« blocked by
+  team admin ») ; la liste contient déjà l'URL `http://localhost:8000/mcp`, pas la commande `python server.py`.
+- `MCP_HTTP_PORT` (ex. 8000) : l'interface démarre elle-même `server.py --http` (HTTP « streamable » du SDK MCP,
+  chemin `/mcp`), écoute 127.0.0.1 uniquement, protection DNS rebinding du SDK (hôte étranger refusé : 421). Le
+  serveur est arrêté avec l'interface, y compris si elle est tuée (fin du flux stdin surveillée).
+- « Installer dans Cursor » écrit alors `{"url": "http://localhost:<port>/mcp"}` ; « Tester le serveur MCP » interroge
+  cette URL. Claude Desktop reste en stdio. Sans `MCP_HTTP_PORT`, rien ne change (Cursor lance server.py).
+- Limite : l'interface doit rester ouverte pendant que Cursor travaille ; un autre programme sur le port l'empêche
+  de démarrer (signalé par le test de connexion). Aucune dépendance ajoutée (SDK `mcp` déjà présent).

@@ -2476,6 +2476,20 @@ def _planificateur():
 
 
 @app.on_event("startup")
+def _demarrer_mcp_http():
+    from atelier.integrations import agents_ia
+
+    _call_silencieux(agents_ia.demarrer_serveur_http, PORT)  # MCP_HTTP_PORT défini : Cursor se connecte par URL
+
+
+@app.on_event("shutdown")
+def _arreter_mcp_http():
+    from atelier.integrations import agents_ia
+
+    agents_ia.arreter_serveur_http()
+
+
+@app.on_event("startup")
 def _demarrer_planificateur():
     threading.Thread(target=_planificateur, daemon=True, name="planificateur").start()
 
