@@ -118,14 +118,23 @@ def vue_connaissance(types: list[str] | None = None, categories: list[str] | Non
     return {**_limiter(g.filtrer(types, categories, plateforme, recherche)), "patrimoine_masque": masques}
 
 
-def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = "") -> dict:
+def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = "", test: str = "") -> dict:
+    """test (clé Xray) : ouvre la vue sur le module du test, ou sur sa seule traçabilité s'il n'a pas de module ;
+    le test est renvoyé dans « focus » pour être sélectionné et centré."""
     from atelier.intelligence import couverture, patrimoine_xray
 
     g = _graphe()
     pat = patrimoine_xray.charger_vue()
-    v = couverture.vue(g, module, afficher).filtrer(recherche=recherche)
+    focus = ""
+    if test:
+        focus = test if test.startswith("test:") else f"test:{test}"
+        module = module or couverture.module_du_test(g, focus)
+    v = couverture.vue(g, module, afficher) if module or not focus else couverture.vue_test(g, focus)
+    if focus and focus not in v.noeuds:  # filtre manuels / automatisés qui l'excluait : on garde le test demandé
+        v = couverture.vue_test(g, focus)
+    v = v.filtrer(recherche=recherche)
     return {**_limiter(v), "indicateurs": couverture.indicateurs(g, pat), "instantane": patrimoine_xray.etat(),
-            "modules": sorted({n.libelle for n in g.noeuds.values() if n.type == "module"})}
+            "modules": sorted({n.libelle for n in g.noeuds.values() if n.type == "module"}), "module": module, "focus": focus}
 
 
 def candidats(module: str = "") -> list[dict]:

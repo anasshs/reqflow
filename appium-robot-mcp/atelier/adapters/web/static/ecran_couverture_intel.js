@@ -179,7 +179,7 @@
     if ($("#tm-cursor", c)) $("#tm-cursor", c).onclick = () => DemanderCursor("Traçabilité : demander à Cursor", "Juge la traçabilité exigence ↔ test de l'application active. "
       + "Lis les exigences et les tests candidats avec coverage_liens_a_juger (d'abord les exigences sans test), puis dépose tes verdicts avec coverage_juger_liens : "
       + "couvre (le test vérifie le comportement demandé), partiel (citer les critères couverts) ou ne_couvre_pas (seuls des mots sont communs), avec une justification. "
-      + "Tu peux citer un autre test de l'application s'il est plus pertinent. Aucun lien n'est créé dans Jira / Xray : je valide dans l'atelier.");
+      + "Tu peux citer un autre test de l'application s'il est plus pertinent. Aucun lien n'est créé dans Jira / Xray : je valide dans l'atelier.", undefined, ["coverage_juger_liens"]);
     SuivreCursor("ci-liens", ["coverage_juger_liens", "coverage_proposer_lien"], c, rendre);
     $("#tm-f", c).onchange = rendre;
     rendre();
@@ -227,7 +227,7 @@
       toast(`IA : ${r.retenus} classement(s) proposé(s)${r.refuses.length ? `, ${r.refuses.length} refusé(s)` : ""} (à valider).`, "ok"); recharger(z); } catch (e) { toast(e.message, "ko"); } };
     if ($("#or-cursor", c)) $("#or-cursor", c).onclick = () => DemanderCursor("Tests orphelins : demander à Cursor", "Classe les tests Xray sans exigence de l'application active. "
       + "Lis-les avec coverage_orphelins_a_classer, puis propose un classement avec coverage_classer_orphelins : associer (à une exigence qu'il vérifie vraiment, cible = sa clé), "
-      + "nouvelle_exigence, technique, transversal ou conserver, avec une justification. Pas de rattachement sur des mots communs seulement. Je valide dans l'atelier.");
+      + "nouvelle_exigence, technique, transversal ou conserver, avec une justification. Pas de rattachement sur des mots communs seulement. Je valide dans l'atelier.", undefined, ["coverage_classer_orphelins"]);
     SuivreCursor("ci-orphelins", ["coverage_classer_orphelins"], c, () => recharger(z));
     propositionsListe($("#or-p", c), "classement_orphelin", z);
   }

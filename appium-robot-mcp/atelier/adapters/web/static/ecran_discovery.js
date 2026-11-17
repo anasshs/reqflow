@@ -201,7 +201,7 @@
     if ($("#co-cursor", z)) $("#co-cursor", z).onclick = () => DemanderCursor("Corrélation écran ↔ exigence : demander à Cursor", "Relie les écrans de la carte de l'application active aux exigences Jira. "
       + "Lis les écrans (éléments observés), les exigences et les candidates avec discovery_correlations_a_juger (d'abord les écrans sans exigence), puis dépose tes verdicts avec "
       + "discovery_juger_correlations : concerne (l'exigence décrit un comportement visible ou déclenché sur cet écran) ou ne_concerne_pas (un mot commun ne suffit pas), avec une justification. "
-      + "Je confirme chaque lien dans l'atelier avant qu'il entre dans le Knowledge Graph.");
+      + "Je confirme chaque lien dans l'atelier avant qu'il entre dans le Knowledge Graph.", undefined, ["discovery_juger_correlations"]);
     SuivreCursor("correlation", ["discovery_juger_correlations"], z, () => correlation(z));
     if (ECRAN && s.ecrans.some(e => e.id === ECRAN)) detailCorrelation(ECRAN);
   }

@@ -96,19 +96,23 @@ const lienCursor = texte => {
   const url = "cursor://anysphere.cursor-deeplink/prompt?text=" + encodeURIComponent(texte.replace(/&/g, "et"));
   return url.length <= 8000 ? url : "";
 };
-window.DemanderCursor = (titre, texte, explication = "Cursor comprend le texte et juge ; rien n'est appliqué sans vous. Ses jugements apparaissent ici dès qu'il les dépose, avec leur justification.") => {
+/* attendus : outils MCP dont la fin signifie « résultat déposé » (suivi de la demande : suivi_cursor.js) */
+window.DemanderCursor = (titre, texte, explication = "Cursor comprend le texte et juge ; rien n'est appliqué sans vous. Ses jugements apparaissent ici dès qu'il les dépose, avec leur justification.", attendus = []) => {
   const lien = lienCursor(texte);
   const m = modale(titre, `<p>${lien ? "« Ouvrir dans Cursor » ouvre le chat de Cursor avec cette demande déjà écrite : relisez-la et envoyez-la. Si Cursor ne s'ouvre pas, collez-la (elle est aussi copiée)." : "Collez cette demande dans le chat de Cursor."}
       <span class="lib">Règles de l'atelier installées depuis Paramètres › Cursor / Claude.</span></p>
     <textarea class="in mono" rows="6" readonly style="width:100%">${esc(texte)}</textarea>
-    <p class="lib">${explication}</p>`,
+    <p class="lib">${explication}</p>
+    <p class="lib">${ico("ia")} Suivi : le panneau « Demandes à Cursor » (en bas à droite) indique le temps écoulé, le moment où Cursor prend la demande en compte,
+      ce qu'il fait, et quand son résultat est déposé.</p>`,
     `<button class="btn" data-copier>Copier</button>${lien ? `<a class="btn primaire" data-ouvrir href="${esc(lien)}" title="Ouvre Cursor avec la demande pré-remplie dans le chat (le navigateur peut demander d'autoriser l'ouverture)">Ouvrir dans Cursor</a>` : ""}`);
   const copier = async (silencieux = false) => {
     try { await navigator.clipboard.writeText(texte); if (!silencieux) toast("Demande copiée : la coller dans Cursor.", "ok"); return true; }
     catch (e) { $("textarea", m.el).select(); if (!silencieux) toast("Sélectionnée : Ctrl + C pour copier.", "ok"); return false; }
   };
-  $("[data-copier]", m.el).onclick = async () => { if (await copier()) m.fermer(); };
-  if (lien) $("[data-ouvrir]", m.el).onclick = () => { copier(true); toast("Cursor s'ouvre avec la demande : relisez-la puis envoyez. Les résultats s'afficheront ici.", "ok"); setTimeout(m.fermer, 300); };
+  const suivre = () => window.SuiviCursor?.ajouter(titre, attendus);
+  $("[data-copier]", m.el).onclick = async () => { if (await copier()) { suivre(); m.fermer(); } };
+  if (lien) $("[data-ouvrir]", m.el).onclick = () => { copier(true); suivre(); toast("Cursor s'ouvre avec la demande : relisez-la puis envoyez. Le suivi s'affiche en bas à droite.", "ok"); setTimeout(m.fermer, 300); };
 };
 /* rafraîchit une vue quand Cursor dépose un jugement (un seul abonnement par vue ; s'arrête quand la vue a disparu) */
 const ABOS_IA = {};

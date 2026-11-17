@@ -104,7 +104,7 @@
       toast(`IA : ${r.redondants} paire(s) redondante(s), ${r.distincts} distincte(s).`, "ok"); efficacite(z); } catch (x) { toast(x.message, "ko"); } };
     if ($("#red-cursor", z)) $("#red-cursor", z).onclick = () => DemanderCursor("Tests redondants : demander à Cursor", "Repère les tests Xray redondants de l'application active. "
       + "Lis les paires présélectionnées avec xray_redondances_a_juger, puis dépose ton verdict avec xray_juger_redondances : redondants (même objectif et même résultat attendu) "
-      + "ou distincts (résultat opposé, autre profil, autre donnée métier significative), avec une justification. Aucun test n'est supprimé : je décide.");
+      + "ou distincts (résultat opposé, autre profil, autre donnée métier significative), avec une justification. Aucun test n'est supprimé : je décide.", undefined, ["xray_juger_redondances"]);
     SuivreCursor("redondances", ["xray_juger_redondances"], z, () => efficacite(z));
   }
 

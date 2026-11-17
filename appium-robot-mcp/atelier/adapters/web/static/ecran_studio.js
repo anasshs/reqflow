@@ -195,7 +195,8 @@
   /* demande prête à coller dans Cursor (chat de l'agent) : Cursor construit, l'automaticien valide ici */
   function demandeCursor(texte) {
     DemanderCursor("Faire construire par Cursor", texte, `Cursor lit le socle et le scénario, écrit le test (qui entre en revue « Généré »), le vérifie en dry run puis le soumet.
-      Il ne peut ni approuver ni publier : vous décidez dans <a href="#studio/revue">Revue et publication</a>.`);
+      Il ne peut ni approuver ni publier : vous décidez dans <a href="#studio/revue">Revue et publication</a>.`,
+      ["studio_soumettre_revue"]);
   }
 
   async function productivite() {

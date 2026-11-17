@@ -28,7 +28,10 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       S = {vue: "connaissance", params: {}, data: null, selection: null, famillesMasquees: new Set(), statut: ""};
       if (perim.lire()) S.params.perimetre = perim.lire();
       if (sous === "bdd") { location.hash = "bdd"; return; }
-      if (VUES.some(v => v[0] === sous)) S.vue = sous;
+      const [sv, sk, ...sr] = (sous || "").split("/");
+      if (VUES.some(v => v[0] === sv)) S.vue = sv;
+      if (S.vue === "couverture" && sr.length && sk === "test") S.params.test = sr.join("/");
+      if (S.vue === "couverture" && sr.length && sk === "module") S.params.module = sr.join("/");
       zone.className = "g-kg";
       zone.innerHTML = `
         <section class="carte" aria-label="Graphe" style="position:relative">
@@ -154,12 +157,25 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     } else if (S.vue === "couverture") {
       o.innerHTML = `<select class="in" id="kg-module" style="width:auto" aria-label="Module"><option value="">Tous les modules</option></select>
         <select class="in" id="kg-afficher" style="width:auto" aria-label="Tests affichés"><option value="tous">Manuels et automatisés</option><option value="manuels">Tests manuels</option><option value="automatises">Tests automatisés</option></select>`;
-      $("#kg-module").onchange = e => { S.params.module = e.target.value; charger(); };
+      $("#kg-module").onchange = e => { S.params.module = e.target.value; delete S.params.test; adresseCouverture(); charger(); };
       $("#kg-afficher").onchange = e => { S.params.afficher = e.target.value; charger(); };
     } else {
       o.innerHTML = `<select class="in" id="kg-cible" style="width:auto;max-width:280px" aria-label="Test"><option value="">Tout le patrimoine automatisé</option></select>`;
       $("#kg-cible").onchange = e => { S.params.cible = e.target.value; charger(); };
     }
+  }
+
+  /* l'adresse reflète le module affiché (#graphe/couverture/module/<nom>) */
+  function adresseCouverture() {
+    const h = "#graphe/couverture" + (S.params.module ? "/module/" + encodeURIComponent(S.params.module) : "");
+    if (location.hash !== h) history.replaceState(null, "", h);
+  }
+
+  /* un test hors du graphe affiché : la vue s'ouvre sur son module (ou sa seule traçabilité), test sélectionné */
+  function ouvrirTestCouverture(id) {
+    delete S.params.module;
+    S.params.test = id.replace(/^test:/, "");
+    charger();
   }
 
   async function remplirPerimetres() {
@@ -226,6 +242,13 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     if (S.vue === "couverture") {
       const sel = $("#kg-module");
       if (sel && sel.options.length === 1) for (const m of S.data.modules || []) sel.add(new Option(m, m));
+      if (S.params.test) {  // ouverture sur un test : le module trouvé devient le module affiché
+        S.focus = S.data.focus;
+        delete S.params.test;
+        if (S.data.module) S.params.module = S.data.module; else delete S.params.module;
+        adresseCouverture();
+      }
+      if (sel) sel.value = S.params.module || "";
     }
     if (S.vue === "flux") {
       const sel = $("#kg-cible");
@@ -234,7 +257,14 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     if (garder) G?.garderPositions();
     dessiner();
     legende();
-    if (!S.selection) panneauParDefaut();
+    if (S.focus && G?.parId?.has(S.focus)) {  // test demandé : sélectionné, centré, lisible
+      const id = S.focus;
+      S.focus = null;
+      G.selectionner(id, false);
+      if (G.vue.k < 0.8) G.vue.k = 0.8;
+      G.centrerSur(id);
+      selectionner(id);
+    } else if (!S.selection) panneauParDefaut();
   }
 
   function dessiner() {
@@ -249,6 +279,12 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     }
     const mode = S.vue === "couverture" || S.vue === "flux" ? "couches" : (S.params.centre ? "grappes" : "forces");
     G.afficher(data, mode, RANGS[S.vue], S.params.centre);
+    $("#kg-trop")?.remove();
+    if (S.vue === "couverture" && d.tronque && !S.params.module) {
+      $("#kg-zone").insertAdjacentHTML("beforeend", `<div id="kg-trop" class="vide" style="position:absolute;left:12px;top:12px;max-width:420px;text-align:left">
+        <b>${d.total} éléments : vue partielle, sans les tests</b>Choisissez un module (liste en haut, ou une ligne du tableau « Couverture » à droite)
+        pour voir ses tests, ou ouvrez un test depuis Test Design › Traçabilité.</div>`);
+    }
     if (!data.noeuds.length) {
       $("#kg-zone").insertAdjacentHTML("beforeend", `<div class="vide" style="position:absolute;inset:30% 10% auto">${S.vue === "couverture"
         ? "<b>Aucun instantané Xray</b>Importer ou synchroniser le patrimoine depuis Rapports › Patrimoine Xray."
@@ -285,7 +321,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   function lierSelections(r) {
     $$("[data-sel]", r).forEach(b => b.onclick = () => {
       const id = b.dataset.sel;
-      if (G?.parId?.has(id)) { G.selectionner(id); G.centrerSur(id); } else selectionner(id);
+      if (G?.parId?.has(id)) { G.selectionner(id); G.centrerSur(id); }
+      else if (S.vue === "couverture" && id.startsWith("test:")) ouvrirTestCouverture(id);
+      else selectionner(id);
     });
   }
 
@@ -304,13 +342,21 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     const g = ind.global;
     detail("Couverture", `<div style="display:flex;gap:14px;align-items:center;margin-bottom:10px"><div class="anneau" style="--p:${Math.round((g.couverture_automatisee || 0) * 100)}"><span>${pct(g.couverture_automatisee)}</span></div>
       <div><b>${g.automatises}/${g.tests}</b> tests automatisés<br><span class="lib">${g.exigences_couvertes}/${g.exigences} exigences couvertes · ${g.exigences_couvertes_auto} en automatique</span></div></div>
-      <table><tr><th>Module</th><th>Auto.</th><th></th></tr>${ind.modules.map(m => `<tr><td>${esc(m.module)}</td><td>${m.automatises}/${m.tests}</td>
+      <table><tr><th>Module</th><th>Auto.</th><th></th></tr>${ind.modules.map(m => `<tr><td>${(S.data?.modules || []).includes(m.module)
+        ? `<button class="lien" data-module="${esc(m.module)}" title="Afficher ce module">${esc(m.module)}</button>` : esc(m.module)}${S.params.module === m.module ? ' <span class="pill info">affiché</span>' : ""}</td><td>${m.automatises}/${m.tests}</td>
         <td><div class="barre"><i style="width:${(m.couverture_automatisee || 0) * 100}%"></i></div></td></tr>`).join("")}</table>
       <h3 class="lib" style="margin:12px 0 4px">EXIGENCES NON COUVERTES (${ind.exigences_non_couvertes.length})</h3>
       <ul class="liste">${ind.exigences_non_couvertes.map(e => `<li><button class="lien" data-sel="${esc(e.type + ":" + e.cle)}">${esc(e.cle)}</button> ${esc(e.resume || "")}</li>`).join("") || "<li class='lib'>Aucune</li>"}</ul>
       <h3 class="lib" style="margin:12px 0 4px">TESTS REDONDANTS (CANDIDATS)</h3>
       <ul class="liste">${ind.redondances.map(r => `<li><button class="lien" data-sel="test:${esc(r.tests[0])}">${esc(r.tests[0])}</button>≈<button class="lien" data-sel="test:${esc(r.tests[1])}">${esc(r.tests[1])}</button>${r.similarite !== null && r.similarite !== undefined ? `<span class="compte">${pct(r.similarite)}</span>` : ""}${PastilleJugement(r.jugement, {redondants: "ko", distincts: "ok"})}</li>`).join("") || "<li class='lib'>Aucun</li>"}</ul>
       <details style="margin-top:10px"><summary class="lib">Définitions utilisées</summary><ul class="lib">${Object.values(ind.definitions).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>`);
+    $$("#kg-detail [data-module]").forEach(b => b.onclick = () => {
+      S.params.module = b.dataset.module;
+      delete S.params.test;
+      if ($("#kg-module")) $("#kg-module").value = S.params.module;
+      adresseCouverture();
+      charger();
+    });
   }
 
   async function selectionner(id) {
@@ -465,7 +511,14 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     if (!z) return;
     let v = null;
     if (cle) v = await api("/api/bdd/" + encodeURIComponent(cle)).catch(() => null);
-    if (!v) { const l = await api("/api/bdd").catch(() => []); if (l.length) v = await api("/api/bdd/" + encodeURIComponent((cle && l.find(x => x.cle === cle)?.cle) || l[0].cle)).catch(() => null); }
+    if (cle && !v) {  // test sélectionné sans scénario : on le dit (jamais le scénario d'un autre test)
+      S.bdd = null;
+      z.innerHTML = vide(`Pas de scénario BDD pour ${cle}`, `<button class="btn petit primaire" id="kg-bdd-creer" style="margin-top:6px">Créer le scénario depuis Xray</button>`);
+      $("#kg-bdd-actions").innerHTML = "";
+      $("#kg-bdd-creer").onclick = () => window.OuvrirBdd(cle);
+      return;
+    }
+    if (!v) { const l = await api("/api/bdd").catch(() => []); if (l.length) v = await api("/api/bdd/" + encodeURIComponent(l[0].cle)).catch(() => null); }
     S.bdd = v;
     if (!v) { z.innerHTML = vide("Aucun scénario BDD", "Construction BDD › Nouveau scénario, à partir d'un test Xray."); $("#kg-bdd-actions").innerHTML = ""; return; }
     const m = v.scenario, p = m.scenarios.find(x => x.type === "principal") || m.scenarios[0];

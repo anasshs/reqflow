@@ -152,6 +152,20 @@ def test_vue_couverture_filtres(depot):
     assert {i for i, n in manuels.noeuds.items() if n.type == "test"} == {"test:DEMO-4", "test:DEMO-5", "test:DEMO-6"}
 
 
+def test_vue_couverture_ouverte_sur_un_test(depot):
+    """Test Design › Traçabilité : le graphe s'ouvre sur le module du test, test renvoyé pour être sélectionné ;
+    un test exclu par le filtre manuels / automatisés reste visible ; un test inconnu est signalé."""
+    from atelier.discovery import espaces
+
+    v = espaces.vue_couverture(test="DEMO-1")
+    assert v["module"] == "Virements" and v["focus"] == "test:DEMO-1"
+    assert {n["id"] for n in v["noeuds"]} >= {"test:DEMO-1", "test:DEMO-2", "module:Virements"}
+    a = espaces.vue_couverture(test="DEMO-1", afficher="manuels")  # DEMO-1 est automatisé
+    assert "test:DEMO-1" in {n["id"] for n in a["noeuds"]}
+    with pytest.raises(KeyError):
+        espaces.vue_couverture(test="DEMO-999")
+
+
 def test_candidats_sans_score_invente(depot):
     from atelier.intelligence import couverture, patrimoine_xray
 

@@ -1334,8 +1334,8 @@ async def couverture_evolution():
 
 
 @app.get("/api/graphes/couverture")
-async def graphe_couverture(module: str = "", afficher: str = "tous", recherche: str = ""):
-    return await asyncio.to_thread(_call, espaces.vue_couverture, module, afficher, recherche)
+async def graphe_couverture(module: str = "", afficher: str = "tous", recherche: str = "", test: str = ""):
+    return await asyncio.to_thread(_call, espaces.vue_couverture, module, afficher, recherche, test)
 
 
 @app.get("/api/graphes/candidats")
@@ -1556,7 +1556,8 @@ async def testabilite_action(cle: str, action: str, req: Request):
                "questions": lambda: t.modifier_questions(cle, b.get("texte", "")), "envoyer": lambda: t.envoyer_questions(cle),
                "reponses": lambda: t.relever_reponses(cle), "proposer-cas": lambda: t.proposer_cas(cle),
                "cas": lambda: t.modifier_cas(cle, b.get("id", ""), b), "decision": lambda: t.decider_cas(cle, b.get("id", ""), b.get("decision", ""), b.get("motif", "")),
-               "publier": lambda: t.publier_cas(cle), "non-testable": lambda: t.non_testable(cle, b.get("justification", "")),
+               "publier": lambda: t.publier_cas(cle), "prendre": lambda: t.prendre(cle, b.get("ids") or []),
+               "ne-pas-prendre": lambda: t.ne_pas_prendre(cle, b.get("ids") or [], b.get("motif", "")), "non-testable": lambda: t.non_testable(cle, b.get("justification", "")),
                "convertir": lambda: t.convertir_cas(cle, b.get("id", ""), b.get("vers", "")),
                "proposer-categories": lambda: _cat().proposer(cle, b.get("categories") or None)["us"],
                "doublons": lambda: _cat().verifier_doublons(cle)["us"],

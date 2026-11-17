@@ -409,3 +409,19 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   cette URL. Claude Desktop reste en stdio. Sans `MCP_HTTP_PORT`, rien ne change (Cursor lance server.py).
 - Limite : l'interface doit rester ouverte pendant que Cursor travaille ; un autre programme sur le port l'empêche
   de démarrer (signalé par le test de connexion). Aucune dépendance ajoutée (SDK `mcp` déjà présent).
+
+## 2026-11-17 — Suivi des demandes à Cursor, graphe de couverture, « Je prends »
+- Suivi des demandes à Cursor (suivi_cursor.js) : chaque « Demander à Cursor » (Copier / Ouvrir dans Cursor) ouvre une
+  carte flottante : temps écoulé, prise en compte (premier appel MCP après l'envoi), appels et dernière action, résultat
+  déposé (fin d'un outil de dépôt attendu, passé par l'écran appelant). Aides : aucun signe après 2 min, silence de
+  3 min (Cursor attend une réponse ou une confirmation dans son chat). Appels rattachés à la demande ouverte la plus
+  récente (un agent par poste). Rien n'est envoyé à Cursor par l'atelier : suivi en lecture des événements MCP.
+- Graphe › Couverture : adresse #graphe/couverture/test/<clé> (Test Design › Traçabilité) ou /module/<nom> ; le test
+  est sélectionné et centré, la liste des modules reflète le module affiché ; une couche de plus de 12 éléments est
+  repliée sur plusieurs lignes ; vue sans module tronquée signalée ; le bandeau BDD ne montre plus le scénario d'un
+  autre test.
+- Test Design › À concevoir : BDD (Cucumber) en priorité pour la création dans Xray — Gherkin du cas s'il est prêt,
+  sinon tiré de ses étapes ; étapes manuelles seulement en secours. Le type de test de l'espace n'impose plus le
+  format. « Je prends » (un cas ou une multi-sélection) = enregistrer, valider, créer dans Xray et lier à l'US en une
+  confirmation ; un cas non prêt est refusé avec sa raison, les autres partent. « Je ne prends pas » = rejet motivé
+  (un motif pour la sélection).

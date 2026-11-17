@@ -465,6 +465,29 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
 }
 .code-bloc { white-space: pre; overflow: auto; max-height: 60vh; font: 12px/1.5 ui-monospace, monospace; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0 0 8px; }
 
+/* ------------------------------------------------------------------ Suivi des demandes à Cursor (suivi_cursor.js) */
+.suivi-cursor { position: fixed; right: 18px; bottom: 70px; z-index: 46; width: 370px; max-width: calc(100vw - 32px); max-height: 60vh;
+  display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow); }
+.suivi-cursor[hidden] { display: none; }
+.sc-tete { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; }
+.sc-tete svg { color: var(--violet-ink); }
+.sc-corps { overflow: auto; padding: 4px 12px 8px; }
+.sc-carte { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.sc-carte:last-child { border-bottom: none; }
+.sc-titre { display: flex; align-items: center; gap: 6px; }
+.sc-titre b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-ligne { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; }
+.sc-pas-l { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin: 6px 0 2px; }
+.sc-pas { font-size: 10.5px; text-align: center; padding: 3px 2px; border-radius: 4px; background: var(--surface-2); color: var(--faint);
+  border-top: 3px solid var(--line-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-pas.fait { color: var(--ink-2); border-top-color: var(--ok); }
+.sc-pas.actif { color: var(--ink); border-top-color: var(--violet); animation: sc-pulse 1.6s ease-in-out infinite; }
+@keyframes sc-pulse { 50% { border-top-color: var(--violet-soft); } }
+@media (prefers-reduced-motion: reduce) { .sc-pas.actif { animation: none; } }
+.sc-der { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-aide { margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: var(--warn-soft); font-size: 12px; }
+.sc-carte .btns { margin-top: 6px; }
+
 /* ------------------------------------------------------------------ Console Cursor (console_agent.js) */
 .ca-pastille { position: fixed; left: 16px; bottom: 16px; z-index: 46; box-shadow: 0 4px 14px #0004; max-width: 46vw; gap: 8px; }
 .ca-pastille[hidden] { display: none; }
@@ -508,6 +531,12 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
 .pu-cas-grille { display: grid; gap: 10px; }
 .pu-large .pu-cas-grille, .pu-plein .pu-cas-grille { grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); align-items: start; }
 .pu-cas { margin: 0; }
+/* en-tête d'un cas : le titre garde une largeur lisible, les pastilles passent à la ligne */
+.pu-cas > .btns:first-child .item { flex: 1 1 100%; order: -1; }
+.pu-cas > .btns:first-child:has(input[type=checkbox]) .item { flex-basis: calc(100% - 30px); }
+.pu-cas > .btns:first-child input[type=checkbox] { order: -2; }
+.pu-choix { padding: 6px 8px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.pu-etapes summary { cursor: pointer; margin: 6px 0; }
 .pu-cas table { width: 100%; }
 .pu-cas table td:first-child { width: 22px; }
 tr.sel > td { background: var(--accent-soft); }

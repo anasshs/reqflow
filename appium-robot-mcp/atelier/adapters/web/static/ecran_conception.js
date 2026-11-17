@@ -159,7 +159,7 @@
     $("#pc-x").onclick = () => { p.hidden = true; SEL = null; };
     if ($("#pc-pub")) $("#pc-pub").onclick = () => publier(c.bdd, Atelier.ctx.projet_xray || c.cle.split("-")[0]);
     $("#pc-rev").onclick = () => panneauRevue(c.cle);
-    $("#pc-graphe").onclick = () => { location.hash = "graphe/couverture"; };
+    $("#pc-graphe").onclick = () => { location.hash = "graphe/couverture/test/" + encodeURIComponent(c.cle); };
   }
 
   async function publier(cle, projet, decision = "") {
@@ -335,14 +335,19 @@
     const sources = [...new Set(cas.map(c => c.source))];
     const titreDe = id => (cas.find(x => x.id === id) || {}).titre || id;
     const selectionnable = c => !["Publié", "Rejeté", "Regroupé"].includes(c.statut);
-    const casHtml = c => `<div class="bloc-strat pu-cas" data-statut="${esc(c.statut)}"><div class="btns">${selectionnable(c) ? `<input type="checkbox" data-pu-sel="${c.id}" title="Sélectionner pour regrouper">` : ""}<b class="item">${esc(c.titre)}</b><span class="pill ${ST_CAS[c.statut] || "info"}">${esc(c.statut)}</span>
-        <span class="lib">${esc(c.source)}</span>${c.cle_xray ? `<span class="cle-xray">${esc(c.cle_xray)}</span>` : ""}</div>
+    const casHtml = c => `<div class="bloc-strat pu-cas" data-statut="${esc(c.statut)}"><div class="btns">${selectionnable(c) ? `<input type="checkbox" data-pu-sel="${c.id}" title="Choisir ce cas (Je prends, Je ne prends pas, regrouper)" aria-label="Choisir ${esc(c.titre)}">` : ""}<b class="item">${esc(c.titre)}</b><span class="pill ${ST_CAS[c.statut] || "info"}">${esc(c.statut)}</span>
+        <span class="lib">${esc(c.source)}</span>${c.cle_xray ? `<span class="cle-xray">${esc(c.cle_xray)}</span>` : ""}
+        ${selectionnable(c) ? (c.format_publication === "Cucumber" && c.verification.bdd.length ? `<span class="pill warn" title="${esc(c.verification.bdd.join(" "))}">BDD à compléter</span>`
+          : `<span class="pill ${c.format_publication === "Cucumber" ? "ok" : "info"}" title="Format du test créé dans Xray">${c.format_publication === "Cucumber" ? "BDD (Cucumber)" : "Manuel (secours : Gherkin non prêt)"}</span>`)
+          : c.format_publie ? `<span class="pill">${c.format_publie === "Cucumber" ? "BDD" : "Manuel"}</span>` : ""}</div>
       ${c.statut === "Regroupé" ? `<p class="lib">Regroupé dans « ${esc(titreDe(c.regroupe_dans))} ».</p>` : ""}
       ${(c.regroupe || []).length ? `<p class="lib"><span class="pill violet">regroupe ${c.regroupe.length} cas</span> ${esc(c.justification || "")}
         ${c.statut !== "Publié" ? `<button class="btn petit" data-pu-degrouper="${c.id}" title="Revenir aux cas d'origine">Défaire le regroupement</button>` : ""}</p>` : ""}
       ${(c.couvre || []).length ? `<div class="pu-couvre"><span class="lib">Couvre ${c.couvre.length} comportement(s) :</span>${c.couvre.map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>` : ""}
-      ${u.politique.type_test === "Cucumber" ? `<textarea class="in mono" rows="${taille === "normal" ? 4 : 6}" data-g="${c.id}" ${c.statut === "Publié" ? "disabled" : ""}>${esc(c.gherkin)}</textarea>`
-        : `<table><tr><th>#</th><th>Action</th><th>Données</th><th>Résultat attendu</th></tr>${c.etapes.map((e, n) => `<tr><td class="lib">${n + 1}</td>${["action", "donnees", "resultat"].map(k => `<td><textarea class="in pu-etape" rows="2" data-e="${c.id}" data-i="${n}" data-k="${k}" ${c.statut === "Publié" ? "disabled" : ""}>${esc(e[k])}</textarea></td>`).join("")}</tr>`).join("")}</table>`}
+      <textarea class="in mono" rows="${taille === "normal" ? 4 : 6}" data-g="${c.id}" aria-label="Gherkin" ${selectionnable(c) ? "" : "disabled"}>${esc(selectionnable(c) ? c.gherkin_publie || c.gherkin || "" : c.gherkin || "")}</textarea>
+      ${selectionnable(c) && c.gherkin_publie && c.gherkin_publie !== (c.gherkin || "").trim() ? `<p class="lib">Gherkin tiré des étapes : à relire avant « Je prends ».</p>` : ""}
+      ${c.etapes.length ? `<details class="pu-etapes"><summary class="lib">Étapes manuelles (${c.etapes.length}, secours si le Gherkin n'est pas prêt)</summary>
+        <table><tr><th>#</th><th>Action</th><th>Données</th><th>Résultat attendu</th></tr>${c.etapes.map((e, n) => `<tr><td class="lib">${n + 1}</td>${["action", "donnees", "resultat"].map(k => `<td><textarea class="in pu-etape" rows="2" data-e="${c.id}" data-i="${n}" data-k="${k}" ${selectionnable(c) ? "" : "disabled"}>${esc(e[k])}</textarea></td>`).join("")}</tr>`).join("")}</table></details>` : ""}
       ${c.notes ? `<p class="lib">${esc(c.notes)}</p>` : ""}${c.avertissement ? `<p class="warn-t">${esc(c.avertissement)}</p>` : ""}
       ${c.categorie ? `<p class="lib"><span class="pill info">${esc(CAT[c.categorie] || c.categorie)}</span> <span class="pill ${c.provenance === "observé" ? "ok" : "warn"}" title="Observé : lu dans l'US, une règle ou la carte ; déduit : hypothèse à confirmer">${esc(c.provenance)}</span>
         confiance ${Math.round((c.confiance || 0) * 100)} % · source : ${esc(c.source_detail || "")}<br>${esc(c.justification || "")}${(c.manquant || []).length ? `<br><span class="warn-t">Manque : ${esc(c.manquant.join(", "))}</span>` : ""}</p>` : ""}
@@ -350,7 +355,7 @@
         ${c.doublon.jugement.test ? `<span class="cle-xray">${esc(c.doublon.jugement.test)}</span> ${esc(c.doublon.jugement.titre)} · ` : ""}${esc(c.doublon.jugement.justification)}</p>` : ""}
       ${c.doublon && c.doublon.meilleur ? `<p class="lib">${c.doublon.jugement ? "Présélection par les mots :" : `<span class="pill ${c.doublon.recommandation === "réutiliser" ? "ko" : c.doublon.recommandation === "faire évoluer" ? "warn" : "ok"}" title="Règles (secours) : ressemblance des mots, sans compréhension du texte. Seuils : réutiliser ≥ 0,70 ; faire évoluer ≥ 0,40">${esc(c.doublon.recommandation)} · règles</span>`}
         le plus proche : <span class="cle-xray">${esc(c.doublon.meilleur.cle)}</span> ${esc(c.doublon.meilleur.titre)} (${String(c.doublon.meilleur.score).replace(".", ",")} ; ${esc(Object.entries(c.doublon.meilleur.facettes).map(([k, v]) => `${k} ${v}`).join(", "))})</p>` : ""}
-      ${["Publié", "Rejeté", "Regroupé"].includes(c.statut) ? `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button></div>` : `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button><button class="btn petit" data-cas-ok="${c.id}">Enregistrer</button><button class="btn petit succes" data-cas-v="${c.id}">Valider</button><button class="btn petit danger" data-cas-r="${c.id}">Rejeter</button></div>`}</div>`;
+      ${["Publié", "Rejeté", "Regroupé"].includes(c.statut) ? `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button></div>` : `<div class="btns"><button class="btn petit" data-cas-vue="${c.id}">Visualiser</button><button class="btn petit" data-cas-ok="${c.id}" title="Garder les modifications sans décider">Enregistrer</button><button class="btn petit succes" data-prendre="${c.id}" title="Valide et crée ce test dans Xray (BDD en priorité), lié à l'US">Je prends</button><button class="btn petit danger" data-laisser="${c.id}" title="Écarte ce cas (motif historisé)">Je ne prends pas</button></div>`}</div>`;
     const gr = u.granularite || {};
     const propsRg = ((u.consolidation || {}).propositions || []).filter(x => x.statut === "Proposé");
     const ia = u.ia || {fournisseur: "aucun"};
@@ -405,8 +410,12 @@
               ${(x.couvre || []).length ? `<div class="pu-couvre"><span class="lib">Couvre :</span>${x.couvre.map(c => `<span class="pill">${esc(c)}</span>`).join("")}</div>` : ""}
               <span class="lib">source : ${esc(x.source || "règles (secours, sans compréhension du texte)")}</span></div>
             <button class="btn petit succes" data-pu-prop="${x.id}" data-dec="appliquer">Appliquer</button><button class="btn petit" data-pu-prop="${x.id}" data-dec="ecarter">Écarter</button></div>`).join("")}</div>` : ""}
+        ${cas.some(selectionnable) ? `<div class="btns pu-choix"><label class="lib"><input type="checkbox" id="pu-tout"> Tout choisir</label>
+          <button class="btn petit succes" id="pu-prendre" disabled title="Valide les cas choisis et les crée dans Xray (BDD en priorité), liés à l'US, en une seule action">Je prends</button>
+          <button class="btn petit danger" id="pu-laisser" disabled title="Écarte les cas choisis (un motif, historisé)">Je ne prends pas</button>
+          <span class="lib" id="pu-nb">Cocher les cas, puis décider. Test créé en BDD (Cucumber) quand le Gherkin est prêt, sinon en étapes manuelles.</span></div>` : ""}
         <div class="pu-cas-grille">${cas.filter(c => FILTRE_CAS ? c.statut === FILTRE_CAS : c.statut !== "Regroupé").map(casHtml).join("") || `<p class='lib'>${cas.length ? "Aucun cas pour ce filtre." : "Aucun cas : « Demander à Cursor » ou « Analyse IA » (comprennent le texte), sinon « Proposer par catégories » (règles, secours)."}</p>`}</div>
-        ${cas.some(c => c.statut === "Validé") ? `<div class="btns" style="margin-top:8px"><button class="btn primaire" id="pu-pub">${ico("xray")}Publier les cas validés dans Xray et lier à l'US</button></div>` : ""}`)}
+        ${cas.some(c => c.statut === "Validé") ? `<div class="btns" style="margin-top:8px"><button class="btn" id="pu-pub" title="Cas validés avant « Je prends »">${ico("xray")}Publier les cas déjà validés (${nb("Validé")})</button></div>` : ""}`)}
       ${section("historique", `<ul class="liste">${(u.historique || []).slice().reverse().map(h => `<li class="lib">${esc(h.date.replace("T", " ").slice(0, 16))} · ${esc(h.auteur)} · ${esc(h.de || "—")} → ${esc(h.vers)} ${esc(h.detail || "")}</li>`).join("")}</ul>`)}
       </div>`;
     // étapes : hauteur ajustée au texte (une étape longue reste lisible en entier), y compris pendant la saisie
@@ -421,7 +430,40 @@
     $$("[data-pu-filtre]", p).forEach(b => b.onclick = () => { FILTRE_CAS = b.dataset.puFiltre; panneauUS(cle, z); });
     // granularité : regroupements suggérés, regroupement manuel d'une sélection, retour arrière
     const choisis = () => $$("[data-pu-sel]:checked", p).map(x => x.dataset.puSel);
-    $$("[data-pu-sel]", p).forEach(x => x.onchange = () => { if ($("#pu-rg", p)) $("#pu-rg", p).disabled = choisis().length < 2; });
+    const majChoix = () => {
+      const n = choisis().length, tous = $$("[data-pu-sel]", p);
+      if ($("#pu-rg", p)) $("#pu-rg", p).disabled = n < 2;
+      if ($("#pu-prendre", p)) { $("#pu-prendre", p).disabled = !n; $("#pu-prendre", p).textContent = n ? `Je prends (${n})` : "Je prends"; }
+      if ($("#pu-laisser", p)) { $("#pu-laisser", p).disabled = !n; $("#pu-laisser", p).textContent = n ? `Je ne prends pas (${n})` : "Je ne prends pas"; }
+      if ($("#pu-tout", p)) { $("#pu-tout", p).checked = !!n && n === tous.length; $("#pu-tout", p).indeterminate = !!n && n < tous.length; }
+    };
+    $$("[data-pu-sel]", p).forEach(x => x.onchange = majChoix);
+    if ($("#pu-tout", p)) $("#pu-tout", p).onchange = e => { $$("[data-pu-sel]", p).forEach(x => { x.checked = e.target.checked; }); majChoix(); };
+    /* « Je prends » : modifications enregistrées, cas validés, tests créés dans Xray et liés à l'US, en une confirmation */
+    const prendre = async ids => {
+      if (!ids.length) return;
+      const bdd = ids.filter(i => (cas.find(c => c.id === i) || {}).format_publication === "Cucumber").length;
+      if (!confirm(`Créer ${ids.length} test(s) dans Xray (${u.politique.projet_xray || "projet de l'espace"}) et les lier à ${cle} ?\n`
+        + `${bdd} en BDD (Cucumber)${ids.length - bdd ? `, ${ids.length - bdd} en étapes manuelles (Gherkin non prêt)` : ""}.`)) return;
+      try {
+        for (const id of ids) await act("cas", lireCas(id, p));
+        const r = await act("prendre", {ids});
+        const refus = r.refus || [], err = r.erreurs || [];
+        toast(`${r.publies.length} test(s) créé(s) dans Xray${r.publies.length ? ` : ${r.publies.join(", ")}` : ""}`
+          + `${refus.length ? ` · ${refus.length} non prêt(s) : ${refus[0].erreur}` : ""}${err.length ? ` · ${err.length} erreur(s) Xray : ${err[0].erreur}` : ""}`,
+          refus.length || err.length ? "ko" : "ok");
+        panneauUS(cle, z);
+      } catch (e) { toast(e.message, "ko"); }
+    };
+    const laisser = ids => {
+      if (!ids.length) return;
+      const mo = prompt(`Pourquoi ne pas prendre ${ids.length > 1 ? `ces ${ids.length} cas` : "ce cas"} ? (historisé)`, "Non retenu par l'équipe");
+      if (mo && mo.trim()) ok(act("ne-pas-prendre", {ids, motif: mo}), `${ids.length} cas écarté(s).`);
+    };
+    if ($("#pu-prendre", p)) $("#pu-prendre", p).onclick = () => prendre(choisis());
+    if ($("#pu-laisser", p)) $("#pu-laisser", p).onclick = () => laisser(choisis());
+    $$("[data-prendre]", p).forEach(b => b.onclick = () => prendre([b.dataset.prendre]));
+    $$("[data-laisser]", p).forEach(b => b.onclick = () => laisser([b.dataset.laisser]));
     if ($("#pu-cons", p)) $("#pu-cons", p).onclick = () => ok(act("consolider"), "Suggestions par règles (sans compréhension du texte) : à vérifier, appliquer ou écarter.");
     if ($("#pu-cons-ia", p)) $("#pu-cons-ia", p).onclick = () => ok(act("consolider-ia"), "Regroupements proposés par l'IA : à appliquer ou écarter.");
     if ($("#pu-cons-cursor", p)) $("#pu-cons-cursor", p).onclick = () => {
@@ -429,7 +471,8 @@
         + `puis dépose tes regroupements avec test_design_proposer_regroupements : mode donnees (même chemin, données différentes) ou controle `
         + `(un détail devient un point de contrôle d'un autre cas), avec titre, justification et comportements couverts. `
         + `Ne regroupe jamais des cas dont le résultat métier diffère ; s'il n'y a rien à regrouper, dis-le.`;
-      DemanderCursor("Demander à Cursor de consolider", texte, "Cursor comprend le texte et propose ; rien n'est regroupé sans vous. Ses propositions apparaissent ici dès qu'il les dépose, avec leur justification et les comportements couverts.");
+      DemanderCursor(`Consolider les cas de ${cle}`, texte, "Cursor comprend le texte et propose ; rien n'est regroupé sans vous. Ses propositions apparaissent ici dès qu'il les dépose, avec leur justification et les comportements couverts.",
+        ["test_design_proposer_regroupements"]);
     };
     // une proposition déposée par Cursor s'affiche sans recharger
     if (DESABO_US) DESABO_US();
@@ -464,12 +507,13 @@
     $("#pu-x").onclick = () => { p.hidden = true; p.classList.toggle("pu-large", false); p.classList.toggle("pu-plein", false); us(z); };
     $("#pu-an").onclick = () => ok(act("analyser"), "Analyse faite.");
     if ($("#pu-ia")) $("#pu-ia").onclick = () => ok(act("analyser-ia"), "Propositions de l'IA ajoutées (à valider).");
-    if ($("#pu-cursor")) $("#pu-cursor").onclick = () => DemanderCursor("Analyser l'US avec Cursor", `Analyse l'US ${cle} et propose ses cas de test. `
+    if ($("#pu-cursor")) $("#pu-cursor").onclick = () => DemanderCursor(`Analyser l'US ${cle}`, `Analyse l'US ${cle} et propose ses cas de test. `
       + `Lis l'US, ses cas existants et les réponses de l'équipe avec test_design_cas_us ; vérifie avec test_design_doublons qu'un test Xray proche n'existe pas déjà. `
       + `Dépose avec testabilite_deposer_proposition tes constats (ambiguïtés, chacune avec sa question) et les cas manquants : un test = un objectif, `
       + `étapes action / données / résultat, Gherkin en français sans donnée littérale, et « couvre » (les comportements de l'US vérifiés). `
       + `N'invente aucune règle métier : une information absente devient une question.`,
-      "Cursor comprend le texte et propose ; rien n'est validé sans vous. Ses constats, questions et cas apparaissent ici dès qu'il les dépose.");
+      "Cursor comprend le texte et propose ; rien n'est validé sans vous. Ses constats, questions et cas apparaissent ici dès qu'il les dépose.",
+      ["testabilite_deposer_proposition"]);
     $("#pu-cat").onclick = () => {
       const m = modale("Proposer par catégories", `<p class="lib">Un cas par critère, règle, champ, message, transition ou rôle trouvé ; chaque cas dit sa source, sa confiance et ce qui manque.</p>
         ${Object.entries(CAT).map(([k, l]) => `<label class="lib" style="display:block"><input type="checkbox" data-cat="${k}" checked> ${esc(l)}</label>`).join("")}`,
@@ -478,10 +522,11 @@
     };
     $("#pu-dbl").onclick = () => ok(act("doublons"), "Doublons vérifiés.");
     if ($("#pu-dbl-ia")) $("#pu-dbl-ia").onclick = () => ok(act("doublons-ia"), "Doublons jugés par l'IA : verdict et justification sur chaque cas.");
-    if ($("#pu-dbl-cursor")) $("#pu-dbl-cursor").onclick = () => DemanderCursor("Doublons : demander à Cursor", `Vérifie les doublons des cas de test de l'US ${cle}. `
+    if ($("#pu-dbl-cursor")) $("#pu-dbl-cursor").onclick = () => DemanderCursor(`Doublons des cas de ${cle}`, `Vérifie les doublons des cas de test de l'US ${cle}. `
       + `Lis les cas et les tests existants présélectionnés avec test_design_doublons_a_juger, puis dépose ton verdict pour chaque cas avec `
       + `test_design_juger_doublons : reutiliser (un test existant vérifie déjà le même objectif et le même résultat), faire_evoluer (même objectif, `
-      + `test à compléter) ou creer, en citant le test et en justifiant. Un résultat opposé n'est jamais un doublon ; en cas de doute, faire_evoluer.`);
+      + `test à compléter) ou creer, en citant le test et en justifiant. Un résultat opposé n'est jamais un doublon ; en cas de doute, faire_evoluer.`,
+      undefined, ["test_design_juger_doublons"]);
     $("#pu-nt").onclick = () => { const j = prompt("Pourquoi cette US n'est-elle pas testable ? (historisé)"); if (j) ok(act("non-testable", {justification: j}), "US marquée non testable."); };
     $("#pu-qs").onclick = () => ok(act("questions", {texte: $("#pu-q").value}), "Brouillon enregistré.");
     $("#pu-qe").onclick = async () => {
@@ -491,8 +536,6 @@
     $$("[data-cas-ok]", p).forEach(b => b.onclick = () => ok(act("cas", lireCas(b.dataset.casOk, p)), "Cas enregistré."));
     $$("[data-cas-vue]", p).forEach(b => b.onclick = () => visualiserCas(cle, u, b.dataset.casVue, z));
     if ($("#pu-vue")) $("#pu-vue").onclick = () => visualiserCas(cle, u, "", z);
-    $$("[data-cas-v]", p).forEach(b => b.onclick = async () => { try { await act("cas", lireCas(b.dataset.casV, p)); await ok(act("decision", {id: b.dataset.casV, decision: "valider"}), "Cas validé."); } catch (e) { toast(e.message, "ko"); } });
-    $$("[data-cas-r]", p).forEach(b => b.onclick = () => { const mo = prompt("Motif du rejet :"); if (mo) ok(act("decision", {id: b.dataset.casR, decision: "rejeter", motif: mo}), "Cas rejeté."); });
     if ($("#pu-pub")) $("#pu-pub").onclick = async () => {
       if (!confirm(`Créer les cas validés dans Xray (${u.politique.projet_xray}) et les lier à ${cle} ?`)) return;
       try { const r = await act("publier"); toast(`${r.publies.length} test(s) créé(s)${r.erreurs.length ? `, ${r.erreurs.length} erreur(s) : ${r.erreurs[0].erreur}` : ""}.`, r.erreurs.length ? "ko" : "ok"); panneauUS(cle, z); }
@@ -534,11 +577,9 @@
   }
 
   function lireCas(id, p) {
-    const g = $(`[data-g="${id}"]`, p);
-    if (g) return {id, gherkin: g.value};
-    const etapes = [];
+    const g = $(`[data-g="${id}"]`, p), etapes = [];
     $$(`[data-e="${id}"]`, p).forEach(i => { (etapes[+i.dataset.i] ||= {})[i.dataset.k] = i.value; });
-    return {id, etapes};
+    return {id, ...(g ? {gherkin: g.value} : {}), ...(etapes.length ? {etapes} : {})};
   }
 
   /* ------------------------------------------------------------------ 05 JDD, 07 suites, 08 traçabilité, 09 réutilisables, 06 règles */

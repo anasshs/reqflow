@@ -454,8 +454,8 @@ def bilan_sprint(espace: str, sprint: str) -> dict:
 def detail(cle: str) -> dict:
     _, u = _exiger(cle)
     e = next((x for x in tous_espaces() if x["projet_jira"] == u["espace"]), {})
-    cas = [{**c, "verification": {"manuel": verifier_cas(c, "Manual"), "bdd": verifier_cas(c, "Cucumber")},
-            "format_publication": e.get("type_test") or "Manual"} for c in u.get("cas") or []]
+    cas = [{**c, "verification": {"manuel": verifier_cas(c, "Manual"), "bdd": verifier_cas({**c, "gherkin": gherkin_du_cas(c)}, "Cucumber")},
+            "gherkin_publie": gherkin_du_cas(c), "format_publication": format_publication(c)[0]} for c in u.get("cas") or []]
     from atelier.intelligence import fournisseur_ia, granularite_tests
 
     return {**u, "cas": cas, "politique": e, "journal": journal(cle, 50), "granularite": granularite_tests.indicateur(u),
@@ -517,6 +517,28 @@ def etapes_vers_gherkin(etapes: list[dict]) -> str:
     if lignes and not lignes[0].startswith("Given"):
         lignes.insert(0, "Given le contexte de l'US est en place")
     return "\n".join(lignes)
+
+
+def gherkin_du_cas(c: dict) -> str:
+    """Gherkin publié : celui du cas s'il est prêt, sinon celui tiré de ses étapes (action → Quand, résultat → Alors)
+    s'il l'est ; à défaut, celui du cas (ses manques sont signalés)."""
+    propre = (c.get("gherkin") or "").strip()
+    tire = etapes_vers_gherkin(c.get("etapes") or []) if c.get("etapes") else ""
+    for g in (propre, tire):
+        if g and not verifier_cas({**c, "gherkin": g}, "Cucumber"):
+            return g
+    return propre or tire
+
+
+def format_publication(c: dict) -> tuple[str, list[str]]:
+    """BDD (Cucumber) en priorité ; étapes manuelles seulement si le Gherkin n'est pas prêt et les étapes le sont.
+    Renvoie (format, problèmes) ; problèmes vide = publiable."""
+    pb_bdd = verifier_cas({**c, "gherkin": gherkin_du_cas(c)}, "Cucumber")
+    if not pb_bdd:
+        return "Cucumber", []
+    if not verifier_cas(c, "Manual"):
+        return "Manual", []
+    return "Cucumber", pb_bdd
 
 
 def verifier_cas(c: dict, type_test: str) -> list[str]:
@@ -854,20 +876,20 @@ def decider_cas(cle: str, cid: str, decision: str, motif: str = "") -> dict:
         raise PermissionError("Cas regroupé dans un autre test : décider sur ce test.")
     if decision == "rejeter" and not motif.strip():
         raise ValueError("Un rejet doit être motivé.")
-    if decision == "valider":  # vérifié dans le format qui sera publié (type de test de l'espace)
-        e = next((x for x in tous_espaces() if x["projet_jira"] == u["espace"]), {})
-        pb = verifier_cas(c, e.get("type_test") or "Manual")
+    if decision == "valider":  # vérifié dans le format qui sera publié (BDD en priorité, étapes manuelles en secours)
+        fmt, pb = format_publication(c)
         if pb:
-            raise ValueError(f"Cas non prêt ({'BDD' if e.get('type_test') == 'Cucumber' else 'étapes manuelles'}) : " + " ".join(pb))
+            raise ValueError(f"Cas « {c['titre']} » non prêt (BDD) : " + " ".join(pb))
     c["statut"], c["decision"] = ("Validé" if decision == "valider" else "Rejeté"), {"par": _auteur(), "date": _maintenant(), "motif": motif.strip()}
     _sauver_us(d)
     _journaliser("cas_" + decision, cle=cle, cas=cid, motif=motif.strip())
     return detail(cle)
 
 
-def publier_cas(cle: str, xray=None, jira=None) -> dict:
-    """Crée dans Xray les cas validés (type de l'espace : Manual avec étapes, ou Cucumber) et les lie à l'US (lien de
-    couverture JIRA_LIEN_COUVERTURE, défaut « Test »). Une erreur sur un cas n'empêche pas les autres ; tout est historisé."""
+def publier_cas(cle: str, xray=None, jira=None, ids: list[str] | None = None) -> dict:
+    """Crée dans Xray les cas validés (BDD / Cucumber en priorité, Manual avec étapes si le Gherkin n'est pas prêt) et
+    les lie à l'US (lien de couverture JIRA_LIEN_COUVERTURE, défaut « Test »). ids : seulement ces cas. Une erreur sur
+    un cas n'empêche pas les autres ; tout est historisé."""
     from atelier.integrations.jira import JiraClient
     from atelier.integrations.xray import XrayClient
 
@@ -875,7 +897,7 @@ def publier_cas(cle: str, xray=None, jira=None) -> dict:
     e = next((x for x in tous_espaces() if x["projet_jira"] == u["espace"]), None)
     if not e:
         raise ValueError(f"Espace {u['espace']} retiré de la politique.")
-    a_publier = [c for c in u["cas"] if c["statut"] == "Validé"]
+    a_publier = [c for c in u["cas"] if c["statut"] == "Validé" and (ids is None or c["id"] in ids)]
     if not a_publier:
         raise ValueError("Aucun cas validé à publier.")
     xray, jira = xray or XrayClient(), jira or JiraClient()
@@ -883,15 +905,17 @@ def publier_cas(cle: str, xray=None, jira=None) -> dict:
     publies, erreurs = [], []
     for c in a_publier:
         try:
-            if e["type_test"] == "Cucumber":
-                if not c["gherkin"].strip():
-                    raise ValueError("Gherkin vide.")
+            fmt, pb = format_publication(c)
+            if pb:
+                raise ValueError(" ".join(pb))
+            if fmt == "Cucumber":
+                c["gherkin"] = gherkin_du_cas(c)
                 r = xray.creer_test_cucumber(e["projet_xray"], c["titre"], c["gherkin"])
             else:
                 if not c["etapes"]:
                     raise ValueError("Aucune étape.")
                 r = xray.creer_test_manuel(e["projet_xray"], c["titre"], c["etapes"])
-            c["cle_xray"], c["statut"] = r["cle"], "Publié"
+            c["cle_xray"], c["statut"], c["format_publie"] = r["cle"], "Publié", fmt
             try:
                 jira.link(r["cle"], cle, lien)  # « <test> tests <US> » : sens à confirmer à l'essai réel
             except Exception as le:  # noqa: BLE001 - test créé : l'absence de lien est signalée, pas annulée
@@ -905,6 +929,43 @@ def publier_cas(cle: str, xray=None, jira=None) -> dict:
     _sauver_us(d)
     _journaliser("publication_xray", cle=cle, tests=", ".join(publies), erreurs=len(erreurs))
     return {**detail(cle), "publies": publies, "erreurs": erreurs}
+
+
+def prendre(cle: str, ids: list[str], xray=None, jira=None) -> dict:
+    """« Je prends » : chaque cas choisi est validé puis créé dans Xray (BDD en priorité) et lié à l'US, en une action.
+    Un cas non prêt n'est ni validé ni publié : il est renvoyé dans « refus » avec la raison."""
+    if not ids:
+        raise ValueError("Aucun cas choisi.")
+    refus, prets = [], []
+    for cid in dict.fromkeys(ids):
+        try:
+            _, u = _exiger(cle)
+            c = next((x for x in u["cas"] if x["id"] == cid), None)
+            if c and c["statut"] == "Validé":
+                prets.append(cid)
+                continue
+            decider_cas(cle, cid, "valider")
+            prets.append(cid)
+        except (KeyError, ValueError, PermissionError) as ex:
+            refus.append({"cas": cid, "erreur": str(ex).strip("'\"")[:300]})
+    if not prets:
+        return {**detail(cle), "publies": [], "erreurs": [], "refus": refus}
+    return {**publier_cas(cle, xray, jira, prets), "refus": refus}
+
+
+def ne_pas_prendre(cle: str, ids: list[str], motif: str) -> dict:
+    """« Je ne prends pas » : les cas choisis sont rejetés avec le même motif (obligatoire, historisé)."""
+    if not ids:
+        raise ValueError("Aucun cas choisi.")
+    if not (motif or "").strip():
+        raise ValueError("Un rejet doit être motivé.")
+    refus = []
+    for cid in dict.fromkeys(ids):
+        try:
+            decider_cas(cle, cid, "rejeter", motif)
+        except (KeyError, ValueError, PermissionError) as ex:
+            refus.append({"cas": cid, "erreur": str(ex).strip("'\"")[:300]})
+    return {**detail(cle), "refus": refus}
 
 
 def non_testable(cle: str, justification: str) -> dict:

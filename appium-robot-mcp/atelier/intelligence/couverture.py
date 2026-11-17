@@ -48,6 +48,24 @@ def vue(g: Graphe, module: str = "", afficher: str = "tous") -> Graphe:
     return g.sous_graphe(ids)
 
 
+def module_du_test(g: Graphe, test: str) -> str:
+    """Module (libellé) qui contient le test Xray, directement ou via un plan / une US ; "" s'il n'en a pas."""
+    if test not in g.noeuds:
+        raise KeyError(f"Test inconnu dans le graphe : {test.removeprefix('test:')}")
+    amont = g.atteignables(test, "amont", {"contient", "teste_par", "implemente_par"}, fiables=False)
+    mods = sorted(g.noeuds[i].libelle for i in amont if g.noeuds[i].type == "module")
+    return mods[0] if mods else ""
+
+
+def vue_test(g: Graphe, test: str) -> Graphe:
+    """Traçabilité d'un seul test : ses epics / US / bugs / plans en amont, ses scripts Robot et exécutions en aval."""
+    if test not in g.noeuds:
+        raise KeyError(f"Test inconnu dans le graphe : {test.removeprefix('test:')}")
+    amont = {i for i in g.atteignables(test, "amont", {"contient", "teste_par"}) if g.noeuds[i].type in TYPES_COUVERTURE}
+    aval = {i for i in g.atteignables(test, "aval", {"implemente_par", "execute_par"}) if g.noeuds[i].type in TYPES_COUVERTURE}
+    return g.sous_graphe(amont | aval | {test})
+
+
 def _mots(texte: str) -> set:
     t = unicodedata.normalize("NFKD", texte or "").encode("ascii", "ignore").decode().lower()
     return {m for m in re.findall(r"[a-z0-9]+", t) if m not in MOTS_VIDES and len(m) > 1}

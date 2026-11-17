@@ -121,10 +121,16 @@ class GrapheVue {
         ligne.sort((a, b) => a._b - b._b).forEach((n, j) => x0.set(n.id, j));
       }
     }
-    const L = 200, H = 120;
-    ordre.forEach((r, i) => {
+    // au-delà de MAXL éléments, une couche est repliée sur plusieurs lignes (72 tests d'un module restent lisibles)
+    const L = 200, H = 120, H2 = 70, MAXL = 12;
+    let y = 0;
+    ordre.forEach(r => {
       const ligne = parRang.get(r);
-      ligne.forEach((n, j) => this.pos.set(n.id, {x: (j - (ligne.length - 1) / 2) * L, y: i * H}));
+      for (let d = 0; d < ligne.length; d += MAXL) {
+        const bout = ligne.slice(d, d + MAXL);
+        bout.forEach((n, j) => this.pos.set(n.id, {x: (j - (bout.length - 1) / 2) * L, y}));
+        y += d + MAXL < ligne.length ? H2 : H;
+      }
     });
   }
 

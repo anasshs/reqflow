@@ -39,11 +39,15 @@ class FauxJira:
 
 class FauxXray:
     def __init__(self):
-        self.manuels = []
+        self.manuels, self.cucumber = [], []
 
     def creer_test_manuel(self, projet, resume, etapes):
         self.manuels.append((projet, resume, etapes))
-        return {"cle": f"{projet}-{1000 + len(self.manuels)}", "issueId": "1"}
+        return {"cle": f"{projet}-{1000 + len(self.manuels) + len(self.cucumber)}", "issueId": "1"}
+
+    def creer_test_cucumber(self, projet, resume, gherkin):
+        self.cucumber.append((projet, resume, gherkin))
+        return {"cle": f"{projet}-{1000 + len(self.manuels) + len(self.cucumber)}", "issueId": "1"}
 
 
 @pytest.fixture
@@ -84,14 +88,16 @@ def test_cycle_complet(t):
     d = t.proposer_cas("SQ1-10")
     assert d["statut"] == "Cas proposés" and any("cas d'erreur" in c["titre"] for c in d["cas"]) and "Plafond par défaut" in d["cas"][0]["notes"]
     c = d["cas"][0]
-    with pytest.raises(ValueError, match="résultat attendu"):
+    with pytest.raises(ValueError, match="non prêt"):
         t.decider_cas("SQ1-10", c["id"], "valider")
     t.modifier_cas("SQ1-10", c["id"], {"etapes": [{"action": "Créer une carte pour un client sans carte", "donnees": "client C1", "resultat": "Carte créée"}]})
     t.decider_cas("SQ1-10", c["id"], "valider")
     with pytest.raises(ValueError, match="motivé"):
         t.decider_cas("SQ1-10", d["cas"][1]["id"], "rejeter")
     r = t.publier_cas("SQ1-10", xray=x, jira=j)
-    assert r["publies"] == ["TAM-1001"] and x.manuels[0][0] == "TAM" and x.manuels[0][2][0]["resultat"] == "Carte créée"
+    # BDD en priorité : Gherkin tiré des étapes (action → Quand, résultat → Alors)
+    assert r["publies"] == ["TAM-1001"] and not x.manuels and x.cucumber[0][0] == "TAM"
+    assert "When Créer une carte pour un client sans carte" in x.cucumber[0][2] and "Then Carte créée" in x.cucumber[0][2]
     assert j.liens == [("TAM-1001", "SQ1-10", "Test")] and r["statut"] == "Couverte"
     with pytest.raises(PermissionError):
         t.modifier_cas("SQ1-10", c["id"], {"titre": "x"})
@@ -254,8 +260,8 @@ def test_deux_formats_bdd_et_etapes_manuelles(t):
     t.detecter(jira=j)
     d = t.proposer_cas("SQ1-10")
     c = d["cas"][0]
-    # les deux formats sont vérifiés et visibles ; le format publié dépend du type de test de l'espace
-    assert c["format_publication"] == "Manual" and c["verification"]["manuel"] and c["verification"]["bdd"]
+    # les deux formats sont vérifiés et visibles ; BDD en priorité (étapes manuelles en secours)
+    assert c["format_publication"] == "Cucumber" and c["verification"]["manuel"] and c["verification"]["bdd"]
     # conversion Gherkin -> étapes, puis étapes -> Gherkin
     t.modifier_cas("SQ1-10", c["id"], {"gherkin": "Étant donné un client sans carte\nQuand le conseiller crée une carte\nAlors la carte est créée\nEt elle est inactive"})
     d = t.convertir_cas("SQ1-10", c["id"], "etapes")
@@ -269,7 +275,8 @@ def test_deux_formats_bdd_et_etapes_manuelles(t):
     # espace Cucumber : la validation vérifie le Gherkin (et plus les étapes manuelles cachées)
     t.enregistrer_espace({"projet_jira": "sq1", "nom": "Squad Cartes", "statuts": ["Ready"], "projet_xray": "TAM", "portee": "statuts", "type_test": "Cucumber"})
     err = next(x for x in t.detail("SQ1-10")["cas"] if "cas d'erreur" in x["titre"])
-    t.modifier_cas("SQ1-10", err["id"], {"gherkin": "Given ...\nWhen ...\nThen ..."})
+    # Gherkin générique et étapes incomplètes : ni BDD ni secours manuel
+    t.modifier_cas("SQ1-10", err["id"], {"gherkin": "Given ...\nWhen ...\nThen ...", "etapes": [{"action": "à compléter", "donnees": "", "resultat": "à préciser"}]})
     with pytest.raises(ValueError, match="générique"):
         t.decider_cas("SQ1-10", err["id"], "valider")
     t.modifier_cas("SQ1-10", err["id"], {"gherkin": "Given un client avec 3 cartes\nWhen le conseiller crée une carte\nThen la création est refusée",
@@ -287,3 +294,30 @@ def test_deux_formats_bdd_et_etapes_manuelles(t):
     x = XrayCucumber()
     r = t.publier_cas("SQ1-10", xray=x, jira=j)
     assert r["publies"] == ["TAM-2001"] and x.crees[0].startswith("Given un client avec 3 cartes")
+
+
+def test_je_prends_je_ne_prends_pas_en_une_action(t):
+    """« Je prends » : validation puis création dans Xray (BDD d'abord, étapes manuelles en secours) et lien à l'US,
+    seulement pour les cas choisis ; un cas non prêt est refusé avec sa raison. « Je ne prends pas » : rejet motivé."""
+    j, x = FauxJira(), FauxXray()
+    t.detecter(jira=j)
+    d = t.deposer_proposition("SQ1-10", [], [
+        {"titre": "Création nominale", "gherkin": "Given un client sans carte\nWhen le conseiller crée une carte\nThen la carte est créée"},
+        {"titre": "Refus au-delà de 3 cartes", "etapes": [{"action": "Créer une 4e carte", "donnees": "client C3", "resultat": "Création refusée"}]},
+        {"titre": "Cas flou", "gherkin": "Given ...\nWhen ...\nThen ..."},
+        {"titre": "Hors périmètre", "etapes": [{"action": "Imprimer la carte", "resultat": "Carte imprimée"}]}], "Cursor (MCP)")
+    ids = {c["titre"]: c["id"] for c in d["cas"]}
+    assert {c["titre"]: c["format_publication"] for c in d["cas"]}["Refus au-delà de 3 cartes"] == "Cucumber"
+    r = t.prendre("SQ1-10", [ids["Création nominale"], ids["Refus au-delà de 3 cartes"], ids["Cas flou"]], xray=x, jira=j)
+    assert len(r["publies"]) == 2 and len(x.cucumber) == 2 and not x.manuels
+    assert [f["cas"] for f in r["refus"]] == [ids["Cas flou"]] and "non prêt" in r["refus"][0]["erreur"]
+    st = {c["titre"]: c["statut"] for c in r["cas"]}
+    assert st == {"Création nominale": "Publié", "Refus au-delà de 3 cartes": "Publié", "Cas flou": "Proposé", "Hors périmètre": "Proposé"}
+    assert {(a, b) for a, b, _ in j.liens} == {(k, "SQ1-10") for k in r["publies"]}
+    with pytest.raises(ValueError, match="motivé"):
+        t.ne_pas_prendre("SQ1-10", [ids["Hors périmètre"]], " ")
+    r = t.ne_pas_prendre("SQ1-10", [ids["Hors périmètre"], ids["Création nominale"]], "Hors du périmètre de la squad")
+    st = {c["titre"]: c["statut"] for c in r["cas"]}
+    assert st["Hors périmètre"] == "Rejeté" and st["Création nominale"] == "Publié" and len(r["refus"]) == 1  # déjà publié : refusé
+    with pytest.raises(ValueError):
+        t.prendre("SQ1-10", [], xray=x, jira=j)
