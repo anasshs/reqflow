@@ -7,7 +7,7 @@ déclarations) : pas de cache qui pourrait diverger des fichiers.
 from __future__ import annotations
 
 from atelier.discovery import connaissance
-from atelier.domain import declarations
+from atelier.domain import declarations, ontologie
 from atelier.domain.graphe import CATEGORIES, TYPES_NOEUDS, TYPES_RELATIONS, Graphe
 
 MAX_NOEUDS = 600  # au-delà, l'interface demande de filtrer (lisibilité)
@@ -17,17 +17,57 @@ def _graphe() -> Graphe:
     return connaissance.construire()
 
 
-def _limiter(g: Graphe) -> dict:
-    d = g.vers_dict()
-    d["tronque"] = len(g.noeuds) > MAX_NOEUDS
-    if d["tronque"]:
-        garde = sorted(g.noeuds, key=lambda i: (CATEGORIES.index(g.noeuds[i].categorie), i))[:MAX_NOEUDS]
-        d = {**g.sous_graphe(garde).vers_dict(), "tronque": True, "total": len(g.noeuds)}
+def _typer(g: Graphe, d: dict) -> dict:
+    """Lecture métier ajoutée à chaque nœud et relation affichés (ontologie cible : type typé, relation métier, sens,
+    système d'origine, statut de validation). Les champs historiques restent : les écrans actuels les lisent encore."""
+    types = {i: ontologie.type_cible(n, g) for i, n in g.noeuds.items()}
+    for n in d["noeuds"]:
+        t = types.get(n["id"])
+        if t:
+            n["metier"] = {"type": t, "libelle": ontologie.TYPES_CIBLES[t][1], "univers": ontologie.TYPES_CIBLES[t][0]}
+    for x in d["relations"]:
+        rel = g.relations.get(x["id"])
+        if rel and rel.de in g.noeuds and rel.vers in g.noeuds:
+            x["metier"] = ontologie.metier(rel, g, types)
     return d
+
+
+def _limiter(g: Graphe) -> dict:
+    total = len(g.noeuds)
+    if total > MAX_NOEUDS:
+        garde = sorted(g.noeuds, key=lambda i: (CATEGORIES.index(g.noeuds[i].categorie), i))[:MAX_NOEUDS]
+        g = g.sous_graphe(garde)
+        return {**_typer(g, g.vers_dict()), "tronque": True, "total": total}
+    return {**_typer(g, g.vers_dict()), "tronque": False}
 
 
 def referentiel() -> dict:
     return {"types": TYPES_NOEUDS, "categories": CATEGORIES, "relations": TYPES_RELATIONS}
+
+
+def _projet_id() -> str:
+    from atelier.domain import projet
+
+    return projet.PROJECT_DIR.name
+
+
+def ontologie_cible() -> dict:
+    """Vocabulaire contrôlé du Knowledge Graph : univers, types de nœuds, relations typées, systèmes d'origine,
+    statuts de validation (les éléments « extension » sont hors de la spécification)."""
+    return {"univers": list(ontologie.UNIVERS),
+            "types": [{"type": t, "univers": u, "libelle": l, "extension": x} for t, (u, l, x) in ontologie.TYPES_CIBLES.items()],
+            "relations": [{"type": t, "famille": f, "libelle": l, "extension": x} for t, (f, l, x) in ontologie.RELATIONS.items()],
+            "source_system": list(ontologie.SYSTEMES), "validation_status": list(ontologie.STATUTS)}
+
+
+def property_graph() -> dict:
+    """Le graphe du projet au format cible (nœuds et arêtes typés), indépendant du stockage."""
+    return ontologie.property_graph(_graphe(), _projet_id())
+
+
+def rapport_migration() -> dict:
+    """Cohérence de la migration vers les relations typées, sur le graphe du projet."""
+    return ontologie.rapport_migration(_graphe(), _projet_id())
 
 
 # =========================================================================== vues
@@ -166,13 +206,18 @@ def detail(noeud: str) -> dict:
 
     def lien(r, autre):
         o = g.noeuds[autre]
-        return {"relation": r.vers_dict(), "noeud": {"id": o.id, "type": o.type, "libelle": o.libelle,
-                                                     "categorie": o.categorie}}
+        return {"relation": {**r.vers_dict(), "metier": ontologie.metier(r, g)},
+                "noeud": {"id": o.id, "type": o.type, "libelle": o.libelle, "categorie": o.categorie,
+                          "metier": ontologie.TYPES_CIBLES[ontologie.type_cible(o, g)][1]}}
     sortants = [lien(r, r.vers) for r in g.sortants(noeud)]
     entrants = [lien(r, r.de) for r in g.entrants(noeud)]
     voisins = {x["noeud"]["id"] for x in sortants + entrants}
     proches = g.voisinage([noeud], 2).noeuds
-    return {"noeud": n.vers_dict(), "sortants": sortants, "entrants": entrants,
+    t = ontologie.type_cible(n, g)
+    return {"noeud": {**n.vers_dict(), "metier": {"type": t, "libelle": ontologie.TYPES_CIBLES[t][1], "univers": ontologie.TYPES_CIBLES[t][0],
+                                                   "id": ontologie.id_cible(n, t),
+                                                   "validation_status": ontologie.statut_validation(n.provenance, n.statut)}},
+            "sortants": sortants, "entrants": entrants,
             "tests_xray": sorted(i for i in proches if g.noeuds[i].type == "test"),
             "tests_robot": sorted(i for i in proches if g.noeuds[i].type == "test_robot"),
             "scenarios_bdd": sorted(i for i in proches if g.noeuds[i].type in ("scenario", "feature")),

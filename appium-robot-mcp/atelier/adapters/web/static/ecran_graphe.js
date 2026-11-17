@@ -367,10 +367,15 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     const n = d.noeud, p = n.proprietes || {};
     const props = Object.entries(p).filter(([, v]) => v !== "" && v !== null && v !== false && !(Array.isArray(v) && !v.length))
       .map(([k, v]) => `<dt>${esc(k.replace(/_/g, " "))}</dt><dd>${typeof v === "object" ? `<code>${esc(JSON.stringify(v))}</code>` : esc(v)}</dd>`).join("");
-    const lien = (x, s) => `<li><span class="lib">${s ? "→" : "←"} ${esc(x.relation.libelle)}</span><button class="lien ellipse" data-sel="${esc(x.noeud.id)}">${esc(x.noeud.libelle)}</button>${x.relation.statut !== "validé" ? '<span class="pill warn">à valider</span>' : ""}</li>`;
-    detail(n.type.replace("_", " "), `
+    /* relation lue dans son sens métier : « → Vérifie » si ce nœud en est la source, « ← Vérifie » s'il en est la cible */
+    const ST_REL = {OFFICIAL: ["ok", "officiel"], VALIDATED: ["info", "validé"], PROPOSED: ["warn", "proposé"]};
+    const lien = (x, s) => { const m = x.relation.metier || {}, sortant = m.type ? s !== !!m.inverse : s, st = ST_REL[m.validation_status];
+      return `<li title="${esc(m.type ? `${m.type} · source ${m.source_system}${m.a_confirmer ? " · à confirmer : " + m.a_confirmer : ""} (ancien : ${x.relation.libelle})` : "")}">
+        <span class="lib">${sortant ? "→" : "←"} ${esc(m.libelle || x.relation.libelle)}</span><button class="lien ellipse" data-sel="${esc(x.noeud.id)}">${esc(x.noeud.libelle)}</button>
+        ${st ? `<span class="pill ${st[0]}">${st[1]}</span>` : x.relation.statut !== "validé" ? '<span class="pill warn">à valider</span>' : ""}</li>`; };
+    detail(n.metier ? n.metier.libelle : n.type.replace("_", " "), `
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><span class="carre" style="background:var(--f-${familleDe(n.type).id});width:12px;height:30px"></span>
-        <div class="item"><b style="font-size:14px">${esc(n.libelle)}</b><div class="lib"><code>${esc(n.id)}</code></div></div></div>
+        <div class="item"><b style="font-size:14px">${esc(n.libelle)}</b><div class="lib"><code>${esc(n.metier ? n.metier.id : n.id)}</code>${n.metier ? ` · ${esc(n.metier.type)} · univers ${esc(n.metier.univers)}` : ""}</div></div></div>
       <div class="btns" style="margin-bottom:10px"><span class="pill ${n.statut === "validé" ? "ok" : "warn"}">${esc(n.statut)}</span><span class="pill">${esc(n.provenance)}</span>
         <span class="pill info" title="Base de l'élément (pas un score calculé)">${esc(baseElement(n))}</span>${n.plateformes.map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>
       <dl class="props"><dt>Source</dt><dd>${esc(n.source)}</dd>${props}</dl>
@@ -422,9 +427,12 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
 
   function panneauRelation(r) {
     S.selection = null;
-    detail("Relation", `<p><b>${esc(r.libelle)}</b></p><dl class="props"><dt>De</dt><dd><button class="lien" data-sel="${esc(r.de)}">${esc(r.de)}</button></dd>
-      <dt>Vers</dt><dd><button class="lien" data-sel="${esc(r.vers)}">${esc(r.vers)}</button></dd><dt>Provenance</dt><dd>${esc(r.provenance)}</dd>
-      <dt>Source</dt><dd>${esc(r.source)}</dd><dt>Statut</dt><dd>${esc(r.statut)}</dd></dl>
+    const m = r.metier || {}, de = m.inverse ? r.vers : r.de, vers = m.inverse ? r.de : r.vers;
+    detail("Relation", `<p><b>${esc(m.libelle || r.libelle)}</b>${m.type ? ` <code>${esc(m.type)}</code>` : ""}</p><dl class="props"><dt>De</dt><dd><button class="lien" data-sel="${esc(de)}">${esc(de)}</button></dd>
+      <dt>Vers</dt><dd><button class="lien" data-sel="${esc(vers)}">${esc(vers)}</button></dd>
+      ${m.type ? `<dt>Système d'origine</dt><dd>${esc(m.source_system)}</dd><dt>Validation</dt><dd>${esc(m.validation_status)}${m.confidence !== null && m.confidence !== undefined && m.validation_status === "PROPOSED" ? ` · confiance ${Math.round(m.confidence * 100)} %` : ""}</dd>
+        ${m.a_confirmer ? `<dt>À confirmer</dt><dd class="warn-t">${esc(m.a_confirmer)}</dd>` : ""}<dt>Ancienne relation</dt><dd>${esc(r.libelle)}</dd>` : `<dt>Provenance</dt><dd>${esc(r.provenance)}</dd><dt>Statut</dt><dd>${esc(r.statut)}</dd>`}
+      <dt>Source</dt><dd>${esc(r.source)}</dd></dl>
       <div class="btns" style="margin-top:10px">${r.statut === "à valider" ? `<button class="btn succes" id="rv">${ico("check")}Valider</button>` : ""}
       <button class="btn danger" id="rs">${r.provenance === "observé" ? "Masquer" : "Supprimer"}</button></div>`);
     if ($("#rv")) $("#rv").onclick = () => action("/api/graphes/valider", {id: r.id}, null);

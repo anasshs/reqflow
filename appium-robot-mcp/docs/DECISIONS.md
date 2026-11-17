@@ -425,3 +425,18 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   format. « Je prends » (un cas ou une multi-sélection) = enregistrer, valider, créer dans Xray et lier à l'US en une
   confirmation ; un cas non prêt est refusé avec sa raison, les autres partent. « Je ne prends pas » = rejet motivé
   (un motif pour la sélection).
+
+## 2026-11-17 — Refonte du Knowledge Graph, phase 1 : ontologie et relations typées
+- Spécification de l'utilisateur : trois univers (Business, Testing, Application), relations métier typées à la place des
+  « contient » génériques, provenance sur chaque relation. Analyse préalable et plan : docs/REFONTE_KNOWLEDGE_GRAPH.md.
+- Phase 1 = traduction sans perte, pas de réécriture : les moteurs construisent toujours le graphe historique (lu par
+  couverture, impact, plan de test, outils MCP) ; `atelier/domain/ontologie.py` le traduit vers le modèle cible par
+  PAIRE de types (un « contient » devient INCLUDED_IN_PLAN, BELONGS_TO, PARENT_OF… selon ce qu'il relie), en inversant
+  le sens quand le métier l'exige (Test VERIFIES Story). Bascule des modules : phases suivantes, un par un.
+- Décisions prises par défaut (recommandations acceptées) : composant Jira = BusinessModule ; identifiants `jira:<clé>` /
+  `xray:<clé>` ; stockage `graph_nodes` / `graph_edges` reporté à la phase 5 (SQLite local recommandé, Supabase écarté
+  tant que la sécurité ne l'a pas validé : données de la banque hors du poste).
+- Provenance : observé = OFFICIAL ; déclaré ou proposition validée = VALIDATED ; déduit non validé = PROPOSED. Confiance
+  d'une proposition = valeur calculée, sinon vide (aucune confiance inventée). Systèmes ajoutés à la liste de la
+  spécification : USER_DECLARATION (saisie humaine) et API_CONTRACT (contrat OpenAPI).
+- Extensions du vocabulaire (15 relations, 11 types) marquées « extension » et comptées dans le rapport de migration.

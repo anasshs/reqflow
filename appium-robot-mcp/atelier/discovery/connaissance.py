@@ -350,7 +350,7 @@ def _depuis_patrimoine(g: Graphe, pat: dict | None):
     for e in pat.get("exigences", []):
         n = g.noeud(f"{e['type']}:{e['cle']}", e["type"], f"{e['cle']} {e.get('resume') or ''}".strip(), source=src,
                     proprietes={"cle": e["cle"], "resume": e.get("resume"), "statut": e.get("statut"),
-                                "module": e.get("module")})
+                                "module": e.get("module"), "type_jira": e.get("type_jira")})
         if e.get("module"):
             g.noeud(f"module:{e['module']}", "module", e["module"], source=src)
             g.relier(f"module:{e['module']}", n.id, "contient", source=src)

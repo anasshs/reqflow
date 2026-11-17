@@ -1252,6 +1252,24 @@ def graphes_referentiel():
     return espaces.referentiel()
 
 
+@app.get("/api/graphes/ontologie")
+def graphes_ontologie():
+    """Vocabulaire contrôlé du Knowledge Graph (refonte : trois univers, relations typées)."""
+    return espaces.ontologie_cible()
+
+
+@app.get("/api/graphes/property-graph")
+async def graphes_property_graph():
+    """Graphe du projet au format cible (nœuds et arêtes typés avec leur provenance) : service commun aux modules."""
+    return await asyncio.to_thread(_call, espaces.property_graph)
+
+
+@app.get("/api/graphes/migration")
+async def graphes_migration():
+    """Rapport de cohérence de la migration vers les relations typées."""
+    return await asyncio.to_thread(_call, espaces.rapport_migration)
+
+
 @app.get("/api/graphes/connaissance")
 async def graphe_connaissance(types: str = "", categories: str = "", plateforme: str = "", recherche: str = "",
                               centre: str = "", profondeur: int = 1, patrimoine: str = "lie", perimetre: str = ""):
