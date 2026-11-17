@@ -136,3 +136,27 @@ def test_outils_mcp_granularite(g):
     assert len(facade.test_design_cas_us("DEMO-1")["cas"]) == 5
     r = facade.test_design_proposer_regroupements("DEMO-1", [{"cas": [a, b], "mode": "donnees", "justification": "même chemin"}])
     assert r["retenues"] == 1 and not r["refusees"]
+
+
+def test_regles_gardent_les_propositions_de_l_ia_et_l_historique(g):
+    gr, t = g
+    u = t.detail("DEMO-1")
+    a, b, hote, detail_ = _ids(u, "Adresse", "Numéro", "Pack non", "Envoi")
+    gr.deposer_regroupements("DEMO-1", [{"cas": [hote, detail_], "mode": "controle", "justification": "détail vérifié en fin de parcours"}])
+    u = gr.proposer("DEMO-1")  # secours par règles : ne remplace pas la proposition de Cursor encore en attente
+    props = u["consolidation"]["propositions"]
+    assert [p["source"] for p in props if set(p["cas"]) == {hote, detail_}] == ["Cursor (MCP)"]
+    regle = next(p for p in props if set(p["cas"]) == {a, b})
+    gr.decider_proposition("DEMO-1", regle["id"], "ecarter")
+    props = gr.proposer("DEMO-1")["consolidation"]["propositions"]  # un regroupement écarté n'est pas reproposé
+    assert [p["statut"] for p in props if set(p["cas"]) == {a, b}] == ["Écartée"]
+
+
+def test_defaire_un_regroupement_contenu_dans_un_autre_est_refuse(g):
+    gr, t = g
+    u = t.detail("DEMO-1")
+    a, b, hote = _ids(u, "Adresse", "Numéro", "Pack non")
+    r1 = next(c for c in gr.regrouper("DEMO-1", [a, b], "donnees")["cas"] if c.get("regroupe"))["id"]
+    gr.regrouper("DEMO-1", [hote, r1], "controle", "Parcours complet")
+    with pytest.raises(ValueError, match="autre regroupement"):
+        gr.degrouper("DEMO-1", r1)

@@ -378,3 +378,23 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   présélection (« règles, sans compréhension du texte ») ; une paire jugée « distincts » reste visible.
 - Restent aux règles : diagnostic de base des échecs (motifs techniques fiables), indicateurs et comptages, classement
   de sécurité des actions et droits des rôles (invariants, jamais confiés à un LLM).
+
+## 2026-11-17 — Correctifs : poste Windows et relecture des jugements délégués
+- Chemins du projet : toujours avec « / » (`relative_to(...).as_posix()`), sous Windows comme sous Linux. Ce sont des
+  clés (suite en revue, nœuds du graphe, historique) : avec « \ », une suite nommée `tests/x.robot` par Cursor ou par
+  l'interface était « inconnue ». Les imports `Resource` générés suivent la même règle (dans Robot Framework, « \ »
+  est le caractère d'échappement).
+- Arrêt d'un run sous Windows : un sous-processus ne peut pas recevoir SIGINT ; le run est interrompu
+  (`terminate`), le bilan dit « arrêté », le rapport du test en cours peut manquer. Linux / macOS : inchangé.
+- Rapport Robot vide ou tronqué (arrêt, délai dépassé, plantage) : l'historique reste consultable (aucun test listé),
+  le bilan garde la console et signale `rapport_illisible`.
+- Journal Xray : une ligne coupée au milieu d'un caractère accentué est ignorée comme toute ligne tronquée.
+- Descriptions des outils MCP : indentation du code retirée (`inspect.cleandoc`), identique à Python 3.13.
+- Sorties de sous-processus (git, adb, Robot) : décodage sans erreur fatale ; git lu en UTF-8.
+- Relecture indépendante du commit des jugements délégués, constats corrigés : le panneau d'une US n'est plus
+  réaffiché pendant une saisie, pour une autre US, sur un événement rejoué ou hors écran ; les lots à juger avancent
+  (ce qui est déjà jugé passe en dernier, les paires écartées sont mémorisées dans `liens_ecartes.json`) ; le
+  recalcul des doublons par règles garde le verdict de l'IA ; une référence d'écran vide est refusée ; les règles de
+  granularité ne remplacent plus les propositions d'une IA ni l'historique ; un classement déjà décidé n'est pas
+  compté comme déposé ; écriture atomique avec un fichier temporaire par écriture.
+- Tests propres à Linux (droits 0600 du fichier de jeton, lien symbolique) : adaptés, pas le code.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -141,7 +142,8 @@ def test_jeton_des_processus_publie_pour_le_seul_utilisateur():
 
     f = Path(os.environ["ATELIER_JETON_FICHIER"])
     assert f.read_text() == module_web().JETON_PROCESSUS == interface_web.jeton()
-    assert stat.S_IMODE(f.stat().st_mode) == 0o600
+    if sys.platform != "win32":  # Windows : pas de droits POSIX ; le fichier vit dans le profil de l'utilisateur (ACL du profil)
+        assert stat.S_IMODE(f.stat().st_mode) == 0o600
     assert os.environ["ATELIER_JETON_EVENEMENTS"] == module_web().JETON_PROCESSUS  # hérité par les runs
 
 

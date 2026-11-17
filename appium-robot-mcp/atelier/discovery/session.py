@@ -72,7 +72,7 @@ def diagnostic_devices() -> dict:
            "android_home": os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or "", "erreur": ""}
     if adb:
         try:
-            r = subprocess.run([adb, "devices", "-l"], capture_output=True, text=True, timeout=20)
+            r = subprocess.run([adb, "devices", "-l"], capture_output=True, text=True, errors="replace", timeout=20)
             for line in r.stdout.splitlines()[1:]:
                 parts = line.split()
                 if len(parts) > 1:
@@ -86,21 +86,21 @@ def list_devices() -> dict:
     out: dict = {"android": [], "ios_simulateurs": [], "ios_physiques": []}
     adb = chemin_adb()
     if adb:
-        r = subprocess.run([adb, "devices", "-l"], capture_output=True, text=True, timeout=20)
+        r = subprocess.run([adb, "devices", "-l"], capture_output=True, text=True, errors="replace", timeout=20)
         for line in r.stdout.splitlines()[1:]:
             parts = line.split()
             if len(parts) > 1 and parts[1] == "device":
                 out["android"].append({"udid": parts[0], "details": " ".join(parts[2:])})
     if shutil.which("xcrun"):
         r = subprocess.run(["xcrun", "simctl", "list", "devices", "booted", "-j"],
-                           capture_output=True, text=True, timeout=30)
+                           capture_output=True, text=True, errors="replace", timeout=30)
         for runtime, devs in json.loads(r.stdout or "{}").get("devices", {}).items():
             for d in devs:
                 if d.get("state") == "Booted":
                     out["ios_simulateurs"].append(
                         {"nom": d["name"], "udid": d["udid"], "runtime": runtime.split(".")[-1]})
     if shutil.which("idevice_id"):
-        r = subprocess.run(["idevice_id", "-l"], capture_output=True, text=True, timeout=20)
+        r = subprocess.run(["idevice_id", "-l"], capture_output=True, text=True, errors="replace", timeout=20)
         out["ios_physiques"] = [u for u in r.stdout.split() if u]
     return out
 

@@ -314,6 +314,7 @@
      questions, cas de test, historique), cas filtrables par statut, passage à l'US précédente / suivante de la liste.
      La taille choisie est mémorisée dans le navigateur. */
   let LISTE_US = [], ONGLET_US = "us", FILTRE_CAS = "", DESABO_US = null;
+  const APPELS_US = {};  // appel MCP en cours -> US visée (le début porte les arguments, la fin non)
   const tailleUS = () => { try { return localStorage.getItem("td-us-taille") || "normal"; } catch (e) { return "normal"; } };
   const fixerTailleUS = t => { try { localStorage.setItem("td-us-taille", t); } catch (e) { /* préférence locale facultative */ } };
   const ST_CAS = {"Proposé": "info", "Validé": "ok", "Rejeté": "ko", "Publié": "violet", "Regroupé": ""};
@@ -432,7 +433,20 @@
     };
     // une proposition déposée par Cursor s'affiche sans recharger
     if (DESABO_US) DESABO_US();
-    DESABO_US = Atelier.on("mcp_outil", e => { if (["test_design_proposer_regroupements", "test_design_juger_doublons", "testabilite_deposer_proposition"].includes(e.nom) && e.etat === "fin" && !p.hidden) panneauUS(cle, z); });
+    // … mais jamais pour une autre US, ni pendant une saisie non enregistrée, ni sur un événement rejoué (reconnexion),
+    // ni dans un panneau qui n'est plus à l'écran (navigation vers un autre module)
+    p.dataset.saisie = "";
+    p.oninput = () => { p.dataset.saisie = "1"; };
+    DESABO_US = Atelier.on("mcp_outil", e => {
+      if (e.rejeu || !["test_design_proposer_regroupements", "test_design_juger_doublons", "testabilite_deposer_proposition"].includes(e.nom)) return;
+      if (e.etat === "debut") { if (e.appel) APPELS_US[e.appel] = (e.args || {}).cle || ""; return; }
+      const visee = e.appel ? APPELS_US[e.appel] : "";
+      if (e.appel) delete APPELS_US[e.appel];
+      if (e.etat !== "fin" || (visee && visee !== cle)) return;
+      if (!document.body.contains(p) || p.hidden) { if (DESABO_US) DESABO_US(); DESABO_US = null; return; }
+      if (p.dataset.saisie) return toast(`Cursor a déposé des propositions pour ${cle}. Enregistrez votre saisie, puis rouvrez l'US pour les voir.`, "ok");
+      panneauUS(cle, z);
+    });
     $$("[data-pu-prop]", p).forEach(b => b.onclick = () => ok(act("consolidation", {id: b.dataset.puProp, decision: b.dataset.dec}),
       b.dataset.dec === "appliquer" ? "Cas regroupés en un test (à valider)." : "Suggestion écartée."));
     $$("[data-pu-degrouper]", p).forEach(b => b.onclick = () => confirm("Défaire ce regroupement ? Les cas d'origine reviennent à leur statut précédent.")

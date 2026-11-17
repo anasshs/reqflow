@@ -161,7 +161,8 @@
       const masquer = $("#dr-lect").checked;
       // une ligne par appel : l'état de fin remplace le début
       const parAppel = [];
-      for (const e of a.evenements) { if (e.etat !== "debut") { const i = parAppel.map(x => x.nom).lastIndexOf(e.nom); if (i >= 0 && parAppel[i].etat === "debut") { parAppel[i] = {...parAppel[i], ...e, args: parAppel[i].args}; continue; } } parAppel.push(e); }
+      for (const e of a.evenements) { if (e.type === "mcp_annonce") continue;  // annonces de Cursor : affichées par la console, pas des appels d'outil
+        if (e.etat !== "debut") { const i = parAppel.map(x => x.nom).lastIndexOf(e.nom); if (i >= 0 && parAppel[i].etat === "debut") { parAppel[i] = {...parAppel[i], ...e, args: parAppel[i].args}; continue; } } parAppel.push(e); }
       const l = parAppel.filter(e => !masquer || e.famille !== "lecture").reverse();
       $("#dr-tl").innerHTML = l.map(ligne).join("") || "<li class='lib'>Aucun appel pour l'instant.</li>";
       if (a.evenements.length !== vus || (a.image_agent && a.image_agent.t !== imageT) || a.actif) {

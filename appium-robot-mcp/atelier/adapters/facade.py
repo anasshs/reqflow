@@ -1060,7 +1060,8 @@ def test_design_proposer_regroupements(cle: str, propositions: list[dict]) -> di
     """Granularité : propose de regrouper des cas d'une US (un test = un objectif). propositions : [{"cas": [id, id, ...],
     "mode": "donnees" (même chemin, données différentes : un test à variantes) | "controle" (un détail devient un point
     de contrôle d'un autre cas), "titre", "justification" (obligatoire : pourquoi c'est le même objectif), "couvre":
-    [comportements de l'US vérifiés]}]. Ne jamais regrouper des résultats métier différents. Rien n'est regroupé :
+    [comportements de l'US vérifiés]}]. Ne jamais regrouper des résultats métier différents. Chaque appel REMPLACE tes
+    propositions encore en attente pour cette US : envoyer la liste complète. Rien n'est regroupé :
     l'automaticien applique ou écarte chaque proposition dans l'atelier. Renvoie les propositions retenues et refusées."""
     from atelier.intelligence import granularite_tests
 

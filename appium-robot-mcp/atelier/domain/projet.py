@@ -42,7 +42,7 @@ def slug(text: str, max_len: int = 40, defaut: str = "element") -> str:
 
 def lister_fichiers(pattern: str = "**/*.robot") -> list[str]:
     base = PROJECT_DIR
-    return sorted(str(p.relative_to(base)) for p in base.glob(pattern)
+    return sorted(p.relative_to(base).as_posix() for p in base.glob(pattern)
                   if ".mcp_snapshots" not in p.parts)[:500]
 
 

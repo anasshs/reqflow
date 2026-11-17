@@ -110,7 +110,7 @@ class Journal:
         if not self.fichier.exists():
             return []
         out = []
-        for ligne in self.fichier.read_text("utf-8").splitlines():
+        for ligne in self.fichier.read_text("utf-8", errors="replace").splitlines():  # coupure au milieu d'un caractère
             try:
                 out.append(json.loads(ligne))
             except json.JSONDecodeError:

@@ -499,7 +499,7 @@ def creer_branche(nom: str) -> dict:
         raise RuntimeError("Le projet de tests n'est pas un dépôt Git.")
     import subprocess
 
-    r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), "switch", "-c", nom], capture_output=True, text=True, timeout=15)
+    r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), "switch", "-c", nom], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
     if r.returncode:
         raise RuntimeError(r.stderr.strip()[:300])
     _journaliser("git_branche", nom=nom)
@@ -534,9 +534,9 @@ def _commit(message: str, fichiers: list[str]) -> dict:
     for f in fichiers:
         projet.safe_path(f)
     base = ["git", "-C", str(projet.PROJECT_DIR)]
-    r = subprocess.run(base + ["add", "--", *fichiers], capture_output=True, text=True, timeout=30)
+    r = subprocess.run(base + ["add", "--", *fichiers], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     if r.returncode == 0:
-        r = subprocess.run(base + ["commit", "-m", message.strip(), "--", *fichiers], capture_output=True, text=True, timeout=30)
+        r = subprocess.run(base + ["commit", "-m", message.strip(), "--", *fichiers], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     if r.returncode:
         raise RuntimeError((r.stderr or r.stdout).strip()[:300])
     _journaliser("git_commit", branche=branche, fichiers=", ".join(fichiers))
@@ -556,7 +556,7 @@ def _git_distant(*args: str, timeout: int = 120) -> str:
 
     from atelier.execution.centre import _git
 
-    r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), *args], capture_output=True, text=True, timeout=timeout,
+    r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
                        env=_git_env_push(_git("remote", "get-url", "origin")))
     if r.returncode:
         from atelier.integrations.http import variable_secrete
@@ -609,7 +609,7 @@ def _synchroniser(action: str, branche: str = "") -> dict:
             raise ValueError(f"Branche « {branche} » inconnue (faire « Récupérer » pour voir les branches distantes).")
         import subprocess
 
-        r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), "switch", branche], capture_output=True, text=True, timeout=15)
+        r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), "switch", branche], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
         if r.returncode:
             bloquants = [x.strip() for x in r.stderr.splitlines() if x.startswith(("\t", "        "))]
             if bloquants and all(x.startswith(ETAT_ATELIER) for x in bloquants):
@@ -742,7 +742,7 @@ def _proposer_mr(titre: str, description: str = "", cible: str = "", derogation:
                               "Lancer les exécutions, ou proposer la merge request avec une dérogation justifiée.")
     url = _git("remote", "get-url", "origin")
     r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), "push", "--set-upstream", "origin", f"{branche}:{branche}"],
-                       capture_output=True, text=True, timeout=120, env=_git_env_push(url))
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, env=_git_env_push(url))
     if r.returncode:
         jeton = os.environ.get("GITLAB_TOKEN") or "\x00"
         raise RuntimeError("git push refusé : " + (r.stderr or r.stdout).replace(jeton, "***").strip()[:400])

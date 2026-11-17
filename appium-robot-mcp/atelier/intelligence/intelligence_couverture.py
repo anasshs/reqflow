@@ -614,6 +614,7 @@ def classer_orphelin(test: str, classe: str, cible: str = "", justification: str
     if not t:
         raise KeyError(f"Test inconnu : {test}")
     l = _charger()
+    nombre_avant = len(l)
     if classe == "associer":
         if cible not in d["exigences"]:
             raise ValueError("Exigence cible inconnue (périmètre importé).")
@@ -634,7 +635,10 @@ def classer_orphelin(test: str, classe: str, cible: str = "", justification: str
     if propose_par and p["statut"] == "proposee":  # classement proposé par une IA : l'automaticien valide ou rejette
         p["propose_par"] = propose_par
         p["avis_ia"] = {"verdict": classe, "cible": cible, "justification": justification, "source": propose_par, "date": _maintenant()}
-        p["historique"][-1]["auteur"] = propose_par
+        if len(l) > nombre_avant:  # proposition créée à l'instant : son auteur est l'IA
+            p["historique"][-1]["auteur"] = propose_par
+        else:  # proposition déjà là (règles, automaticien) : son historique n'est pas réattribué
+            p["historique"].append({"date": _maintenant(), "auteur": propose_par, "action": "avis", "detail": classe})
     _sauver(l)
     return p
 
@@ -710,6 +714,15 @@ def _source_courte(source: str) -> str:
     return "cursor" if "cursor" in source.lower() else "ia"
 
 
+def _liens_ecartes() -> dict:
+    """Paires exigence ↔ test jugées « ne couvre pas » par une IA alors qu'aucune proposition n'existait : mémoire de ce
+    qui a déjà été examiné (pour ne pas le resservir), jamais affichée comme une proposition."""
+    try:
+        return json.loads(_fichier("liens_ecartes.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def liens_a_juger(exigence: str = "", limite: int = 10, candidats: int = 8) -> dict:
     """Pour une IA : exigences (texte et critères masqués) et tests candidats PRÉSÉLECTIONNÉS par les mots (TF-IDF) ou par
     une proposition des règles en attente. Sans exigence : d'abord celles sans test, puis celles dont une proposition attend."""
@@ -728,8 +741,10 @@ def liens_a_juger(exigence: str = "", limite: int = 10, candidats: int = 8) -> d
     for p in props:
         if p["statut"] == "proposee":
             attente.setdefault(p["objet_source"], {})[p["objet_cible"]] = p
-    traites = {p["objet_source"] for p in props if p.get("avis_ia")}
-    cles = [exigence] if exigence else sorted(ex, key=lambda k: (bool(par_exigence.get(k)), k not in attente, k in traites, k))
+    ecartes = _liens_ecartes()
+    traites = {p["objet_source"] for p in props if p.get("avis_ia")} | {k.split("|", 1)[0] for k in ecartes}
+    # d'abord les exigences sans test jamais jugées par une IA (chaque lot avance), puis celles dont une proposition attend
+    cles = [exigence] if exigence else sorted(ex, key=lambda k: (bool(par_exigence.get(k)), k in traites, k not in attente, k))
     cles = cles[:max(1, min(limite, 30))]
     textes = {**{f"E:{k}": _texte_exigence(e) for k, e in ex.items()}, **{f"T:{k}": _texte_test(t) for k, t in tests.items()}}
     corpus = Corpus(textes)
@@ -751,9 +766,11 @@ def liens_a_juger(exigence: str = "", limite: int = 10, candidats: int = 8) -> d
                     "criteres": [court(c, 300) for c in e.get("criteres") or []][:15], "tests_deja_lies": sorted(deja),
                     "candidats": [{**vue(tk), "proximite_mots": s,
                                    "proposition_regles": (attente.get(k, {}).get(tk) or {}).get("score"),
-                                   "avis_ia": (attente.get(k, {}).get(tk) or {}).get("avis_ia")} for tk, s in choisis.items() if tk in tests]})
+                                   "avis_ia": (attente.get(k, {}).get(tk) or {}).get("avis_ia") or ecartes.get(f"{k}|{tk}")}
+                                  for tk, s in choisis.items() if tk in tests]})
+    sans_test = [k for k in ex if not par_exigence.get(k)]
     return {"consigne": CONSIGNE_LIENS, "verdicts": list(VERDICTS_LIEN), "candidats_par": SECOURS, "exigences": out,
-            "exigences_sans_test": sum(1 for k in ex if not par_exigence.get(k))}
+            "exigences_sans_test": len(sans_test), "exigences_sans_test_deja_jugees": sum(1 for k in sans_test if k in traites)}
 
 
 def deposer_jugements_liens(jugements: list[dict], source: str = "Cursor (MCP)") -> dict:
@@ -765,6 +782,7 @@ def deposer_jugements_liens(jugements: list[dict], source: str = "Cursor (MCP)")
     d = _donnees()
     l = _charger()
     par_cle = {p.get("cle_unique"): p for p in l if p["type"] == "lien_test"}
+    ecartes, ecartes_modifie = _liens_ecartes(), False
     compte, refuses = {v: 0 for v in VERDICTS_LIEN}, []
     for n, j in enumerate(jugements or [], 1):
         j = j if isinstance(j, dict) else {}
@@ -794,8 +812,16 @@ def deposer_jugements_liens(jugements: list[dict], source: str = "Cursor (MCP)")
                          cle_unique=f"lien:{k}:{tk}")
             p["avis_ia"] = avis
             par_cle[p["cle_unique"]] = p
+            ecartes_modifie |= ecartes.pop(f"{k}|{tk}", None) is not None
+        else:  # « ne couvre pas » sans proposition : rien à afficher, mais la paire est notée comme examinée
+            ecartes[f"{k}|{tk}"] = avis
+            ecartes_modifie = True
         compte[v] += 1
     _sauver(l)
+    if ecartes_modifie:
+        from atelier.intelligence.strategie import _ecrire_atomique
+
+        _ecrire_atomique(_fichier("liens_ecartes.json"), json.dumps(ecartes, ensure_ascii=False, indent=1))
     return {"retenus": sum(compte.values()), **compte, "refuses": refuses}
 
 
@@ -805,7 +831,11 @@ def orphelins_a_classer(limite: int = 20) -> dict:
     from atelier.intelligence.jugement_ia import SECOURS, court, etapes_courtes
 
     d = _donnees()
-    a_classer = [o for o in orphelins() if not o.get("classement")]
+    en_cours = ("proposee", "validee", "synchronisee")
+    deja = {p["objet_cible"] for p in _charger() if p["type"] == "lien_test" and p["statut"] in en_cours
+            and (p.get("source") == "classement_orphelin" or p.get("propose_par"))} \
+        | {p["objet_source"] for p in _charger() if p["type"] == "user_story" and p.get("source") == "test_orphelin" and p["statut"] in en_cours}
+    a_classer = [o for o in orphelins() if not o.get("classement") and o["test"] not in deja]
     return {"consigne": CONSIGNE_ORPHELINS, "classes": CLASSES_ORPHELIN, "candidats_par": SECOURS, "total": len(a_classer),
             "tests": [{"test": o["test"], "titre": court(o["resume"], 200), "module": o["module"],
                        "etapes": etapes_courtes(d["tests"][o["test"]].get("etapes"), 8, 160),
@@ -834,7 +864,9 @@ def deposer_classements_orphelins(classements: list[dict], source: str = "Cursor
                   else "justification manquante" if not just else "")
         if not raison:
             try:
-                classer_orphelin(tk, classe, cible, just, propose_par=source)
+                p = classer_orphelin(tk, classe, cible, just, propose_par=source)
+                if p["statut"] != "proposee":  # déjà rejetée (jamais reproposée) ou déjà validée : rien n'a été déposé
+                    raison = f"proposition déjà {p['statut']} par l'automaticien"
             except (KeyError, ValueError) as e:
                 raison = str(e.args[0] if e.args else e)
         if raison:

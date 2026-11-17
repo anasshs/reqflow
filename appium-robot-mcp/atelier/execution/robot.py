@@ -19,13 +19,18 @@ EN_COURS: dict = {"proc": None, "arret": False}
 
 
 def arreter_run() -> str:
-    """Demande l'arrêt du run en cours (SIGINT : Robot termine proprement et écrit output.xml)."""
+    """Demande l'arrêt du run en cours. Linux / macOS : SIGINT, Robot termine proprement et écrit output.xml.
+    Windows : un sous-processus ne peut pas recevoir SIGINT ; le run est interrompu (rapport Robot possiblement absent)."""
     import signal
+    import sys
 
     proc = EN_COURS.get("proc")
     if not proc or proc.poll() is not None:
         return "Aucun run en cours."
     EN_COURS["arret"] = True
+    if sys.platform == "win32":
+        proc.terminate()
+        return "Arrêt demandé : le run est interrompu (sous Windows, le rapport Robot du test en cours peut manquer)."
     proc.send_signal(signal.SIGINT)
     return "Arrêt demandé : le test en cours se termine, puis le rapport est écrit."
 
@@ -176,10 +181,10 @@ def run_robot(target: str, include_tags: list[str] | None = None,
         cmd += ["--variable", f"{k}:{v}"]
     if dry_run:
         cmd.append("--dryrun")
-    cmd.append(str(projet.safe_path(target).relative_to(projet.PROJECT_DIR)))
+    cmd.append(projet.safe_path(target).relative_to(projet.PROJECT_DIR).as_posix())
 
     try:
-        proc = subprocess.Popen(cmd, cwd=projet.PROJECT_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(cmd, cwd=projet.PROJECT_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
         EN_COURS["proc"], EN_COURS["arret"] = proc, False
         try:
             sortie, erreurs = proc.communicate(timeout=timeout_s)
@@ -197,7 +202,10 @@ def run_robot(target: str, include_tags: list[str] | None = None,
         bilan["arrete"] = True
     output = out_abs / "output.xml"
     if output.exists():
-        bilan["resultat"] = parse_robot_output(str(output.relative_to(projet.PROJECT_DIR)))
+        try:
+            bilan["resultat"] = parse_robot_output(output.relative_to(projet.PROJECT_DIR).as_posix())
+        except Exception as e:  # noqa: BLE001 - run arrêté ou tué : output.xml vide ou tronqué, le bilan (console, arrêt) reste utile
+            bilan["rapport_illisible"] = f"output.xml incomplet (run interrompu) : {str(e)[:200]}"
     if report_path.exists():
         bilan["xray"] = json.loads(report_path.read_text("utf-8"))
         if live_xray and bilan["xray"].get("execution"):
@@ -230,9 +238,9 @@ def derniers_resultats(dossier: str = "results") -> dict:
         for t in res.suite.all_tests:
             src = Path(str(t.source)) if t.source else None
             try:
-                rel = str(src.resolve().relative_to(projet.PROJECT_DIR)) if src else ""
+                rel = src.resolve().relative_to(projet.PROJECT_DIR).as_posix() if src else ""
             except ValueError:
                 rel = str(src)
             out[f"{rel}::{t.name}"] = {"statut": t.status, "message": t.message[:300],
-                                       "fin": str(t.end_time or ""), "output": str(f.relative_to(projet.PROJECT_DIR))}
+                                       "fin": str(t.end_time or ""), "output": f.relative_to(projet.PROJECT_DIR).as_posix()}
     return out

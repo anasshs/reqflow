@@ -140,6 +140,8 @@ def degrouper(cle: str, cid: str) -> dict:
         raise ValueError("Ce cas n'est pas un regroupement.")
     if c.get("statut") == "Publié":
         raise PermissionError("Test déjà publié dans Xray : le regroupement ne peut plus être défait ici.")
+    if c.get("statut") == "Regroupé":
+        raise ValueError("Ce regroupement fait lui-même partie d'un autre regroupement : défaire d'abord celui qui le contient.")
     for o in u["cas"]:
         if o.get("regroupe_dans") == cid:
             o["statut"] = o.pop("statut_avant", "Proposé")
@@ -314,8 +316,16 @@ def proposer(cle: str) -> dict:
                           "justification": f"« {c['titre'][:80]} » ne vérifie qu'un affichage déjà traversé par « {hote['titre'][:80]} » : "
                                            "point de contrôle dans ce test."})
             pris |= {c["id"], hote["id"]}
-    u["consolidation"] = {"date": t._maintenant(), "source": SOURCE_REGLES, "propositions": props, "avant": len(cas),
-                          "apres": len(cas) - sum(len(p["cas"]) - 1 for p in props)}
+    # les règles ne remplacent que leurs propres suggestions en attente : l'historique (appliquées, écartées) et les
+    # propositions d'une IA encore en attente sont gardés ; un regroupement déjà écarté n'est pas reproposé
+    existantes = (u.get("consolidation") or {}).get("propositions") or []
+    gardees = [x for x in existantes if x.get("statut") != "Proposé" or not str(x.get("source") or "règles").startswith("règles")]
+    pris_ia = {i for x in gardees if x.get("statut") == "Proposé" for i in x["cas"]}
+    ecartees = {(x.get("mode"), frozenset(x["cas"])) for x in gardees if x.get("statut") == "Écartée"}
+    props = [p for p in props if not (set(p["cas"]) & pris_ia) and (p["mode"], frozenset(p["cas"])) not in ecartees]
+    attente = [x for x in gardees if x.get("statut") == "Proposé"] + props
+    u["consolidation"] = {"date": t._maintenant(), "source": SOURCE_REGLES, "propositions": gardees + props, "avant": len(cas),
+                          "apres": len(cas) - sum(len(p["cas"]) - 1 for p in attente)}
     t._sauver_us(d)
     t._journaliser("consolidation_proposee", cle=cle, propositions=len(props))
     return t.detail(cle)

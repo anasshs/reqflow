@@ -77,7 +77,10 @@ def _tests(output: Path) -> list[dict]:
 
     from atelier.integrations.xray import KEY_RE
 
-    res = ExecutionResult(str(output))
+    try:
+        res = ExecutionResult(str(output))
+    except Exception:  # noqa: BLE001 - output.xml vide ou tronqué (run arrêté, délai dépassé, plantage) : le bilan reste lisible
+        return []
     return [{"id": t.id, "nom": t.name, "suite": t.parent.name, "statut": t.status, "message": t.message[:500],
              "cles_xray": [x for x in t.tags if KEY_RE.match(x)], "tags": list(t.tags),
              "debut": str(t.start_time or ""), "duree_s": round(t.elapsed_time.total_seconds(), 2)}
@@ -91,7 +94,10 @@ def detail_test(run_id: str, test_id: str) -> dict:
     data = json.loads((dossier(run_id) / "bilan.json").read_text("utf-8"))
     sortie = _sortie(data)
     d = sortie.parent
-    res = ExecutionResult(str(sortie))
+    try:
+        res = ExecutionResult(str(sortie))
+    except Exception as e:  # noqa: BLE001 - output.xml vide ou tronqué
+        raise KeyError(f"Rapport Robot du run {run_id} illisible (run interrompu ?) : {str(e)[:200]}") from e
     test = next((t for t in res.suite.all_tests if t.id == test_id), None)
     if test is None:
         raise KeyError(f"Test {test_id} absent du run {run_id}.")
@@ -116,7 +122,7 @@ def detail_test(run_id: str, test_id: str) -> dict:
     fautive = next((i for i, e in enumerate(etapes) if e["statut"] == "FAIL"), None)
     captures = [c for c in dict.fromkeys(captures) if (d / c).exists()]
     try:
-        fichier = str(Path(str(test.source)).resolve().relative_to(projet.PROJECT_DIR))
+        fichier = Path(str(test.source)).resolve().relative_to(projet.PROJECT_DIR).as_posix()
     except (ValueError, TypeError):
         fichier = str(test.source or "")
     plateforme = ((data.get("params") or {}).get("variables") or {}).get("PLATFORM", "")
@@ -131,7 +137,7 @@ def detail_test(run_id: str, test_id: str) -> dict:
             "fichier": fichier, "ligne": test.lineno, "plateforme": plateforme,
             "donnees": donnees,
             "etapes": etapes, "etape_en_echec": fautive, "logs": logs[-300:], "captures": captures,
-            "dossier": str(d.relative_to(projet.PROJECT_DIR))}
+            "dossier": d.relative_to(projet.PROJECT_DIR).as_posix()}
 
 
 LOCATOR = re.compile(r"^(id|accessibility_id|xpath|android|nsp|chain|class|name|css|data-testid|text|role)=|^//")

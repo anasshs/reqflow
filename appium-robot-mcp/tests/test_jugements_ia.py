@@ -189,3 +189,66 @@ def test_preconditions_xray_en_objets(ci):  # noqa: F811
     assert "Client connecté" in ci._texte_test(vue["tests"][0]) and "Compte actif" in ci._texte_test(vue["tests"][0])
     assert ci.liens_a_juger()["exigences"] and ci.analyser_liens()["propositions"] >= 0 and ci.orphelins()
     assert ci.orphelins_a_classer()["exigences_total"] == 3
+
+
+def test_jugement_conserve_apres_recalcul_des_regles(us):
+    """« Doublons par règles (secours) » recalcule la présélection sans effacer le verdict déposé par l'IA."""
+    from atelier.intelligence import conception_avancee as ca
+
+    refus = _id(us.detail("DEMO-12"), "Plafond")
+    ca.deposer_jugements_doublons("DEMO-12", [{"cas": refus, "verdict": "reutiliser", "test": "DEMO-102", "justification": "même contrôle"}])
+    u = ca.verifier_doublons("DEMO-12")["us"]
+    d = next(c for c in u["cas"] if c["id"] == refus)["doublon"]
+    assert d["jugement"]["verdict"] == "réutiliser" and d["meilleur"]  # jugement gardé, présélection recalculée
+
+
+def test_les_lots_avancent(ci):  # noqa: F811
+    """Ce qu'une IA a déjà jugé n'est pas resservi en tête du lot suivant (liens, orphelins, paires redondantes)."""
+    from atelier.intelligence import couverture, patrimoine_xray
+
+    lot = ci.liens_a_juger(limite=1)["exigences"][0]
+    premiere, candidat = lot["exigence"], lot["candidats"][0]["cle"]
+    r = ci.deposer_jugements_liens([{"exigence": premiere, "test": candidat, "verdict": "ne_couvre_pas", "justification": "sans rapport"}])
+    assert r["retenus"] == 1 and not ci.propositions("lien_test")  # rien à afficher : seulement noté comme examiné
+    lot = ci.liens_a_juger(limite=1)
+    assert lot["exigences"][0]["exigence"] != premiere and lot["exigences_sans_test_deja_jugees"] == 1
+    juge = next(c for c in ci.liens_a_juger(premiere)["exigences"][0]["candidats"] if c["cle"] == candidat)
+    assert juge["avis_ia"]["verdict"] == "ne couvre pas"  # l'IA voit ce qu'elle a déjà écarté
+
+    assert {t["test"] for t in ci.orphelins_a_classer()["tests"]} == {"DEMO-102", "DEMO-150"}
+    ci.deposer_classements_orphelins([{"test": "DEMO-102", "classe": "associer", "cible": "DEMO-12", "justification": "refus au-delà du plafond"},
+                                      {"test": "DEMO-150", "classe": "nouvelle_exigence", "justification": "aucune exigence sur l'export"}])
+    assert ci.orphelins_a_classer()["tests"] == []
+
+    tests = patrimoine_xray.charger_vue()["tests"]
+    paires = couverture.redondances_pour_agent(tests)["paires"]
+    if len(paires) >= 2:
+        a, b = (x["cle"] for x in paires[0]["tests"])
+        couverture.deposer_jugements_redondances(tests, [{"tests": [a, b], "verdict": "distincts", "justification": "résultat opposé"}])
+        vue = couverture.redondances_pour_agent(tests)
+        assert {x["cle"] for x in vue["paires"][-1]["tests"]} == {a, b} and vue["deja_jugees"] == 1
+
+
+def test_classement_deja_decide_non_compte_et_historique_garde(ci):  # noqa: F811
+    p = ci.classer_orphelin("DEMO-102", "associer", "DEMO-12")           # l'automaticien propose le lien…
+    auteur = p["historique"][-1]["auteur"]
+    r = ci.deposer_classements_orphelins([{"test": "DEMO-102", "classe": "associer", "cible": "DEMO-12", "justification": "même contrôle"}])
+    p = next(x for x in ci.propositions("lien_test") if x["id"] == p["id"])
+    assert r["retenus"] == 1 and p["historique"][0]["auteur"] == auteur and p["historique"][-1]["action"] == "avis"  # non réattribué
+    ci.decider(p["id"], "rejeter", "pas le même plafond")                  # … puis le rejette : jamais reproposé
+    r = ci.deposer_classements_orphelins([{"test": "DEMO-102", "classe": "associer", "cible": "DEMO-12", "justification": "même contrôle"}])
+    assert r["retenus"] == 0 and "rejetee" in r["refuses"][0]["raison"]
+
+
+def test_ecran_vide_refuse(ci):  # noqa: F811
+    """Une référence d'écran vide ne désigne pas « le premier écran sans nom »."""
+    from atelier.discovery import carte, correlation
+    from atelier.intelligence import patrimoine_xray
+
+    carte.observer([{"key": "x", "type": "bouton", "libelle": "X", "locators": ["id=x"]}], "android", "sans_nom")  # écran non nommé
+    with pytest.raises(KeyError):
+        carte.ecran("")
+    vue = patrimoine_xray.charger_vue()
+    patrimoine_xray.enregistrer({**vue, "exigences": [{"cle": "DEMO-12", "type": "user_story", "resume": "Plafond"}]}, "test")
+    r = correlation.deposer_correlations([{"exigence": "DEMO-12", "verdict": "concerne", "justification": "x"}])
+    assert r["retenus"] == 0 and r["refuses"][0]["raison"] == "écran inconnu dans la carte" and correlation.jugements() == {}

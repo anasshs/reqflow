@@ -31,8 +31,8 @@ def arbre() -> dict:
                 if sous["enfants"]:
                     enfants.append(sous)
             elif p.suffix in EXTENSIONS or p.name in (".gitlab-ci.yml",):
-                enfants.append({"nom": p.name, "chemin": str(p.relative_to(racine)), "type": "fichier"})
-        return {"nom": d.name, "chemin": str(d.relative_to(racine)) if d != racine else "", "type": "dossier",
+                enfants.append({"nom": p.name, "chemin": p.relative_to(racine).as_posix(), "type": "fichier"})
+        return {"nom": d.name, "chemin": d.relative_to(racine).as_posix() if d != racine else "", "type": "dossier",
                 "enfants": enfants}
     return noeud(racine) if racine.exists() else {"nom": "", "chemin": "", "type": "dossier", "enfants": []}
 
@@ -135,7 +135,7 @@ def robocop(chemin: str) -> dict:
         except ImportError:
             return {"disponible": False, "message": "robocop non installé (pip install robotframework-robocop)."}
     for cmd in ([sys.executable, "-m", "robocop", "check", str(cible)], [sys.executable, "-m", "robocop", str(cible)]):
-        r = subprocess.run(cmd, cwd=projet.PROJECT_DIR, capture_output=True, text=True, timeout=120)
+        r = subprocess.run(cmd, cwd=projet.PROJECT_DIR, capture_output=True, text=True, errors="replace", timeout=120)
         if "No such command" not in r.stderr and "unrecognized" not in r.stderr.lower():
             return {"disponible": True, "code_retour": r.returncode, "sortie": (r.stdout + r.stderr)[-8000:]}
     return {"disponible": True, "code_retour": r.returncode, "sortie": (r.stdout + r.stderr)[-8000:]}

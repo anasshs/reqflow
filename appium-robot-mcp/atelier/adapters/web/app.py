@@ -2088,7 +2088,7 @@ def resultats_captures(dossier: str = "results", limite: int = 12):
     """Captures d'écran les plus récentes des résultats (preuves)."""
     base = projet.safe_path(dossier)
     fichiers = sorted(base.rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)[:limite] if base.exists() else []
-    return [{"chemin": str(f.relative_to(base)), "dossier": dossier, "date": time.strftime("%H:%M:%S", time.localtime(f.stat().st_mtime))}
+    return [{"chemin": f.relative_to(base).as_posix(), "dossier": dossier, "date": time.strftime("%H:%M:%S", time.localtime(f.stat().st_mtime))}
             for f in fichiers]
 
 

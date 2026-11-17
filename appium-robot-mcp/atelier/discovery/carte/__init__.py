@@ -162,7 +162,7 @@ def archiver_app(s: str) -> dict:
     cible.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(d), str(cible))
     courante = _racine() / ".app_courante"
-    if courante.exists() and courante.read_text().strip() == s:
+    if courante.exists() and courante.read_text("utf-8").strip() == s:
         courante.unlink()
     return {"archive": cible.name, "active": app_courante()}
 
@@ -190,8 +190,8 @@ def restaurer_app(archive: str) -> dict:
 
 def app_courante() -> str | None:
     f = _racine() / ".app_courante"
-    if f.exists() and (_racine() / f.read_text().strip() / "app.yaml").exists():
-        return f.read_text().strip()
+    if f.exists() and (_racine() / f.read_text("utf-8").strip() / "app.yaml").exists():
+        return f.read_text("utf-8").strip()
     lst = apps()
     return lst[0]["slug"] if lst else None
 
@@ -200,7 +200,7 @@ def choisir_app(s: str) -> dict:
     if not (_racine() / s / "app.yaml").exists():
         raise KeyError(f"Application « {s} » inconnue.")
     _racine().mkdir(parents=True, exist_ok=True)
-    (_racine() / ".app_courante").write_text(s)
+    (_racine() / ".app_courante").write_text(s, "utf-8")
     return config_app(s)
 
 
@@ -287,6 +287,8 @@ def ecrans(s: str | None = None) -> list[dict]:
 
 
 def ecran(ref: str, s: str | None = None) -> dict:
+    if not str(ref or "").strip():  # une référence vide ne désigne pas « le premier écran sans nom »
+        raise KeyError("Écran non précisé.")
     ref_n = _norm(ref)
     for e in ecrans(s):
         if ref in (e.get("id"), e.get("nom")) or ref_n in [_norm(a) for a in e.get("alias", [])] \
@@ -730,7 +732,7 @@ def importer_resources(pattern: str = "**/*.resource", s: str | None = None) -> 
                 except KeyError:
                     e = {"id": "e_" + hashlib.sha1(ecran_nom.encode()).hexdigest()[:8], "nom": ecran_nom, "module": "",
                          "alias": [], "titre": "", "plateformes": {}, "elements": {}, "etats": [], "changements": [],
-                         "utilise_par": [], "essayes": {}, "importe_de": str(f.relative_to(projet.PROJECT_DIR)), "cree": _now()}
+                         "utilise_par": [], "essayes": {}, "importe_de": f.relative_to(projet.PROJECT_DIR).as_posix(), "cree": _now()}
                     crees += 1
                 for cle, locs in els.items():
                     el = e["elements"].setdefault(cle, {"type": cle.split("_")[0], "libelle": "", "locators": {}})

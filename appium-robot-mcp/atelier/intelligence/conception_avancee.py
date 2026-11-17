@@ -234,7 +234,7 @@ def proposer(cle: str, categories: list[str] | None = None, g=None, origine: str
     for p in propositions(u, contexte(cle, g), categories):
         if (p["categorie"], p["titre"]) in existants:
             continue
-        dbl = doublons(p["titre"], p["etapes"], p["gherkin"], [c for c in u.get("cas") or [] if c.get("statut") != "Rejeté"])
+        dbl = doublons(p["titre"], p["etapes"], p["gherkin"], [c for c in u.get("cas") or [] if c.get("statut") not in ("Rejeté", "Regroupé")])
         c = t._ajouter_cas(u, p, f"catégorie : {CATEGORIES[p['categorie']]}")
         c.update({k: p[k] for k in ("categorie", "source_detail", "justification", "confiance", "provenance", "manquant")}, doublon=dbl)
         ajoutes.append(c)
@@ -253,10 +253,13 @@ def verifier_doublons(cle: str) -> dict:
     d, u = t._exiger(cle)
     n = 0
     for c in u.get("cas") or []:
-        if c.get("statut") in ("Publié", "Rejeté"):
+        if c.get("statut") in ("Publié", "Rejeté", "Regroupé"):
             continue
-        autres = [x for x in u["cas"] if x["id"] != c["id"] and x.get("statut") != "Rejeté"]
+        autres = [x for x in u["cas"] if x["id"] != c["id"] and x.get("statut") not in ("Rejeté", "Regroupé")]
+        jugement = (c.get("doublon") or {}).get("jugement")  # le verdict d'une IA survit au recalcul des règles
         c["doublon"] = doublons(c["titre"], c.get("etapes") or [], c.get("gherkin") or "", autres)
+        if jugement:
+            c["doublon"]["jugement"] = jugement
         n += 1
     t._sauver_us(d)
     return {"verifies": n, "us": t.detail(cle)}

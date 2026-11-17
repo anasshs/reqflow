@@ -24,8 +24,11 @@
     if (e.type !== "mcp_outil") return;
     if (e.client) agent.client = e.client;
     if (e.nom === "agent_annoncer") return;  // l'annonce elle-même est affichée (mcp_annonce), pas l'appel technique
-    dernier = Date.now();
-    let id = e.appel;
+    if (!e.rejeu) dernier = Date.now();  // un événement rejoué à la reconnexion ne rend pas l'agent « actif »
+    // « en pause » arrive avant le début et sans identifiant d'appel : une seule ligne par outil, retirée dès que l'appel démarre
+    const idPause = `pause-${e.nom}`;
+    if (e.etat !== "pause" && appels.has(idPause)) { appels.delete(idPause); ordre = ordre.filter(k => k !== idPause); }
+    let id = e.etat === "pause" ? idPause : e.appel;
     if (!id) {  // ancien serveur MCP sans identifiant d'appel : la fin complète le dernier début du même outil
       const ouvert = [...ordre].reverse().find(k => appels.get(k)?.nom === e.nom && appels.get(k)?.etat === "debut");
       id = e.etat !== "debut" && ouvert ? ouvert : `${e.nom}-${e.heure}-${ordre.length}`;
@@ -68,9 +71,9 @@
         ${x.etape || x.modele || (x.regles || []).length ? `<div class="ca-meta">${x.etape ? `étape : ${esc(x.etape)}` : ""}${x.modele ? ` · modèle : ${esc(x.modele)}` : ""} ${(x.regles || []).map(regleChip).join("")}</div>` : ""}</div></li>`;
     const [cls, lib] = ETAT[x.etat] || ["", x.etat || ""];
     const args = Object.entries(x.args || {}).map(([k, v]) => `${esc(k)} = ${esc(String(v))}`).join(" · ");
-    return `<li class="ca-${cls}"><span class="ca-h mono">${esc(x.heure || "")}</span><div class="ca-corps">
+    return `<li class="ca-${esc(cls)}"><span class="ca-h mono">${esc(x.heure || "")}</span><div class="ca-corps">
         <div>${esc(x.phrase || `Cursor appelle ${x.nom}`)}</div>
-        <div class="ca-meta"><span class="pill ${cls}">${lib}${x.duree !== undefined ? " · " + duree(x.duree) : ""}</span>${(x.regles || []).map(regleChip).join("")}
+        <div class="ca-meta"><span class="pill ${esc(cls)}">${esc(lib)}${x.duree !== undefined ? " · " + esc(duree(x.duree)) : ""}</span>${(x.regles || []).map(regleChip).join("")}
           ${details ? `<span class="mono lib">${esc(x.nom)}</span>` : ""}</div>
         ${x.etat === "erreur" && x.message ? `<div class="ko-t">${esc(x.message)}</div>` : ""}
         ${details && (args || x.resultat) ? `<div class="ca-tech mono">${args ? "arguments : " + args : ""}${x.resultat ? `<br>résultat : ${esc(x.resultat)}` : ""}</div>` : ""}</div></li>`;

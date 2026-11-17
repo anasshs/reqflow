@@ -137,13 +137,13 @@ def redondances_pour_agent(tests: list[dict], module: str = "", limite: int = 30
                     sim = len(ma & mb) / len(ma | mb)
                     if sim >= SEUIL_PRESELECTION:
                         paires.append((sim, a, b))
-    paires.sort(key=lambda x: -x[0])
+    paires.sort(key=lambda x: (_paire(x[1]["cle"], x[2]["cle"]) in jug, -x[0]))  # jamais jugées d'abord, puis les plus proches
     vue = lambda t: {"cle": t["cle"], "titre": court(t.get("resume"), 200), "etapes": etapes_courtes(t.get("etapes"), 8, 160),  # noqa: E731
                      "gherkin": court(t.get("gherkin"), 500)}
     return {"consigne": CONSIGNE_REDONDANCES, "verdicts": list(VERDICTS_REDONDANCE), "presselection": SECOURS,
             "paires": [{"tests": [vue(a), vue(b)], "module": a.get("module") or "", "proximite_mots": round(s, 2),
                         "jugement": jug.get(_paire(a["cle"], b["cle"]))} for s, a, b in paires[:max(1, min(limite, 100))]],
-            "total_presselectionnees": len(paires)}
+            "total_presselectionnees": len(paires), "deja_jugees": sum(_paire(a["cle"], b["cle"]) in jug for _, a, b in paires)}
 
 
 def deposer_jugements_redondances(tests: list[dict], jugements: list[dict], source: str = "Cursor (MCP)") -> dict:

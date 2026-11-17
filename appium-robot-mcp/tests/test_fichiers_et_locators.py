@@ -18,7 +18,10 @@ def test_safe_path_refuse_lien_symbolique_sortant(projet, tmp_path):
     import server
 
     (tmp_path / "secret.txt").write_text("x")
-    (projet / "lien").symlink_to(tmp_path / "secret.txt")
+    try:
+        (projet / "lien").symlink_to(tmp_path / "secret.txt")
+    except OSError:  # Windows sans le privilège « créer des liens symboliques » : cas non reproductible sur ce poste
+        pytest.skip("création de lien symbolique non autorisée sur ce poste")
     with pytest.raises(ValueError):
         server.read_project_file("lien")
 

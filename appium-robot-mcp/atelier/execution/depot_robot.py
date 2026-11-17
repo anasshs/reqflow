@@ -64,7 +64,7 @@ def lire_depot(racine: Path | None = None) -> dict:
     fichiers = sorted(p for ext in ("*.robot", "*.resource") for p in racine.rglob(ext)
                       if not (set(p.relative_to(racine).parts) & EXCLUS))
     for f in fichiers:
-        rel = str(f.relative_to(racine))
+        rel = f.relative_to(racine).as_posix()
         try:
             model = (get_resource_model if f.suffix == ".resource" else get_model)(str(f))
         except Exception as e:  # fichier illisible : signalé, le reste du dépôt est lu
@@ -82,7 +82,7 @@ def lire_depot(racine: Path | None = None) -> dict:
 
             def visit_ResourceImport(self, n):
                 cible = (f.parent / n.name).resolve()
-                info["resources"].append(str(cible.relative_to(racine)) if racine in cible.parents else n.name)
+                info["resources"].append(cible.relative_to(racine).as_posix() if racine in cible.parents else n.name)
 
             def visit_TestTags(self, n):
                 info["tags_suite"] += list(n.values)

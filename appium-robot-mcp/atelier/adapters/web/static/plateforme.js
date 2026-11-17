@@ -84,7 +84,7 @@ function modale(titre, html, actions = "") {
 /* Jugements délégués à l'IA (atelier/intelligence/jugement_ia.py) : les règles présélectionnent par les mots ; Cursor (via
    le MCP) ou l'IA à appel direct juge le sens avec une justification ; l'automaticien décide. Règles = secours. */
 let ETAT_IA = null;
-window.EtatIA = () => (ETAT_IA = ETAT_IA || api("/api/ia/etat").catch(() => ({fournisseur: "aucun"})));
+window.EtatIA = () => (ETAT_IA = ETAT_IA || api("/api/ia/etat").catch(() => { ETAT_IA = null; return {fournisseur: "aucun"}; }));  // un échec passager n'est pas mémorisé
 window.AvecIA = ia => !!ia && (ia.fournisseur === "cursor" || !!ia.appel_direct);
 /* bouton principal : « Demander à Cursor » (id-cursor) ou « Avis de l'IA » (id-ia) ; rien sans IA */
 window.BoutonIA = (ia, id, quoi = "") => !ia ? "" : ia.fournisseur === "cursor"
@@ -116,11 +116,11 @@ window.SuivreCursor = (vue, outils, el, rafraichir) => {
   if (ABOS_IA[vue]) ABOS_IA[vue]();
   ABOS_IA[vue] = Atelier.on("mcp_outil", e => {
     if (!document.body.contains(el)) { ABOS_IA[vue](); delete ABOS_IA[vue]; return; }
-    if (outils.includes(e.nom) && e.etat === "fin") rafraichir();
+    if (!e.rejeu && outils.includes(e.nom) && e.etat === "fin") rafraichir();  // un événement rejoué (reconnexion) ne rafraîchit rien
   });
 };
 /* pastille d'un jugement d'IA : verdict, source au survol avec la justification */
-window.PastilleJugement = (j, couleurs = {}) => !j ? "" : `<span class="pill ${couleurs[j.verdict] || "info"}" title="${esc(`${j.justification || ""}\n— ${j.source || "IA"}, ${(j.date || "").slice(0, 16).replace("T", " ")}`)}">${esc(j.verdict)} · ${esc(/cursor/i.test(j.source || "") ? "Cursor" : "IA")}</span>`;
+window.PastilleJugement = (j, couleurs = {}) => !j ? "" : `<span class="pill ${couleurs[j.verdict] || "info"}" title="${esc(`${j.justification || ""}\n— ${j.source || "IA"}, ${(j.date || "").slice(0, 16).replace("T", " ")}`)}">${esc(String(j.verdict || "").replace(/_/g, " "))} · ${esc(/cursor/i.test(j.source || "") ? "Cursor" : "IA")}</span>`;
 
 /* Ouvre le Knowledge Graph centré sur un nœud (ex. "test:DEMO-12") */
 window.OuvrirGraphe = id => {

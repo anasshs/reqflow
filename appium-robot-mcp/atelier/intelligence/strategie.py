@@ -252,9 +252,20 @@ def _maintenant() -> str:
 
 def _ecrire_atomique(f: Path, texte: str):
     f.parent.mkdir(parents=True, exist_ok=True)
-    tmp = f.with_suffix(f.suffix + ".tmp")
+    import secrets
+    import time
+
+    tmp = f.with_suffix(f"{f.suffix}.{os.getpid()}-{secrets.token_hex(3)}.tmp")  # deux écritures simultanées ne partagent pas le fichier temporaire
     tmp.write_text(texte, "utf-8")
-    os.replace(tmp, f)
+    for essai in range(5):
+        try:
+            os.replace(tmp, f)
+            return
+        except PermissionError:  # Windows : cible ouverte un instant par un autre processus (web, MCP, antivirus)
+            if essai == 4:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.05 * (essai + 1))
 
 
 def charger() -> dict | None:

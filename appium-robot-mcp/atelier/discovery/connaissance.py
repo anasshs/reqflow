@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import posixpath
 import pickle
 import re
 import threading
@@ -402,7 +403,7 @@ def _depuis_openapi(g: Graphe):
             continue
         if not isinstance(d, dict) or not ("openapi" in d or "swagger" in d):
             continue
-        rel = str(f.relative_to(projet.PROJECT_DIR))
+        rel = f.relative_to(projet.PROJECT_DIR).as_posix()
         for chemin, ops in (d.get("paths") or {}).items():
             for meth, op in (ops or {}).items():
                 if meth.lower() not in ("get", "post", "put", "patch", "delete") or not isinstance(op, dict):
@@ -583,9 +584,9 @@ def analyser_impact(g: Graphe, noeud_id: str) -> dict:
     sans_cle = [t for t in tests_robot if not g.noeuds[t].proprietes.get("cles_xray")]
     cles = sorted({c for t in tests_robot for c in g.noeuds[t].proprietes.get("cles_xray") or []})
     fichiers = sorted({g.noeuds[t].proprietes.get("fichier", "") for t in tests_robot})
-    cible = os.path.commonpath(fichiers) if fichiers else ""
+    cible = posixpath.commonpath(fichiers) if fichiers else ""  # chemins du projet : toujours « / »
     if cible in fichiers and len(fichiers) > 1:
-        cible = os.path.dirname(cible)
+        cible = posixpath.dirname(cible)
     return {
         "element": depart.vers_dict(),
         "tests_robot": [{"id": t, "nom": g.noeuds[t].libelle, "fichier": g.noeuds[t].proprietes.get("fichier"),

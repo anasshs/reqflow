@@ -137,6 +137,30 @@ def test_arret_d_un_run(client, depot):
     assert client.post("/api/run/arreter").json()["message"] == "Aucun run en cours."
 
 
+def test_rapport_robot_tronque_reste_consultable(depot):
+    """Run arrêté, tué ou planté : output.xml vide ou coupé. Le détail de l'exécution reste lisible (aucun test listé)."""
+    from atelier.execution import historique
+
+    historique.enregistrer("RUN-20260101-000000", {"target": "tests/x.robot"}, {"arrete": True}, "2026-01-01T00:00:00", "2026-01-01T00:00:05")
+    (historique.dossier("RUN-20260101-000000") / "output.xml").write_text("", "utf-8")
+    d = historique.detail("RUN-20260101-000000")
+    assert d["bilan"]["arrete"] is True and d["tests"] == []
+    (historique.dossier("RUN-20260101-000000") / "output.xml").write_text('<?xml version="1.0"?><robot><suite name="x"><test name="coup', "utf-8")
+    assert historique.detail("RUN-20260101-000000")["tests"] == []
+    with pytest.raises(KeyError, match="illisible"):
+        historique.detail_test("RUN-20260101-000000", "s1-t1")
+
+
+def test_chemins_du_projet_avec_des_barres_obliques(depot):
+    """Chemins relatifs au projet : toujours « / », sous Windows comme sous Linux (clés enregistrées et comparées)."""
+    from atelier.domain import projet
+
+    (depot / "tests" / "sous").mkdir(exist_ok=True)
+    (depot / "tests" / "sous" / "z.robot").write_text("*** Test Cases ***\nZ\n    Log    z\n", "utf-8")
+    assert "tests/sous/z.robot" in projet.lister_fichiers("**/*.robot")
+    assert not any("\\" in c for c in projet.lister_fichiers("**/*"))
+
+
 def test_contexte(client):
     c = client.get("/api/contexte").json()
     assert c["projet"] == "projet" and c["environnements"] == ["recette"] and "xray" in c

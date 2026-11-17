@@ -439,7 +439,7 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
     from atelier.generation import rangement
 
     cible = rangement.chemin_robot(m)  # tests/{application}/{module}/{scenario}.robot (réglable)
-    imports = [f"Resource    {os.path.relpath(projet.PROJECT_DIR / r, (projet.PROJECT_DIR / cible).parent)}"
+    imports = [f"Resource    {Path(os.path.relpath(projet.PROJECT_DIR / r, (projet.PROJECT_DIR / cible).parent)).as_posix()}"
                for r in sorted(resources) if r.endswith(".resource")]
     texte = ["*** Settings ***",
              f"Documentation    {m.get('titre') or m['cle']} — généré depuis le scénario BDD {m['cle']} le "

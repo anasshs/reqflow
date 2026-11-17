@@ -50,7 +50,7 @@ def _entree() -> dict | None:
     f = fichier()
     try:
         brut = f.read_bytes()
-    except OSError:
+    except FileNotFoundError:
         return None
     cle = (str(f.resolve()), len(brut), zlib.crc32(brut))
     with _VERROU:

@@ -239,7 +239,7 @@ def importer(env: str, contenu: str, format_: str, ecraser: bool = False, ecrire
         return {**apercu, "ecrit": False}
     roles.exiger("importer_donnees")
     fusion = {**existants, **{n: {k: v for k, v in (("description", j["description"]), ("donnees", j["donnees"])) if v} for n, j in jeux.items()}}
-    rel = str(chemin.relative_to(projet.PROJECT_DIR))
+    rel = chemin.relative_to(projet.PROJECT_DIR).as_posix()
     entete = chemin.read_text("utf-8").split("\n\n")[0] + "\n\n" if chemin.exists() and chemin.read_text("utf-8").startswith("#") else ""
     editeur.enregistrer(rel, entete + yaml.safe_dump(fusion, allow_unicode=True, sort_keys=False))
     return {**apercu, "ecrit": True, "fichier": rel}

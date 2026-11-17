@@ -207,7 +207,7 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
         self._emit("test_fin", id=data.id, nom=data.name, cle_xray=key, statut=result.status,
                    statut_xray=agg, message=result.message[:1500],
                    keyword_en_echec=kw_fautif, run_id=run_id,
-                   captures=[os.path.relpath(p, self.cfg["output_dir"]) for p in captures],
+                   captures=[os.path.relpath(p, self.cfg["output_dir"]).replace(os.sep, "/") for p in captures],
                    execution=etat.get("exec_key"),
                    debut=self.debut_xray.get(key) if key else None, fin=finished)
         if not key:

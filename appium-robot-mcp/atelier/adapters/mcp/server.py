@@ -8,6 +8,7 @@ web (écran de contrôle). Aucune logique métier ici.
 from __future__ import annotations
 
 import functools
+import inspect
 import threading
 
 from mcp.server.fastmcp import FastMCP
@@ -150,7 +151,8 @@ def _suivre_projet(fn):
 
 
 for _fn in facade.OUTILS:
-    mcp.tool()(_suivre_projet(_fn))
+    # description sans l'indentation du code : avant Python 3.13, __doc__ garde les espaces de début des lignes suivantes
+    mcp.tool(description=inspect.cleandoc(_fn.__doc__ or ""))(_suivre_projet(_fn))
 
 
 def _relayer(ev: dict):

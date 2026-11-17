@@ -47,7 +47,7 @@ def _maintenant() -> str:
 # =========================================================================== contexte figé
 def _git(*args) -> str:
     try:
-        r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), *args], capture_output=True, text=True, timeout=5)
+        r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
         return r.stdout.strip() if r.returncode == 0 else ""
     except Exception:
         return ""
@@ -216,10 +216,16 @@ def executer_avec_retry(run_robot, params: dict, retry: bool = False) -> dict:
         shutil.copy(out / "output.xml", t2 / "output.xml")
     subprocess.run([sys.executable, "-m", "robot.rebot", "--merge", "--outputdir", str(out), "--output", "output.xml",
                     "--log", "log.html", "--report", "report.html", str(t1 / "output.xml"), str(t2 / "output.xml")],
-                   capture_output=True, text=True, timeout=300)
-    statut = lambda f: {t.longname: t.status for t in ExecutionResult(str(f)).suite.all_tests} if f.exists() else {}  # noqa: E731
+                   capture_output=True, text=True, errors="replace", timeout=300)
+
+    def statut(f) -> dict:
+        try:
+            return {t.longname: t.status for t in ExecutionResult(str(f)).suite.all_tests} if f.exists() else {}
+        except Exception:  # noqa: BLE001 - tentative interrompue : output.xml illisible
+            return {}
+
     s1, s2 = statut(t1 / "output.xml"), statut(t2 / "output.xml")
-    final = {**second, "resultat": parse_robot_output(str((out / "output.xml").relative_to(projet.PROJECT_DIR)))}
+    final = {**second, "resultat": parse_robot_output((out / "output.xml").relative_to(projet.PROJECT_DIR).as_posix())}
     final["tentatives"] = [{"n": 1, "resultat": r1, "preuves": "tentative-1/"}, {"n": 2, "resultat": second.get("resultat"), "preuves": "tentative-2/"}]
     final["instables"] = sorted(n.split(".")[-1] for n, st in s2.items() if st == "PASS" and s1.get(n) == "FAIL")
     return final
@@ -528,7 +534,7 @@ def preuves(run_id: str) -> dict:
     for f in sorted(d.rglob("*")):
         if f.is_file() and not f.name.endswith((".tmp", ".verrou")):
             ext = f.suffix.lower()
-            fichiers.append({"chemin": str(f.relative_to(projet.PROJECT_DIR)), "nom": f.name, "taille": f.stat().st_size,
+            fichiers.append({"chemin": f.relative_to(projet.PROJECT_DIR).as_posix(), "nom": f.name, "taille": f.stat().st_size,
                              "type": "capture" if ext in (".png", ".jpg") else "rapport" if ext in (".html", ".xml") else "journal" if ext in (".jsonl", ".log", ".txt") else "donnée"})
     return {"run": run_id, "fichiers": fichiers, "taille_totale": sum(f["taille"] for f in fichiers)}
 
@@ -552,7 +558,7 @@ def etat_xray(run_id: str) -> dict:
         "Synced" if rest == 0 else "Pending" if rest == tot else "Partial"
     return {"run": run_id, "statut": statut, "evenements": tot, "restants": rest, "abandonnes": len(abandons),
             "erreurs_definitives": [a["detail"] for a in abandons][:5],
-            "journaux": [str(j.relative_to(projet.PROJECT_DIR)) for j in journaux]}
+            "journaux": [j.relative_to(projet.PROJECT_DIR).as_posix() for j in journaux]}
 
 
 def comparer(a: str, b: str) -> dict:

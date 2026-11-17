@@ -191,7 +191,8 @@ def correlations_a_juger(eid: str = "", limite: int = 15) -> dict:
         lignes.append({**_vue_ecran(e), "exigences_liees": [x["cle"] for x in c["exigences"]],
                        "candidats": [{"cle": p["cle"], "resume": court(p["resume"], 160), "mots_communs": p["mots"],
                                      "jugement": p.get("jugement")} for p in c["exigences_proposees"]]})
-    lignes.sort(key=lambda x: (bool(x["exigences_liees"]), x["nom"]))
+    juges = {k.split("|", 1)[0] for k in jugements()}
+    lignes.sort(key=lambda x: (bool(x["exigences_liees"]), x["ecran"] in juges, x["nom"]))  # écrans jamais jugés d'abord
     return {"consigne": CONSIGNE, "verdicts": list(VERDICTS), "candidats_par": SECOURS, "ecrans": lignes[:max(1, min(limite, 40))],
             "total_ecrans": len(lignes),
             "exigences": [{"cle": x["cle"], "type": x.get("type", ""), "resume": court(x.get("resume"), 160), "module": x.get("module") or ""}
@@ -213,7 +214,7 @@ def deposer_correlations(jugements_: list[dict], source: str = "Cursor (MCP)") -
     compte, refuses, etablies = {v: 0 for v in VERDICTS}, [], {}
     for n, j in enumerate(jugements_ or [], 1):
         j = j if isinstance(j, dict) else {}
-        ref, cle = str(j.get("ecran") or "").strip(), str(j.get("exigence") or "").strip()
+        ref, cle = str(j.get("ecran") or "").strip(), str(j.get("exigence") or "").strip()  # écran vide : refusé (carte.ecran)
         v, just = str(j.get("verdict") or "").strip().lower().replace(" ", "_"), _j(j.get("justification"))
         try:
             e = carte.ecran(ref)
