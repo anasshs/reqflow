@@ -2247,6 +2247,21 @@ def _filtre_app_ctx() -> dict:
         return {}
 
 
+@app.get("/api/xray/environnements")
+def xray_environnements():
+    from atelier.integrations.xray import environnements as envs_xray
+
+    return _call(envs_xray.etat)
+
+
+@app.post("/api/xray/environnements/synchroniser")
+async def xray_environnements_synchroniser():
+    """Relit les environnements de test dans le projet Xray (lecture seule côté Xray)."""
+    from atelier.integrations.xray import environnements as envs_xray
+
+    return await asyncio.to_thread(_call, envs_xray.synchroniser)
+
+
 @app.get("/api/contexte")
 def contexte():
     from atelier.execution import jdd as jdd_mod
@@ -2255,8 +2270,11 @@ def contexte():
         cfg = amap.config_app() if amap.app_courante() else {}
     except Exception:
         cfg = {}
+    from atelier.integrations.xray import environnements as envs_xray
+
     try:
-        envs = jdd_mod.environnements()
+        envs_xray.assurer()  # relit Xray en arrière-plan si la liste manque ou date ; ne bloque jamais
+        envs = envs_xray.liste()
     except Exception:
         envs = []
     cache = state["sante_cache"]

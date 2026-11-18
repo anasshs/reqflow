@@ -336,7 +336,6 @@
       <div class="champ"><label for="pj-ju">URL Jira</label><input class="in" id="pj-ju" value="${esc(p?.jira_url || "")}" placeholder="https://<site>.atlassian.net"></div>
       <div class="champ"><label for="pj-je">E-mail du compte Jira</label><input class="in" id="pj-je" value="${esc(p?.jira_email || "")}"></div>
       <div class="champ"><label for="pj-xu">URL Xray (si région particulière)</label><input class="in" id="pj-xu" value="${esc(p?.xray_url || "")}" placeholder="https://xray.cloud.getxray.app/api/v2"></div>
-      <div class="champ"><label for="pj-env">Environnements (séparés par des virgules)</label><input class="in" id="pj-env" value="${esc((p?.environnements || []).join(", "))}" placeholder="recette, preprod"></div>
       <div class="champ"><label for="pj-s1">Variable contenant le Client ID Xray</label><input class="in mono" id="pj-s1" value="${sec(p, "XRAY_CLIENT_ID")}" placeholder="XRAY_CLIENT_ID_DEMO"></div>
       <div class="champ"><label for="pj-s2">Variable contenant le Client Secret Xray</label><input class="in mono" id="pj-s2" value="${sec(p, "XRAY_CLIENT_SECRET")}" placeholder="XRAY_CLIENT_SECRET_DEMO"></div>
       <div class="champ"><label for="pj-s3">Variable contenant le jeton API Jira</label><input class="in mono" id="pj-s3" value="${sec(p, "JIRA_API_TOKEN")}" placeholder="JIRA_API_TOKEN_DEMO"></div>
@@ -348,6 +347,7 @@
       <div class="btns"><button class="btn primaire" id="pj-ok">${ico("disque")}Enregistrer</button><button class="btn" id="pj-an">Annuler</button></div>`;
     z.innerHTML = `<p class="lib">Un projet = un repository de tests et son projet Xray / Jira. Stratégie, conception, exécutions, échecs, gouvernance et Knowledge Graph
       sont stockés dans le repository : changer de projet change tout le contexte. Liste enregistrée sur ce poste (<code>${esc(d.fichier)}</code>), sans aucun secret.</p>
+      <div id="pj-envs" class="bloc-strat" style="margin:10px 0;max-width:900px"></div>
       ${d.projets.length ? `<table><tr><th>Projet</th><th>Repository</th><th>Xray / Jira</th><th>Secrets</th><th></th></tr>${d.projets.map(p => `<tr><td><b>${esc(p.nom)}</b>${p.id === d.actif ? ' <span class="pill ok">actif</span>' : ""}</td>
         <td class="mono" style="font-size:11px">${esc(p.dossier)}${p.dossier_existe ? "" : ' <span class="pill ko">introuvable</span>'}</td><td>${esc(p.xray_projet || "—")}${p.jira_url ? ` · <span class="lib">${esc(p.jira_url)}</span>` : ""}</td>
         <td>${Object.entries(p.secrets_presents).map(([k, ok]) => `<span class="pill ${ok ? "ok" : "warn"}" title="${esc(p.secrets[k])}">${esc(k.replace("XRAY_", "").replace("JIRA_", "Jira "))}</span>`).join(" ") || "<span class='lib'>globaux</span>"}</td>
@@ -358,12 +358,29 @@
       ${d.journal.length ? `<h3 class="lib" style="margin-top:16px">JOURNAL</h3><table class="table-strat"><tr><th>Date</th><th>Auteur</th><th>Opération</th><th>De</th><th>Vers</th></tr>${d.journal.map(j => `<tr><td class="mono">${esc(j.date.replace("T", " ").slice(0, 16))}</td><td>${esc(j.auteur)}</td><td>${esc(j.op)}</td><td>${esc(j.de || "")}</td><td>${esc(j.vers || "")}</td></tr>`).join("")}</table>` : ""}`;
     $("#pj-ok").onclick = async () => {
       const b = {id: edition?.id || "", nom: $("#pj-nom").value, dossier: $("#pj-dos").value, xray_projet: $("#pj-xr").value, jira_projet: $("#pj-jp").value,
-        jira_url: $("#pj-ju").value, jira_email: $("#pj-je").value, xray_url: $("#pj-xu").value, environnements: $("#pj-env").value.split(","),
+        jira_url: $("#pj-ju").value, jira_email: $("#pj-je").value, xray_url: $("#pj-xu").value,
         gitlab_url: $("#pj-gu").value, gitlab_projet: $("#pj-gp").value,
         secrets: {XRAY_CLIENT_ID: $("#pj-s1").value, XRAY_CLIENT_SECRET: $("#pj-s2").value, JIRA_API_TOKEN: $("#pj-s3").value, GITLAB_TOKEN: $("#pj-s4").value}};
       try { await api("/api/projets", {method: "POST", body: b}); toast("Projet enregistré.", "ok"); await Atelier.chargerContexte(); projets(z); } catch (e) { toast(e.message, "ko"); }
     };
     $("#pj-an").onclick = () => projets(z);
+    /* Environnements : lus dans le projet Xray du projet actif, jamais saisis ici */
+    const envs = async e => {
+      const zone = $("#pj-envs", z); if (!zone) return;
+      e = e || await api("/api/xray/environnements").catch(() => null);
+      if (!e) { zone.innerHTML = ""; return; }
+      zone.innerHTML = `<h3>Environnements du projet actif${e.projet ? ` (projet Xray ${esc(e.projet)})` : ""}</h3>
+        <p>${e.environnements.map(x => `<span class="pill ${e.depuis_xray ? "info" : ""}" title="${x.jeux_de_donnees ? "Jeux de données présents (data/jdd)" : "Aucun fichier de jeux de données pour cet environnement"}">${esc(x.nom)}${x.jeux_de_donnees ? "" : " · sans données"}</span>`).join(" ") || '<span class="lib">Aucun environnement connu.</span>'}</p>
+        <p class="lib">${e.depuis_xray ? `Lus dans Xray (${esc(e.source)}) le ${esc(String(e.date).slice(0, 16).replace("T", " "))}.` : e.source ? `Source : ${esc(e.source)}.` : "Ils sont lus dans le projet Xray : déclarer la clé du projet Xray et ses identifiants, puis actualiser."}
+          ${e.sans_environnement.length ? ` Jeux de données sans environnement Xray : ${e.sans_environnement.map(esc).join(", ")}.` : ""}
+          ${e.absents.length ? ` Non lu dans le schéma Xray : ${e.absents.map(esc).join(", ")}.` : ""}</p>
+        <div class="btns"><button class="btn" id="pj-envs-sync" title="Relit les environnements de test du projet Xray (lecture seule)">Actualiser depuis Xray</button></div>`;
+      $("#pj-envs-sync", zone).onclick = async () => {
+        try { const r = await api("/api/xray/environnements/synchroniser", {method: "POST", body: {}}); toast(`${r.environnements.length} environnement(s) lus dans Xray.`, "ok"); await Atelier.chargerContexte(); envs(r); }
+        catch (err) { toast(err.message, "ko"); }
+      };
+    };
+    envs();
     $$("[data-mod]", z).forEach(b => b.onclick = () => projets(z, d.projets.find(p => p.id === b.dataset.mod)));
     $$("[data-dup]", z).forEach(b => b.onclick = () => { const p = d.projets.find(x => x.id === b.dataset.dup);
       projets(z, {...p, id: "", nom: `${p.nom} (copie)`, dossier: "", duplique: p.nom}); setTimeout(() => $("#pj-dos")?.focus(), 50); });

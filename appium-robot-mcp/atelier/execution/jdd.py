@@ -38,6 +38,8 @@ def _jdd_dir() -> Path:
 
 def _load(name: str) -> dict:
     path = _jdd_dir() / f"{name}.yaml"
+    if not path.exists():  # environnement nommé comme dans Xray (« RECETTE ») : le fichier se retrouve sans tenir compte de la casse
+        path = next((p for p in _jdd_dir().glob("*.yaml") if p.stem.casefold() == str(name).casefold()), path)
     if not path.exists():
         raise FileNotFoundError(f"{path} introuvable.")
     return yaml.safe_load(path.read_text("utf-8")) or {}

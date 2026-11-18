@@ -201,6 +201,36 @@ class XrayClient:
                 out[cle_out].append(item)
         return out
 
+    def environnements(self, projet: str) -> dict:
+        """Environnements de test du projet Xray (lecture seule). D'abord les paramètres du projet (getProjectSettings ›
+        testEnvironments), choisis par introspection ; à défaut, ceux des Test Executions récentes, du plus utilisé au
+        moins utilisé. {"environnements": [...], "source": "...", "absents": [champs du schéma manquants]}"""
+        requete, absents = self._type_champs("Query"), []
+        if "getProjectSettings" not in requete:
+            absents.append("getProjectSettings")
+        elif "testEnvironments" not in self._type_champs("ProjectSettings"):
+            absents.append("ProjectSettings.testEnvironments")
+        else:
+            args = requete["getProjectSettings"]["args"]
+            arg = "projectIdOrKey" if "projectIdOrKey" in args or not args else next(iter(args))
+            q = f"query($p: String{'!' if args.get(arg) else ''}) {{ getProjectSettings({arg}: $p) {{ testEnvironments }} }}"
+            try:
+                envs = [str(e).strip() for e in (self.gql(q, {"p": projet}).get("getProjectSettings") or {}).get("testEnvironments") or []]
+            except ErreurGraphQL as e:  # paramètres du projet non lisibles avec ce compte : dit, puis seconde lecture
+                absents.append(f"getProjectSettings refusé ({str(e)[:120]})")
+                envs = []
+            envs = list(dict.fromkeys(e for e in envs if e))
+            if envs:
+                return {"environnements": envs, "source": "paramètres du projet Xray", "absents": absents}
+        compte: dict = {}
+        r = self.executions(projet, 100)
+        for x in r["executions"]:
+            for e in x.get("environnements") or []:
+                if str(e).strip():
+                    compte[str(e).strip()] = compte.get(str(e).strip(), 0) + 1
+        return {"environnements": sorted(compte, key=lambda e: (-compte[e], e.casefold())),
+                "source": "Test Executions récentes du projet Xray" if compte else "", "absents": absents + r["absents"]}
+
     def executions(self, projet: str, limite: int = 200, depuis: str = "", jusqu: str = "", jql: str = "") -> dict:
         """Test Executions du projet, les plus récentes d'abord : clé, résumé, statut Jira, environnements, tests et
         statut de chaque test run (lecture seule). Requête et champs choisis par introspection (getTestExecutions,

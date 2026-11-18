@@ -574,3 +574,19 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   réglage (l'automaticien doit voir l'agent, lui répondre et faire les actions sensibles).
 - Le mode « ligne de commande » est refusé à l'enregistrement tant que la commande manque sur le poste qui règle ; un
   autre poste sans la commande retombe sur le chat.
+
+## 2026-11-18 — Environnements lus dans le projet Xray
+- Décision de l'utilisateur : les environnements viennent du projet Xray ; le champ « Environnements » est retiré des
+  paramètres du projet (une valeur encore présente dans un projet enregistré est ignorée).
+- Lecture (`XrayClient.environnements`, `atelier/integrations/xray/environnements.py`), par introspection comme le reste
+  du client : paramètres du projet Xray (`getProjectSettings › testEnvironments`), à défaut les environnements des
+  100 dernières Test Executions. Lecture seule. Liste gardée dans `studio/environnements_xray.json` avec date et source.
+- Le sélecteur d'environnement du haut, Discovery › Données et Paramètres › Projets lisent cette liste. Relecture en
+  arrière-plan quand elle manque ou date de plus de 12 h ; bouton « Actualiser depuis Xray » dans Paramètres › Projets.
+- Xray indisponible ou non configuré : la dernière liste lue reste ; sans aucune lecture, les environnements des
+  fichiers de jeux de données servent de secours, présentés comme tels.
+- Un environnement Xray retrouve son fichier de jeux de données sans tenir compte de la casse ; un environnement sans
+  fichier est affiché « sans données », un fichier sans environnement Xray est signalé.
+- Non vérifié sur un vrai Xray : `getProjectSettings` et `ProjectSettings.testEnvironments` n'ont pas été introspectés
+  d'ici (un forum Atlassian cite le type et le champ). S'ils manquent, c'est dit dans « absents » et la seconde lecture
+  sert. À confirmer et consigner dans docs/XRAY_API.md au premier essai réel.

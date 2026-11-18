@@ -1002,6 +1002,13 @@ def preparer(profil: str = "", environnement: str = "") -> dict:
     return {"profil": profil, "environnement": environnement, "pretes": pretes, "bloquees": bloquees, "pret": not bloquees}
 
 
+def _environnements_projet() -> list[str]:
+    """Environnements du projet : ceux du projet Xray (secours : ceux qui ont des jeux de données)."""
+    from atelier.integrations.xray import environnements
+
+    return environnements.liste()
+
+
 def sources_externes() -> dict:
     """Sources externes déclarées et variables qui s'en servent (API et requêtes : celles de data/jdd, déjà gardées)."""
     from atelier.execution import jdd
@@ -1017,7 +1024,7 @@ def sources_externes() -> dict:
     except FileNotFoundError:
         req = []
     return {"utilisees": sorted(par_source.values(), key=lambda x: (x["type"], x["reference"])), "apis_declarees": sorted(jdd.apis()),
-            "requetes_declarees": req, "environnements": jdd.environnements()}
+            "requetes_declarees": req, "environnements": _environnements_projet()}
 
 
 def vue() -> dict:

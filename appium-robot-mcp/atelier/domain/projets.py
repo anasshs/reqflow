@@ -126,7 +126,7 @@ def valider(p: dict) -> dict:
     if gp and not re.fullmatch(r"[\w.-]+(/[\w.-]+)*|\d+", gp):
         raise ValueError("gitlab_projet : chemin « groupe/sous-groupe/projet » ou identifiant numérique.")
     out["gitlab_projet"] = gp
-    out["environnements"] = [str(e).strip() for e in (p.get("environnements") or []) if str(e).strip()]
+    # Les environnements ne se saisissent plus ici : ils sont lus dans le projet Xray (atelier/integrations/xray/environnements.py).
     sec = {}
     for cible, src in (p.get("secrets") or {}).items():
         if cible not in SECRETS:
