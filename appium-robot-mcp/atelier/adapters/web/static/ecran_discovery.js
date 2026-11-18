@@ -103,16 +103,21 @@
     const l = await api("/api/discovery/sessions");
     const s0 = l.find(s => s.id === SESSION) || l.find(s => ["En cours", "En pause"].includes(s.statut)) || l[0];
     const ouvrir = `<button class="btn primaire" id="st-ouvrir">${ico("recherche")}${s0 && ["En cours", "En pause"].includes(s0.statut) ? "Reprendre dans la fenêtre Discovery" : "Démarrer une Discovery"}</button>`;
-    if (!s0) { z.innerHTML = entete("Explorer", ouvrir) + pas("Aucune session", "La fenêtre Discovery propose l'émulateur, l'appareil branché ou le navigateur, puis démarre en un clic."); $("#st-ouvrir").onclick = () => DiscoveryFlottant.ouvrir(); return; }
+    const avecCursor = `<button class="btn" id="st-cursor" title="Ouvre le chat de Cursor avec la demande d'exploration : il parcourt l'application, vous validez">${ico("ia")}Explorer avec Cursor</button> `;
+    const explorerCursor = () => DemanderCursor("Explorer avec Cursor", "Explore l'application avec moi (Discovery). Commence par cerveau_application() pour voir ce qui est déjà connu, "
+      + "puis demande-moi la plateforme, l'environnement, le périmètre et le profil de données avant start_session et discovery_demarrer. "
+      + "Avance écran par écran, propose ce que tu comprends, et laisse-moi les actions sensibles.", undefined, ["discovery_proposer"], {chat: true});
+    if (!s0) { z.innerHTML = entete("Explorer", avecCursor + ouvrir) + pas("Aucune session", "La fenêtre Discovery propose l'émulateur, l'appareil branché ou le navigateur, puis démarre en un clic."); $("#st-ouvrir").onclick = () => DiscoveryFlottant.ouvrir(); $("#st-cursor").onclick = explorerCursor; return; }
     SESSION = s0.id;
     const s = await api("/api/discovery/sessions/" + SESSION), c = s.config;
-    z.innerHTML = `${entete(`Discovery Studio · ${s.id}`, ouvrir)}<div class="corps-carte">
+    z.innerHTML = `${entete(`Discovery Studio · ${s.id}`, avecCursor + ouvrir)}<div class="corps-carte">
       <p><b>${esc(c.app_nom)}</b> ${esc(c.build || "")} · ${esc(c.plateforme)} · ${esc(c.environnement || "environnement non précisé")} · ${esc(MODES[c.mode])}${c.device ? " · " + esc(c.device) : ""} · <span class="pill ${ST[s.statut]}">${esc(s.statut)}</span></p>
       <p class="lib">La fenêtre Discovery reste ouverte quand on change d'écran : on y voit le device ou le navigateur en direct, on touche l'image pour naviguer (actions classées et autorisées selon l'environnement), avec les suggestions et les derniers événements.</p>
       ${c.mode === "tests" && s.statut === "En cours" ? `<div class="btns"><select class="in" id="st-suite" style="max-width:320px"></select><button class="btn primaire" id="st-tnr">Lancer des tests avec cartographie</button></div>` : ""}
       ${s.resultats ? kpis([[s.resultats.ecrans_visites, "écrans visités"], [s.resultats.nouveaux_ecrans, "nouveaux écrans"], [s.resultats.nouvelles_transitions, "nouvelles transitions"], [s.resultats.comportements ?? 0, "comportements"], [s.resultats.refus ?? 0, "actions refusées"]]) : ""}
       <h3 class="lib" style="margin-top:12px">TIMELINE</h3>${timelineHtml(s.timeline)}</div>`;
     $("#st-ouvrir").onclick = () => DiscoveryFlottant.ouvrir();
+    $("#st-cursor").onclick = explorerCursor;
     if ($("#st-suite")) {
       api("/api/projet/fichiers?pattern=" + encodeURIComponent("**/*.robot")).catch(() => []).then(f => {
         const dirs = [...new Set(f.map(x => x.split("/").slice(0, -1).join("/")).filter(Boolean))];

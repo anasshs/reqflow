@@ -278,8 +278,10 @@
 
   /* liaison avec Cursor / Claude Desktop : trois étapes, sans chemin de projet ni secret à recopier */
   async function agents(z) {
-    const d = await api("/api/agents-ia");
+    const d = await api("/api/agents-ia"), bo = await api("/api/cursor/boite").catch(() => null);
     const c = d.agents.cursor, cl = d.agents.claude, regles = Object.values(d.regles);
+    const etatEnvoi = v => v === "boite" ? (bo.ecoute.active ? '<span class="pill ok">Cursor écoute</span>' : '<span class="pill warn">Cursor n\'écoute pas encore</span>')
+      : v === "cli" ? (bo.cli.trouvee && bo.cli.valide ? '<span class="pill ok">commande installée</span>' : '<span class="pill ko">commande absente sur ce poste</span>') + ` <span class="lib mono">${esc(bo.cli.commande)} ${esc(bo.cli.arguments)}</span>` : "";
     const actif = d.derniere_activite_s !== null && d.derniere_activite_s < 900;
     const etape = (n, ok, titre, corps) => `<section class="bloc-strat" style="margin-bottom:10px"><h3><span class="pill ${ok ? "ok" : ""}">${ok ? "✓" : n}</span> ${titre}</h3>${corps}</section>`;
     const statut = a => a.erreur ? `<span class="pill ko">fichier illisible</span> <span class="lib">${esc(a.erreur)}</span>` : a.a_jour ? '<span class="pill ok">installé</span>'
@@ -296,6 +298,10 @@
         <p class="lib">Dans Cursor, demander par exemple : « Où suis-je dans l'application ? » (outil where_am_i) ou « Démarre une Discovery de l'application en recette ». L'atelier doit être lancé (python web/app.py).</p>
         <div class="btns"><button class="btn primaire" id="ag-test" title="Interroge le serveur MCP comme Cursor (même commande en stdio, même URL en mode HTTP), l'initialise et liste ses outils">Tester le serveur MCP</button>
           <button class="btn" id="ag-rafr">Actualiser</button></div><div id="ag-test-r" class="lib"></div>`)}
+      ${bo ? etape(4, bo.envoi !== "lien", "Envoi des demandes à Cursor (réglé une fois, pour tout le projet)", `
+        ${Object.entries(bo.envois).map(([v, lib]) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 0"><input type="radio" name="ag-envoi" value="${v}" ${v === bo.envoi ? "checked" : ""}> <span>${esc(lib)}</span> ${etatEnvoi(v)}</label>`).join("")}
+        <div class="btns"><button class="btn primaire" id="ag-envoi-ok">Valider</button></div>
+        <p class="lib">Ensuite chaque « Demander à Cursor » part d'un clic, sans choix à refaire. L'exploration passe toujours par le chat de Cursor : vous devez voir l'agent et lui répondre.</p>`) : ""}
       <details><summary class="lib">Claude Desktop</summary><p style="margin-top:6px">${statut(cl)} <span class="lib mono">${esc(cl.fichier)}</span></p>
         <div class="btns"><button class="btn" data-inst="claude">${cl.a_jour ? "Réinstaller" : "Installer dans Claude Desktop"}</button></div>
         <p class="lib">Redémarrer Claude Desktop ensuite. Les règles .mdc peuvent servir d'instructions de projet Claude.</p></details>
@@ -313,6 +319,10 @@
       catch (e) { $("#ag-test-r").textContent = e.message; } };
     $("#ag-copie").onclick = () => navigator.clipboard.writeText(JSON.stringify(d.config, null, 2)).then(() => toast("Configuration copiée.", "ok"), () => toast("Copie impossible : la sélectionner dans « Configuration ».", "ko"));
     $("#ag-rafr").onclick = () => agents(z);
+    if ($("#ag-envoi-ok")) $("#ag-envoi-ok").onclick = async () => {
+      try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: ($("[name=ag-envoi]:checked", z) || {}).value || "lien"}}); toast("Mode d'envoi enregistré pour le projet.", "ok"); agents(z); }
+      catch (e) { toast(e.message, "ko"); }
+    };
   }
 
   async function projets(z, edition = null) {

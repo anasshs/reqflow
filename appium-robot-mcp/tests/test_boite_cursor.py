@@ -33,6 +33,7 @@ def test_depot_prise_et_compte_rendu(boite):
     from atelier.adapters import facade
 
     assert facade.atelier_demande_suivante(0)["demande"] is None and boite.etat()["ecoute"]["active"] is True
+    boite.regler_envoi("boite")
     a = boite.deposer("Keywords de DEMO-1", "Vérifie les keywords du scénario DEMO-1.", ["studio_juger_keywords"], "#bdd/DEMO-1")
     b = boite.deposer("Doublons de DEMO-2", "Vérifie les doublons de l'US DEMO-2.")
     assert boite.etat()["en_attente"] == 2 and a["statut"] == "en attente"
@@ -56,7 +57,7 @@ def test_depot_prise_et_compte_rendu(boite):
 
 
 def test_l_agent_attend_puis_recoit(boite, monkeypatch):
-    threading.Timer(0.3, lambda: boite.deposer("Tardive", "Demande déposée pendant l'attente.")).start()
+    threading.Timer(0.3, lambda: boite.deposer("Tardive", "Demande déposée pendant l'attente.", mode="boite")).start()
     t0 = time.time()
     r = boite.suivante(attente_s=5, pause=0.05)
     assert r["demande"]["titre"] == "Tardive" and 0.2 < time.time() - t0 < 3
@@ -100,9 +101,30 @@ def test_routes_web(boite, monkeypatch, tmp_path):
     c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
     assert c.get("/").status_code == 200
     e = c.get("/api/cursor/boite").json()
-    assert e["en_attente"] == 0 and e["ecoute"]["active"] is False and e["cli"]["trouvee"] is False
+    assert e["en_attente"] == 0 and e["ecoute"]["active"] is False and e["cli"]["trouvee"] is False and e["envoi"] == "lien"
+    assert c.post("/api/cursor/boite", json={"titre": "x", "texte": "y"}).status_code == 400              # mode « lien » : rien à déposer
+    assert c.post("/api/cursor/envoi", json={"envoi": "cli"}).status_code == 400                          # commande absente sur ce poste
+    assert c.post("/api/cursor/envoi", json={"envoi": "boite"}).json()["envoi"] == "boite"
     d = c.post("/api/cursor/boite", json={"titre": "Keywords", "texte": "Vérifie les keywords.", "attendus": ["studio_juger_keywords"]}).json()
     assert d["statut"] == "en attente" and c.get("/api/cursor/boite").json()["en_attente"] == 1
     assert c.post("/api/cursor/boite", json={"titre": "x", "texte": "y", "mode": "cli"}).status_code == 400   # commande absente
     assert c.post(f"/api/cursor/boite/{d['id']}/annuler").json()["statut"] == "annulée"
     assert c.post(f"/api/cursor/boite/{d['id']}/annuler").status_code == 400
+
+
+def test_mode_d_envoi_regle_une_fois_pour_le_projet(boite, projet, monkeypatch, tmp_path):
+    assert boite.envoi() == "lien" and set(boite.etat()["envois"]) == {"lien", "boite", "cli"}
+    with pytest.raises(ValueError, match="rien n'est déposé"):
+        boite.deposer("x", "Analyse l'US DEMO-5.")                           # mode « lien » : la demande s'ouvre dans le chat
+    with pytest.raises(ValueError, match="Mode d'envoi"):
+        boite.regler_envoi("pigeon")
+    with pytest.raises(FileNotFoundError):
+        boite.regler_envoi("cli")                                            # refusé tant que la commande manque sur ce poste
+    assert boite.regler_envoi("boite")["envoi"] == "boite"
+    assert (projet / "atelier_cursor.yaml").read_text("utf-8").strip() == "envoi: boite"      # dans le projet : toute l'équipe
+    assert boite.deposer("x", "Analyse l'US DEMO-5.")["mode"] == "boite"                        # plus rien à choisir
+    monkeypatch.setenv("ATELIER_CURSOR_CLI", _faux_agent(tmp_path))
+    boite.regler_envoi("cli")
+    assert boite.deposer("x", "Analyse l'US DEMO-6.", attendre=True)["statut"] == "terminée"
+    (projet / "atelier_cursor.yaml").write_text("envoi: [illisible", "utf-8")
+    assert boite.envoi() == "lien"                                           # réglage illisible : retour au chat, jamais d'erreur

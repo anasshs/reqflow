@@ -675,7 +675,15 @@ async def cursor_boite_deposer(req: Request):
 
     b = await req.json()
     return _call(boite_cursor.deposer, b.get("titre", ""), b.get("texte", ""), b.get("attendus") or [], b.get("ecran", ""),
-                 b.get("mode", "boite"))
+                 b.get("mode", ""))
+
+
+@app.post("/api/cursor/envoi")
+async def cursor_envoi(req: Request):
+    """Mode d'envoi des demandes à Cursor, réglé une fois pour le projet (Paramètres › Cursor / Claude)."""
+    from atelier.integrations import boite_cursor
+
+    return _call(boite_cursor.regler_envoi, (await req.json()).get("envoi", ""))
 
 
 @app.post("/api/cursor/boite/{did}/annuler")

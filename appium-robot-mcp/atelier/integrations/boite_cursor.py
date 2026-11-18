@@ -8,6 +8,10 @@ L'atelier ne peut pas écrire dans le chat de Cursor : jusqu'ici chaque demande 
           demande), l'exécute, appelle atelier_demande_terminee, puis recommence ;
   cli     l'atelier lance lui-même l'agent Cursor en ligne de commande, sans fenêtre, avec la demande pour consigne.
 
+Le mode se règle UNE fois, pour toute l'équipe (Paramètres › Cursor / Claude) : « lien » (défaut), « boite » ou « cli ».
+Il est gardé dans le projet de tests (atelier_cursor.yaml, versionné). Une demande d'exploration passe toujours par le
+chat : l'automaticien doit voir l'agent, lui répondre et faire lui-même les actions sensibles.
+
 Dans les deux cas la demande est le texte que l'automaticien a choisi d'envoyer en cliquant dans l'atelier : elle a la
 même valeur qu'une demande tapée dans le chat, et l'agent reste soumis aux mêmes gardes côté serveur (actions classées,
 écritures en revue, aucune décision humaine par MCP).
@@ -37,6 +41,9 @@ from atelier.domain import projet
 
 STATUTS = ("en attente", "prise", "terminée", "échouée", "annulée")
 MODES = ("boite", "cli")
+ENVOIS = {"lien": "Ouvrir le chat de Cursor avec la demande (à relire et envoyer)",
+          "boite": "Boîte de demandes : Cursor vient la chercher (lui dire une fois « traite les demandes de l'atelier »)",
+          "cli": "Ligne de commande : l'atelier lance Cursor sans fenêtre"}
 ATTENTE_MAX_S = 40          # un outil MCP qui ne répond pas est coupé par le client : on rend la main avant
 ARGS_DEFAUT = "-p {demande} --output-format text --approve-mcps --trust"
 GARDEES = 60                # demandes conservées (les plus récentes)
@@ -50,6 +57,37 @@ CONSIGNE_VIDE = ("Aucune demande pour l'instant. Rappelle atelier_demande_suivan
 
 def _fichier():
     return projet.PROJECT_DIR / "studio" / "demandes_cursor.json"
+
+
+def _fichier_reglage():
+    return projet.PROJECT_DIR / "atelier_cursor.yaml"
+
+
+def envoi() -> str:
+    """Mode d'envoi des demandes réglé pour le projet ; « lien » tant que rien n'est réglé ou si le fichier est illisible."""
+    import yaml
+
+    f = _fichier_reglage()
+    try:
+        v = ((yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}).get("envoi")
+    except (OSError, yaml.YAMLError, AttributeError):
+        v = None
+    return v if v in ENVOIS else "lien"
+
+
+def regler_envoi(mode: str) -> dict:
+    """Règle une fois le mode d'envoi des demandes à Cursor pour tout le projet (rôle automaticien)."""
+    import yaml
+
+    from atelier.domain import roles
+
+    roles.exiger("construire")
+    if mode not in ENVOIS:
+        raise ValueError(f"Mode d'envoi : {', '.join(ENVOIS)}.")
+    if mode == "cli":
+        _ligne("essai")  # commande absente ou mal réglée sur ce poste : dit avant d'enregistrer
+    _fichier_reglage().write_text(yaml.safe_dump({"envoi": mode}, allow_unicode=True), "utf-8")
+    return etat()
 
 
 def _maintenant() -> str:
@@ -126,13 +164,17 @@ def _executer_cli(did: str, texte: str, lanceur=None):
 
 
 # =========================================================================== dépôt et suivi (atelier)
-def deposer(titre: str, texte: str, attendus: list[str] | None = None, ecran: str = "", mode: str = "boite", lanceur=None,
+def deposer(titre: str, texte: str, attendus: list[str] | None = None, ecran: str = "", mode: str = "", lanceur=None,
             attendre: bool = False) -> dict:
-    """Dépose une demande. mode « boite » : Cursor viendra la chercher par le MCP. mode « cli » : l'atelier lance
-    l'agent en ligne de commande tout de suite (en arrière-plan ; attendre=True pour les essais)."""
+    """Dépose une demande selon le mode réglé pour le projet (ou le mode donné). « boite » : Cursor viendra la chercher
+    par le MCP. « cli » : l'atelier lance l'agent en ligne de commande tout de suite (en arrière-plan ; attendre=True
+    pour les essais). Mode « lien » : rien à déposer, la demande s'ouvre dans le chat de Cursor."""
     texte = str(texte or "").strip()
     if not texte:
         raise ValueError("Demande vide.")
+    mode = mode or envoi()
+    if mode == "lien":
+        raise ValueError("Mode d'envoi « lien » : la demande s'ouvre dans le chat de Cursor, rien n'est déposé.")
     if mode not in MODES:
         raise ValueError("Mode : boite ou cli.")
     if mode == "cli":
@@ -167,7 +209,7 @@ def etat(limite: int = 20) -> dict:
     à la boîte, et réglage de la ligne de commande."""
     l = _lire()
     return {"demandes": list(reversed(l))[:limite], "en_attente": sum(d["statut"] == "en attente" and d["mode"] == "boite" for d in l),
-            "ecoute": _derniere_ecoute(), "cli": cli(), "modes": list(MODES)}
+            "ecoute": _derniere_ecoute(), "cli": cli(), "envoi": envoi(), "envois": ENVOIS}
 
 
 def _fichier_ecoute():

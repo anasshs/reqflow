@@ -559,3 +559,18 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   documentation officielle n'était pas joignable d'ici) et n'ont pas été essayées avec un vrai Cursor ; ni la tenue de
   la boucle d'écoute dans un vrai chat (durée maximale d'un outil, nombre d'appels par tour). Un administrateur
   d'équipe Cursor peut interdire le mode sans fenêtre.
+
+## 2026-11-18 — Envoi des demandes à Cursor : un seul réglage, une fenêtre allégée
+- Demande de l'utilisateur : pas de boutons en plus ; le mode se choisit une fois dans les paramètres ; pour
+  l'exploration le chat convient, à condition d'alléger la fenêtre.
+- Le mode d'envoi (lien, boîte, ligne de commande) se règle dans Paramètres › Cursor / Claude et vaut pour tout le projet
+  (`atelier_cursor.yaml`, versionné ; rôle automaticien). Le choix par clic, la préférence par navigateur et le bouton
+  « Envoi » du panneau de suivi sont retirés.
+- « Demander à Cursor » : en mode boîte ou ligne de commande, la demande part d'un clic, sans fenêtre ; si l'envoi
+  échoue (commande absente sur ce poste), la fenêtre du chat s'ouvre.
+- Fenêtre du chat : la demande, une ligne, « Copier » et « Ouvrir dans Cursor ». L'explication et la note de suivi ne
+  sont plus affichées.
+- Exploration : un bouton « Explorer avec Cursor » dans Discovery › Explorer, toujours par le chat quel que soit le
+  réglage (l'automaticien doit voir l'agent, lui répondre et faire les actions sensibles).
+- Le mode « ligne de commande » est refusé à l'enregistrement tant que la commande manque sur le poste qui règle ; un
+  autre poste sans la commande retombe sur le chat.

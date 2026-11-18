@@ -97,7 +97,7 @@
     const maintenant = Date.now();
     const enCours = l.filter(d => !d.depot).length;
     el.innerHTML = `<div class="sc-tete" data-sc-replier role="button" tabindex="0" title="${replie ? "Déplier" : "Replier"}">${ico("ia")}<b>Demandes à Cursor</b>
-        <span class="lib">${enCours ? `${enCours} en cours` : "terminées"}</span><span class="ca-esp"></span><button class="lien" data-sc-envoi title="Choisir comment les demandes partent vers Cursor : boîte de demandes, ligne de commande, ou à chaque fois">Envoi</button><span class="lib">${replie ? "▴" : "▾"}</span></div>
+        <span class="lib">${enCours ? `${enCours} en cours` : "terminées"}</span><span class="ca-esp"></span><span class="lib">${replie ? "▴" : "▾"}</span></div>
       ${replie ? "" : `<div class="sc-corps">${[...l].reverse().map(d => carte(d, maintenant)).join("")}</div>`}`;
     signature = signer(maintenant);
     if (!minuteur) minuteur = setInterval(battre, 1000);
@@ -115,7 +115,6 @@
 
   function clic(ev) {
     const c = ev.target.closest("[data-id]"), d = c && demandes.find(x => x.id === c.dataset.id);
-    if (ev.target.closest("[data-sc-envoi]")) return window.ReglerEnvoiCursor?.();
     if (ev.target.closest("[data-sc-replier]")) { replie = !replie; ecrire(); return rendre(); }
     if (!d) return;
     if (ev.target.closest("[data-sc-fermer]")) { d.ferme = true; demandes = demandes.filter(x => !x.ferme); ecrire(); return rendre(); }

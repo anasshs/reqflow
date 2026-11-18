@@ -96,72 +96,35 @@ const lienCursor = texte => {
   const url = "cursor://anysphere.cursor-deeplink/prompt?text=" + encodeURIComponent(texte.replace(/&/g, "et"));
   return url.length <= 8000 ? url : "";
 };
-/* Envoi d'une demande à Cursor, sans quitter l'atelier quand c'est possible :
-     boite  la demande est déposée ; Cursor vient la chercher par le MCP (il faut lui avoir dit une fois « traite les
-            demandes de l'atelier ») ;
-     cli    l'atelier lance l'agent Cursor en ligne de commande ;
-     lien   « Ouvrir dans Cursor » (lien profond) ou copier : le secours de toujours.
-   Le choix peut être mémorisé sur ce poste : les demandes suivantes partent alors d'un seul clic.
-   attendus : outils MCP dont la fin signifie « résultat déposé » (suivi de la demande : suivi_cursor.js) */
-const ENVOI_CURSOR = "cursor-envoi", PHRASE_BOITE = "Traite les demandes de l'atelier.";
-const envoiCursor = () => { try { return localStorage.getItem(ENVOI_CURSOR) || ""; } catch (e) { return ""; } };
-const memoriserEnvoi = v => { try { v ? localStorage.setItem(ENVOI_CURSOR, v) : localStorage.removeItem(ENVOI_CURSOR); } catch (e) { /* facultatif */ } };
-const LIB_ENVOI = {boite: "boîte de demandes", cli: "ligne de commande"};
-async function deposerDemande(titre, texte, attendus, mode) {
-  const d = await api("/api/cursor/boite", {method: "POST", body: {titre, texte, attendus, ecran: location.hash, mode}});
-  window.SuiviCursor?.ajouter(titre, attendus);
-  if (mode === "cli") return toast("Cursor est lancé en ligne de commande : le suivi s'affiche en bas à droite.", "ok");
-  const e = await api("/api/cursor/boite").catch(() => null);
-  toast(e && !e.ecoute.active ? `Demande déposée, mais Cursor n'écoute pas la boîte : dire une fois dans son chat « ${PHRASE_BOITE} »`
-    : "Demande déposée : Cursor la prend dans sa boîte.", e && !e.ecoute.active ? "" : "ok");
-  return d;
-}
-const etatEnvoi = e => `<ul class="liste" style="margin:8px 0">
-  <li><div class="item"><b>Boîte de demandes</b><div class="sous">${e.ecoute.active ? "Cursor écoute la boîte." : `Cursor n'écoute pas. Dire une fois dans son chat : « ${esc(PHRASE_BOITE)} »`} ${e.en_attente ? `${e.en_attente} demande(s) en attente.` : ""}</div></div>
-    <span class="pill ${e.ecoute.active ? "ok" : "warn"}">${e.ecoute.active ? "à l'écoute" : "pas à l'écoute"}</span></li>
-  <li><div class="item"><b>Ligne de commande</b><div class="sous mono">${esc(e.cli.commande)} ${esc(e.cli.arguments)}</div>
-    <div class="sous">${e.cli.trouvee ? (e.cli.mcp_du_projet ? "L'atelier lance l'agent dans le projet de tests." : "Commande trouvée, mais le projet n'a pas de .cursor/mcp.json : l'installer depuis Paramètres › Cursor / Claude.") : "Commande introuvable sur ce poste (réglage : ATELIER_CURSOR_CLI)."}</div></div>
-    <span class="pill ${e.cli.trouvee && e.cli.valide ? "ok" : ""}">${e.cli.trouvee ? "installée" : "absente"}</span></li></ul>`;
-window.DemanderCursor = async (titre, texte, explication = "Cursor comprend le texte et juge ; rien n'est appliqué sans vous. Ses jugements apparaissent ici dès qu'il les dépose, avec leur justification.", attendus = [], choisir = false) => {
-  const prefere = envoiCursor();
-  if (prefere && !choisir) {
-    try { return await deposerDemande(titre, texte, attendus, prefere); }
-    catch (err) { toast(`Envoi par ${LIB_ENVOI[prefere]} impossible : ${err.message}`, "ko"); }  // puis le choix s'ouvre
+/* Demande à Cursor. Le mode d'envoi est réglé UNE fois pour le projet (Paramètres › Cursor / Claude) :
+     boite / cli  la demande part d'un clic, sans fenêtre (boîte de demandes, ou agent lancé en ligne de commande) ;
+     lien         fenêtre courte : la demande, « Copier » et « Ouvrir dans Cursor ».
+   options.chat (exploration, mise au point) : toujours par le chat, quel que soit le réglage.
+   attendus : outils MCP dont la fin signifie « résultat déposé » (suivi de la demande : suivi_cursor.js).
+   Le troisième paramètre (ancienne explication) n'est plus affiché : la fenêtre ne garde que l'essentiel. */
+const PHRASE_BOITE = "Traite les demandes de l'atelier.";
+window.DemanderCursor = async (titre, texte, _explication, attendus = [], options = {}) => {
+  const e = options.chat ? null : await api("/api/cursor/boite").catch(() => null);
+  if (e && e.envoi !== "lien") {
+    try {
+      await api("/api/cursor/boite", {method: "POST", body: {titre, texte, attendus, ecran: location.hash}});
+      window.SuiviCursor?.ajouter(titre, attendus);
+      return toast(e.envoi === "cli" ? "Cursor est lancé : le suivi s'affiche en bas à droite."
+        : e.ecoute.active ? "Demande envoyée à Cursor : le suivi s'affiche en bas à droite."
+          : `Demande déposée. Cursor n'écoute pas : dire une fois dans son chat « ${PHRASE_BOITE} »`, e.envoi === "cli" || e.ecoute.active ? "ok" : "");
+    } catch (err) { toast(`Envoi direct impossible (${err.message}) : passage par le chat.`, "ko"); }
   }
-  const lien = lienCursor(texte), e = await api("/api/cursor/boite").catch(() => null);
-  const m = modale(titre, `<textarea class="in mono" rows="6" readonly style="width:100%">${esc(texte)}</textarea>
-    <p class="lib">${explication}</p>
-    ${e ? etatEnvoi(e) : ""}
-    <label class="lib" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="dc-memo" ${prefere ? "checked" : ""}> Ne plus demander : envoyer les prochaines demandes de la même façon (réglable depuis le panneau « Demandes à Cursor »)</label>
-    <p class="lib">${ico("ia")} Suivi : le panneau « Demandes à Cursor » (en bas à droite) indique le temps écoulé, le moment où Cursor prend la demande en compte,
-      ce qu'il fait, et quand son résultat est déposé. <span class="lib">Règles de l'atelier installées depuis Paramètres › Cursor / Claude.</span></p>`,
-    `<button class="btn" data-copier>Copier</button>${lien ? `<a class="btn" data-ouvrir href="${esc(lien)}" title="Ouvre Cursor avec la demande pré-remplie dans le chat (le navigateur peut demander d'autoriser l'ouverture)">Ouvrir dans Cursor</a>` : ""}
-     ${e ? `<button class="btn" data-envoi="cli" ${e.cli.trouvee && e.cli.valide ? "" : "disabled"} title="L'atelier lance lui-même l'agent Cursor, sans fenêtre">Lancer Cursor (ligne de commande)</button>
-     <button class="btn primaire" data-envoi="boite" title="Cursor vient chercher la demande par le MCP">Déposer dans la boîte</button>` : ""}`);
+  const lien = lienCursor(texte);
+  const m = modale(titre, `<textarea class="in mono" rows="5" readonly style="width:100%">${esc(texte)}</textarea>
+    <p class="lib" style="margin:6px 0 0">${lien ? "Cursor s'ouvre avec cette demande : la relire, puis l'envoyer." : "Demande trop longue pour un lien : la copier, puis la coller dans le chat de Cursor."}</p>`,
+    `<button class="btn" data-copier>Copier</button>${lien ? `<a class="btn primaire" data-ouvrir href="${esc(lien)}">Ouvrir dans Cursor</a>` : ""}`);
   const copier = async (silencieux = false) => {
     try { await navigator.clipboard.writeText(texte); if (!silencieux) toast("Demande copiée : la coller dans Cursor.", "ok"); return true; }
     catch (err) { $("textarea", m.el).select(); if (!silencieux) toast("Sélectionnée : Ctrl + C pour copier.", "ok"); return false; }
   };
   const suivre = () => window.SuiviCursor?.ajouter(titre, attendus);
-  $("[data-copier]", m.el).onclick = async () => { if (await copier()) { memoriserEnvoi(""); suivre(); m.fermer(); } };
-  if (lien) $("[data-ouvrir]", m.el).onclick = () => { memoriserEnvoi(""); copier(true); suivre(); toast("Cursor s'ouvre avec la demande : relisez-la puis envoyez. Le suivi s'affiche en bas à droite.", "ok"); setTimeout(m.fermer, 300); };
-  $$("[data-envoi]", m.el).forEach(b => b.onclick = async () => {
-    try { await deposerDemande(titre, texte, attendus, b.dataset.envoi); memoriserEnvoi($("#dc-memo", m.el).checked ? b.dataset.envoi : ""); m.fermer(); }
-    catch (err) { toast(err.message, "ko"); }
-  });
-};
-/* réglage de l'envoi mémorisé (ouvert depuis le panneau « Demandes à Cursor ») */
-window.ReglerEnvoiCursor = async () => {
-  const e = await api("/api/cursor/boite").catch(() => null), prefere = envoiCursor();
-  const choix = [["", "Demander à chaque fois"], ["boite", "Boîte de demandes (Cursor vient chercher)"], ["cli", "Ligne de commande (l'atelier lance Cursor)"]];
-  const m = modale("Envoi des demandes à Cursor", `${e ? etatEnvoi(e) : ""}
-    ${choix.map(([v, lib]) => `<label style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="radio" name="dc-envoi" value="${v}" ${v === prefere ? "checked" : ""} ${v === "cli" && e && !(e.cli.trouvee && e.cli.valide) ? "disabled" : ""}> ${esc(lib)}</label>`).join("")}
-    ${e && e.demandes.length ? `<h3 style="margin:12px 0 4px">Dernières demandes</h3><ul class="liste">${e.demandes.slice(0, 6).map(d => `<li><div class="item">${esc(d.titre)}<div class="sous">${esc(LIB_ENVOI[d.mode])} · ${esc(String(d.cree).slice(11, 16))}${d.resultat ? " · " + esc(d.resultat.slice(0, 160)) : ""}${d.erreur ? " · " + esc(d.erreur.slice(0, 160)) : ""}</div></div>
-      <span class="pill ${d.statut === "terminée" ? "ok" : d.statut === "échouée" ? "ko" : d.statut === "prise" ? "info" : ""}">${esc(d.statut)}</span>
-      ${d.statut === "en attente" ? `<button class="btn" data-annuler="${esc(d.id)}">Annuler</button>` : ""}</li>`).join("")}</ul>` : ""}`,
-    `<button class="btn primaire" id="dc-regler">Enregistrer</button>`);
-  $("#dc-regler", m.el).onclick = () => { memoriserEnvoi(($("[name=dc-envoi]:checked", m.el) || {}).value || ""); m.fermer(); toast("Envoi des demandes réglé.", "ok"); };
-  $$("[data-annuler]", m.el).forEach(b => b.onclick = async () => { try { await api(`/api/cursor/boite/${b.dataset.annuler}/annuler`, {method: "POST", body: {}}); m.fermer(); toast("Demande annulée.", "ok"); } catch (err) { toast(err.message, "ko"); } });
+  $("[data-copier]", m.el).onclick = async () => { if (await copier()) { suivre(); m.fermer(); } };
+  if (lien) $("[data-ouvrir]", m.el).onclick = () => { copier(true); suivre(); setTimeout(m.fermer, 300); };
 };
 /* rafraîchit une vue quand Cursor dépose un jugement (un seul abonnement par vue ; s'arrête quand la vue a disparu) */
 const ABOS_IA = {};
