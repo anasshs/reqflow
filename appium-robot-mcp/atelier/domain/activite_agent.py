@@ -76,6 +76,8 @@ PHRASES = {
     "test_design_proposer_regroupements": lambda a: f"Cursor propose de regrouper des cas de l'US {_a(a, 'cle')} (à appliquer ou écarter)",
     "test_design_doublons_a_juger": lambda a: f"Cursor lit les cas de l'US {_a(a, 'cle')} et les tests existants proches pour juger les doublons",
     "test_design_juger_doublons": lambda a: f"Cursor dit pour chaque cas de l'US {_a(a, 'cle')} : réutiliser, faire évoluer ou créer (à décider)",
+    "studio_keywords_a_juger": lambda a: f"Cursor lit les étapes sans keyword du scénario {_a(a, 'cle')} et les keywords existants",
+    "studio_juger_keywords": lambda a: f"Cursor dit pour chaque étape du scénario {_a(a, 'cle')} : réutiliser un keyword ou créer (à décider)",
     "xray_redondances_a_juger": lambda a: "Cursor lit des paires de tests Xray aux titres proches pour juger s'ils font doublon",
     "xray_juger_redondances": lambda a: "Cursor dépose son jugement sur des tests Xray redondants (aucun test modifié)",
     "coverage_liens_a_juger": lambda a: f"Cursor lit des exigences et les tests candidats pour juger la traçabilité {_a(a, 'exigence')}",

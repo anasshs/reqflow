@@ -423,6 +423,7 @@ def mapping_bdd(cle: str) -> dict:
             etapes.append({"id": e["id"], "mot": e.get("mot") or e["type"], "texte": e["texte"], "keyword": k["nom"] if k else "",
                            "fichier": f"{k['fichier']}:{k['ligne']}" if k else "", "statut": "existant" if k else "à créer",
                            "proches": rap["proches"], "nouveau_keyword_confirme": bool(rap.get("confirme")),
+                           "jugement_keyword": rap.get("jugement"),
                            "locators": [{"id": x, "etat": fiab.get(x, "Missing")} for x in locs],
                            "donnees": sorted({d for x in fermeture_keywords(inv, [kid]) if x in inv["keywords"]
                                               for d in re.findall(r"\$\{DONNEES\.(\w+)\}", _corps(inv["keywords"][x]))}) if kid else [],
@@ -432,7 +433,7 @@ def mapping_bdd(cle: str) -> dict:
     tot = [e for s in scenarios for e in s["etapes"]]
     return {"cle": cle, "titre": m.get("titre", ""), "jdd": m.get("jdd", ""), "statut_bdd": m.get("statut", ""), "scenarios": scenarios,
             "existants": sum(e["statut"] == "existant" for e in tot), "a_creer": sum(e["statut"] == "à créer" for e in tot),
-            "doublons_possibles": sum(bool(e["proches"]) and not e["nouveau_keyword_confirme"] for e in tot)}
+            "doublons_possibles": sum(bool(e["proches"]) and not e["nouveau_keyword_confirme"] and e["statut"] != "existant" for e in tot)}
 
 
 # =========================================================================== espaces d'automatisation

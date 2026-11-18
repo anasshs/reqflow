@@ -170,8 +170,9 @@ def _fusionner_liens(nouveau: dict, ancien: dict) -> dict:
         if a:
             for k in ("id", "ecran", "locator", "jdd", "api", "valide", "resultat_attendu", "assertion"):
                 e[k] = a.get(k, e[k])
-            if a.get("keyword_nouveau"):
-                e["keyword_nouveau"] = True
+            for k in ("keyword_nouveau", "jugement_keyword"):
+                if a.get(k):
+                    e[k] = a[k]
     for k in ("cle", "titre", "jdd", "source", "statut", "test_robot"):
         if k in ancien and k not in nouveau:
             nouveau[k] = ancien[k]
@@ -297,6 +298,7 @@ def modifier_etape(cle: str, etape_id: str, **champs) -> dict:
         e["type"] = MOTS.get(champs["mot"].strip().lower(), e["type"])
     if champs.get("texte") is not None and champs["texte"].strip() != e["texte"]:
         e.pop("keyword_nouveau", None)  # nouveau texte : le rapprochement avec le socle est à refaire
+        e.pop("jugement_keyword", None)
         if champs.get("valide") is None:
             e["valide"] = False  # texte modifié : à revalider
     for k in ("texte", "ecran", "locator", "jdd", "api", "resultat_attendu"):
@@ -377,14 +379,26 @@ def _exiger(cle: str) -> dict:
 # =========================================================================== réutilisation du socle
 def reutilisation(m: dict, inventaire: dict | None = None) -> dict:
     """Rapprochement de chaque étape avec les keywords du dépôt : {id d'étape: existant | proche | à créer, keyword,
-    keywords proches}. Une étape « proche » que l'automaticien a confirmée comme nouveau keyword est « à créer »."""
+    keywords proches, jugement}. Une étape est « proche » quand les mots, ou le jugement d'une IA (verdict « réutiliser »),
+    désignent un keyword existant ; elle redevient « à créer » quand l'automaticien confirme un nouveau keyword. Décisions
+    et jugements valent pour toutes les étapes de même texte (une branche reprend les étapes communes)."""
+    from atelier.execution.depot_robot import normaliser
     from atelier.generation.reutilisation import Rapprocheur
 
+    etapes = m.get("contexte", []) + [x for s in m.get("scenarios", []) for x in s["etapes"]]
+    confirmes = {e["texte"] for e in etapes if e.get("keyword_nouveau")}
+    juges = {e["texte"]: e["jugement_keyword"] for e in etapes if e.get("jugement_keyword")}
     r, out = Rapprocheur(inventaire), {}
-    for e in m.get("contexte", []) + [x for s in m.get("scenarios", []) for x in s["etapes"]]:
+    for e in etapes:
         x = r.etape(e["texte"])
-        if x["statut"] == "proche" and e.get("keyword_nouveau"):
-            x = {**x, "statut": "à créer", "confirme": True}
+        j = juges.get(e["texte"])
+        if j and x["statut"] != "existant":
+            x["jugement"] = j
+            kid = r.exact.get(normaliser(j.get("keyword") or "")) if j.get("verdict") == "réutiliser" else None
+            if kid:  # le keyword jugé équivalent passe en tête des propositions
+                x.update(statut="proche", proches=[{**r._fiche(kid), "juge": True}] + [p for p in x["proches"] if p["id"] != kid])
+        if x["statut"] == "proche" and e["texte"] in confirmes:
+            x.update(statut="à créer", confirme=True)
         out[e["id"]] = x
     return out
 
@@ -398,7 +412,8 @@ def _doublons_possibles(m: dict, inventaire: dict | None = None) -> list[dict]:
         if x["statut"] == "proche" and e["texte"] not in vus:
             vus.add(e["texte"])
             out.append({"etape": e["id"], "texte": e["texte"], "keyword": x["proches"][0]["keyword"],
-                        "fichier": x["proches"][0]["fichier"], "proches": x["proches"]})
+                        "fichier": x["proches"][0]["fichier"], "proches": x["proches"],
+                        "jugement": x["jugement"] if x["proches"][0].get("juge") else None})
     return out
 
 
@@ -407,8 +422,10 @@ def refuser_doublons(m: dict, inventaire: dict | None = None) -> None:
     (reprendre le keyword, ou confirmer le nouveau keyword dans Test Design)."""
     d = _doublons_possibles(m, inventaire)
     if d:
-        raise ValueError("Écriture refusée : " + " ; ".join(f"« {x['texte']} » ressemble au keyword existant « {x['keyword']} » "
-                                                            f"({x['fichier']})" for x in d[:5])
+        raise ValueError("Écriture refusée : " + " ; ".join(
+            f"« {x['texte']} » " + (f"fait la même action que le keyword existant « {x['keyword']} » selon {x['jugement']['source']} "
+                                    if x["jugement"] else f"ressemble au keyword existant « {x['keyword']} » ") + f"({x['fichier']})"
+            for x in d[:5])
                          + ". Dans Test Design, reprendre le keyword existant ou confirmer qu'un nouveau keyword est nécessaire.")
 
 
@@ -434,8 +451,19 @@ def controles(m: dict) -> list[dict]:
                 c("basse", "ecran_non_relie", f"« {e['texte']} » n'est reliée à aucun écran de la carte.", e["id"])
     try:  # rapprochement avec le socle : un dépôt illisible ne masque pas les autres contrôles
         for d in _doublons_possibles(m):
-            c("moyenne", "keyword_proche", f"« {d['texte']} » ressemble au keyword existant « {d['keyword']} » "
-              f"({d['fichier']}) : reprendre son libellé pour le réutiliser, ou confirmer un nouveau keyword.", d["etape"])
+            if d["jugement"]:
+                c("moyenne", "keyword_proche", f"« {d['texte']} » fait la même action que le keyword existant « {d['keyword']} » "
+                  f"({d['fichier']}) selon {d['jugement']['source']} : {d['jugement']['justification']} — le reprendre, ou "
+                  "confirmer un nouveau keyword.", d["etape"])
+            else:
+                c("moyenne", "keyword_proche", f"« {d['texte']} » ressemble au keyword existant « {d['keyword']} » "
+                  f"({d['fichier']}) : reprendre son libellé pour le réutiliser, ou confirmer un nouveau keyword.", d["etape"])
+        rap = reutilisation(m)
+        nj = len({e["texte"] for s in m.get("scenarios", []) for e in s["etapes"]
+                  if rap[e["id"]]["statut"] == "à créer" and not rap[e["id"]].get("confirme") and not rap[e["id"]].get("jugement")})
+        if nj:
+            c("info", "keywords_a_juger", f"{nj} étape(s) sans keyword existant d'après les mots : faire vérifier par l'IA "
+              "qu'aucun keyword du socle ne fait déjà la même action (synonyme, reformulation).")
     except Exception:  # noqa: BLE001
         pass
     if m.get("scenarios") and not any(s["type"] == "negatif" for s in m["scenarios"]):
@@ -466,11 +494,9 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
     sinon un keyword à implémenter est déclaré (il échoue explicitement, jamais en silence)."""
     from atelier.execution import depot_robot
 
-    from atelier.generation.reutilisation import Rapprocheur
-
     inv = inventaire if inventaire is not None else depot_robot.lire_depot()
     kws = inv["keywords"]
-    rapprocheur, confirmes = Rapprocheur(inv), set()
+    rapprochement, confirmes = reutilisation(m, inv), set()  # mots, jugement d'une IA et décisions de l'automaticien
     a_creer, reutilises, resources, proches = [], [], set(), {}
     lignes_tests = []
     for s in m["scenarios"]:
@@ -480,15 +506,15 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
             lignes_tests.append(f"    Initialiser Le Test    &{{JDD_{m['jdd'].upper()}}}")
         for e in s["etapes"]:
             prefixe = MOTS_EN[e["type"]]
-            x = rapprocheur.etape(e["texte"])
+            x = rapprochement[e["id"]]
             if x["statut"] == "existant":  # même nom, ou keyword à arguments intégrés : Robot résout l'appel tel quel
                 reutilises.append(x["keyword"])
                 resources.add(kws[x["id"]]["fichier"])
             elif e["texte"] not in a_creer:
                 a_creer.append(e["texte"])
-                if x["statut"] == "proche":
+                if x["proches"]:
                     proches[e["texte"]] = x["proches"]
-            if e.get("keyword_nouveau"):
+            if x.get("confirme"):
                 confirmes.add(e["texte"])
             lignes_tests.append(f"    {prefixe} {e['texte']}")
     if m.get("jdd"):

@@ -114,3 +114,108 @@ def rapprocher_etapes(textes: list[str], inv: dict | None = None) -> dict:
     return {"etapes": etapes, "existants": bilan["existant"], "proches": bilan["proche"], "a_creer": bilan["à créer"],
             "consigne": "Étape « proche » : reprendre le libellé exact du keyword proposé (ou justifier un nouveau keyword). "
                         "Étape « à créer » : vérifier d'abord studio_socle ; ne créer un keyword que si aucun ne convient."}
+
+
+# =========================================================================== jugement délégué à une IA (Cursor / LLM)
+# Les mots ne voient pas un synonyme (« confirmer le virement » / « Valider Le Virement »). Même partage que les autres
+# jugements (atelier/intelligence/jugement_ia.py) : l'atelier présélectionne, l'IA juge le sens et justifie, le serveur
+# contrôle, l'automaticien décide. Un verdict « réutiliser » rend l'étape « proche » : il bloque l'écriture de la suite
+# comme un doublon vu par les mots ; un verdict « créer » ne lève jamais un doublon vu par les mots.
+VERDICTS_KEYWORD = {"reutiliser": "réutiliser", "creer": "créer"}
+CONSIGNE_KEYWORDS = (
+    "Pour chaque étape, dire si un keyword existant du dépôt fait déjà la même action ou la même vérification : « reutiliser » "
+    "en citant son nom exact, « creer » sinon. Juger le sens, pas les mots : un synonyme ou une reformulation de la même action "
+    "est le même keyword (« confirmer le virement » / « Valider Le Virement ») ; une action opposée, un autre écran, un autre "
+    "objet ou un autre résultat attendu (accepté / refusé) ne l'est pas. Les candidats sont une présélection par ressemblance "
+    "des mots, avec leur corps : le bon keyword peut se trouver seulement dans « socle » (tous les keywords du dépôt), et aucun "
+    "peut ne convenir. En cas de doute : « creer », en disant ce qui diffère. Justification obligatoire.")
+SYSTEME_KEYWORDS = ("Tu es un automaticien Robot Framework. On te donne les étapes d'un scénario BDD sans keyword et les keywords "
+                    "existants du dépôt. " + CONSIGNE_KEYWORDS + ' Réponds uniquement en JSON : {"jugements": [{"etape": "id", '
+                    '"verdict": "reutiliser|creer", "keyword": "nom exact du keyword existant ou vide", "justification": "..."}]}. '
+                    "En français.")
+
+
+def _etapes(m: dict) -> list[dict]:
+    return m.get("contexte", []) + [e for s in m.get("scenarios", []) for e in s["etapes"]]
+
+
+def _jugeables(m: dict, r: Rapprocheur) -> dict:
+    """Étapes sans keyword existant et sans décision humaine, une par texte : {id: étape}."""
+    confirmes = {e["texte"] for e in _etapes(m) if e.get("keyword_nouveau")}
+    out, vus = {}, set()
+    for e in _etapes(m):
+        if e["texte"] not in vus and e["texte"] not in confirmes and r.etape(e["texte"])["statut"] != "existant":
+            vus.add(e["texte"])
+            out[e["id"]] = e
+    return out
+
+
+def _verdict(v) -> str:
+    v = str(v or "").strip().lower().replace("é", "e").replace(" ", "_").replace("-", "_")
+    return {"reutiliser": "reutiliser", "reprendre": "reutiliser", "creer": "creer"}.get(v, v)
+
+
+def keywords_pour_agent(cle: str, limite: int = 6, socle: int = 200) -> dict:
+    """Pour une IA : chaque étape du scénario BDD sans keyword existant (texte masqué), les keywords PRÉSÉLECTIONNÉS par
+    les mots (avec documentation et corps) et le nom de tous les keywords du dépôt."""
+    from atelier.generation import bdd, studio
+    from atelier.intelligence.jugement_ia import SECOURS, court
+
+    m, r = bdd._exiger(cle), Rapprocheur()
+    etapes = []
+    for eid, e in _jugeables(m, r).items():
+        cands = [{"keyword": p["keyword"], "fichier": p["fichier"], "documentation": court(p["documentation"], 200),
+                  "corps": court(studio._corps(r.kws[p["id"]]), 500), "proximite_mots": p["score"]}
+                 for p in r.proches(e["texte"], limite, seuil=0.01)]
+        etapes.append({"etape": eid, "mot": e.get("mot", ""), "texte": court(e["texte"], 300), "candidats": cands,
+                       "jugement": e.get("jugement_keyword")})
+    cat = r.catalogue()
+    return {"cle": cle, "titre": m.get("titre", ""), "consigne": CONSIGNE_KEYWORDS, "verdicts": list(VERDICTS_KEYWORD),
+            "candidats_par": SECOURS, "etapes": etapes, "socle_tronque": len(cat) > socle,
+            "socle": [{"keyword": k["keyword"], "documentation": court(k["documentation"], 120)} for k in cat[:socle]]}
+
+
+def deposer_jugements_keywords(cle: str, jugements: list[dict], source: str = "Cursor (MCP)") -> dict:
+    """Jugements d'une IA, contrôlés (étape jugeable, verdict connu, keyword cité présent dans le dépôt, justification),
+    puis gardés sur l'étape. Aucun texte d'étape n'est modifié : l'automaticien reprend le keyword ou confirme le nouveau."""
+    from atelier.generation import bdd
+    from atelier.intelligence.jugement_ia import justification as _j, maintenant
+
+    m, r = bdd._exiger(cle), Rapprocheur()
+    jug = _jugeables(m, r)
+    retenus, refuses, vus = [], [], set()
+    for n, j in enumerate(jugements or [], 1):
+        j = j if isinstance(j, dict) else {}
+        eid, v, nom, just = str(j.get("etape") or ""), _verdict(j.get("verdict")), str(j.get("keyword") or "").strip(), _j(j.get("justification"))
+        kid = (r.exact.get(normaliser(nom)) or r.exact.get(cle_appel(nom))) if nom else None
+        raison = ("étape inconnue ou non jugeable (keyword existant, ou nouveau keyword déjà confirmé)" if eid not in jug
+                  else "étape déjà jugée dans cet envoi" if eid in vus
+                  else "verdict inconnu (reutiliser ou creer)" if v not in VERDICTS_KEYWORD
+                  else "citer le keyword existant à réutiliser" if v == "reutiliser" and not nom
+                  else "keyword inconnu dans le dépôt (reprendre un nom de « candidats » ou de « socle »)" if v == "reutiliser" and not kid
+                  else "justification manquante" if not just else "")
+        if raison:
+            refuses.append({"index": n, "etape": eid, "raison": raison})
+            continue
+        vus.add(eid)
+        fiche = r._fiche(kid) if v == "reutiliser" else {"keyword": "", "fichier": ""}
+        jugement = {"verdict": VERDICTS_KEYWORD[v], "keyword": fiche["keyword"], "fichier": fiche["fichier"], "justification": just,
+                    "source": source, "date": maintenant()}
+        for e in _etapes(m):  # une branche reprend les étapes communes : même texte, même jugement
+            if e["texte"] == jug[eid]["texte"]:
+                e["jugement_keyword"] = jugement
+        retenus.append(VERDICTS_KEYWORD[v])
+    if retenus:
+        bdd.sauver(m, auteur=source)
+    return {"cle": cle, "retenus": len(retenus), "refuses": refuses, **{k: retenus.count(k) for k in VERDICTS_KEYWORD.values()}}
+
+
+def juger_keywords_ia(cle: str) -> dict:
+    """Keywords jugés par le LLM interne ou Claude (appel direct, texte masqué), mêmes contrôles que pour Cursor."""
+    from atelier.intelligence import jugement_ia
+
+    vue = keywords_pour_agent(cle)
+    if not vue["etapes"]:
+        return {"disponible": False, "raison": "Aucune étape à juger : chaque étape a un keyword existant ou une décision."}
+    return jugement_ia.appel_direct({k: vue[k] for k in ("cle", "titre", "etapes", "socle")}, SYSTEME_KEYWORDS, "jugements",
+                                    lambda l, s: deposer_jugements_keywords(cle, l, s), "studio_keywords_a_juger puis studio_juger_keywords")

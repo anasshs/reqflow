@@ -21,7 +21,7 @@ Projets multiples : Paramètres › Projets et sélecteur du header (atelier/dom
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
 fonctionnalité, demandes d'action validées côté serveur, 11 règles Cursor versionnées, couverture parcours / UI, Test
 Design par catégories et doublons, Champ / Anomalie, échecs reliés à la connaissance, jugements délégués à Cursor (granularité, doublons, redondances, liens
-exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 102 outils MCP (76 historiques
+exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 104 outils MCP (76 historiques
 inchangés) ; classement de sécurité de chaque outil : tests/test_securite_outils.py (à compléter pour tout nouvel outil) ;
 client MCP de test : tests/client_mcp.py.
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).

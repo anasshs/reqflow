@@ -2021,8 +2021,10 @@ def _vue_bdd(m: dict) -> dict:
         reut = bdd.reutilisation(m)  # étape -> keyword existant / proche / à créer
     except Exception:  # noqa: BLE001 — dépôt illisible : l'éditeur reste utilisable
         reut = {}
+    from atelier.intelligence import fournisseur_ia
+
     return {"scenario": m, "gherkin": bdd.serialiser(m), "controles": bdd.controles(m), "statistiques": bdd.statistiques(m), "rangement": rang,
-            "reutilisation": reut}
+            "reutilisation": reut, "ia": fournisseur_ia.etat()}
 
 
 @app.get("/api/conception/rangement")
@@ -2083,6 +2085,15 @@ async def bdd_operation(cle: str, req: Request):
     if op not in ops:
         raise HTTPException(400, f"Opération inconnue : {op}")
     return _vue_bdd(_call(ops[op]))
+
+
+@app.post("/api/bdd/{cle}/keywords-ia")
+async def bdd_keywords_ia(cle: str):
+    """Keywords jugés par le LLM interne ou Claude (appel direct). Avec Cursor, l'agent dépose par le MCP."""
+    from atelier.generation import reutilisation
+
+    r = await asyncio.to_thread(_call, reutilisation.juger_keywords_ia, cle)
+    return {**r, "vue": _vue_bdd(_call(bdd._exiger, cle))}
 
 
 @app.post("/api/bdd/{cle}/generer")

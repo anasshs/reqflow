@@ -186,7 +186,7 @@
     const r = reut(e);
     if (!r) return "";
     if (r.statut === "existant") return `<span class="pill ok" style="font-size:10px" title="Keyword réutilisé : ${esc(r.keyword)} (${esc(r.fichier)})">socle</span>`;
-    if (r.statut === "proche") return `<span class="pill warn" style="font-size:10px" title="Ressemble au keyword existant « ${esc(r.proches[0].keyword)} » : le reprendre évite un doublon">doublon ?</span>`;
+    if (r.statut === "proche") return `<span class="pill warn" style="font-size:10px" title="${r.proches[0].juge ? `Même action que le keyword existant « ${esc(r.proches[0].keyword)} » selon ${esc(r.jugement.source)}` : `Ressemble au keyword existant « ${esc(r.proches[0].keyword)} »`} : le reprendre évite un doublon">doublon ?</span>`;
     return `<span class="pill" style="font-size:10px" title="${r.confirme ? "Nouveau keyword confirmé" : "Aucun keyword du dépôt ne correspond : il sera à implémenter"}">à créer</span>`;
   }
 
@@ -279,9 +279,10 @@
     }
     $("#b-reco").innerHTML = c.length ? `<ul class="liste reco">${c.map(x => { const [cl, lib, ic] = GRAV[x.gravite];
       return `<li><span class="ico-reco" style="color:var(--${cl === "violet" ? "violet-ink" : cl === "info" ? "accent-ink" : cl})">${ico(ic)}</span>
-        <div class="item">${x.etape ? `<button class="lien" data-etape-reco="${esc(x.etape)}">${esc(x.message)}</button>` : esc(x.message)}<div class="sous">${esc(x.code.replace(/_/g, " "))}</div></div>
+        <div class="item">${x.etape ? `<button class="lien" data-etape-reco="${esc(x.etape)}">${esc(x.message)}</button>` : x.code === "keywords_a_juger" && S.edition ? `<button class="lien" data-juger-kw>${esc(x.message)}</button>` : esc(x.message)}<div class="sous">${esc(x.code.replace(/_/g, " "))}</div></div>
         <span class="pill ${cl}">${lib}</span></li>`; }).join("")}</ul>` : `<p><span class="pill ok">Aucun problème détecté</span> par les contrôles (sans IA).</p>`;
     $$("[data-etape-reco]").forEach(b => b.onclick = () => selectionner(b.dataset.etapeReco));
+    $$("#b-reco [data-juger-kw]").forEach(b => b.onclick = jugerKeywords);
   }
 
   function bulle(texte) {
@@ -302,16 +303,36 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
   /* ------------------------------------------------------------------ étape sélectionnée */
   function selectionner(id) { S.sel = id; graphe(); parcours(); proprietes(); }
 
+  /* Jugement délégué : Cursor (MCP) ou IA en appel direct dit si un keyword existant fait déjà l'action (synonyme). */
+  function jugerKeywords() {
+    const ia = S.vue.ia || {};
+    if (ia.appel_direct) {
+      toast("L'IA compare les étapes aux keywords existants…");
+      return api(`/api/bdd/${encodeURIComponent(S.cle)}/keywords-ia`, {method: "POST", body: {}}).then(r => {
+        S.vue = r.vue; rendu();
+        toast(r.disponible ? `${r.retenus} étape(s) jugée(s) : ${r["réutiliser"]} keyword(s) existant(s) à reprendre.` : r.raison, r.disponible ? "ok" : "");
+      }).catch(err => toast(err.message, "ko"));
+    }
+    DemanderCursor(`Keywords existants pour ${S.cle}`, `Vérifie que les étapes du scénario BDD ${S.cle} ne créent pas de keyword en double. `
+      + `Lis les étapes sans keyword et les keywords du dépôt avec studio_keywords_a_juger("${S.cle}"), puis dépose ton verdict pour chaque étape avec `
+      + `studio_juger_keywords : reutiliser (un keyword existant fait déjà la même action ou la même vérification, même formulé autrement : `
+      + `citer son nom exact) ou creer, en justifiant. Une action opposée ou un autre résultat n'est jamais le même keyword ; en cas de doute, creer.`,
+      "Cursor comprend le texte et juge ; aucune étape n'est modifiée sans vous. Rouvrir le scénario pour voir ses verdicts sur chaque étape.",
+      ["studio_juger_keywords"]);
+  }
+  const lienJuger = r => (S.edition && !r.jugement && !r.confirme ? `<button class="lien" data-juger-kw>Faire vérifier par ${S.vue.ia?.appel_direct ? "l'IA" : "Cursor"} qu'aucun keyword existant ne convient</button>` : "");
+
   function blocKeyword(e) {
     const r = reut(e);
     if (!r) return "";
-    const propositions = (r.proches || []).map(p => `<li><div class="item"><b>${esc(p.keyword)}</b><div class="sous">${esc(p.fichier)}${p.documentation ? " · " + esc(p.documentation) : ""}</div></div>
+    const j = r.jugement, avis = j ? `<p class="lib" style="margin:4px 0"><span class="pill violet">${esc(j.source)}</span> ${j.verdict === "réutiliser" ? `réutiliser « ${esc(j.keyword)} »` : "créer un keyword"} : ${esc(j.justification)}</p>` : "";
+    const propositions = (r.proches || []).map(p => `<li><div class="item"><b>${esc(p.keyword)}</b>${p.juge ? ' <span class="pill violet" style="font-size:10px">même action</span>' : ""}<div class="sous">${esc(p.fichier)}${p.documentation ? " · " + esc(p.documentation) : ""}</div></div>
       ${S.edition && !r.confirme ? `<button class="btn" data-reprendre="${esc(p.keyword)}">Reprendre</button>` : ""}</li>`).join("");
     if (r.statut === "existant") return `<p class="lib" style="margin:2px 0 8px"><span class="pill ok">Keyword réutilisé</span> ${esc(r.keyword)} <span class="mono">${esc(r.fichier)}</span>${r.correspondance === "arguments intégrés" ? " (arguments intégrés)" : ""}</p>`;
     if (r.statut === "proche") return `<div style="margin:2px 0 8px"><p class="lib" style="margin:0 0 4px"><span class="pill warn">Doublon possible</span> Un keyword existant fait déjà cette action : le reprendre plutôt que d'en créer un second.</p>
-      <ul class="liste">${propositions}</ul>${S.edition ? `<button class="lien" id="p-kw-nouveau">Aucun ne convient : confirmer un nouveau keyword</button>` : ""}</div>`;
+      ${avis}<ul class="liste">${propositions}</ul>${lienJuger(r)}<br>${S.edition ? `<button class="lien" id="p-kw-nouveau">Aucun ne convient : confirmer un nouveau keyword</button>` : ""}</div>`;
     return `<div style="margin:2px 0 8px"><p class="lib" style="margin:0 0 4px"><span class="pill">Keyword à créer</span> ${r.confirme ? "Nouveau keyword confirmé malgré un keyword proche." : "Aucun keyword du dépôt ne correspond."}
-      ${r.confirme && S.edition ? `<button class="lien" id="p-kw-annuler">Revenir sur cette décision</button>` : ""}</p>${r.confirme ? `<ul class="liste">${propositions}</ul>` : ""}</div>`;
+      ${r.confirme && S.edition ? `<button class="lien" id="p-kw-annuler">Revenir sur cette décision</button>` : ""}</p>${avis}${r.confirme ? `<ul class="liste">${propositions}</ul>` : ""}${lienJuger(r)}</div>`;
   }
 
   function proprietes() {
@@ -344,6 +365,7 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
     if (!S.edition) return;
     $$("#b-props [data-reprendre]").forEach(b => b.onclick = () => operation({op: "modifier_etape", etape: e.id, texte: b.dataset.reprendre}, `Keyword « ${b.dataset.reprendre} » repris : aucun doublon.`));
     if ($("#p-kw-nouveau")) $("#p-kw-nouveau").onclick = () => operation({op: "modifier_etape", etape: e.id, keyword_nouveau: true}, "Nouveau keyword confirmé pour cette étape.");
+    $$("#b-props [data-juger-kw]").forEach(b => b.onclick = jugerKeywords);
     if ($("#p-kw-annuler")) $("#p-kw-annuler").onclick = () => operation({op: "modifier_etape", etape: e.id, keyword_nouveau: false}, "Confirmation retirée.");
     const enregistrer = (msg = "Étape enregistrée (fichier .feature réécrit).") => operation({op: "modifier_etape", etape: e.id, mot: $("#p-mot").value, texte: $("#p-texte").value,
       ecran: $("#p-ecran").value, locator: $("#p-loc").value, jdd: $("#p-jdd").value, api: $("#p-api").value, resultat_attendu: $("#p-res").value,

@@ -506,3 +506,18 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Limites assumées : la comparaison ne lit que des mots (un synonyme, « confirmer » pour « valider », n'est pas vu ;
   un faux rapprochement se lève en confirmant le nouveau keyword) ; les keywords des bibliothèques Python ne sont pas
   inventoriés ; `write_project_file` reste libre, c'est la revue technique qui signale le doublon.
+
+## 2026-11-18 — Keywords en double : jugement délégué à Cursor (ou à l'IA en appel direct)
+- Les synonymes échappent à la comparaison de mots. Même partage que les autres jugements (jugement_ia.py) : lecture
+  `studio_keywords_a_juger(cle)` (étapes sans keyword, candidats présélectionnés avec leur corps, nom de tous les keywords
+  du dépôt), dépôt `studio_juger_keywords(cle, jugements)` : verdict reutiliser | creer, keyword cité, justification.
+  104 outils MCP. Appel direct (LLM interne / Claude) : `reutilisation.juger_keywords_ia`, mêmes contrôles.
+- Contrôles du serveur : étape jugeable (sans keyword existant, sans décision humaine), verdict connu, keyword cité
+  présent dans le dépôt, justification ; refus motivés renvoyés à l'agent.
+- Effet : un verdict « réutiliser » rend l'étape « doublon ? » comme un rapprochement par les mots (contrôle, pastille,
+  écriture de la suite refusée) ; l'automaticien reprend le keyword ou confirme un nouveau keyword. Un verdict « créer »
+  est affiché mais ne lève jamais un doublon vu par les mots. L'IA ne réécrit aucune étape et ne crée aucun keyword.
+- Jugements et décisions valent pour toutes les étapes de même texte (une branche copie les étapes communes) ; un texte
+  modifié les remet en jeu. Contrôle d'information « keywords_a_juger » tant que des étapes « à créer » n'ont pas été jugées.
+- Limite assumée : le jugement n'est pas exigé avant l'écriture (un scénario sans IA disponible resterait bloqué) ; c'est
+  le contrôle d'information et les règles Cursor qui le demandent.

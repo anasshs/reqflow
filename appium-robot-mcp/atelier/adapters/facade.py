@@ -852,6 +852,29 @@ def test_design_juger_doublons(cle: str, jugements: list[dict]) -> dict:
 
 
 @outil
+def studio_keywords_a_juger(cle: str) -> dict:
+    """Keywords en double : chaque étape d'un scénario BDD sans keyword existant (texte masqué), les keywords du dépôt
+    présélectionnés par les mots (documentation, corps), le nom de tous les keywords du dépôt (« socle »), la consigne et
+    les verdicts possibles. Lire avant studio_juger_keywords. Lecture seule."""
+    from atelier.generation import reutilisation
+
+    return reutilisation.keywords_pour_agent(cle)
+
+
+@outil
+def studio_juger_keywords(cle: str, jugements: list[dict]) -> dict:
+    """Keywords en double : dépose ton jugement pour des étapes d'un scénario BDD. jugements : [{"etape": id, "verdict":
+    "reutiliser" (un keyword existant fait déjà la même action ou la même vérification : synonyme, reformulation) |
+    "creer", "keyword": nom exact du keyword existant (obligatoire pour reutiliser), "justification": ce qui est identique,
+    ce qui diffère}]. Une action opposée ou un autre résultat n'est jamais le même keyword ; en cas de doute, creer.
+    Aucun texte d'étape n'est modifié et aucun keyword n'est créé : l'automaticien reprend le keyword ou confirme le
+    nouveau dans Test Design. Renvoie les jugements retenus et refusés (avec la raison)."""
+    from atelier.generation import reutilisation
+
+    return reutilisation.deposer_jugements_keywords(cle, jugements or [], "Cursor (MCP)")
+
+
+@outil
 def xray_redondances_a_juger(module: str = "", limite: int = 30) -> dict:
     """Tests Xray redondants : paires de tests d'un même module présélectionnées par les mots (titres et étapes
     masqués), avec la consigne. Lire avant xray_juger_redondances. Lecture seule."""

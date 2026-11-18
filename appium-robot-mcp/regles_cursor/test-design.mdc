@@ -10,6 +10,12 @@ alwaysApply: false
   « existant » → garder ce libellé ; « proche » → reprendre le libellé EXACT du keyword proposé (ne pas reformuler :
   un autre libellé crée un keyword en double) ; « à créer » → seulement si aucun keyword du socle ne convient, et le
   dire dans la réponse. L'atelier refuse de générer le script tant qu'une étape proche d'un keyword n'est pas tranchée.
+- studio_rapprocher_etapes ne compare que des mots (présélection) : il ne voit pas un synonyme. Pour un scénario BDD
+  (demande « vérifie les keywords du scénario … ») : studio_keywords_a_juger(cle), puis studio_juger_keywords(cle,
+  jugements) avec, pour chaque étape sans keyword, verdict reutiliser | creer, le nom exact du keyword existant et la
+  justification (ce qui est identique, ce qui diffère). Même action formulée autrement = même keyword ; action opposée,
+  autre écran ou autre résultat = keyword différent ; en cas de doute, creer. Lire le corps des candidats et la liste
+  « socle » avant de conclure « creer ». Aucune étape n'est réécrite par l'agent : l'automaticien reprend ou confirme.
 - test_design_proposer(cle, categories) génère les cas par catégorie (source, confiance, manques, observé / déduit,
   doublon) dans À concevoir : compléter ensuite ce qui manque, ne pas valider à la place de l'automaticien.
 - Couvrir, selon la fonctionnalité : nominal, alternatifs, négatifs, limites, validation des champs, erreurs,
