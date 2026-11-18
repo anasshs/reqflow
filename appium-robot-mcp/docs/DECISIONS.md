@@ -485,3 +485,24 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   testTag pour un locator repéré par son texte. Fixtures : android_compose_testtag_renomme, android_classique_vers_compose.
 - Non vérifié sur un vrai build Compose ni avec un vrai Appium : le comportement d'Appium vient de la documentation et
   des retours de la communauté, à confirmer à la première livraison avec testTag.
+
+## 2026-11-18 — Réutilisation des keywords dès la rédaction des étapes BDD
+- Constat : la réutilisation n'était garantie qu'à l'assemblage (`studio_construire_test`). À la génération depuis un
+  scénario BDD, une étape reformulée (« je valide le virement » pour le keyword « Valider Le Virement ») était classée
+  « à créer » et un keyword en double était déclaré dans la suite.
+- Moteur `atelier/generation/reutilisation.py` (sans IA, bibliothèque standard) : chaque étape est « existant » (même
+  nom, ou keyword à arguments intégrés, reconnu comme le fait Robot), « proche » (mêmes mots significatifs, radicaux de
+  5 lettres, au moins 60 % en commun ; les négations comptent) ou « à créer ». Inventaire du dépôt gardé en mémoire tant
+  qu'aucun .robot / .resource ne change.
+- Test Design : contrôle « keyword_proche » (gravité moyenne), pastille par étape (socle / doublon ? / à créer), bouton
+  « Reprendre » le keyword proposé, saisie assistée par la liste des keywords du socle. La décision reste humaine :
+  reprendre le keyword, ou confirmer un nouveau keyword (`keyword_nouveau` dans le modèle, remis en jeu si le texte change).
+- Garde : l'écriture de la suite générée (atelier et `studio_generer_depuis_bdd`) est refusée tant qu'une étape proche
+  d'un keyword existant n'est pas tranchée. L'aperçu reste possible et nomme les doublons probables.
+- Revue technique : contrôle « doublons_keywords » (keyword défini dans le script, proche ou homonyme d'un keyword d'un
+  autre fichier).
+- Cursor : outil de lecture `studio_rapprocher_etapes` (102 outils, contrat des 76 historiques inchangé) ; règles
+  test-design, automatisation et mcp-usage complétées ; `studio_scenario_bdd` renvoie les keywords proches par étape.
+- Limites assumées : la comparaison ne lit que des mots (un synonyme, « confirmer » pour « valider », n'est pas vu ;
+  un faux rapprochement se lève en confirmant le nouveau keyword) ; les keywords des bibliothèques Python ne sont pas
+  inventoriés ; `write_project_file` reste libre, c'est la revue technique qui signale le doublon.

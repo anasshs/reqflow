@@ -12,7 +12,7 @@ Les outils sont regroupés par préfixe ; choisir le plus précis :
   wait_for, screenshot, stop_session.
 - Carte : where_am_i, list_screens, screen_info, goto_screen, name_screen, export_screen_resource, map_*.
 - Discovery : discovery_demarrer, discovery_ecran_courant, discovery_proposer, discovery_parcours_vers_bdd, discovery_terminer.
-- Construction : studio_socle, studio_scenario_bdd, studio_generer_depuis_bdd, studio_construire_test,
+- Construction : studio_socle, studio_rapprocher_etapes, studio_scenario_bdd, studio_generer_depuis_bdd, studio_construire_test,
   studio_executer_etape, studio_soumettre_revue, studio_revue, studio_corrections_locators, studio_corriger_locator.
 - Données : list_jdd, get_jdd, check_jdd, find_test_data. Exécution : run_robot, parse_robot_output.
 - Xray / Jira (lecture) : xray_get_test, xray_search_tests, xray_inspect_ticket, jira_subtasks.

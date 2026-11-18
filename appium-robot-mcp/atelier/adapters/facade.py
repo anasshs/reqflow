@@ -617,9 +617,21 @@ def studio_socle(module: str = "", env: str = "") -> dict:
 
 
 @outil
+def studio_rapprocher_etapes(etapes: list[str]) -> dict:
+    """À appeler AVANT de rédiger ou de proposer des étapes BDD : rapproche chaque texte d'étape des keywords du dépôt.
+    Pour chaque étape : statut « existant » (keyword réutilisé tel quel : même nom ou arguments intégrés), « proche »
+    (un keyword existant emploie les mêmes mots : reprendre son libellé exact, ne pas créer de doublon) ou « à créer »,
+    avec le keyword, son fichier et sa documentation. Lecture seule ; comparaison de mots, sans IA."""
+    from atelier.generation import reutilisation
+
+    return reutilisation.rapprocher_etapes(etapes or [])
+
+
+@outil
 def studio_scenario_bdd(cle: str) -> dict:
     """Scénario BDD d'un test Xray (Test Design) et son mapping vers le socle : pour chaque étape, keyword existant ou
-    à créer, locators et leur état, données ${DONNEES.x}, assertion. Point de départ pour écrire le test Robot."""
+    à créer, keywords proches à reprendre (doublons possibles), locators et leur état, données ${DONNEES.x}, assertion.
+    Point de départ pour écrire le test Robot."""
     from atelier.generation import bdd, studio
 
     m = bdd._exiger(cle)
@@ -630,12 +642,16 @@ def studio_scenario_bdd(cle: str) -> dict:
 @outil
 def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "") -> dict:
     """Génère la suite Robot d'un scénario BDD (keywords du socle, stubs pour les étapes à créer). ecrire=False :
-    aperçu seulement. ecrire=True : écrit le fichier (jamais d'écrasement) ; il entre en revue technique « Généré »
-    et ne s'exécute qu'après approbation de l'automaticien dans l'atelier."""
+    aperçu seulement ; « keywords_proches » liste les étapes qui ressemblent à un keyword existant. ecrire=True : écrit
+    le fichier (jamais d'écrasement) ; il entre en revue technique « Généré » et ne s'exécute qu'après approbation de
+    l'automaticien dans l'atelier. L'écriture est refusée tant qu'une étape proche d'un keyword existant n'est pas
+    tranchée dans Test Design (reprendre le keyword, ou confirmer un nouveau keyword) : aucun doublon silencieux."""
     from atelier.generation import bdd, studio
 
-    g = bdd.generer_robot(bdd._exiger(cle))
+    m = bdd._exiger(cle)
+    g = bdd.generer_robot(m)
     if ecrire:
+        bdd.refuser_doublons(m)
         cible = chemin or g["chemin"]
         projet.ecrire_fichier(cible, g["contenu"], False)
         studio.entrer_en_revue(cible, "cursor")

@@ -30,7 +30,7 @@ NATURE = {
                      "cerveau_question", "coverage_intelligence", "testabilite_us_a_traiter"], "L"),
     **dict.fromkeys(["testabilite_deposer_proposition", "coverage_proposer_story", "coverage_proposer_lien"], "P"),
     # Automation Studio
-    **dict.fromkeys(["studio_socle", "studio_scenario_bdd", "studio_revue", "studio_corrections_locators", "studio_factorisation_keywords"], "L"),
+    **dict.fromkeys(["studio_socle", "studio_rapprocher_etapes", "studio_scenario_bdd", "studio_revue", "studio_corrections_locators", "studio_factorisation_keywords"], "L"),
     **dict.fromkeys(["studio_generer_depuis_bdd", "studio_construire_test", "studio_executer_etape", "studio_corriger_locator",
                      "studio_factoriser_keywords"], "É"),
     "studio_soumettre_revue": "P",
@@ -54,7 +54,7 @@ def _outils() -> dict:
 def test_chaque_outil_est_classe():
     o = _outils()
     assert set(o) == set(NATURE), f"non classés : {sorted(set(o) - set(NATURE))} ; disparus : {sorted(set(NATURE) - set(o))}"
-    assert len(o) == 101
+    assert len(o) == 102
 
 
 def test_ecritures_externes_par_demande():

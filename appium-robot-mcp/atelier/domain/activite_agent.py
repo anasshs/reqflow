@@ -92,6 +92,7 @@ PHRASES = {
     "cerveau_question": lambda a: f"Cursor pose une question au cerveau {_a(a, 'question')}",
     "cursor_regles": lambda a: f"Cursor relit les règles du projet {_a(a, 'regle')}",
     "coverage_intelligence": lambda a: f"Cursor consulte Coverage Intelligence {_a(a, 'vue', 'onglet')}",
+    "studio_rapprocher_etapes": lambda a: "Cursor rapproche ses étapes BDD des keywords existants (pas de doublon)",
     "studio_socle": lambda a: "Cursor inventorie le socle à réutiliser (keywords, locators, données)",
     "studio_scenario_bdd": lambda a: f"Cursor lit le scénario BDD et son mapping vers le socle {_a(a, 'cle')}",
     "studio_construire_test": lambda a: f"Cursor assemble un test Robot à partir des keywords existants {_a(a, 'nom')}",

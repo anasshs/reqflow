@@ -6,6 +6,10 @@ alwaysApply: false
   plan_de_test(module) (écrans, parcours, règles, exigences et ce qui n'est pas couvert).
 - Avant de proposer un scénario : test_design_doublons(titre, etapes, gherkin) ; « réutiliser » ou « faire évoluer »
   → proposer le test existant plutôt qu'un doublon.
+- Avant d'écrire les étapes d'un scénario (Gherkin, cas proposé, brouillon BDD) : studio_rapprocher_etapes([textes]).
+  « existant » → garder ce libellé ; « proche » → reprendre le libellé EXACT du keyword proposé (ne pas reformuler :
+  un autre libellé crée un keyword en double) ; « à créer » → seulement si aucun keyword du socle ne convient, et le
+  dire dans la réponse. L'atelier refuse de générer le script tant qu'une étape proche d'un keyword n'est pas tranchée.
 - test_design_proposer(cle, categories) génère les cas par catégorie (source, confiance, manques, observé / déduit,
   doublon) dans À concevoir : compléter ensuite ce qui manque, ne pas valider à la place de l'automaticien.
 - Couvrir, selon la fonctionnalité : nominal, alternatifs, négatifs, limites, validation des champs, erreurs,

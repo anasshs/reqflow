@@ -292,6 +292,15 @@ def controles_script(fichier: str) -> list[dict]:
     directs = sorted({a for t in tests for a in t["appels"] if a not in [inv["keywords"][k]["nom"] for k in t["keywords"] if k in inv["keywords"]]
                       and not re.match(r"(?i)^(given|when|then|and|but|log|set test variable)\b", a)})
     add("reutilisation", "moyenne" if directs else "ok", f"Appels hors socle dans les tests : {', '.join(directs[:5])}" if directs else "Les tests n'appellent que des keywords du socle.")
+    from atelier.generation.reutilisation import Rapprocheur
+
+    ailleurs = Rapprocheur({"keywords": {kid: k for kid, k in inv["keywords"].items() if k["fichier"] != fichier}})
+    locaux = [(k["nom"], p[0]) for k in inv["keywords"].values() if k["fichier"] == fichier for p in [ailleurs.proches(k["nom"])] if p]
+    locaux += [(k["nom"], {"keyword": k["nom"], "fichier": f"{k['fichier']}:{k['ligne']}"}) for k in inv["keywords"].values()
+               if k["fichier"] != fichier and any(d.rsplit(":", 1)[0] == fichier for d in k.get("doublons", []))]  # même nom redéfini ici
+    add("doublons_keywords", "moyenne" if locaux else "ok",
+        "Keywords définis ici, proches d'un keyword existant : " + ", ".join(f"« {n} » ≈ « {p['keyword']} » ({p['fichier']})" for n, p in locaux[:5])
+        if locaux else "Aucun keyword de ce script ne double un keyword existant.")
     fiab = {f"{l['ecran']}.{l['cle']}": l for l in locators()}
     kws = fermeture_keywords(inv, [k for t in tests for k in t["keywords"]])
     utilises = {f"{e}.{c}" for k in kws if k in inv["keywords"] for e, c in inv["keywords"][k].get("locators") or []}
@@ -394,24 +403,26 @@ def _corps(k: dict) -> str:
 
 def mapping_bdd(cle: str) -> dict:
     """Correspondance de chaque étape BDD avec le socle : keyword existant ou à créer, locators, données, assertion."""
-    from atelier.execution.depot_robot import cle_appel, fermeture_keywords
+    from atelier.execution.depot_robot import fermeture_keywords
     from atelier.generation import bdd
 
     m = bdd.charger(cle)
     if not m:
         raise KeyError(f"Scénario BDD inconnu : {cle}")
     inv = _inv()
-    par_cle = {cle_appel(k["nom"]): kid for kid, k in inv["keywords"].items()}
+    rapprochement = bdd.reutilisation(m, inv)  # même nom, arguments intégrés, ou keyword proche à reprendre
     fiab = {f"{l['ecran']}.{l['cle']}": l["etat"] for l in locators()}
     scenarios = []
     for s in m["scenarios"]:
         etapes = []
         for e in s["etapes"]:
-            kid = par_cle.get(cle_appel(e["texte"])) or par_cle.get(cle_appel(re.sub(r"^(que|qu')\s*", "", e["texte"])))
+            rap = rapprochement[e["id"]]
+            kid = rap["id"] or None
             k = inv["keywords"].get(kid) if kid else None
             locs = sorted({f"{ec}.{c}" for x in fermeture_keywords(inv, [kid]) if x in inv["keywords"] for ec, c in inv["keywords"][x].get("locators") or []}) if kid else []
             etapes.append({"id": e["id"], "mot": e.get("mot") or e["type"], "texte": e["texte"], "keyword": k["nom"] if k else "",
                            "fichier": f"{k['fichier']}:{k['ligne']}" if k else "", "statut": "existant" if k else "à créer",
+                           "proches": rap["proches"], "nouveau_keyword_confirme": bool(rap.get("confirme")),
                            "locators": [{"id": x, "etat": fiab.get(x, "Missing")} for x in locs],
                            "donnees": sorted({d for x in fermeture_keywords(inv, [kid]) if x in inv["keywords"]
                                               for d in re.findall(r"\$\{DONNEES\.(\w+)\}", _corps(inv["keywords"][x]))}) if kid else [],
@@ -420,7 +431,8 @@ def mapping_bdd(cle: str) -> dict:
         scenarios.append({"id": s["id"], "nom": s["nom"], "type": s["type"], "etapes": etapes})
     tot = [e for s in scenarios for e in s["etapes"]]
     return {"cle": cle, "titre": m.get("titre", ""), "jdd": m.get("jdd", ""), "statut_bdd": m.get("statut", ""), "scenarios": scenarios,
-            "existants": sum(e["statut"] == "existant" for e in tot), "a_creer": sum(e["statut"] == "à créer" for e in tot)}
+            "existants": sum(e["statut"] == "existant" for e in tot), "a_creer": sum(e["statut"] == "à créer" for e in tot),
+            "doublons_possibles": sum(bool(e["proches"]) and not e["nouveau_keyword_confirme"] for e in tot)}
 
 
 # =========================================================================== espaces d'automatisation

@@ -10,7 +10,7 @@ dont le texte n'a pas changé.
 
 Contrôles qualité (sans IA, vérifiables) : assertion manquante, donnée littérale dans un step (la
 convention impose le JDD), étape non reliée à un écran, absence de branche négative, jeu de données
-absent, étapes non validées.
+absent, étapes non validées, étape proche d'un keyword existant (réutiliser plutôt que créer un doublon).
 """
 from __future__ import annotations
 
@@ -170,6 +170,8 @@ def _fusionner_liens(nouveau: dict, ancien: dict) -> dict:
         if a:
             for k in ("id", "ecran", "locator", "jdd", "api", "valide", "resultat_attendu", "assertion"):
                 e[k] = a.get(k, e[k])
+            if a.get("keyword_nouveau"):
+                e["keyword_nouveau"] = True
     for k in ("cle", "titre", "jdd", "source", "statut", "test_robot"):
         if k in ancien and k not in nouveau:
             nouveau[k] = ancien[k]
@@ -293,8 +295,10 @@ def modifier_etape(cle: str, etape_id: str, **champs) -> dict:
     if "mot" in champs:
         e["mot"] = champs["mot"]
         e["type"] = MOTS.get(champs["mot"].strip().lower(), e["type"])
-    if champs.get("texte") is not None and champs["texte"].strip() != e["texte"] and champs.get("valide") is None:
-        e["valide"] = False  # texte modifié : à revalider
+    if champs.get("texte") is not None and champs["texte"].strip() != e["texte"]:
+        e.pop("keyword_nouveau", None)  # nouveau texte : le rapprochement avec le socle est à refaire
+        if champs.get("valide") is None:
+            e["valide"] = False  # texte modifié : à revalider
     for k in ("texte", "ecran", "locator", "jdd", "api", "resultat_attendu"):
         if k in champs and champs[k] is not None:
             e[k] = str(champs[k]).strip()
@@ -303,6 +307,11 @@ def modifier_etape(cle: str, etape_id: str, **champs) -> dict:
             e[k] = bool(champs[k])
     if "assertion" in champs:
         e["assertion_auto"] = False
+    if champs.get("keyword_nouveau") is not None:  # décision humaine : cette étape demande bien un nouveau keyword
+        if champs["keyword_nouveau"]:
+            e["keyword_nouveau"] = True
+        else:
+            e.pop("keyword_nouveau", None)
     return sauver(m)
 
 
@@ -365,6 +374,44 @@ def _exiger(cle: str) -> dict:
     return m
 
 
+# =========================================================================== réutilisation du socle
+def reutilisation(m: dict, inventaire: dict | None = None) -> dict:
+    """Rapprochement de chaque étape avec les keywords du dépôt : {id d'étape: existant | proche | à créer, keyword,
+    keywords proches}. Une étape « proche » que l'automaticien a confirmée comme nouveau keyword est « à créer »."""
+    from atelier.generation.reutilisation import Rapprocheur
+
+    r, out = Rapprocheur(inventaire), {}
+    for e in m.get("contexte", []) + [x for s in m.get("scenarios", []) for x in s["etapes"]]:
+        x = r.etape(e["texte"])
+        if x["statut"] == "proche" and e.get("keyword_nouveau"):
+            x = {**x, "statut": "à créer", "confirme": True}
+        out[e["id"]] = x
+    return out
+
+
+def _doublons_possibles(m: dict, inventaire: dict | None = None) -> list[dict]:
+    """Étapes proches d'un keyword existant, sans décision : générer leur keyword créerait un doublon probable."""
+    r = reutilisation(m, inventaire)
+    vus, out = set(), []
+    for e in m.get("contexte", []) + [x for s in m.get("scenarios", []) for x in s["etapes"]]:
+        x = r[e["id"]]
+        if x["statut"] == "proche" and e["texte"] not in vus:
+            vus.add(e["texte"])
+            out.append({"etape": e["id"], "texte": e["texte"], "keyword": x["proches"][0]["keyword"],
+                        "fichier": x["proches"][0]["fichier"], "proches": x["proches"]})
+    return out
+
+
+def refuser_doublons(m: dict, inventaire: dict | None = None) -> None:
+    """Garde avant d'écrire la suite Robot : refuse tant qu'une étape proche d'un keyword existant n'est pas tranchée
+    (reprendre le keyword, ou confirmer le nouveau keyword dans Test Design)."""
+    d = _doublons_possibles(m, inventaire)
+    if d:
+        raise ValueError("Écriture refusée : " + " ; ".join(f"« {x['texte']} » ressemble au keyword existant « {x['keyword']} » "
+                                                            f"({x['fichier']})" for x in d[:5])
+                         + ". Dans Test Design, reprendre le keyword existant ou confirmer qu'un nouveau keyword est nécessaire.")
+
+
 # =========================================================================== contrôles et statistiques
 def controles(m: dict) -> list[dict]:
     out = []
@@ -385,6 +432,12 @@ def controles(m: dict) -> list[dict]:
                   e["id"])
             if e.get("type_effectif", e["type"]) == "when" and not e.get("ecran"):
                 c("basse", "ecran_non_relie", f"« {e['texte']} » n'est reliée à aucun écran de la carte.", e["id"])
+    try:  # rapprochement avec le socle : un dépôt illisible ne masque pas les autres contrôles
+        for d in _doublons_possibles(m):
+            c("moyenne", "keyword_proche", f"« {d['texte']} » ressemble au keyword existant « {d['keyword']} » "
+              f"({d['fichier']}) : reprendre son libellé pour le réutiliser, ou confirmer un nouveau keyword.", d["etape"])
+    except Exception:  # noqa: BLE001
+        pass
     if m.get("scenarios") and not any(s["type"] == "negatif" for s in m["scenarios"]):
         c("info", "branche_negative", "Aucune branche négative : en ajouter une pour couvrir les cas d'erreur.")
     if not m.get("jdd"):
@@ -413,9 +466,12 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
     sinon un keyword à implémenter est déclaré (il échoue explicitement, jamais en silence)."""
     from atelier.execution import depot_robot
 
+    from atelier.generation.reutilisation import Rapprocheur
+
     inv = inventaire if inventaire is not None else depot_robot.lire_depot()
     kws = inv["keywords"]
-    a_creer, reutilises, resources = [], [], set()
+    rapprocheur, confirmes = Rapprocheur(inv), set()
+    a_creer, reutilises, resources, proches = [], [], set(), {}
     lignes_tests = []
     for s in m["scenarios"]:
         tags = [m["cle"]] + (["negatif"] if s["type"] == "negatif" else [])
@@ -424,12 +480,16 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
             lignes_tests.append(f"    Initialiser Le Test    &{{JDD_{m['jdd'].upper()}}}")
         for e in s["etapes"]:
             prefixe = MOTS_EN[e["type"]]
-            cle = depot_robot.normaliser(e["texte"])
-            if cle in kws:
-                reutilises.append(kws[cle]["nom"])
-                resources.add(kws[cle]["fichier"])
+            x = rapprocheur.etape(e["texte"])
+            if x["statut"] == "existant":  # même nom, ou keyword à arguments intégrés : Robot résout l'appel tel quel
+                reutilises.append(x["keyword"])
+                resources.add(kws[x["id"]]["fichier"])
             elif e["texte"] not in a_creer:
                 a_creer.append(e["texte"])
+                if x["statut"] == "proche":
+                    proches[e["texte"]] = x["proches"]
+            if e.get("keyword_nouveau"):
+                confirmes.add(e["texte"])
             lignes_tests.append(f"    {prefixe} {e['texte']}")
     if m.get("jdd"):
         if "initialiserletest" in kws:
@@ -448,10 +508,15 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
         texte += ["", "*** Keywords ***"]
         for k in a_creer:
             args = ["    [Arguments]    &{jdd}"] if k == "Initialiser Le Test" else []
-            texte += [k, "    [Documentation]    À implémenter : aucun keyword du dépôt ne correspond.", *args,
-                      f"    Fail    Keyword à implémenter : {k}", ""]
+            doc = "À implémenter : aucun keyword du dépôt ne correspond."
+            if k in proches:
+                doc = (f"À implémenter (nouveau keyword confirmé ; proche de « {proches[k][0]['keyword']} »)." if k in confirmes
+                       else f"Doublon probable de « {proches[k][0]['keyword']} » ({proches[k][0]['fichier']}) : le réutiliser.")
+            texte += [k, f"    [Documentation]    {doc}", *args, f"    Fail    Keyword à implémenter : {k}", ""]
     return {"chemin": cible, "contenu": "\n".join(texte).rstrip() + "\n", "keywords_reutilises": sorted(set(reutilises)),
-            "keywords_a_creer": a_creer}
+            "keywords_a_creer": a_creer,
+            "keywords_proches": [{"etape": k, "keyword": p[0]["keyword"], "fichier": p[0]["fichier"], "confirme": k in confirmes}
+                                 for k, p in proches.items()]}
 
 
 def associer_module(cle: str, module: str) -> dict:

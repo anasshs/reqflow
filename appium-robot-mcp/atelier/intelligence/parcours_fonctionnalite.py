@@ -31,7 +31,7 @@ ETAPES = [  # id, titre, rôle, écran de l'atelier, outils MCP utiles, validati
     ("couverture", "Couverture existante", "Ce qui est déjà couvert : exigences, tests Xray, tests manquants et orphelins",
      "intelligence/couverture", ["coverage_intelligence", "coverage_report", "cerveau_application"], False),
     ("conception", "Test Design", "Concevoir les cas de test manquants", "conception/us",
-     ["testabilite_us_a_traiter", "testabilite_deposer_proposition", "plan_de_test"], False),
+     ["testabilite_us_a_traiter", "testabilite_deposer_proposition", "plan_de_test", "studio_rapprocher_etapes"], False),
     ("validation", "Validation des scénarios", "Revue et validation humaine des scénarios (BDD, cas)", "conception/cas", [], True),
     ("generation", "Génération des scripts", "Construire les tests Robot depuis le socle existant", "studio/direct",
      ["studio_socle", "studio_scenario_bdd", "studio_generer_depuis_bdd", "studio_construire_test"], False),

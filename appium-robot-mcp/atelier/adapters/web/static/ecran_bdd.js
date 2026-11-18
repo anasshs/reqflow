@@ -26,7 +26,7 @@
 
   const E = {
     afficher(zone, cle) {
-      S = {cle: cle || "", vue: null, sel: null, ecrans: [], locators: [], jdd: [], edition: true, zoom: 1, annuler: [], refaire: [], ongletIA: "reco", dernierIA: null};
+      S = {cle: cle || "", vue: null, sel: null, ecrans: [], locators: [], jdd: [], keywords: [], edition: true, zoom: 1, annuler: [], refaire: [], ongletIA: "reco", dernierIA: null};
       if (!cle) return accueil(zone);
       zone.className = "g-bdd";
       zone.innerHTML = `
@@ -155,6 +155,7 @@
     const [ec, loc] = await Promise.all([api("/api/graphes/connaissance?types=ecran").catch(() => ({noeuds: []})),
       api("/api/graphes/connaissance?types=locator").catch(() => ({noeuds: []}))]);
     S.ecrans = ec.noeuds; S.locators = loc.noeuds;
+    S.keywords = await api("/api/studio/keywords").catch(() => []);  // socle proposé à la saisie d'une étape
     if (Atelier.env) S.jdd = (await api("/api/jdd/" + encodeURIComponent(Atelier.env)).catch(() => ({jeux: []}))).jeux || [];
     if (S.vue) { graphe(); parcours(); proprietes(); }
   }
@@ -178,9 +179,20 @@
   const mots = () => (S.vue.scenario.langue === "fr" ? MOTS_FR : MOTS_EN);
   const motAffiche = e => e.mot || mots()[e.type];
 
+  /* Réutilisation du socle : keyword existant, keyword proche à reprendre, ou keyword à créer. */
+  const reut = e => (S.vue?.reutilisation || {})[e.id];
+  const listeKeywords = id => `<datalist id="${id}">${S.keywords.map(k => `<option value="${esc(k.nom)}">${esc(k.documentation || k.fichier)}</option>`).join("")}</datalist>`;
+  function marqueKeyword(e) {
+    const r = reut(e);
+    if (!r) return "";
+    if (r.statut === "existant") return `<span class="pill ok" style="font-size:10px" title="Keyword réutilisé : ${esc(r.keyword)} (${esc(r.fichier)})">socle</span>`;
+    if (r.statut === "proche") return `<span class="pill warn" style="font-size:10px" title="Ressemble au keyword existant « ${esc(r.proches[0].keyword)} » : le reprendre évite un doublon">doublon ?</span>`;
+    return `<span class="pill" style="font-size:10px" title="${r.confirme ? "Nouveau keyword confirmé" : "Aucun keyword du dépôt ne correspond : il sera à implémenter"}">à créer</span>`;
+  }
+
   function marques(e) {
     const ecran = S.ecrans.find(x => x.id === e.ecran);
-    return `<span class="marques">${e.ecran ? `<span title="Écran : ${esc(ecran?.libelle || e.ecran)}">${ico("ecran")}</span>` : ""}
+    return `<span class="marques">${marqueKeyword(e)}${e.ecran ? `<span title="Écran : ${esc(ecran?.libelle || e.ecran)}">${ico("ecran")}</span>` : ""}
       ${e.locator || e.ecran || e.api ? `<span title="Lien : ${esc([e.locator, e.api].filter(Boolean).join(" · ") || "écran")}">${ico("lien")}</span>` : ""}
       ${e.jdd ? `<span title="Donnée : ${esc(e.jdd)}">${ico("donnee")}</span>` : ""}
       ${e.valide ? `<span class="statut-ico ok" title="Étape validée">✓</span>` : `<span class="statut-ico attente" title="À valider">·</span>`}</span>`;
@@ -290,6 +302,18 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
   /* ------------------------------------------------------------------ étape sélectionnée */
   function selectionner(id) { S.sel = id; graphe(); parcours(); proprietes(); }
 
+  function blocKeyword(e) {
+    const r = reut(e);
+    if (!r) return "";
+    const propositions = (r.proches || []).map(p => `<li><div class="item"><b>${esc(p.keyword)}</b><div class="sous">${esc(p.fichier)}${p.documentation ? " · " + esc(p.documentation) : ""}</div></div>
+      ${S.edition && !r.confirme ? `<button class="btn" data-reprendre="${esc(p.keyword)}">Reprendre</button>` : ""}</li>`).join("");
+    if (r.statut === "existant") return `<p class="lib" style="margin:2px 0 8px"><span class="pill ok">Keyword réutilisé</span> ${esc(r.keyword)} <span class="mono">${esc(r.fichier)}</span>${r.correspondance === "arguments intégrés" ? " (arguments intégrés)" : ""}</p>`;
+    if (r.statut === "proche") return `<div style="margin:2px 0 8px"><p class="lib" style="margin:0 0 4px"><span class="pill warn">Doublon possible</span> Un keyword existant fait déjà cette action : le reprendre plutôt que d'en créer un second.</p>
+      <ul class="liste">${propositions}</ul>${S.edition ? `<button class="lien" id="p-kw-nouveau">Aucun ne convient : confirmer un nouveau keyword</button>` : ""}</div>`;
+    return `<div style="margin:2px 0 8px"><p class="lib" style="margin:0 0 4px"><span class="pill">Keyword à créer</span> ${r.confirme ? "Nouveau keyword confirmé malgré un keyword proche." : "Aucun keyword du dépôt ne correspond."}
+      ${r.confirme && S.edition ? `<button class="lien" id="p-kw-annuler">Revenir sur cette décision</button>` : ""}</p>${r.confirme ? `<ul class="liste">${propositions}</ul>` : ""}</div>`;
+  }
+
   function proprietes() {
     const e = S.vue && tous().find(x => x.id === S.sel);
     if (!e) { $("#b-props").innerHTML = vide("Aucune étape sélectionnée", "Cliquer une étape du graphe."); return; }
@@ -298,7 +322,8 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
     const ro = S.edition ? "" : "disabled";
     $("#b-props").innerHTML = `<div style="padding:12px 14px 6px"><p style="margin:0 0 10px;display:flex;gap:8px;align-items:center"><span class="pill info" style="font-size:12px">${n || "B"}</span><b>${esc(motAffiche(e))} ${esc(e.texte)}</b></p>
       <label class="ligne-champ"><span>Mot-clé</span><select class="in" id="p-mot" ${ro}>${Object.entries(mots()).map(([t, mot]) => `<option value="${esc(mot)}" ${t === e.type ? "selected" : ""}>${esc(mot)}</option>`).join("")}</select></label>
-      <label class="ligne-champ"><span>Action</span><input class="in" id="p-texte" value="${esc(e.texte)}" ${ro}></label>
+      <label class="ligne-champ"><span>Action</span><input class="in" id="p-texte" list="p-kws" value="${esc(e.texte)}" ${ro}></label>
+      ${listeKeywords("p-kws")}${blocKeyword(e)}
       <label class="ligne-champ"><span>Donnée (JDD)</span><input class="in" id="p-jdd" list="p-jdds" value="${esc(e.jdd)}" placeholder="jeu.champ" ${ro}></label>
       <datalist id="p-jdds">${S.jdd.flatMap(j => j.champs.map(c => `<option value="${esc(j.jeu + "." + c)}">`)).join("")}</datalist>
       <label class="ligne-champ"><span>Locator</span><span class="boite" style="padding:0 0 0 2px"><input class="in" id="p-loc" list="p-locs" value="${esc(e.locator)}" style="border:0;background:none" ${ro}>
@@ -317,6 +342,9 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
         <li id="p-suppr" class="danger">${ico("poubelle")}Supprimer</li></ul>` : `<p class="lib" style="padding:0 14px">Mode lecture : activer « Mode édition » pour modifier.</p>`}`;
     $("#p-loc-copier").onclick = e2 => { e2.preventDefault(); navigator.clipboard?.writeText($("#p-loc").value).then(() => toast("Locator copié.")); };
     if (!S.edition) return;
+    $$("#b-props [data-reprendre]").forEach(b => b.onclick = () => operation({op: "modifier_etape", etape: e.id, texte: b.dataset.reprendre}, `Keyword « ${b.dataset.reprendre} » repris : aucun doublon.`));
+    if ($("#p-kw-nouveau")) $("#p-kw-nouveau").onclick = () => operation({op: "modifier_etape", etape: e.id, keyword_nouveau: true}, "Nouveau keyword confirmé pour cette étape.");
+    if ($("#p-kw-annuler")) $("#p-kw-annuler").onclick = () => operation({op: "modifier_etape", etape: e.id, keyword_nouveau: false}, "Confirmation retirée.");
     const enregistrer = (msg = "Étape enregistrée (fichier .feature réécrit).") => operation({op: "modifier_etape", etape: e.id, mot: $("#p-mot").value, texte: $("#p-texte").value,
       ecran: $("#p-ecran").value, locator: $("#p-loc").value, jdd: $("#p-jdd").value, api: $("#p-api").value, resultat_attendu: $("#p-res").value,
       assertion: $("#p-ass").checked, valide: $("#p-val").checked}, msg);
@@ -352,7 +380,7 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
 
   function formulaireEtape(scenario, motDefaut, apres = "") {
     const m = modale("Ajouter une étape", `<div class="champ"><label for="f-mot">Mot-clé</label><select class="in" id="f-mot">${Object.values(mots()).map(x => `<option ${x === motDefaut ? "selected" : ""}>${x}</option>`).join("")}</select></div>
-      <div class="champ"><label for="f-texte">Texte (sans donnée littérale : utiliser le JDD)</label><input class="in" id="f-texte"></div>`,
+      <div class="champ"><label for="f-texte">Texte (choisir un keyword du socle quand il existe ; sans donnée littérale : utiliser le JDD)</label><input class="in" id="f-texte" list="f-kws" autocomplete="off">${listeKeywords("f-kws")}</div>`,
       `<button class="btn primaire" id="f-ok">${ico("plus")}Ajouter</button>`);
     $("#f-texte", m.el).focus();
     const ok = () => { const t = $("#f-texte", m.el).value.trim(); if (!t) return; m.fermer(); operation({op: "ajouter_etape", scenario, mot: $("#f-mot", m.el).value, texte: t, apres}, "Étape ajoutée."); };
@@ -401,6 +429,7 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
     const m = modale("Générer le script Robot", `
       <div class="btns" style="margin-bottom:8px"><span class="pill ok">${g.keywords_reutilises.length} keyword(s) du socle réutilisé(s)</span>
         <span class="pill ${g.keywords_a_creer.length ? "warn" : "ok"}">${g.keywords_a_creer.length} keyword(s) à implémenter</span></div>
+      ${(g.keywords_proches || []).filter(x => !x.confirme).length ? `<p class="lib"><span class="pill ko">Écriture bloquée</span> Étapes proches d'un keyword existant, à trancher dans le scénario (reprendre le keyword ou confirmer un nouveau keyword) : ${g.keywords_proches.filter(x => !x.confirme).map(x => `« ${esc(x.etape)} » ≈ « ${esc(x.keyword)} »`).join(", ")}</p>` : ""}
       ${g.keywords_a_creer.length ? `<p class="lib">À implémenter (ils échouent explicitement tant qu'ils ne le sont pas) : ${esc(g.keywords_a_creer.join(", "))}</p>` : ""}
       <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}"></div>
       <pre class="code" style="display:block;padding:10px;max-height:45vh;overflow:auto">${esc(g.contenu)}</pre>`,

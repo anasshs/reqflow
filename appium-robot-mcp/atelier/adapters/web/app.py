@@ -2017,7 +2017,12 @@ def _vue_bdd(m: dict) -> dict:
         rang = {"robot": rangement.chemin_robot(m), "xray": rangement.dossier_xray(m) or "/ (racine)"}
     except Exception as e:  # noqa: BLE001
         rang = {"erreur": str(e)[:200]}
-    return {"scenario": m, "gherkin": bdd.serialiser(m), "controles": bdd.controles(m), "statistiques": bdd.statistiques(m), "rangement": rang}
+    try:
+        reut = bdd.reutilisation(m)  # étape -> keyword existant / proche / à créer
+    except Exception:  # noqa: BLE001 — dépôt illisible : l'éditeur reste utilisable
+        reut = {}
+    return {"scenario": m, "gherkin": bdd.serialiser(m), "controles": bdd.controles(m), "statistiques": bdd.statistiques(m), "rangement": rang,
+            "reutilisation": reut}
 
 
 @app.get("/api/conception/rangement")
@@ -2087,6 +2092,7 @@ async def bdd_generer(cle: str, req: Request):
     m = _call(bdd._exiger, cle)
     g = await asyncio.to_thread(_call, bdd.generer_robot, m)
     if b.get("ecrire"):
+        _call(bdd.refuser_doublons, m)  # étape proche d'un keyword existant : à trancher avant d'écrire
         chemin = b.get("chemin") or g["chemin"]
         _call(outils.write_project_file, chemin, g["contenu"], bool(b.get("ecraser")))
         _call(studio.entrer_en_revue, chemin, "bdd")  # validation humaine avant exécution
