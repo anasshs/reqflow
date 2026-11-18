@@ -52,7 +52,7 @@ TYPES_CIBLES = {
     "PageObject": ("TESTING", "Page Object", False), "TestDataSet": ("TESTING", "Jeu de données", False),
     "BDDFeature": ("TESTING", "Feature BDD", True), "BDDStep": ("TESTING", "Étape BDD", True),
     "AutomationResource": ("TESTING", "Resource Robot", True), "AutomationLibrary": ("TESTING", "Bibliothèque", True),
-    "DataQuery": ("TESTING", "Requête de données", True), "ExecutionResult": ("TESTING", "Résultat d'exécution", True),
+    "DataQuery": ("TESTING", "Requête de données", True), "DataVariable": ("TESTING", "Variable de données", True), "ExecutionResult": ("TESTING", "Résultat d'exécution", True),
     # Application Graph
     "Application": ("APPLICATION", "Application", False), "Screen": ("APPLICATION", "Écran", False),
     "ScreenState": ("APPLICATION", "État d'écran", False), "UIComponent": ("APPLICATION", "Composant", False),
@@ -110,7 +110,7 @@ _SIMPLES = {
     "test": "XrayTest", "test_plan": "XrayTestPlan", "test_set": "XrayTestSet", "test_execution": "XrayTestExecution",
     "feature": "BDDFeature", "scenario": "BDDScenario", "step": "BDDStep",
     "suite": "RobotSuite", "test_robot": "AutomationScript", "jdd": "TestDataSet", "requete": "DataQuery",
-    "resultat": "ExecutionResult",
+    "variable": "DataVariable", "resultat": "ExecutionResult",
 }
 
 
@@ -240,6 +240,7 @@ REGLES = [
     ("utilise", _EXIGENCES + ("BusinessFeature",), ("APIEndpoint",), "REALIZED_BY", False, "", ""),
     ("utilise", ("UIAction", "ObservedBehavior", "Screen"), ("APIEndpoint",), "CALLS_API", False, "", ""),
     ("utilise", None, ("TestDataSet",), "USES_TEST_DATA", False, "", ""),
+    ("utilise", None, ("DataVariable",), "USES_TEST_DATA", False, "APPLICATION_DISCOVERY", ""),
     ("utilise", None, ("Keyword",), "USES_KEYWORD", False, "", ""),
     ("utilise", None, ("PageObject",), "USES_PAGE_OBJECT", False, "", ""),
     ("utilise", None, None, "DEPENDS_ON", False, "", "« utilise » sans sens métier reconnu pour cette paire"),

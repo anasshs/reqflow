@@ -112,6 +112,7 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
     _resultats(g, derniers_resultats())
     if avec_declarations:
         declarations.appliquer(g)
+    _depuis_donnees(g)  # après les déclarations : les parcours déclarés reçoivent les variables de leurs écrans
     _verifiees_sur(g, set(declarations.charger()["relations_masquees"]) if avec_declarations else set())
     _enrichir_champs(g)
     _depuis_anomalies(g)
@@ -357,6 +358,53 @@ def _depuis_jdd(g: Graphe):
         if n.type == "jdd" and not n.proprietes.get("environnements"):
             n.proprietes["non_defini"] = True
             n.confiance = 0.3
+
+
+def _depuis_donnees(g: Graphe):
+    """Référentiel de données Discovery : une variable par définition active (jamais sa valeur), ses dépendances, et les
+    champs / écrans où elle a réellement servi pendant les sessions (lien observé). Un parcours utilise les variables
+    de ses écrans (lien déduit)."""
+    from atelier.discovery import donnees
+
+    try:
+        vs = donnees.variables()
+        liens = donnees.liens_carte()
+        profils = donnees.profils_dict()
+    except Exception:  # noqa: BLE001 — référentiel illisible : le reste du graphe est construit
+        return
+    src = "data/discovery/variables.yaml"
+    for v in vs:
+        g.noeud(f"variable:{v['cle']}", "variable", v["nom"], source=src, provenance="déclaré",
+                proprietes={"cle": v["cle"], "description": v["description"], "type": v["type"], "sensibilite": v["sensibilite"],
+                            "source_valeur": v["source"]["type"], "regles": v["regles"], "statut": v["statut"],
+                            "profils": sorted(p for p, x in profils.items() if v["cle"] in x["variables"]),
+                            "utilisations": 0, "sessions": [], "ecrans": []})
+    for v in vs:
+        for d in v["dependances"]:
+            g.relier(f"variable:{v['cle']}", f"variable:{d}", "depend_de", source=src, provenance="déclaré")
+    par_nom = {n.libelle: n.id for n in g.noeuds.values() if n.type == "ecran"} | {
+        n.proprietes.get("id_carte"): n.id for n in g.noeuds.values() if n.type == "ecran"}
+    for l in liens:
+        vid, eid = f"variable:{l['cle']}", par_nom.get(l["ecran"])
+        if vid not in g.noeuds or not eid:
+            continue
+        p = g.noeuds[vid].proprietes
+        p["utilisations"] += l["utilisations"]
+        p["sessions"] = sorted(set(p["sessions"]) | set(l["sessions"]))
+        if l["ecran"] not in p["ecrans"]:
+            p["ecrans"].append(l["ecran"])
+        cid = f"composant:{l['ecran']}.{l['element']}"
+        for de in [eid] + ([cid] if l["element"] and cid in g.noeuds else []):  # l'écran toujours, le champ quand il est identifié
+            r = g.relier(de, vid, "utilise", provenance="observé", source=f"Discovery ({', '.join(l['sessions']) or 'hors session'})",
+                         proprietes={"utilisations": 0, "saisie": False})
+            r.proprietes["utilisations"] += l["utilisations"]
+            r.proprietes["saisie"] = r.proprietes["saisie"] or l["saisie"]
+    for n in [n for n in g.noeuds.values() if n.type == "parcours"]:
+        for r in g.sortants(n.id):
+            if r.type == "contient" and r.vers.startswith("ecran:"):
+                nom = g.noeuds[r.vers].libelle
+                for vid, v in [(k, x) for k, x in g.noeuds.items() if x.type == "variable" and nom in x.proprietes.get("ecrans", [])]:
+                    g.relier(n.id, vid, "utilise", provenance="déduit", statut="validé", source="variables utilisées sur les écrans du parcours")
 
 
 def _depuis_couverture(g: Graphe):

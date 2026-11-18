@@ -6,8 +6,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   : n.provenance === "observé" ? "observé" : "déclaré";
 (() => {
   const TYPES_VUE = {fonctionnel: "module,fonctionnalite,parcours,action,regle,role,epic,user_story,bug,test,test_plan,test_set,feature,scenario",
-    technique: "application,plateforme,version,ecran,composant,locator,keyword,resource,bibliotheque,endpoint,entite,suite,test_robot,jdd,requete",
-    parcours: "application,module,ecran"};
+    technique: "application,plateforme,version,ecran,composant,locator,keyword,resource,bibliotheque,endpoint,entite,suite,test_robot,jdd,requete,variable",
+    parcours: "application,module,ecran,variable"};
   /* angles de lecture du graphe principal (anciens onglets Fonctionnel, Technique, Parcours utilisateur) : un filtre */
   const ANGLES = [["", "Tout le graphe", "Tous les éléments"], ["fonctionnel", "Fonctionnel", "Le « quoi » : modules, fonctionnalités, règles, epics, US, tests, plans"],
     ["technique", "Technique", "Le « comment » : écrans, composants, locators, keywords, resources, tests Robot, JDD"],

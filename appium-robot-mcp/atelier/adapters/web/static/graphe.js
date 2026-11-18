@@ -18,7 +18,7 @@ const el = (tag, attrs = {}, parent) => {
 const ICONE_TYPE = {ecran: "ecran", module: "dossier", fonctionnalite: "condition", parcours: "branche", action: "play", regle: "bouclier",
   role: "graphe", epic: "bdd", user_story: "bdd", bug: "x", test: "assertion", test_plan: "rapports", test_set: "rapports",
   test_execution: "execution", test_robot: "play", suite: "fichier", keyword: "editeur", locator: "cible", resource: "fichier",
-  jdd: "donnee", requete: "donnee", bibliotheque: "graphe", plateforme: "mobile", application: "mobile", version: "historique",
+  jdd: "donnee", requete: "donnee", variable: "donnee", bibliotheque: "graphe", plateforme: "mobile", application: "mobile", version: "historique",
   endpoint: "api", entite: "donnee", composant: "graphe", feature: "bdd", scenario: "bdd", step: "check", resultat: "assertion"};
 const court = (t, n = 26) => (t && t.length > n ? t.slice(0, n - 1) + "…" : t || "");
 
@@ -29,7 +29,7 @@ const FAMILLES = [
   {id: "parcours", titre: "PARCOURS & ÉCRANS", nom: "Parcours / Écran", types: ["parcours", "module", "ecran"], dispo: "flux", place: "N"},
   {id: "application", titre: "APPLICATION", nom: "Application / Plateforme", types: ["application", "plateforme", "environnement", "version"], dispo: "colonne", place: "NE"},
   {id: "actions", titre: "ACTIONS UTILISATEUR", nom: "Action / Keyword", types: ["action", "keyword", "step"], dispo: "colonne", place: "O"},
-  {id: "donnees", titre: "DONNÉES DE TEST", nom: "Donnée de test", types: ["jdd", "requete", "entite"], dispo: "colonne", place: "E"},
+  {id: "donnees", titre: "DONNÉES DE TEST", nom: "Donnée de test", types: ["jdd", "requete", "variable", "entite"], dispo: "colonne", place: "E"},
   {id: "locators", titre: "LOCATORS & COMPOSANTS", nom: "Locator / Composant", types: ["locator", "composant", "bibliotheque", "resource", "endpoint"], dispo: "colonne", place: "E"},
   {id: "tests", titre: "TESTS & PLANS (XRAY)", nom: "Test / Plan", types: ["test", "test_plan", "test_set", "test_robot", "suite", "feature", "scenario"], dispo: "grille", place: "SO"},
   {id: "execution", titre: "EXÉCUTION", nom: "Exécution", types: ["test_execution"], dispo: "colonne", place: "S"},

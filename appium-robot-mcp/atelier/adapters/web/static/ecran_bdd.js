@@ -194,7 +194,7 @@
     const ecran = S.ecrans.find(x => x.id === e.ecran);
     return `<span class="marques">${marqueKeyword(e)}${e.ecran ? `<span title="Écran : ${esc(ecran?.libelle || e.ecran)}">${ico("ecran")}</span>` : ""}
       ${e.locator || e.ecran || e.api ? `<span title="Lien : ${esc([e.locator, e.api].filter(Boolean).join(" · ") || "écran")}">${ico("lien")}</span>` : ""}
-      ${e.jdd ? `<span title="Donnée : ${esc(e.jdd)}">${ico("donnee")}</span>` : ""}
+      ${e.jdd || e.variable ? `<span title="Donnée : ${esc([e.jdd, e.variable ? "variable " + e.variable + " (référentiel Discovery)" : ""].filter(Boolean).join(" · "))}">${ico("donnee")}</span>` : ""}
       ${e.valide ? `<span class="statut-ico ok" title="Étape validée">✓</span>` : `<span class="statut-ico attente" title="À valider">·</span>`}</span>`;
   }
 
@@ -346,6 +346,7 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
       <label class="ligne-champ"><span>Action</span><input class="in" id="p-texte" list="p-kws" value="${esc(e.texte)}" ${ro}></label>
       ${listeKeywords("p-kws")}${blocKeyword(e)}
       <label class="ligne-champ"><span>Donnée (JDD)</span><input class="in" id="p-jdd" list="p-jdds" value="${esc(e.jdd)}" placeholder="jeu.champ" ${ro}></label>
+      ${e.variable ? `<p class="lib" style="margin:2px 0 8px"><span class="pill info">Variable Discovery</span> <span class="mono">${esc(e.variable)}</span> : utilisée pour ce champ pendant l'exploration (<a href="#discovery/donnees">référentiel</a>).</p>` : ""}
       <datalist id="p-jdds">${S.jdd.flatMap(j => j.champs.map(c => `<option value="${esc(j.jeu + "." + c)}">`)).join("")}</datalist>
       <label class="ligne-champ"><span>Locator</span><span class="boite" style="padding:0 0 0 2px"><input class="in" id="p-loc" list="p-locs" value="${esc(e.locator)}" style="border:0;background:none" ${ro}>
         <button class="icone" style="width:28px;height:28px" title="Copier" id="p-loc-copier">${ico("copie")}</button></span></label>

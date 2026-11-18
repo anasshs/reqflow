@@ -535,3 +535,11 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   seulement (`safe_path`). API et requêtes : mécanismes gardés des jeux de données, réutilisés tels quels.
 - 5 outils MCP (109 au total, contrat des 76 historiques inchangé) ; règles discovery et mcp-usage complétées.
 - Les jeux de données existants (`data/jdd`) ne sont pas migrés : ils restent la source des tests Robot.
+
+## 2026-11-18 — Variables du Discovery dans le graphe, les parcours et le journal de session
+- Accord de l'utilisateur : brancher les trois, en gardant le référentiel (exploration) séparé des jeux de données des
+  tests Robot (`data/jdd`), qui restent la source des scripts.
+- Graphe : type de nœud `variable` (cible `DataVariable`, extension), jamais de valeur ; liens observés écran / champ →
+  variable, dépendances, lien déduit parcours → variable. Journal de session : événements « donnee ».
+- Parcours → BDD : l'étape de saisie cite et garde la variable utilisée ; le script généré ne change pas.
+- Aucun lien deviné : un locator présent sur plusieurs écrans n'est rattaché que si l'agent a nommé l'écran.

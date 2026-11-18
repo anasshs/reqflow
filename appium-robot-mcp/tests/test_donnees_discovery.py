@@ -206,7 +206,7 @@ def test_outils_mcp_et_saisie_par_reference(ref, monkeypatch):
     retour = facade.type_text("id=mdp", "{{var:PASSWORD}}")
     assert saisies == ["S3cret-de-test"] and publies == ["{{var:PASSWORD}}"] and "S3cret" not in retour
     assert ref.historique()[0] | {"date": ""} == {"date": "", "action": "saisie", "cle": "PASSWORD", "session": "hors-session", "champ": "id=mdp",
-                                                 "origine": "référentiel"}
+                                                 "locator": "id=mdp", "origine": "référentiel"}
 
 
 def test_profil_de_la_session_discovery(ref, monkeypatch):
@@ -247,3 +247,92 @@ def test_routes_web(ref):
     assert {x["cle"] for x in d["contexte"]["valeurs"]} == {"PROMO_CODE"} and d["historique"][0]["action"] == "obtenue"
     assert post("reinitialiser", {"tout": True}).json()["oubliees"] == ["PROMO_CODE"]
     assert post("supprimer-variable", {"cle": "PROMO_CODE"}).status_code == 200
+
+
+# =========================================================================== graphe, parcours et journal de session
+from tests.test_parcours_bdd import carte_virements  # noqa: E402,F401 — carte fictive : accueil → virements → virement_saisie
+
+
+def test_variables_dans_le_graphe_les_parcours_et_le_journal(carte_virements, monkeypatch):  # noqa: F811
+    from atelier.discovery import apprentissage, connaissance, donnees, sessions_discovery
+    from atelier.domain import ontologie
+    from atelier.generation import bdd, parcours_bdd
+
+    donnees._MEMOIRE.clear()
+    donnees.enregistrer_variable("AMOUNT_HT", {"nom": "Montant HT", "type": "nombre"})
+    donnees.enregistrer_variable("AMOUNT", {"nom": "Montant du virement", "type": "nombre", "alias": ["Montant"],
+                                            "source": {"type": "calcul", "operation": "nombre", "formule": "{{AMOUNT_HT}} * 1.2"}})
+    donnees.enregistrer_variable("REASON", {"nom": "Motif", "sensibilite": "confidentielle"})
+    donnees.enregistrer_variable("UNUSED", {"nom": "Jamais utilisée"})
+    donnees.definir_valeur("AMOUNT_HT", 100)
+    donnees.definir_valeur("REASON", "Loyer de test")
+    donnees.enregistrer_profil("VIREMENT", ["AMOUNT", "REASON"])
+    for e in ("accueil", "virements", "virement_saisie"):
+        apprentissage.proposer("parcours", "Virement interne", e)
+    sessions_discovery._ecrire({"id": "DS-20261118-100000", "statut": "En cours", "periodes": [],
+                                "config": {"environnement": "RECETTE", "profil_donnees": "VIREMENT", "app": "banque_web"}})
+    assert sessions_discovery.active()["id"] == "DS-20261118-100000"
+    # pendant la session : saisie par référence (le locator désigne le champ), puis demande pour un écran nommé
+    assert donnees.resoudre_saisie("{{var:AMOUNT}}", "id=champ_montant") == "120.0"
+    r = donnees.pour_champs([{"libelle": "Motif"}, {"libelle": "Devise"}], ecran="virement_saisie")
+    assert [x["statut"] for x in r["champs"]] == ["trouvée", "manquante"] and r["champs"][0]["valeur"] == "••••"
+
+    # 1. journal de la session : quelle donnée, pour quel champ — jamais la valeur
+    journal = [e for e in sessions_discovery.timeline("DS-20261118-100000") if e["type"] == "donnee"]
+    assert [(e["action"], e["variable"]) for e in journal] == [("saisie", "AMOUNT"), ("obtenue", "REASON"), ("manquante", "")]
+    assert "Devise" in journal[2]["detail"] and "Loyer" not in str(journal) and "120" not in str(journal)
+
+    # 2. graphe : variables (sans valeur), dépendances, champs et écrans où elles ont servi, parcours
+    liens = {(l["cle"], l["ecran"], l["element"]): l for l in donnees.liens_carte()}
+    assert set(liens) == {("AMOUNT", "virement_saisie", "champ_montant"), ("REASON", "virement_saisie", "champ_motif")}
+    assert liens[("AMOUNT", "virement_saisie", "champ_montant")]["saisie"] is True
+    connaissance.vider_cache()
+    g = connaissance.construire()
+    v = g.noeuds["variable:AMOUNT"]
+    assert v.type == "variable" and v.libelle == "Montant du virement" and v.proprietes["profils"] == ["VIREMENT"]
+    assert v.proprietes["ecrans"] == ["virement_saisie"] and v.proprietes["sessions"] == ["DS-20261118-100000"]
+    assert "Loyer de test" not in str([n.vers_dict() for n in g.noeuds.values()])            # aucune valeur dans le graphe
+    rel = {(r.de, r.type, r.vers): r for r in g.relations.values() if "variable:" in r.vers}
+    assert ("variable:AMOUNT", "depend_de", "variable:AMOUNT_HT") in rel
+    assert rel[("composant:virement_saisie.champ_montant", "utilise", "variable:AMOUNT")].provenance == "observé"
+    assert ("ecran:virement_saisie", "utilise", "variable:REASON") in rel
+    deduit = rel[("parcours:virement_interne", "utilise", "variable:AMOUNT")]
+    assert deduit.provenance == "déduit" and ("parcours:virement_interne", "utilise", "variable:UNUSED") not in rel
+    assert not [k for k in rel if k[2] == "variable:UNUSED"] and g.noeuds["variable:UNUSED"].proprietes["utilisations"] == 0
+    assert ontologie.type_cible(v) == "DataVariable"
+    assert ontologie.metier(rel[("ecran:virement_saisie", "utilise", "variable:REASON")], g)["type"] == "USES_TEST_DATA"
+    impact = connaissance.analyser_impact(g, "variable:AMOUNT_HT")                              # qui dépend de cette donnée ?
+    assert "variable:AMOUNT" in str(impact)
+
+    # 3. parcours → brouillon BDD : l'étape de saisie cite la variable utilisée, le scénario garde le profil
+    from atelier.discovery import carte  # les champs d'un écran sont renseignés avant de le quitter : il faut un écran suivant
+
+    rec = carte.observer([{"key": "titre_recap", "type": "texte", "libelle": "Récapitulatif", "locators": ["id=recap"]}], "web",
+                         "https://recette.exemple.fr/virements/recap")
+    carte.renommer(rec["id"], "virement_recap")
+    carte.enregistrer_transition(carte_virements[1][2], rec["id"], "web", {"type": "tap", "cle": "bouton_continuer", "libelle": "Continuer"})
+    b = parcours_bdd.brouillon(ecrans=["accueil", "virement_recap"], titre="Initier un virement")
+    assert "Et je renseigne montant avec la donnée Montant du virement" in b["gherkin"] and b["variables"] == {"champ_montant": "AMOUNT", "champ_motif": "REASON"}
+    etape = next(e for e in bdd.charger(b["cle"])["scenarios"][0]["etapes"] if e.get("variable") == "AMOUNT")
+    assert etape["jdd"] == "champ_montant" and etape["locator"] == "id=champ_montant"
+    assert not [c for c in b["controles"] if c["code"] == "donnee_litterale"]
+    monkeypatch.setattr(parcours_bdd, "ecrans_de_session", lambda sid: [*carte_virements[1], rec["id"]])
+    b2 = parcours_bdd.brouillon(session="DS-20261118-100000")
+    assert b2["profil_donnees"] == "VIREMENT" and bdd.charger(b2["cle"])["profil_donnees"] == "VIREMENT"
+
+
+def test_locator_ambigu_jamais_lie_au_hasard(carte_virements, monkeypatch):  # noqa: F811
+    from atelier.discovery import carte, donnees, sessions_discovery
+
+    donnees._MEMOIRE.clear()
+    donnees.enregistrer_variable("AMOUNT", {"nom": "Montant", "type": "nombre"})
+    donnees.definir_valeur("AMOUNT", 50)
+    autre = carte.observer([{"key": "champ_montant", "type": "champ", "libelle": "Montant", "locators": ["id=champ_montant"]},
+                            {"key": "bouton_simuler", "type": "bouton", "libelle": "Simuler", "locators": ["id=simuler"]}], "web",
+                           "https://recette.exemple.fr/simulation")
+    carte.renommer(autre["id"], "simulation")
+    monkeypatch.setattr(sessions_discovery, "active", lambda: {"id": "DS-20261118-110000", "config": {}})
+    donnees.resoudre_saisie("{{var:AMOUNT}}", "id=champ_montant")          # même locator sur deux écrans
+    assert donnees.liens_carte() == []
+    donnees.obtenir("AMOUNT", champ="Montant", ecran="simulation")          # l'agent a nommé l'écran : il départage
+    assert {(l["ecran"], l["element"]) for l in donnees.liens_carte()} == {("simulation", "champ_montant")}

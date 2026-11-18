@@ -8,7 +8,9 @@ Sources d'un parcours (une seule à la fois) :
 
 Entre deux écrans consécutifs, les transitions viennent de la carte (chemin le plus fiable) : chaque action devient
 une étape « Quand » reliée à son écran et à son locator connu, chaque arrivée une étape « Alors » ; les champs d'un
-écran deviennent « Et je renseigne … avec le jeu de données » (aucune donnée littérale). Une action sensible ou
+écran deviennent « Et je renseigne … avec le jeu de données » (aucune donnée littérale) ; quand une variable du référentiel
+de données Discovery a servi pour ce champ pendant l'exploration, l'étape la cite (« avec la donnée Adresse e-mail ») et
+la garde (variable). Une action sensible ou
 interdite sur le chemin est signalée et le scénario reçoit le tag action_sensible : elle ne sera exécutée que si le
 scénario l'autorise explicitement (invariant 6).
 
@@ -122,6 +124,19 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
     titre = (titre or f"Parcours {_lisible(seq[0])} vers {_lisible(seq[-1])}").strip()
     regles = classement.regles()
     etapes, avertissements, donnees, locators, sensible = [], [], [], {"connus": 0, "manquants": 0}, False
+    variables, profil_donnees = {}, ""
+    try:  # variables réellement utilisées sur chaque champ : celles de la session source d'abord, sinon toutes les sessions
+        from atelier.discovery import donnees as ref_donnees
+
+        noms = {v["cle"]: v["nom"] for v in ref_donnees.variables()}
+        utilisees = {}
+        for l in ref_donnees.liens_carte() + (ref_donnees.liens_carte(session) if session else []):
+            if l["element"] and l["cle"] in noms:
+                utilisees[(l["ecran"], l["element"])] = l["cle"]
+        if session:
+            profil_donnees = ref_donnees.contexte(session).get("profil", "")
+    except Exception:  # noqa: BLE001 — référentiel illisible : le brouillon reste générique
+        noms, utilisees = {}, {}
     etapes.append(bdd._etape("Étant donné", f"que je suis sur l'écran {_lisible(seq[0])}", ecran=_ref(seq[0])))
     renseignes = set()
 
@@ -132,9 +147,13 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
         for k, el in (e.get("elements") or {}).items():
             if el.get("type") == "champ":
                 loc = ((el.get("locators") or {}).get(plat) or [""])[0]
-                etapes.append(bdd._etape("Et", f"je renseigne {(el.get('libelle') or k).lower()} avec le jeu de données",
-                                         ecran=_ref(e), locator=loc, jdd=k))
+                var = utilisees.get((_ref(e), k), "")
+                etapes.append(bdd._etape("Et", f"je renseigne {(el.get('libelle') or k).lower()} avec "
+                                         + (f"la donnée {noms[var]}" if var else "le jeu de données"),
+                                         ecran=_ref(e), locator=loc, jdd=k, variable=var))
                 donnees.append(k)
+                if var:
+                    variables[k] = var
 
     for a, b in zip(seq, seq[1:]):
         if a["id"] == b["id"]:
@@ -173,6 +192,7 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
 
     m = {"langue": "fr", "feature": titre, "module": rangement.module_des_ecrans([e["id"] for e in seq]), "description": [f"Brouillon généré depuis la Discovery ({source}) : à relire et valider."],
          "contexte": [], "tags": [], "source": f"discovery ({source})", "titre": titre, "jdd": "", "statut": "brouillon",
+         **({"profil_donnees": profil_donnees} if profil_donnees else {}),
          "scenarios": [{"id": bdd._id(), "nom": titre, "type": "principal", "tags": tags, "depuis": "", "etapes": etapes}]}
     base = bdd._slug(cle or f"parcours_{titre}")
     cle, n = base, 2
@@ -182,4 +202,5 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
     m = bdd.sauver(m, auteur="discovery")
     return {"cle": cle, "titre": titre, "module": m.get("module", ""), "chemin_robot": rangement.chemin_robot(m),
             "dossier_xray": rangement.dossier_xray(m), "gherkin": bdd.serialiser(m), "etapes": len(etapes), "ecrans": [_ref(e) for e in seq],
-            "locators": locators, "donnees": donnees, "avertissements": avertissements, "controles": bdd.controles(m)}
+            "locators": locators, "donnees": donnees, "variables": variables, "profil_donnees": profil_donnees,
+            "avertissements": avertissements, "controles": bdd.controles(m)}

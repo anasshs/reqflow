@@ -28,7 +28,8 @@ Boucle d'exploration :
 
 Données d'un formulaire (référentiel universel, Discovery › Données) — avant de remplir un écran :
 1. Relève les champs (libellé, type technique, contraintes visibles : longueur, format, liste de valeurs).
-2. discovery_donnees_pour_champs([{libelle, type, contraintes}], ecran) : pour chaque champ, la nature de la donnée, la
+2. discovery_donnees_pour_champs([{libelle, type, contraintes}], ecran) — ecran = nom de l'écran dans la carte
+   (discovery_ecran_courant), pour que le graphe et les parcours sachent où la donnée a servi : pour chaque champ, la nature de la donnée, la
    variable retenue et une valeur COHÉRENTE avec le reste de la session (la date de fin suit la date de début, le TTC
    suit le HT, la même adresse e-mail revient d'un écran à l'autre).
 3. Saisis avec type_text(locator, "{{var:CLE}}") : l'atelier pose la valeur. Une valeur « •••• » est sensible : tu ne la

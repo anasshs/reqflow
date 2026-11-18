@@ -46,6 +46,20 @@ l'agent, ni dans les événements de l'atelier. L'agent ne modifie jamais le cat
 Champ sans variable : par défaut « manquante » (rien n'est inventé, la demande est tracée). Un générateur peut être
 autorisé par type de champ ; jamais pour un mot de passe ou un code.
 
+## Où les variables apparaissent ailleurs
+- **Journal de la session Discovery** : une ligne « donnee » à chaque donnée obtenue, générée, calculée, relevée, saisie,
+  manquante ou saisie hors référentiel (variable, champ, écran, origine ; jamais la valeur).
+- **Knowledge Graph** : un nœud `variable:CLE` par définition (type cible `DataVariable`, sans valeur), ses dépendances
+  (`depend_de`), et un lien observé `utilise` depuis l'écran et, quand il est identifié, depuis le champ où elle a servi.
+  Un parcours `utilise` (lien déduit) les variables de ses écrans. L'analyse d'impact fonctionne sur une variable.
+  Angles « Technique » et « Parcours utilisateur » du graphe.
+- **Du parcours au scénario BDD** : l'étape de saisie cite la variable utilisée pour ce champ (« je renseigne montant
+  avec la donnée Montant du virement ») et la garde (`variable`) ; le scénario issu d'une session garde son profil
+  (`profil_donnees`). Le script Robot généré n'en tient pas compte : les tests lisent toujours `data/jdd`.
+- Rattachement d'une utilisation à la carte (`donnees.liens_carte`) : une saisie par le locator du champ ; une demande
+  par l'écran nommé par l'agent et le libellé du champ. Un locator présent sur plusieurs écrans n'est rattaché que si
+  l'agent a nommé l'écran pour cette variable : aucun lien n'est deviné.
+
 ## Limites connues
 - La nature d'un champ et le rapprochement champ ↔ variable reposent sur les mots du libellé et le type technique : un
   libellé inhabituel demande un alias sur la variable. Pas de jugement délégué à l'IA sur ce point.
@@ -57,4 +71,6 @@ autorisé par type de champ ; jamais pour un mot de passe ou un code.
 - Le profil d'une session se choisit dans Données › Préparation (ou `discovery_demarrer(profil_donnees=…)`), pas encore
   dans la fenêtre de création de session.
 - API et requêtes : celles de `data/jdd` ; leur déclaration ne se fait pas depuis cet écran.
+- Une demande faite sans nom d'écran (`discovery_donnee`, ou `discovery_donnees_pour_champs` sans `ecran`) n'est pas
+  rattachée à la carte tant que la valeur n'est pas saisie par référence ; un nom d'écran inconnu de la carte non plus.
 - Non essayé sur une vraie application ni avec un vrai Cursor : vérifié par les tests et sur le projet fictif.

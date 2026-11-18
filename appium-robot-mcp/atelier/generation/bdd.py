@@ -58,7 +58,8 @@ def _etape(mot: str, texte: str, **kw) -> dict:
     return {"id": kw.get("id") or _id(), "mot": mot.strip(), "type": t, "texte": texte.strip(),
             "ecran": kw.get("ecran", ""), "locator": kw.get("locator", ""), "jdd": kw.get("jdd", ""),
             "api": kw.get("api", ""), "assertion": bool(kw.get("assertion", t == "then")),
-            "valide": bool(kw.get("valide", False)), "resultat_attendu": kw.get("resultat_attendu", "")}
+            "valide": bool(kw.get("valide", False)), "resultat_attendu": kw.get("resultat_attendu", ""),
+            **({"variable": kw["variable"]} if kw.get("variable") else {})}  # variable du référentiel Discovery utilisée pour ce champ
 
 
 # =========================================================================== Gherkin <-> modèle
@@ -170,7 +171,7 @@ def _fusionner_liens(nouveau: dict, ancien: dict) -> dict:
         if a:
             for k in ("id", "ecran", "locator", "jdd", "api", "valide", "resultat_attendu", "assertion"):
                 e[k] = a.get(k, e[k])
-            for k in ("keyword_nouveau", "jugement_keyword"):
+            for k in ("keyword_nouveau", "jugement_keyword", "variable"):
                 if a.get(k):
                     e[k] = a[k]
     for k in ("cle", "titre", "jdd", "source", "statut", "test_robot"):

@@ -24,6 +24,7 @@ TYPES_NOEUDS = {
     "test": "XRAY", "test_plan": "XRAY", "test_set": "XRAY", "test_execution": "XRAY",
     "feature": "BDD", "scenario": "BDD", "step": "BDD",
     "suite": "AUTOMATION", "test_robot": "AUTOMATION", "jdd": "AUTOMATION", "requete": "AUTOMATION",
+    "variable": "AUTOMATION",  # variable du référentiel de données Discovery (définition, jamais de valeur)
     "resultat": "AUTOMATION",
 }
 CATEGORIES = ["APPLICATION", "FONCTIONNEL", "TECHNIQUE", "JIRA", "XRAY", "BDD", "AUTOMATION"]

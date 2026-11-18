@@ -45,6 +45,8 @@ NATURES = ("groupe", "profil")
 MASQUE = "••••"
 FORMATS_DATE = ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y", "%Y/%m/%d")
 HORS_SESSION = "hors-session"
+ACTIONS_JOURNAL = ("obtenue", "générée", "calculée", "créée", "saisie", "manquante", "hors référentiel")
+ACTIONS_USAGE = ("obtenue", "générée", "calculée", "créée", "saisie")
 _MEMOIRE: dict = {}   # valeurs sensibles de la session en cours : jamais écrites sur le disque
 _CHOIX: dict = {}     # profil et environnement choisis hors session Discovery
 
@@ -80,6 +82,14 @@ def _tracer(action: str, cle: str = "", **d):
     with f.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps({"date": _maintenant(), "action": action, "cle": cle, **{k: v for k, v in d.items() if v not in ("", None)}},
                             ensure_ascii=False) + "\n")
+    if action in ACTIONS_JOURNAL and str(d.get("session") or "").startswith("DS-"):
+        try:  # journal de la session Discovery : quelle donnée, pour quel champ, d'où elle vient — jamais la valeur
+            from atelier.discovery import sessions_discovery
+
+            quoi = " · ".join(str(x) for x in (cle, d.get("champ"), d.get("ecran"), d.get("origine") or d.get("raison")) if x)
+            sessions_discovery._evenement(d["session"], {"type": "donnee", "action": action, "variable": cle, "detail": f"{action} · {quoi}"[:300]})
+        except Exception:  # noqa: BLE001 — le journal n'empêche jamais d'obtenir une donnée
+            pass
 
 
 def historique(limite: int = 200, cle: str = "", session: str = "") -> list[dict]:
@@ -776,7 +786,7 @@ def resoudre_saisie(texte: str, locator: str = "") -> str:
         _sauver_contexte(c)
     for k in dict.fromkeys(refs):
         c["valeurs"][k]["utilisations"] = c["valeurs"][k].get("utilisations", 0) + 1
-        _tracer("saisie", k, session=c["session"], champ=locator[:120], origine=c["valeurs"][k]["origine"])
+        _tracer("saisie", k, session=c["session"], champ=locator[:120], locator=locator, origine=c["valeurs"][k]["origine"])
     _sauver_contexte(c)
     return resolu
 
@@ -897,6 +907,74 @@ def pour_champs(champs: list[dict], ecran: str = "", sid: str | None = None) -> 
     bilan = {s: sum(x["statut"] == s for x in out) for s in ("trouvée", "générée", "manquante")}
     return {"champs": out, "trouvees": bilan["trouvée"], "generees": bilan["générée"], "manquantes": bilan["manquante"],
             "saisie": "type_text(locator, \"{{var:CLE}}\") : la valeur est posée côté serveur, même si elle est masquée ici."}
+
+
+# =========================================================================== où chaque variable a servi
+def usages(session: str = "") -> list[dict]:
+    """Utilisations regroupées par (variable, écran, champ, locator), lues dans l'historique : nombre, sessions, dernière date."""
+    f = _etat_dir() / "historique.jsonl"
+    lignes = [json.loads(x) for x in f.read_text("utf-8").splitlines() if x.strip()] if f.exists() else []
+    out: dict = {}
+    for h in lignes:
+        if h.get("action") not in ACTIONS_USAGE or not h.get("cle") or (session and h.get("session") != session):
+            continue
+        k = (h["cle"], h.get("ecran", ""), "" if h.get("locator") else h.get("champ", ""), h.get("locator", ""))
+        u = out.setdefault(k, {"cle": k[0], "ecran": k[1], "champ": k[2], "locator": k[3], "utilisations": 0, "sessions": [], "derniere": ""})
+        u["utilisations"] += 1
+        u["derniere"] = h["date"]
+        if h.get("session") and h["session"] not in u["sessions"]:
+            u["sessions"].append(h["session"])
+    return list(out.values())
+
+
+def liens_carte(session: str = "") -> list[dict]:
+    """Rattache chaque utilisation à la carte de l'application : écran, et élément quand il est identifié.
+    - saisie : le locator désigne l'élément ; s'il existe sur plusieurs écrans, l'écran indiqué par l'agent pour la même
+      variable départage, sinon aucun lien n'est fait (jamais un lien deviné) ;
+    - demande pour un écran nommé : l'élément de même libellé, sinon l'écran seul."""
+    from atelier.discovery import carte
+
+    try:
+        ecrans = carte.ecrans() if carte.app_courante() else []
+    except Exception:  # noqa: BLE001 — pas de carte : aucune utilisation rattachée
+        ecrans = []
+    ref = lambda e: e.get("nom") or e["id"]  # noqa: E731
+    par_locator: dict = {}
+    for e in ecrans:
+        for cle_el, el in (e.get("elements") or {}).items():
+            for locs in (el.get("locators") or {}).values():
+                for loc in locs or []:
+                    par_locator.setdefault(loc, set()).add((ref(e), cle_el))
+    us = usages(session)
+    ecran_dit = {}
+    for u in us:
+        if u["ecran"]:
+            ecran_dit.setdefault(u["cle"], set()).add(u["ecran"])
+    out: dict = {}
+
+    def lier(u, ecran_ref, element):
+        x = out.setdefault((u["cle"], ecran_ref, element), {"cle": u["cle"], "ecran": ecran_ref, "element": element, "utilisations": 0,
+                                                           "sessions": [], "saisie": False})
+        x["utilisations"] += u["utilisations"]
+        x["saisie"] = x["saisie"] or bool(u["locator"])
+        x["sessions"] = sorted(set(x["sessions"]) | set(u["sessions"]))
+
+    for u in us:
+        if u["locator"]:
+            cibles = par_locator.get(u["locator"], set())
+            if len(cibles) > 1:
+                cibles = {c for c in cibles if c[0] in ecran_dit.get(u["cle"], ())}
+            if len(cibles) == 1:
+                lier(u, *next(iter(cibles)))
+        elif u["ecran"]:
+            try:
+                e = carte.ecran(u["ecran"])
+            except Exception:  # noqa: BLE001 — écran nommé par l'agent, inconnu de la carte
+                continue
+            el = next((k for k, x in (e.get("elements") or {}).items()
+                       if u["champ"] and _sans_accent(x.get("libelle", "")).strip() == _sans_accent(u["champ"]).strip()), "")
+            lier(u, ref(e), el)
+    return sorted(out.values(), key=lambda x: (x["ecran"], x["element"], x["cle"]))
 
 
 # =========================================================================== préparation et vue d'ensemble
