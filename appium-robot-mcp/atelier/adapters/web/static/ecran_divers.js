@@ -300,6 +300,8 @@
           <button class="btn" id="ag-rafr">Actualiser</button></div><div id="ag-test-r" class="lib"></div>`)}
       ${bo ? etape(4, bo.envoi !== "lien", "Envoi des demandes à Cursor (réglé une fois, pour tout le projet)", `
         ${Object.entries(bo.envois).map(([v, lib]) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 0"><input type="radio" name="ag-envoi" value="${v}" ${v === bo.envoi ? "checked" : ""}> <span>${esc(lib)}</span> ${etatEnvoi(v)}</label>`).join("")}
+        ${bo.ia.boutons_cursor ? "" : `<p><span class="pill ko">Boutons masqués</span> ${esc(bo.ia.aide)}
+          <span class="lib mono">PowerShell : $env:IA_FOURNISSEUR="cursor" &nbsp;·&nbsp; cmd : set IA_FOURNISSEUR=cursor</span></p>`}
         <div class="btns"><button class="btn primaire" id="ag-envoi-ok">Valider</button></div>
         <p class="lib">Ensuite chaque « Demander à Cursor » part d'un clic, sans choix à refaire. L'exploration passe toujours par le chat de Cursor : vous devez voir l'agent et lui répondre.</p>`) : ""}
       <details><summary class="lib">Claude Desktop</summary><p style="margin-top:6px">${statut(cl)} <span class="lib mono">${esc(cl.fichier)}</span></p>

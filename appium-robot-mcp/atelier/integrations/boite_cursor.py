@@ -230,7 +230,18 @@ def etat(limite: int = 20) -> dict:
     à la boîte, et réglage de la ligne de commande."""
     l = _lire()
     return {"demandes": list(reversed(l))[:limite], "en_attente": sum(d["statut"] == "en attente" and d["mode"] == "boite" for d in l),
-            "ecoute": _derniere_ecoute(), "cli": cli(), "envoi": envoi(), "envois": ENVOIS}
+            "ecoute": _derniere_ecoute(), "cli": cli(), "envoi": envoi(), "envois": ENVOIS, "ia": _fournisseur_ia()}
+
+
+def _fournisseur_ia() -> dict:
+    """Les boutons « Demander à Cursor » ne s'affichent que si l'atelier est lancé avec IA_FOURNISSEUR=cursor : le dire
+    dans les paramètres évite de chercher des boutons absents."""
+    from atelier.intelligence import fournisseur_ia
+
+    f = fournisseur_ia.fournisseur()
+    return {"fournisseur": f, "boutons_cursor": f == "cursor",
+            "aide": "" if f == "cursor" else ("Les boutons « Demander à Cursor » sont masqués : l'atelier est lancé avec le fournisseur d'IA "
+                                              f"« {f} ». Arrêter l'atelier, définir la variable IA_FOURNISSEUR=cursor, puis le relancer.")}
 
 
 def _fichier_ecoute():

@@ -149,3 +149,11 @@ def test_lanceur_windows_la_demande_passe_par_un_fichier(boite, projet, monkeypa
     assert (projet / "studio" / "demandes_cursor" / f"{d['id']}.md").read_text("utf-8") == piege
     boite.regler_envoi("cli")                                                     # le réglage n'écrit aucun fichier de demande
     assert len(list((projet / "studio" / "demandes_cursor").glob("*.md"))) == 1
+
+
+def test_boutons_cursor_masques_dit_dans_les_parametres(boite, monkeypatch):
+    monkeypatch.delenv("IA_FOURNISSEUR", raising=False)
+    ia = boite.etat()["ia"]
+    assert ia["fournisseur"] == "aucun" and ia["boutons_cursor"] is False and "IA_FOURNISSEUR=cursor" in ia["aide"]
+    monkeypatch.setenv("IA_FOURNISSEUR", "cursor")
+    assert boite.etat()["ia"] == {"fournisseur": "cursor", "boutons_cursor": True, "aide": ""}
