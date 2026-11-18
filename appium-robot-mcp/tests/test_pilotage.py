@@ -197,3 +197,14 @@ def test_routes_web(pil):
     assert c.post("/api/pilotage/tnr-decision", json={"test": "DEMO-160", "decision": "rejetée"}).status_code == 400
     assert c.post("/api/pilotage/tnr-decision", json={"test": "DEMO-101", "decision": "acceptée"}).json()["acceptes"] == 1
     assert _par_id(c.get("/api/pilotage/synthese?module=Comptes").json()["indicateurs"])["tests"]["valeur"] == 1
+
+
+def test_le_dashboard_defile():
+    """#ecran est en overflow: hidden (sélecteur d'identifiant) : sans règle plus précise, un Dashboard plus haut que la
+    fenêtre est coupé et son bas inaccessible (constaté dans un navigateur le 2026-11-18)."""
+    import re
+    from pathlib import Path
+
+    css = (Path(__file__).resolve().parents[1] / "atelier" / "adapters" / "web" / "static" / "plateforme.css").read_text("utf-8")
+    assert re.search(r"#ecran\s*\{[^}]*overflow:\s*hidden", css)
+    assert re.search(r"#ecran\.g-dash\s*\{[^}]*overflow-y:\s*auto", css)
