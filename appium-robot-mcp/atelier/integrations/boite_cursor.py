@@ -21,6 +21,8 @@ ATELIER_CURSOR_CLI (défaut « agent », l'installeur de Cursor pose aussi « cu
 (défaut : -p {demande} --output-format text --approve-mcps --trust). Sans « --force », l'agent ne modifie pas de
 fichier par lui-même : il passe par les outils MCP de l'atelier, qui gardent leurs contrôles. Options relevées dans la
 documentation publique de Cursor le 2026-11-18 sans avoir pu les essayer : à vérifier sur le poste (état « trouvée »).
+Sous Windows la commande est un lanceur de script : la demande est alors écrite dans studio/demandes_cursor/<id>.md et
+l'argument se réduit à une consigne courte sans caractère spécial (voir _lanceur_script).
 
 Stockage : <projet>/studio/demandes_cursor.json (état de l'atelier, jamais de secret : le texte d'une demande ne
 contient que des noms d'outils et des clés).
@@ -131,15 +133,34 @@ def cli() -> dict:
             "mcp_du_projet": (projet.PROJECT_DIR / ".cursor" / "mcp.json").exists()}
 
 
-def _ligne(texte: str) -> list[str]:
+def _lanceur_script(executable: str) -> bool:
+    """Sous Windows, « agent » est un lanceur .cmd / .ps1 : l'argument passe alors par l'interpréteur de commandes, qui
+    réinterprète guillemets, %, & et | (défaut connu du lanceur Windows de Cursor : guillemets retirés, arguments
+    recollés). La demande ne doit pas voyager dans un tel argument."""
+    return os.name == "nt" and str(executable).lower().endswith((".cmd", ".bat", ".ps1"))
+
+
+def _par_fichier(did: str, texte: str) -> str:
+    """Écrit la demande dans le projet et renvoie une consigne courte, sans caractère spécial, qui dit de la lire."""
+    rel = f"studio/demandes_cursor/{did}.md"
+    f = projet.safe_path(rel)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(texte, "utf-8")
+    return f"Lis le fichier {rel} du projet et execute la demande qu il contient, avec les regles de l atelier."
+
+
+def _ligne(texte: str, did: str = "") -> list[str]:
     c = cli()
     if not c["trouvee"]:
         raise FileNotFoundError(f"Commande « {c['commande']} » introuvable : installer l'agent Cursor en ligne de commande, ou régler "
                                 "ATELIER_CURSOR_CLI sur son chemin.")
     if not c["valide"]:
         raise ValueError("ATELIER_CURSOR_CLI_ARGS doit contenir {demande} (l'endroit où la demande est passée).")
-    # liste d'arguments, jamais de shell : le texte de la demande ne peut pas devenir une commande
-    return [shutil.which(c["commande"]), *[a.replace("{demande}", texte) for a in shlex.split(c["arguments"])]]
+    exe = shutil.which(c["commande"])
+    if did and _lanceur_script(exe):  # lanceur Windows : la demande voyage dans un fichier du projet, pas dans l'argument
+        texte = _par_fichier(did, texte)
+    # liste d'arguments, jamais de shell : sur un exécutable, le texte de la demande ne peut pas devenir une commande
+    return [exe, *[a.replace("{demande}", texte) for a in shlex.split(c["arguments"])]]
 
 
 def _executer_cli(did: str, texte: str, lanceur=None):
@@ -147,7 +168,7 @@ def _executer_cli(did: str, texte: str, lanceur=None):
     from atelier.execution.echecs import masquer_texte
 
     try:
-        ligne = _ligne(texte)
+        ligne = _ligne(texte, did)
         _modifier(did, statut="prise", pris=_maintenant())
         r = (lanceur or subprocess.run)(ligne, cwd=str(projet.PROJECT_DIR), capture_output=True, text=True, encoding="utf-8",
                                         errors="replace", timeout=cli()["delai_s"], stdin=subprocess.DEVNULL)

@@ -618,3 +618,13 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   projet existant ne change de comportement tant qu'il n'a rien réglé.
 - Non modifié : les statuts de la revue de conception restent dans Test Design › Xray Mapping ; les statuts des test runs
   Xray (PASSED, FAILED…) ne font pas partie de ce mapping.
+
+## 2026-11-18 — Cursor en ligne de commande sous Windows : la demande passe par un fichier
+- Sous Windows, la commande « agent » de Cursor est un lanceur de script (.cmd / .ps1). Un défaut connu de ce lanceur
+  retire les guillemets et recolle des arguments ; plus largement, un argument passé à un script traverse
+  l'interpréteur de commandes, qui réinterprète « " », « % », « & », « | ».
+- Quand la commande trouvée est un tel lanceur, l'atelier écrit la demande dans `studio/demandes_cursor/<id>.md` et ne
+  passe en argument qu'une consigne courte, sans caractère spécial, qui dit de lire ce fichier. Sur un exécutable
+  (macOS, Linux, .exe), rien ne change : la demande reste un argument, sans shell.
+- Non essayé avec un vrai Cursor sous Windows : installation `irm 'https://cursor.com/install?win32=true' | iex` relevée
+  dans la documentation publique ; à confirmer sur le poste.

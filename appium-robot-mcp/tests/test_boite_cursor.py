@@ -128,3 +128,24 @@ def test_mode_d_envoi_regle_une_fois_pour_le_projet(boite, projet, monkeypatch, 
     assert boite.deposer("x", "Analyse l'US DEMO-6.", attendre=True)["statut"] == "terminée"
     (projet / "atelier_cursor.yaml").write_text("envoi: [illisible", "utf-8")
     assert boite.envoi() == "lien"                                           # réglage illisible : retour au chat, jamais d'erreur
+
+
+def test_lanceur_windows_la_demande_passe_par_un_fichier(boite, projet, monkeypatch, tmp_path):
+    """Sous Windows « agent » est un script .cmd : l'interpréteur de commandes réinterpréterait guillemets, %, & et |.
+    La demande est écrite dans le projet ; l'argument n'est plus qu'une consigne courte sans caractère spécial."""
+    import re
+
+    monkeypatch.setenv("ATELIER_CURSOR_CLI", _faux_agent(tmp_path))
+    assert boite._lanceur_script("/usr/bin/agent") is False                       # exécutable : argument direct, comme avant
+    with monkeypatch.context() as m:                                              # os.name remis tout de suite : le reste du test tourne sous son vrai système
+        m.setattr(boite.os, "name", "nt")
+        assert boite._lanceur_script(r"C:\Users\x\AppData\Local\cursor-agent\agent.CMD") and not boite._lanceur_script(r"C:\outils\agent.exe")
+    monkeypatch.setattr(boite, "_lanceur_script", lambda exe: True)
+    piege = 'Analyse l\'US DEMO-3 "plafond" & del /q * | echo %USERPROFILE% ^ fin'
+    d = boite.deposer("Analyse", piege, mode="cli", attendre=True)
+    arg = d["resultat"].split("ARGS=-p|", 1)[1].split("|--output-format", 1)[0]
+    assert arg == f"Lis le fichier studio/demandes_cursor/{d['id']}.md du projet et execute la demande qu il contient, avec les regles de l atelier."
+    assert re.fullmatch(r"[A-Za-z0-9 ./_,-]+", arg)                               # rien que l'interpréteur de commandes puisse réinterpréter
+    assert (projet / "studio" / "demandes_cursor" / f"{d['id']}.md").read_text("utf-8") == piege
+    boite.regler_envoi("cli")                                                     # le réglage n'écrit aucun fichier de demande
+    assert len(list((projet / "studio" / "demandes_cursor").glob("*.md"))) == 1
