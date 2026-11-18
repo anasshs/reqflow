@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-SENSIBLE = re.compile(r"(?i)(password|passwd|mot_?de_?passe|mdp|secret|token|jeton|api_?key|pin|iban|cvv|text|texte|valeurs)")
+SENSIBLE = re.compile(r"(?i)(password|passwd|mot_?de_?passe|mdp|secret|token|jeton|api_?key|pin|iban|cvv|text|texte|valeurs?)")
 # outils qui changent ce qu'on voit à l'écran : une image est envoyée à l'atelier juste après
 ACTIONS_ECRAN = {"start_session", "open_url", "tap", "type_text", "swipe", "press_back", "wait_for", "goto_screen", "explore",
                  "discovery_demarrer", "screenshot", "element_at", "get_screen_elements", "capture_screen_locators"}
@@ -76,6 +76,11 @@ PHRASES = {
     "test_design_proposer_regroupements": lambda a: f"Cursor propose de regrouper des cas de l'US {_a(a, 'cle')} (à appliquer ou écarter)",
     "test_design_doublons_a_juger": lambda a: f"Cursor lit les cas de l'US {_a(a, 'cle')} et les tests existants proches pour juger les doublons",
     "test_design_juger_doublons": lambda a: f"Cursor dit pour chaque cas de l'US {_a(a, 'cle')} : réutiliser, faire évoluer ou créer (à décider)",
+    "discovery_donnees_catalogue": lambda a: "Cursor consulte le référentiel de données (variables, profils, générateurs)",
+    "discovery_donnees_pour_champs": lambda a: f"Cursor cherche les données des champs de l'écran {_a(a, 'ecran')}",
+    "discovery_donnee": lambda a: f"Cursor demande la variable {_a(a, 'cle')}",
+    "discovery_donnee_definir": lambda a: f"Cursor garde la valeur relevée {_a(a, 'cle')} dans le contexte de la session",
+    "discovery_donnees_contexte": lambda a: "Cursor lit le contexte de données de la session",
     "studio_keywords_a_juger": lambda a: f"Cursor lit les étapes sans keyword du scénario {_a(a, 'cle')} et les keywords existants",
     "studio_juger_keywords": lambda a: f"Cursor dit pour chaque étape du scénario {_a(a, 'cle')} : réutiliser un keyword ou créer (à décider)",
     "xray_redondances_a_juger": lambda a: "Cursor lit des paires de tests Xray aux titres proches pour juger s'ils font doublon",

@@ -75,6 +75,16 @@ def photo() -> dict:
 
 
 # =========================================================================== cycle de vie
+def _profil_donnees(nom: str) -> str:
+    """Profil du référentiel de données Discovery choisi pour la session (facultatif)."""
+    from atelier.discovery import donnees
+
+    nom = str(nom or "").strip()
+    if nom and nom not in donnees.profils_dict():
+        raise ValueError(f"Profil de données inconnu : {nom} (Discovery › Données).")
+    return nom
+
+
 def creer(config: dict) -> dict:
     from atelier.discovery import carte
 
@@ -98,6 +108,7 @@ def creer(config: dict) -> dict:
                     "device": config.get("device", ""), "langue": config.get("langue") or cfg_app.get("langue", "fr"),
                     "mode": mode, "point_depart": config.get("point_depart", ""), "profondeur": entier("profondeur", 3),
                     "max_ecrans": entier("max_ecrans", 30), "perimetre": config.get("perimetre", ""),
+                    "profil_donnees": _profil_donnees(config.get("profil_donnees", "")),
                     "actions_interdites": [a.strip() for a in config.get("actions_interdites") or [] if str(a).strip()]},
          "periodes": [], "annotations": 0, "sensibles": 0}
     _ecrire(s)

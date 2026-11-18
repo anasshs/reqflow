@@ -176,19 +176,39 @@ def verifier(port: int, delai_s: int = 40) -> dict:
                                                                            "clientInfo": {"name": "atelier-verification", "version": "1"}}},
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+    # L'entrée reste ouverte jusqu'à la réponse à tools/list : la fermer aussitôt arrête parfois le serveur avant qu'il réponde.
+    import threading
+
+    reponses, fini = {}, threading.Event()
+
+    def lire():
+        for l in p.stdout:
+            try:
+                m = json.loads(l)
+            except ValueError:
+                continue
+            if isinstance(m, dict) and "id" in m:
+                reponses[m["id"]] = m
+                if m["id"] == 2:
+                    break
+        fini.set()
+
+    threading.Thread(target=lire, daemon=True).start()
     try:
-        out, err = p.communicate("".join(json.dumps(m) + "\n" for m in msgs), timeout=delai_s)
+        p.stdin.write("".join(json.dumps(m) + "\n" for m in msgs))
+        p.stdin.flush()
+    except OSError:
+        pass
+    fini.wait(delai_s)
+    try:
+        p.stdin.close()
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=3)
     except subprocess.TimeoutExpired:
         p.kill()
-        out, err = p.communicate()
-    reponses = {}
-    for l in (out or "").splitlines():
-        try:
-            m = json.loads(l)
-        except ValueError:
-            continue
-        if isinstance(m, dict) and "id" in m:
-            reponses[m["id"]] = m
+    err = p.stderr.read() if p.stderr else ""
     outils = [t["name"] for t in ((reponses.get(2) or {}).get("result") or {}).get("tools", [])]
     ok = bool(outils) and "result" in (reponses.get(1) or {})
     return {"ok": ok, "outils": len(outils), "serveur": ((reponses.get(1) or {}).get("result") or {}).get("serverInfo", {}),

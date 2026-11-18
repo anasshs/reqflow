@@ -109,9 +109,15 @@ def tap(locator: str, timeout: float = 10) -> str:
 @outil
 def type_text(locator: str, text: str, clear: bool = True, hide_keyboard: bool = True) -> str:
     """Saisit du texte dans un champ (mobile ou web)."""
-    from atelier.discovery import apprentissage
+    # Description figée (contrat des outils historiques). text peut citer une variable du référentiel de données
+    # Discovery : {{var:CLE}} est remplacé par sa valeur côté serveur (seul moyen de saisir une valeur masquée).
+    from atelier.discovery import apprentissage, donnees
 
-    return apprentissage.action_mcp("type_text", locator, lambda: actions.type_text(locator, text, clear, hide_keyboard))
+    def saisir():
+        reel = donnees.resoudre_saisie(text, locator)  # la valeur réelle ne revient ni à l'agent ni dans les événements
+        return actions.type_text(locator, reel, clear, hide_keyboard, affiche=text)
+
+    return apprentissage.action_mcp("type_text", locator, saisir)
 
 
 @outil
@@ -523,15 +529,74 @@ def testabilite_deposer_proposition(cle: str, constats: list, cas: list) -> dict
 
 
 @outil
-def discovery_demarrer(environnement: str = "", mode: str = "assistee", perimetre: str = "") -> dict:
+def discovery_demarrer(environnement: str = "", mode: str = "assistee", perimetre: str = "", profil_donnees: str = "") -> dict:
     """Démarre une session Discovery sur l'application de la carte et la plateforme de la session ouverte
     (start_session d'abord). Pendant la session, tap et type_text sont classés (Safe / Controlled / Sensitive /
-    Forbidden) : les actions interdites et sensibles sont refusées, la saisie dépend de l'environnement."""
+    Forbidden) : les actions interdites et sensibles sont refusées, la saisie dépend de l'environnement.
+    profil_donnees : profil du référentiel de données (Discovery › Données) dont la session tire ses valeurs."""
     from atelier.discovery import session, sessions_discovery
 
     s = sessions_discovery.creer({"plateforme": session.plateforme() or "", "environnement": environnement, "mode": mode,
-                                  "perimetre": perimetre, "device": "agent MCP"})
+                                  "perimetre": perimetre, "device": "agent MCP", "profil_donnees": profil_donnees})
     return {k: v for k, v in sessions_discovery.demarrer(s["id"]).items() if k in ("id", "statut", "config")}
+
+
+# Référentiel universel de données (Discovery Data Setup) : l'automaticien prépare variables, profils et générateurs dans
+# l'atelier ; l'agent lit, demande des valeurs cohérentes et enrichit le contexte de SA session. Il ne crée ni ne modifie
+# aucune définition, et ne reçoit jamais une valeur confidentielle ou secrète (saisie par référence {{var:CLE}}).
+@outil
+def discovery_donnees_catalogue(recherche: str = "", type: str = "", profil: str = "") -> dict:
+    """Référentiel de données Discovery : variables déclarées (clé, nom, type, sensibilité, source, règles, alias,
+    dépendances), profils / groupes, générateurs et réglages. Filtres : recherche (texte), type (texte, nombre, date,
+    email, telephone…), profil. Aucune valeur sensible. Lecture seule."""
+    from atelier.discovery import donnees
+
+    return {"variables": [{k: v[k] for k in ("cle", "nom", "description", "type", "sensibilite", "regles", "alias", "dependances", "statut")}
+                          | {"source": v["source"]["type"]} for v in donnees.variables(recherche, type, profil)],
+            "profils": donnees.profils(), "generateurs": donnees.generateurs(), "reglages": donnees.reglages(),
+            "contexte": donnees.session_courante()}
+
+
+@outil
+def discovery_donnees_pour_champs(champs: list[dict], ecran: str = "") -> dict:
+    """Besoins en données d'un écran, à appeler AVANT de remplir un formulaire. champs : [{"libelle": "Adresse e-mail",
+    "type": "email" (type technique du champ, facultatif), "contraintes": {"longueur_max": 50}}]. Pour chaque champ :
+    nature de la donnée attendue, variable du référentiel retenue, valeur cohérente avec le reste de la session (masquée
+    si sensible) et la référence de saisie {{var:CLE}} à passer à type_text. statut « manquante » : aucune variable ne
+    convient → ne rien inventer, le signaler à l'automaticien. Les valeurs obtenues sont gardées pour la session."""
+    from atelier.discovery import donnees
+
+    return donnees.pour_champs(champs or [], ecran)
+
+
+@outil
+def discovery_donnee(cle: str, champ: str = "") -> dict:
+    """Valeur d'une variable du référentiel pour la session en cours : déjà utilisée (inchangée), sinon réglée pour le
+    profil ou l'environnement, sinon générée ou calculée depuis ses dépendances. Une valeur sensible revient masquée :
+    la saisir avec type_text(locator, "{{var:CLE}}"). Erreur explicite si aucune valeur n'est disponible."""
+    from atelier.discovery import donnees
+
+    return donnees.obtenir(str(cle or "").strip().upper(), champ=champ)
+
+
+@outil
+def discovery_donnee_definir(cle: str, valeur: str, description: str = "", sensible: bool = False) -> dict:
+    """Enrichit le contexte de données de la session avec une valeur RELEVÉE dans l'application ou choisie pendant le
+    parcours (référence de dossier affichée, date sélectionnée), pour la réutiliser sur les écrans suivants. Jamais une
+    donnée métier inventée. N'ajoute rien au catalogue : l'automaticien décide d'en faire une variable."""
+    from atelier.discovery import donnees
+
+    return donnees.definir_contexte(cle, valeur, description, sensible)
+
+
+@outil
+def discovery_donnees_contexte(profil: str = "", environnement: str = "") -> dict:
+    """Data Context de la session Discovery en cours : valeurs déjà utilisées (masquées si sensibles), leur origine
+    (référentiel, source externe, générée, calculée, créée pendant la session) et leurs dépendances. profil /
+    environnement : choisit le profil de données ou l'environnement du contexte avant de le lire."""
+    from atelier.discovery import donnees
+
+    return donnees.choisir(profil or None, environnement or None) if profil or environnement else donnees.contexte()
 
 
 @outil

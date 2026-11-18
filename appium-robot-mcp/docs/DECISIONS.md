@@ -521,3 +521,17 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   modifié les remet en jeu. Contrôle d'information « keywords_a_juger » tant que des étapes « à créer » n'ont pas été jugées.
 - Limite assumée : le jugement n'est pas exigé avant l'écriture (un scénario sans IA disponible resterait bloqué) ; c'est
   le contrôle d'information et les règles Cursor qui le demandent.
+
+## 2026-11-18 — Discovery Data Setup : référentiel universel de données
+- Demande : un référentiel de variables indépendant du métier, que Cursor consulte pendant le Discovery. Détail :
+  docs/DISCOVERY_DATA_SETUP.md. Moteur `atelier/discovery/donnees.py`, bibliothèque standard seulement.
+- Définition, valeur, source, contexte et historique sont cinq fichiers distincts ; une même variable a une valeur par
+  défaut, par environnement et par profil.
+- L'agent lit, demande et enrichit le contexte de sa session ; il n'écrit jamais le catalogue (rôle automaticien). Une
+  valeur confidentielle ou secrète ne lui est jamais renvoyée : saisie par référence `{{var:CLE}}` dans `type_text`
+  (signature inchangée), résolue côté serveur, jamais publiée dans les événements.
+- Champ sans variable : « manquante » par défaut ; générateur possible par type de champ si l'automaticien l'autorise.
+- Formules : arithmétique seule, évaluée sur l'arbre syntaxique (aucun nom, aucun appel). Fichiers : projet de tests
+  seulement (`safe_path`). API et requêtes : mécanismes gardés des jeux de données, réutilisés tels quels.
+- 5 outils MCP (109 au total, contrat des 76 historiques inchangé) ; règles discovery et mcp-usage complétées.
+- Les jeux de données existants (`data/jdd`) ne sont pas migrés : ils restent la source des tests Robot.

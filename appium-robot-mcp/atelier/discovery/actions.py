@@ -20,7 +20,8 @@ def tap(locator: str, timeout: float = 10) -> str:
     return f"Tap effectué sur {locator}"
 
 
-def type_text(locator: str, text: str, clear: bool = True, hide_keyboard: bool = True) -> str:
+def type_text(locator: str, text: str, clear: bool = True, hide_keyboard: bool = True, affiche: str | None = None) -> str:
+    """affiche : texte publié à la place de la valeur saisie (référence {{var:CLE}} d'une donnée résolue côté serveur)."""
     session.montrer_cible(locator, "saisie")
 
     def saisir():
@@ -37,7 +38,7 @@ def type_text(locator: str, text: str, clear: bool = True, hide_keyboard: bool =
             except Exception:
                 pass
     avec_carte({"type": "type_text", "locator": locator}, saisir)  # la valeur saisie n'est jamais stockée
-    session.action_faite("type_text", {"locator": locator, "text": text})
+    session.action_faite("type_text", {"locator": locator, "text": text if affiche is None else affiche})
     return f"Saisie effectuée dans {locator}"
 
 

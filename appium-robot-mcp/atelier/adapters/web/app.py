@@ -1615,6 +1615,40 @@ async def discovery_vue_graphe():
     return await asyncio.to_thread(_call, sessions_discovery.graphe_ensemble)
 
 
+# --------------------------------------------------------------------------- Discovery Data Setup (référentiel de données)
+@app.get("/api/discovery/donnees")
+def discovery_donnees(env: str = ""):
+    from atelier.discovery import donnees
+
+    return _call(lambda: {"vue": donnees.vue(), "variables": donnees.variables(), "profils": donnees.profils(),
+                          "dependances": donnees.dependances(), "sources": donnees.sources_externes(),
+                          "secrets": donnees.secrets_etat(env), "contexte": donnees.contexte(), "historique": donnees.historique(150)})
+
+
+@app.post("/api/discovery/donnees/{action}")
+async def discovery_donnees_action(action: str, req: Request):
+    """Écritures du référentiel (rôle automaticien, contrôlé par le moteur), essais et contexte de la session."""
+    from atelier.discovery import donnees
+
+    b = await req.json() if (await req.body()) else {}
+    actions = {"variable": lambda: donnees.enregistrer_variable(b.get("cle", ""), b.get("champs") or {}),
+               "dupliquer-variable": lambda: donnees.dupliquer_variable(b.get("cle", ""), b.get("nouvelle", "")),
+               "supprimer-variable": lambda: donnees.supprimer_variable(b.get("cle", "")),
+               "valeur": lambda: donnees.definir_valeur(b.get("cle", ""), b.get("valeur"), b.get("env", ""), b.get("profil", "")),
+               "profil": lambda: donnees.enregistrer_profil(b.get("nom", ""), b.get("variables") or [], b.get("description", ""), b.get("nature", "groupe")),
+               "dupliquer-profil": lambda: donnees.dupliquer_profil(b.get("nom", ""), b.get("nouveau", "")),
+               "supprimer-profil": lambda: donnees.supprimer_profil(b.get("nom", "")),
+               "reglages": lambda: donnees.regler(b.get("sans_variable", "signaler"), b.get("generateurs_autorises") or []),
+               "generer": lambda: {"exemples": [donnees.generer(b.get("source") or {}) for _ in range(3)]},
+               "preparer": lambda: donnees.preparer(b.get("profil", ""), b.get("env", "")),
+               "contexte": lambda: donnees.choisir(b.get("profil"), b.get("env")),
+               "obtenir": lambda: donnees.obtenir(b.get("cle", ""), champ="essai depuis l'atelier"),
+               "reinitialiser": lambda: donnees.reinitialiser(tout=bool(b.get("tout")))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    return await asyncio.to_thread(_call, actions[action])
+
+
 @app.get("/api/discovery/sessions")
 def discovery_sessions():
     return _call(sessions_discovery.lister)

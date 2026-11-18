@@ -166,7 +166,7 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
 .statut-ico.ok { background: var(--ok); } .statut-ico.ko { background: var(--ko); } .statut-ico.run { background: var(--accent); }
 .statut-ico.attente { background: var(--surface-3); border: 1px solid var(--line-2); color: var(--muted); }
 .statut-ico.chiffre { background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--line-2); }
-.sous-onglets { display: flex; gap: 4px; border-bottom: 1px solid var(--line); padding: 0 10px; flex: none; }
+.sous-onglets { overflow-x: auto; display: flex; gap: 4px; border-bottom: 1px solid var(--line); padding: 0 10px; flex: none; }
 .sous-onglets button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 10px; cursor: pointer; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
 .sous-onglets button[aria-selected="true"] { color: var(--accent-ink); border-bottom-color: var(--accent); }
 .sous-onglets button:disabled { opacity: .45; cursor: not-allowed; }

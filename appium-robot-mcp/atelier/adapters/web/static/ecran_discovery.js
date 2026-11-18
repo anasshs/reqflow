@@ -5,12 +5,16 @@
   /* Écrans, composants et validation se consultent dans Application Intelligence (une seule liste d'écrans, une seule
      boîte « À valider ») : ces anciennes adresses y mènent. */
   const VERS_AI = {ecrans: "intelligence/ecrans", composants: "intelligence/ecrans", validation: "intelligence/a_valider"};
-  /* 5 entrées : explorer, puis consulter ce qui a été observé ; les anciens écrans deviennent des onglets (adresses inchangées) */
+  /* 6 entrées : explorer, puis consulter ce qui a été observé ; les anciens écrans deviennent des onglets (adresses inchangées) */
   const GROUPES = [
     ["vue", "Vue d'ensemble", [["vue", "Vue d'ensemble"]], "Ce que la Discovery connaît de l'application et quoi explorer ensuite"],
     ["studio", "Explorer", [["studio", "Explorer"], ["sessions", "Sessions"]], "Lancer ou reprendre une exploration (device, émulateur, navigateur), guidée, assistée ou par Cursor"],
     ["resultats", "Résultats", [["resultats", "Synthèse"], ["navigation", "Navigation"], ["comportements", "Comportements"], ["api", "API observées"]],
       "Ce qui a été observé : parcours, transitions, comportements, appels réseau"],
+    ["donnees", "Données", [["donnees", "Catalogue"], ["donnees-groupes", "Groupes et jeux de données"], ["donnees-profils", "Profils utilisateurs"],
+      ["donnees-generateurs", "Générateurs"], ["donnees-regles", "Règles et dépendances"], ["donnees-sources", "Sources externes"],
+      ["donnees-secrets", "Secrets"], ["donnees-preparation", "Préparation et réinitialisation"], ["donnees-historique", "Historique d'utilisation"]],
+      "Discovery Data Setup : référentiel universel de variables, profils, générateurs et sources, quel que soit le métier de l'application"],
     ["correlation", "Corrélation", [["correlation", "Exigences ↔ écrans"]], "Relier les exigences Jira aux écrans découverts : preuves des tests, propositions à confirmer, liens manuels"],
     ["historique", "Historique et réglages", [["historique", "Historique"], ["parametres", "Réglages"]], "Journal des sessions et réglages de l'exploration (liste rouge, limites)"]];
   const MENU = GROUPES.flatMap(g => g[2]);
@@ -39,7 +43,10 @@
       $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = "discovery/" + b.dataset.onglet; });
       const z = $("#di-contenu");
       const garde = setTimeout(() => { const c = $("#di-contenu .corps-carte"); if (c && c.textContent.includes("Chargement…")) c.innerHTML = vide("Toujours en calcul…", "Le serveur n'a pas encore répondu : voir la console du serveur (python web/app.py)."); }, 30000);
-      try { await ({vue, sessions, studio, navigation, comportements, apiObs, resultats, correlation, historique, parametres}[R === "api" ? "apiObs" : R])(z); }
+      try {
+        if (R.startsWith("donnees")) await DiscoveryDonnees.afficher(z, R);
+        else await ({vue, sessions, studio, navigation, comportements, apiObs, resultats, correlation, historique, parametres}[R === "api" ? "apiObs" : R])(z);
+      }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
       finally { clearTimeout(garde); }
     },
