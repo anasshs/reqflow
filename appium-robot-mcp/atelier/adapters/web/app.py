@@ -2247,6 +2247,39 @@ def _filtre_app_ctx() -> dict:
         return {}
 
 
+# --------------------------------------------------------------------------- Dashboard de pilotage
+def _filtres_pilotage(sprint: str = "", module: str = "", version: str = "", plateforme: str = "", responsable: str = "", depuis: str = "") -> dict:
+    return {k: v for k, v in {"sprint": sprint, "module": module, "version": version, "plateforme": plateforme, "responsable": responsable,
+                              "depuis": depuis}.items() if v}
+
+
+@app.get("/api/pilotage/{zone}")
+async def pilotage_zone(zone: str, sprint: str = "", module: str = "", version: str = "", plateforme: str = "", responsable: str = "", depuis: str = ""):
+    """Une zone du Dashboard à la fois (affichage progressif) : contexte, synthese, conception, execution, tnr, decision."""
+    from atelier.intelligence import pilotage
+
+    zones = {"contexte": lambda f: pilotage.contexte(), "synthese": pilotage.synthese, "conception": pilotage.conception, "execution": pilotage.execution,
+             "tnr": pilotage.tnr, "decision": pilotage.decision, "criteres": lambda f: pilotage.criteres()}
+    if zone not in zones:
+        raise HTTPException(404, f"Zone inconnue : {zone}")
+    return await asyncio.to_thread(_call, zones[zone], _filtres_pilotage(sprint, module, version, plateforme, responsable, depuis))
+
+
+@app.post("/api/pilotage/{action}")
+async def pilotage_action(action: str, req: Request):
+    """Décisions du responsable QA : recommandation TNR acceptée / rejetée / ajoutée, campagne TNR, critères de livraison."""
+    from atelier.intelligence import pilotage
+
+    b = await req.json() if (await req.body()) else {}
+    actions = {"tnr-decision": lambda: pilotage.decider_tnr(b.get("test", ""), b.get("decision", ""), b.get("motif", ""), b.get("priorite", "")),
+               "tnr-campagne": lambda: pilotage.creer_campagne_tnr(b.get("nom", ""), b.get("plateformes") or [], b.get("environnement", "")),
+               "criteres": lambda: pilotage.regler_criteres(b.get("criteres") or []),
+               "actualiser": lambda: (pilotage.vider_memo(), {"ok": True})[1]}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    return await asyncio.to_thread(_call, actions[action])
+
+
 @app.get("/api/xray/environnements")
 def xray_environnements():
     from atelier.integrations.xray import environnements as envs_xray

@@ -10,7 +10,7 @@
 
   /* ================================================================== Dashboard (style « Centre d'exécution ») */
   const PLATICO = p => ico({android: "android", ios: "pomme", web: "globe"}[p] || "mobile");
-  Atelier.enregistrer("dashboard", {
+  Atelier.enregistrer("operations", {  /* ancien Dashboard : suivi des runs et des devices (le Dashboard de pilotage est dans ecran_pilotage.js) */
     /* Affichage progressif : chaque bloc apparaît dès que sa source répond (les exécutions répondent en quelques
        millisecondes ; le graphe de couverture et la stratégie peuvent prendre plus de 10 s sur un gros projet).
        Avant : un seul Promise.all, l'écran restait sur « Chargement… » jusqu'à la réponse la plus lente. */

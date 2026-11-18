@@ -590,3 +590,16 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Non vérifié sur un vrai Xray : `getProjectSettings` et `ProjectSettings.testEnvironments` n'ont pas été introspectés
   d'ici (un forum Atlassian cite le type et le champ). S'ils manquent, c'est dit dans « absents » et la seconde lecture
   sert. À confirmer et consigner dans docs/XRAY_API.md au premier essai réel.
+
+## 2026-11-18 — Dashboard de pilotage (aide à la décision)
+- Cahier de l'utilisateur : passer du reporting à « que faire maintenant ? ». Détail et écarts : docs/DASHBOARD_PILOTAGE.md.
+- Le Dashboard n'a aucune donnée propre : `atelier/intelligence/pilotage.py` agrège les copies locales (aucun appel
+  Jira, Xray ou GitLab au chargement), zone par zone pour un affichage progressif. Seuls sont à lui : l'instantané
+  quotidien des indicateurs, les décisions TNR et les critères de livraison (`pilotage/`).
+- Jamais d'estimation : une mesure impossible est « indisponible » avec sa raison. Bloqué et non exécuté ne sont pas
+  des échecs. Une proposition non validée n'alimente aucun indicateur.
+- TNR : évolutions → analyse d'impact (relations fiables) → obligatoires / complémentaires / sécurité fonctionnelle, avec
+  le motif ; le responsable accepte, écarte en justifiant, ajoute ; campagne TNR créée dans Execution Center.
+- Recommandations : règles sur des faits, sans génération par une IA.
+- L'import des bugs des exécutions lit en plus priorité, responsable, création et résolution (lecture seule Jira).
+- L'ancien Dashboard devient « Suivi des runs » (#operations).

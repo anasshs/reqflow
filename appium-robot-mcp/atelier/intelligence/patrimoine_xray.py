@@ -409,10 +409,14 @@ def resoudre_bugs(executions: list[dict], jira=None) -> str:
     infos: dict = {}
     try:
         for i in range(0, len(ids), 100):
-            for t in jira.rechercher(f"id in ({', '.join(ids[i:i + 100])})", ["summary", "status"], 100):
-                st = (t.get("fields") or {}).get("status") or {}
-                infos[str(t.get("id"))] = {"cle": t.get("key"), "resume": (t.get("fields") or {}).get("summary") or "", "statut": st.get("name", ""),
-                                           "ferme": (st.get("statusCategory") or {}).get("key") == "done"}
+            for t in jira.rechercher(f"id in ({', '.join(ids[i:i + 100])})", ["summary", "status", "priority", "assignee", "created", "resolutiondate"], 100):
+                c = t.get("fields") or {}
+                st = c.get("status") or {}
+                infos[str(t.get("id"))] = {"id": str(t.get("id")), "cle": t.get("key"), "resume": c.get("summary") or "", "statut": st.get("name", ""),
+                                           "ferme": (st.get("statusCategory") or {}).get("key") == "done",
+                                           # pilotage : priorité (bugs critiques), responsable, délai de résolution
+                                           "priorite": (c.get("priority") or {}).get("name", ""), "assigne": (c.get("assignee") or {}).get("displayName", ""),
+                                           "cree": c.get("created") or "", "resolu": c.get("resolutiondate") or ""}
     except Exception as ex:  # noqa: BLE001 — Jira ne bloque jamais la lecture des exécutions
         return f"Bugs non lus (Jira : {str(ex)[:200]})."
     for e in executions:
