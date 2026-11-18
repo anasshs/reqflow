@@ -440,3 +440,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   d'une proposition = valeur calculée, sinon vide (aucune confiance inventée). Systèmes ajoutés à la liste de la
   spécification : USER_DECLARATION (saisie humaine) et API_CONTRACT (contrat OpenAPI).
 - Extensions du vocabulaire (15 relations, 11 types) marquées « extension » et comptées dans le rapport de migration.
+
+## 2026-11-18 — Graphe : Fonctionnel, Technique et Parcours utilisateur deviennent un filtre
+- Les trois onglets n'affichaient qu'une partie du graphe principal (même route, autres types) : ils sont fusionnés en
+  un filtre « Afficher » de l'onglet « Graphe de connaissances » (Tout le graphe, Fonctionnel, Technique, Parcours
+  utilisateur). Il reste cinq onglets : Graphe de connaissances, Construction BDD, Couverture, Flux, Impact.
+- Adresse : `#graphe/connaissance/<angle>` ; les anciennes adresses `#graphe/fonctionnel`, `/technique`, `/parcours`
+  y mènent toujours. Le filtre est retrouvé en revenant d'un autre onglet du graphe, pas depuis un autre écran.
+- Sur le graphe complet, le filtre est appliqué par le serveur (avant le plafond d'affichage) ; autour d'un élément
+  exploré, il masque les voisins des autres types, l'élément exploré restant affiché. Aucune route ni outil MCP modifié.

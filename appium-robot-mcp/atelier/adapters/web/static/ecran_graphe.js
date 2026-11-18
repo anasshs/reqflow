@@ -6,9 +6,14 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   : n.provenance === "observé" ? "observé" : "déclaré";
 (() => {
   const TYPES_VUE = {fonctionnel: "module,fonctionnalite,parcours,action,regle,role,epic,user_story,bug,test,test_plan,test_set,feature,scenario",
-    technique: "application,plateforme,version,ecran,composant,locator,keyword,resource,bibliotheque,endpoint,entite,suite,test_robot,jdd,requete"};
-  const VUES = [["connaissance", "Graphe de connaissances"], ["fonctionnel", "Fonctionnel"], ["technique", "Technique"], ["parcours", "Parcours utilisateur"], ["bdd", "Construction BDD"],
-    ["couverture", "Couverture"], ["flux", "Flux"], ["impact", "Impact"]];
+    technique: "application,plateforme,version,ecran,composant,locator,keyword,resource,bibliotheque,endpoint,entite,suite,test_robot,jdd,requete",
+    parcours: "application,module,ecran"};
+  /* angles de lecture du graphe principal (anciens onglets Fonctionnel, Technique, Parcours utilisateur) : un filtre */
+  const ANGLES = [["", "Tout le graphe", "Tous les éléments"], ["fonctionnel", "Fonctionnel", "Le « quoi » : modules, fonctionnalités, règles, epics, US, tests, plans"],
+    ["technique", "Technique", "Le « comment » : écrans, composants, locators, keywords, resources, tests Robot, JDD"],
+    ["parcours", "Parcours utilisateur", "La carte de l'application : modules, écrans et navigations entre écrans"]];
+  const VUES = [["connaissance", "Graphe de connaissances"], ["bdd", "Construction BDD"], ["couverture", "Couverture"], ["flux", "Flux"], ["impact", "Impact"]];
+  let dernierAngle = "";  // gardé le temps de l'écran : revenir de Couverture / Flux / Impact retrouve le filtre
   const RANGS = {
     couverture: {module: 0, epic: 1, user_story: 2, bug: 2, test_plan: 3, test: 4, test_execution: 5, test_robot: 5},
     flux: {test: 0, suite: 1, test_robot: 2, jdd: 3, keyword: 3, requete: 4, resource: 4, locator: 5, ecran: 6, bibliotheque: 6, plateforme: 7},
@@ -17,7 +22,6 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     couvre: "Couvre", implemente_par: "Est implémenté par", teste_par: "Est testé par", execute_par: "Est exécuté par", impacte: "Impacte", utilise: "Utilise"};
   let S, G, desabo = [];
   /* périmètre (module, parcours, fonctionnalité, epic, US) commun aux vues, gardé quand on change de vue */
-  const VUES_PERIMETRE = ["connaissance", "fonctionnel", "technique", "parcours", "impact"];
   const perim = {
     lire() { try { return sessionStorage.getItem("kg-perimetre") || ""; } catch (e) { return ""; } },
     ecrire(v) { try { v ? sessionStorage.setItem("kg-perimetre", v) : sessionStorage.removeItem("kg-perimetre"); } catch (e) { /* stockage indisponible */ } },
@@ -30,6 +34,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       if (sous === "bdd") { location.hash = "bdd"; return; }
       const [sv, sk, ...sr] = (sous || "").split("/");
       if (VUES.some(v => v[0] === sv)) S.vue = sv;
+      /* #graphe/connaissance/<angle> ; les anciennes adresses #graphe/fonctionnel, /technique, /parcours y mènent */
+      S.angle = TYPES_VUE[sv] ? sv : (sv === "connaissance" && TYPES_VUE[sk] ? sk : "");
+      if (S.vue === "connaissance" && (TYPES_VUE[sv] || sv === "connaissance")) { dernierAngle = S.angle; adresseAngle(); }
       if (S.vue === "couverture" && sr.length && sk === "test") S.params.test = sr.join("/");
       if (S.vue === "couverture" && sr.length && sk === "module") S.params.module = sr.join("/");
       zone.className = "g-kg";
@@ -77,7 +84,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
           <section class="carte"><h2 class="titre-carte">Assistant IA<span class="actions-titre"><input class="in" id="kg-question" style="width:190px" placeholder="Question sur le graphe…" aria-label="Question à l'assistant"></span></h2><div class="corps-carte" id="kg-assistant"></div></section>
         </div>`;
       G = null;
-      $$(".sous-onglets [data-vue]", zone).forEach(b => b.onclick = () => { location.hash = "graphe/" + b.dataset.vue; });
+      $$(".sous-onglets [data-vue]", zone).forEach(b => b.onclick = () => {
+        location.hash = "graphe/" + b.dataset.vue + (b.dataset.vue === "connaissance" && dernierAngle ? "/" + dernierAngle : ""); });
       let t;
       $("#kg-cherche").onclick = () => { const r = $("#kg-recherche"); r.hidden = !r.hidden; $("#kg-cherche").setAttribute("aria-pressed", !r.hidden); if (!r.hidden) r.focus(); };
       const menu = $("#kg-menu-liste");
@@ -147,10 +155,19 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   /* ------------------------------------------------------------------ options par vue */
   function options() {
     const o = $("#kg-options");
-    if (["connaissance", "impact", "parcours", "fonctionnel", "technique"].includes(S.vue)) {
-      o.innerHTML = `<select class="in" id="kg-perim" style="width:auto;max-width:240px" aria-label="Périmètre"><option value="">Toute l'application</option></select>
+    if (["connaissance", "impact"].includes(S.vue)) {
+      o.innerHTML = (S.vue === "connaissance" ? `<label class="lib" for="kg-angle">Afficher</label>
+        <select class="in" id="kg-angle" style="width:auto" title="${esc(ANGLES.find(a => a[0] === S.angle)[2])}">${ANGLES.map(([id, lib, aide]) =>
+          `<option value="${id}" title="${esc(aide)}" ${id === S.angle ? "selected" : ""}>${lib}</option>`).join("")}</select>` : "")
+        + `<select class="in" id="kg-perim" style="width:auto;max-width:240px" aria-label="Périmètre"><option value="">Toute l'application</option></select>
         <button class="btn" id="kg-plan" hidden>${ico("bdd")}Plan de test</button>`
         + (S.vue === "connaissance" ? `<button class="btn" id="kg-src">${ico("donnee")}Sources du graphe</button><button class="btn primaire" id="kg-disc">${ico("recherche")}Lancer une Discovery</button>` : "");
+      if ($("#kg-angle")) $("#kg-angle").onchange = e => {
+        S.angle = dernierAngle = e.target.value;
+        e.target.title = ANGLES.find(a => a[0] === S.angle)[2];
+        adresseAngle();
+        charger();
+      };
       if ($("#kg-src")) $("#kg-src").onclick = sourcesGraphe;
       if ($("#kg-disc")) $("#kg-disc").onclick = () => DiscoveryFlottant.ouvrir();
       remplirPerimetres();
@@ -163,6 +180,12 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       o.innerHTML = `<select class="in" id="kg-cible" style="width:auto;max-width:280px" aria-label="Test"><option value="">Tout le patrimoine automatisé</option></select>`;
       $("#kg-cible").onchange = e => { S.params.cible = e.target.value; charger(); };
     }
+  }
+
+  /* l'adresse reflète l'angle de lecture (#graphe/connaissance/fonctionnel) */
+  function adresseAngle() {
+    const h = "#graphe/connaissance" + (S.angle ? "/" + S.angle : "");
+    if (location.hash !== h) history.replaceState(null, "", h);
   }
 
   /* l'adresse reflète le module affiché (#graphe/couverture/module/<nom>) */
@@ -230,10 +253,10 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   /* ------------------------------------------------------------------ chargement */
   async function charger(garder = false) {
     const url = {connaissance: "/api/graphes/connaissance", impact: "/api/graphes/connaissance", couverture: "/api/graphes/couverture",
-      flux: "/api/graphes/flux", parcours: "/api/graphes/connaissance", fonctionnel: "/api/graphes/connaissance", technique: "/api/graphes/connaissance"}[S.vue];
+      flux: "/api/graphes/flux"}[S.vue];
     const q = new URLSearchParams(Object.entries(S.params).filter(([, v]) => v));
-    if (S.vue === "parcours" && !S.params.centre) q.set("types", "application,module,ecran");
-    if (TYPES_VUE[S.vue] && !S.params.centre) q.set("types", TYPES_VUE[S.vue]);
+    /* angle : filtré par le serveur (avant le plafond d'affichage) ; autour d'un élément exploré, filtré à l'affichage */
+    if (S.vue === "connaissance" && TYPES_VUE[S.angle] && !S.params.centre) q.set("types", TYPES_VUE[S.angle]);
     try { S.data = await api(url + "?" + q); }
     catch (e) {
       if (S.params.centre && S.auto) { delete S.params.centre; S.auto = false; return charger(garder); }  // centre automatique absent du graphe
@@ -267,12 +290,22 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     } else if (!S.selection) panneauParDefaut();
   }
 
+  /* autour d'un élément exploré, l'angle masque les voisins des autres types ; l'élément exploré reste toujours */
+  function dansAngle(n) {
+    if (S.vue !== "connaissance" || !S.params.centre || !TYPES_VUE[S.angle] || n.id === S.params.centre) return true;
+    return TYPES_VUE[S.angle].split(",").includes(n.type);
+  }
+
   function dessiner() {
     const d = S.data;
     if (!d) return;
-    const garde = n => !S.famillesMasquees.has(familleDe(n.type).id) && (!S.statut || n.statut === S.statut);
+    const garde = n => dansAngle(n) && !S.famillesMasquees.has(familleDe(n.type).id) && (!S.statut || n.statut === S.statut);
     const ids = new Set(d.noeuds.filter(garde).map(n => n.id));
-    const data = {...d, noeuds: d.noeuds.filter(n => ids.has(n.id)), relations: d.relations.filter(r => ids.has(r.de) && ids.has(r.vers))};
+    /* relations dessinées dans leur lecture métier (ontologie cible) : libellé typé, flèche dans le sens métier
+       (« Test → Vérifie → Story ») ; l'identifiant historique reste celui des actions (valider, retirer) */
+    const lire = r => { const m = r.metier; if (!m) return r;
+      return {...r, de: m.inverse ? r.vers : r.de, vers: m.inverse ? r.de : r.vers, libelle: m.libelle, historique: r.libelle, metier: {...m, inverse: false}}; };
+    const data = {...d, noeuds: d.noeuds.filter(n => ids.has(n.id)), relations: d.relations.filter(r => ids.has(r.de) && ids.has(r.vers)).map(lire)};
     if (!G) {
       $("#kg-zone").innerHTML = "";
       G = new GrapheVue($("#kg-zone"), {onSelection: n => selectionner(n.id), onDevelopper: id => developper(id), onRelation: r => panneauRelation(r)});
@@ -285,16 +318,23 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
         <b>${d.total} éléments : vue partielle, sans les tests</b>Choisissez un module (liste en haut, ou une ligne du tableau « Couverture » à droite)
         pour voir ses tests, ou ouvrez un test depuis Test Design › Traçabilité.</div>`);
     }
+    if (S.vue === "connaissance" && S.angle === "parcours" && data.noeuds.length && !data.noeuds.some(n => n.type === "ecran")) {
+      $("#kg-zone").insertAdjacentHTML("beforeend", `<div id="kg-trop" class="vide" style="position:absolute;left:12px;top:12px;max-width:420px;text-align:left">
+        <b>Aucun écran cartographié</b>Le parcours se dessine quand l'application a été parcourue : lancer une Discovery, téléphone branché.</div>`);
+    }
     if (!data.noeuds.length) {
       $("#kg-zone").insertAdjacentHTML("beforeend", `<div class="vide" style="position:absolute;inset:30% 10% auto">${S.vue === "couverture"
         ? "<b>Aucun instantané Xray</b>Importer ou synchroniser le patrimoine depuis Rapports › Patrimoine Xray."
+        : S.vue === "connaissance" && S.angle ? `<b>Aucun élément dans la vue « ${esc(ANGLES.find(a => a[0] === S.angle)[1])} »</b>${S.angle === "parcours"
+          ? "Aucun écran cartographié : lancer une Discovery, ou choisir « Tout le graphe » dans « Afficher »."
+          : "Choisir « Tout le graphe » dans « Afficher », ou élargir le périmètre."}`
         : "<b>Aucun élément</b>Cartographier l'application (interface classique › Carte), vérifier ROBOT_PROJECT_DIR ou alléger les filtres."}</div>`);
     }
   }
 
   function legende() {  // types de nœuds de la maquette (familles), avec compte réel et filtre
     const comptes = {};
-    for (const n of S.data?.noeuds || []) { const f = familleDe(n.type).id; comptes[f] = (comptes[f] || 0) + 1; }
+    for (const n of (S.data?.noeuds || []).filter(dansAngle)) { const f = familleDe(n.type).id; comptes[f] = (comptes[f] || 0) + 1; }
     $("#kg-legende").innerHTML = `<ul class="liste legende-types">${FAMILLES_GRAPHE.map(f => `<li data-cat="${f.id}" class="${S.famillesMasquees.has(f.id) ? "inactif" : ""}"
       title="Afficher / masquer : ${esc(f.types.join(", "))}"><span class="carre" style="background:var(--f-${f.id})"></span>${f.nom}<span class="compte">${comptes[f.id] || 0}</span></li>`).join("")}</ul>
       ${S.data?.patrimoine_masque ? `<p class="lib">${S.data.patrimoine_masque} ticket(s) Jira / Xray sans lien avec l'application masqué(s) : <button class="lien" id="kg-patri-tout">tout afficher</button> (ou rechercher une clé).</p>` : ""}
@@ -308,7 +348,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   }
 
   function developper(id) {
-    if (!["connaissance", "impact", "parcours"].includes(S.vue)) { S.vue = "connaissance"; history.replaceState(null, "", "#graphe/connaissance");
+    if (!["connaissance", "impact"].includes(S.vue)) { S.vue = "connaissance"; S.angle = dernierAngle = ""; history.replaceState(null, "", "#graphe/connaissance");
       $$(".sous-onglets [data-vue]").forEach(b => b.setAttribute("aria-selected", b.dataset.vue === "connaissance")); options(); }
     S.params.centre = id;
     S.params.profondeur = 1;
@@ -431,7 +471,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     detail("Relation", `<p><b>${esc(m.libelle || r.libelle)}</b>${m.type ? ` <code>${esc(m.type)}</code>` : ""}</p><dl class="props"><dt>De</dt><dd><button class="lien" data-sel="${esc(de)}">${esc(de)}</button></dd>
       <dt>Vers</dt><dd><button class="lien" data-sel="${esc(vers)}">${esc(vers)}</button></dd>
       ${m.type ? `<dt>Système d'origine</dt><dd>${esc(m.source_system)}</dd><dt>Validation</dt><dd>${esc(m.validation_status)}${m.confidence !== null && m.confidence !== undefined && m.validation_status === "PROPOSED" ? ` · confiance ${Math.round(m.confidence * 100)} %` : ""}</dd>
-        ${m.a_confirmer ? `<dt>À confirmer</dt><dd class="warn-t">${esc(m.a_confirmer)}</dd>` : ""}<dt>Ancienne relation</dt><dd>${esc(r.libelle)}</dd>` : `<dt>Provenance</dt><dd>${esc(r.provenance)}</dd><dt>Statut</dt><dd>${esc(r.statut)}</dd>`}
+        ${m.a_confirmer ? `<dt>À confirmer</dt><dd class="warn-t">${esc(m.a_confirmer)}</dd>` : ""}<dt>Ancienne relation</dt><dd>${esc(r.historique || r.libelle)}</dd>` : `<dt>Provenance</dt><dd>${esc(r.provenance)}</dd><dt>Statut</dt><dd>${esc(r.statut)}</dd>`}
       <dt>Source</dt><dd>${esc(r.source)}</dd></dl>
       <div class="btns" style="margin-top:10px">${r.statut === "à valider" ? `<button class="btn succes" id="rv">${ico("check")}Valider</button>` : ""}
       <button class="btn danger" id="rs">${r.provenance === "observé" ? "Masquer" : "Supprimer"}</button></div>`);

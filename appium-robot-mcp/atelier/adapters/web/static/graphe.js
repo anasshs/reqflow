@@ -263,11 +263,11 @@ class GrapheVue {
       t.textContent = r.libelle.toLowerCase();
       if (regions) {  // un seul libellé par couple de régions et par relation : lisible comme la maquette
         const cote = id => id === this.centre ? "centre" : familleDe(this.parId.get(id).type).id;
-        const cle = `${cote(r.de)}>${cote(r.vers)}:${r.type}`;
+        const cle = `${cote(r.de)}>${cote(r.vers)}:${r.metier?.type || r.type}`;
         if (textesVus.has(cle)) t.classList.add("gv-texte-cache");
         textesVus.add(cle);
       }
-      el("title", {}, g).textContent = `${r.de} — ${r.libelle} → ${r.vers} (${r.provenance}${r.statut !== "validé" ? ", " + r.statut : ""})`;
+      el("title", {}, g).textContent = `${r.de} — ${r.libelle} → ${r.vers} (${r.metier ? `${r.metier.type} · ${r.metier.source_system} · ${r.metier.validation_status}` : r.provenance}${r.statut !== "validé" ? ", " + r.statut : ""})`;
       g.addEventListener("click", e => { e.stopPropagation(); this.opts.onRelation?.(r); });
       this.elLiens.set(r.id, {g, ligne, t, r});
     }

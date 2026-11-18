@@ -16,7 +16,7 @@
   const ALIAS = {jira: "exigences", regles: "exigences", parcours: "ecrans", validation: "a_valider", changements: "historique", parametres: "vue"};
   const MENU = GROUPES.flatMap(g => g[2]);
   const groupeDe = r => GROUPES.find(g => g[2].some(o => o[0] === r)) || GROUPES[0];
-  const GRAPHE = {graphe: "graphe", carte: "graphe/connaissance", fonctionnel: "graphe/fonctionnel", technique: "graphe/technique", impact: "graphe/impact"};
+  const GRAPHE = {graphe: "graphe", carte: "graphe/connaissance", fonctionnel: "graphe/connaissance/fonctionnel", technique: "graphe/connaissance/technique", impact: "graphe/impact"};
   let R = "vue";
 
   Atelier.enregistrer("intelligence", {
@@ -208,7 +208,7 @@
 
   async function parcours(z) {
     const l = await api("/api/intelligence/parcours");
-    z.innerHTML = `${entete("Parcours", `<a class="btn" href="#graphe/parcours">${ico("graphe")}Parcours (graphe)</a><a class="btn" href="#bdd">Scénarios BDD</a>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Parcours", `<a class="btn" href="#graphe/connaissance/parcours">${ico("graphe")}Parcours (graphe)</a><a class="btn" href="#bdd">Scénarios BDD</a>`)}<div class="corps-carte">
       ${l.length ? `<table class="table-strat"><tr><th>Parcours / action</th><th>Provenance</th><th>Statut</th><th>Relations</th></tr>${l.map(n => `<tr><td><b>${esc(n.libelle)}</b><div class="lib">${esc(n.type)}</div></td><td>${esc(n.provenance)}</td><td>${esc(n.statut)}</td>
         <td class="lib">${esc(n.relations.map(r => `${r.sens} ${r.type} ${r.cible}`).join(" · "))}</td></tr>`).join("")}</table>`
         : vide("Aucun parcours déclaré", "Les transitions observées (carte) et les scénarios BDD décrivent les chemins ; déclarer un parcours : Knowledge Graph › Ajouter nœud (type parcours).")}
