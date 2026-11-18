@@ -33,7 +33,10 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden;
+  /* une seule colonne, jamais plus large que la fenêtre : sans elle, la colonne prenait la largeur minimale de la barre
+     d'onglets et le bandeau, les onglets et l'écran débordaient à droite (boutons coupés à 1366 px et moins) */
+  grid-template-columns: minmax(0, 1fr); }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 [hidden] { display: none !important; }
@@ -49,15 +52,16 @@ svg.i.g { width: 20px; height: 20px; }
 .logo b { display: block; font-size: 15.5px; letter-spacing: .01em; line-height: 1.2; }
 .logo small { color: var(--muted); font-size: 11px; }
 .ctx { display: flex; overflow: hidden; min-width: 0; }
-.ctx > div { display: flex; flex-direction: column; justify-content: center; padding: 0 13px; border-left: 1px solid var(--line); min-width: 0; white-space: nowrap; }
-.ctx label { font-size: 10.5px; color: var(--muted); }
+.ctx > div { display: flex; flex-direction: column; justify-content: center; padding: 0 13px; border-left: 1px solid var(--line); min-width: 0; white-space: nowrap; overflow: hidden; }
+.ctx label { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.ctx .val, .ctx select, .ctx .ligne { min-width: 0; }  /* quand la place manque, les valeurs se tronquent (…) au lieu de pousser les boutons hors de la fenêtre */
 .ctx .val, .ctx select { display: flex; align-items: center; gap: 6px; background: none; border: 0; padding: 0; font-weight: 600; font-size: 13px; color: var(--ink); max-width: 215px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx select { cursor: pointer; } .ctx select option { background: var(--surface); }
 .ctx .ligne { display: flex; align-items: center; gap: 6px; }
 .ctx svg.i { width: 15px; height: 15px; }
 .pt { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
 .pt.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); } .pt.ko { background: var(--ko); } .pt.warn { background: var(--warn); }
-.droite { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 0 16px; }
+.droite { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 0 16px; flex: none; }
 .icone { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px; border: 1px solid transparent;
   background: none; cursor: pointer; color: var(--ink-2); position: relative; flex: none; }
 .icone:hover { background: var(--surface-2); border-color: var(--line); }
@@ -69,7 +73,7 @@ svg.i.g { width: 20px; height: 20px; }
 .utilisateur b { display: block; font-size: 12.5px; white-space: nowrap; } .utilisateur small { color: var(--muted); font-size: 11px; white-space: nowrap; }
 
 /* ------------------------------------------------------------------ onglets */
-.onglets { display: flex; gap: 4px; padding: 0 16px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
+.onglets { display: flex; gap: 4px; padding: 0 16px; background: var(--bg-2); border-bottom: 1px solid var(--line); min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .onglets button { display: flex; align-items: center; gap: 9px; background: none; border: 0; border-bottom: 2px solid transparent; padding: 13px 14px;
   cursor: pointer; color: var(--ink-2); font-size: 13.5px; }
 .onglets button:hover { color: var(--ink); }
@@ -460,6 +464,7 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
 @media (max-width: 1150px) {
   body { overflow: auto; height: auto; }
   .ctx > div:nth-child(n+4), .utilisateur div { display: none; }
+  .onglets button { flex: none; }
   #ecran { overflow: visible; }
   .g-kg, .g-bdd, .g-ed, .g-exe, .g-param, .g-strat, .bas-kg, .bas-ed { grid-template-columns: 1fr; grid-template-rows: none; }
   .grille-strat { grid-template-columns: 1fr; } .panneau-strat { width: auto; }
@@ -570,3 +575,13 @@ tr.sel > td { background: var(--accent-soft); }
 .co-preuves { margin-top: 4px; font-size: 12px; } .co-preuves summary { cursor: pointer; color: var(--muted); } .co-preuves p { margin: 4px 0 4px 10px; }
 .co-defile { max-height: 260px; overflow: auto; }
 #co-centre h3.lib, #co-droite h3.lib { margin-top: 14px; }
+
+/* Téléphone : le bandeau passe sur deux lignes (marque et boutons, puis contexte) ; rien n'est coupé */
+@media (max-width: 700px) {
+  .entete { flex-wrap: wrap; height: auto; min-height: 58px; padding: 0 0 0 12px; }
+  .logo { padding-right: 8px; } .logo > div { display: none; }
+  .droite { padding: 0 10px; gap: 2px; }
+  .ctx { order: 3; flex: 1 0 100%; border-top: 1px solid var(--line); padding: 6px 0; }
+  .ctx > div { flex: 1 1 0; padding: 0 10px; }
+  .ctx > div:first-child { border-left: 0; padding-left: 0; }
+}
