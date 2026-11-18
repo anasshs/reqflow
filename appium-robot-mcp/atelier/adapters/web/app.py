@@ -660,6 +660,31 @@ async def agent_session_image(sid: str, nom: str):
     return Response(_call(sessions_agent.image, sid, nom), media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
+# --------------------------------------------------------------------------- boîte de demandes à Cursor
+@app.get("/api/cursor/boite")
+def cursor_boite():
+    from atelier.integrations import boite_cursor
+
+    return _call(boite_cursor.etat)
+
+
+@app.post("/api/cursor/boite")
+async def cursor_boite_deposer(req: Request):
+    """Dépose une demande : « boite » (Cursor vient la chercher par le MCP) ou « cli » (l'atelier lance l'agent)."""
+    from atelier.integrations import boite_cursor
+
+    b = await req.json()
+    return _call(boite_cursor.deposer, b.get("titre", ""), b.get("texte", ""), b.get("attendus") or [], b.get("ecran", ""),
+                 b.get("mode", "boite"))
+
+
+@app.post("/api/cursor/boite/{did}/annuler")
+def cursor_boite_annuler(did: str):
+    from atelier.integrations import boite_cursor
+
+    return _call(boite_cursor.annuler, did)
+
+
 @app.get("/api/mcp/activite")
 async def mcp_activite(depuis: int = 0):
     """Appels d'outils de l'agent (Cursor, Claude) : les plus récents, pour la vue « Cursor en direct »."""

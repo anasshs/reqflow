@@ -40,6 +40,7 @@ NATURE = {
                      "failure_connaissance", "agent_annoncer", "test_design_cas_us", "test_design_doublons_a_juger",
                      "xray_redondances_a_juger", "studio_keywords_a_juger", "coverage_liens_a_juger", "coverage_orphelins_a_classer", "discovery_correlations_a_juger"], "L"),  # agent_annoncer : simple annonce dans la console, rien d'écrit
     **dict.fromkeys(["parcours_initialiser", "parcours_etape", "parcours_reprendre"], "É"),
+    **dict.fromkeys(["atelier_demande_suivante", "atelier_demande_terminee"], "É"),  # boîte de demandes : seul l'état de la demande est écrit
     **dict.fromkeys(["test_design_proposer", "knowledge_proposer_champ", "test_design_proposer_regroupements", "test_design_juger_doublons",
                      "xray_juger_redondances", "studio_juger_keywords", "coverage_juger_liens", "coverage_classer_orphelins", "discovery_juger_correlations"], "P"),
 }
@@ -55,7 +56,7 @@ def _outils() -> dict:
 def test_chaque_outil_est_classe():
     o = _outils()
     assert set(o) == set(NATURE), f"non classés : {sorted(set(o) - set(NATURE))} ; disparus : {sorted(set(NATURE) - set(o))}"
-    assert len(o) == 109
+    assert len(o) == 111
 
 
 def test_ecritures_externes_par_demande():

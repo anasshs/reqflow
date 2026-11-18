@@ -543,3 +543,19 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   variable, dépendances, lien déduit parcours → variable. Journal de session : événements « donnee ».
 - Parcours → BDD : l'étape de saisie cite et garde la variable utilisée ; le script généré ne change pas.
 - Aucun lien deviné : un locator présent sur plusieurs écrans n'est rattaché que si l'agent a nommé l'écran.
+
+## 2026-11-18 — Envoyer une demande à Cursor sans quitter l'atelier
+- Constat de l'utilisateur : cliquer « Ouvrir dans Cursor » à chaque demande n'est pas pratique. L'atelier ne peut pas
+  écrire dans le chat de Cursor ; deux voies ajoutées, le lien restant en secours (`atelier/integrations/boite_cursor.py`).
+- Boîte de demandes : la demande est déposée, Cursor vient la chercher par le MCP (`atelier_demande_suivante`, qui attend
+  40 s au plus puis rend la main, et `atelier_demande_terminee`). L'automaticien dit une fois « traite les demandes de
+  l'atelier » ; la règle mcp-usage décrit la boucle. 111 outils MCP.
+- Ligne de commande : l'atelier lance l'agent Cursor sans fenêtre dans le projet de tests. Commande et arguments
+  réglables (`ATELIER_CURSOR_CLI`, `ATELIER_CURSOR_CLI_ARGS`, `ATELIER_CURSOR_CLI_DELAI`), liste d'arguments sans shell.
+  Par défaut sans `--force` : l'agent passe par les outils MCP, qui gardent leurs contrôles.
+- Le choix se mémorise sur le poste (panneau « Demandes à Cursor » › Envoi) : les demandes suivantes partent d'un clic.
+- Une demande de la boîte vaut une demande tapée dans le chat et ne donne aucun droit de plus.
+- Non vérifié : les options de la ligne de commande de Cursor viennent d'une recherche web du 2026-11-18 (la
+  documentation officielle n'était pas joignable d'ici) et n'ont pas été essayées avec un vrai Cursor ; ni la tenue de
+  la boucle d'écoute dans un vrai chat (durée maximale d'un outil, nombre d'appels par tour). Un administrateur
+  d'équipe Cursor peut interdire le mode sans fenêtre.

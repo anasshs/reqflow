@@ -1076,6 +1076,30 @@ def parcours_reprendre(parcours_id: str, action: str = "reprendre", motif: str =
     return pf.changer_etat(parcours_id, action, motif, origine="mcp")
 
 
+# =========================================================================== boîte de demandes de l'atelier
+# L'automaticien clique dans l'atelier ; l'agent vient chercher la demande ici au lieu d'attendre qu'on la colle dans
+# son chat (atelier/integrations/boite_cursor.py). Une demande vaut une demande de l'automaticien dans le chat.
+@outil
+def atelier_demande_suivante(attente_s: int = 40) -> dict:
+    """Boîte de demandes de l'atelier : renvoie la prochaine demande déposée par l'automaticien (id, titre, texte), ou
+    attend jusqu'à attente_s secondes (40 au plus) qu'il en dépose une. À appeler en boucle quand il te dit « traite les
+    demandes de l'atelier » : exécuter le texte reçu comme une demande tapée dans le chat, puis atelier_demande_terminee,
+    puis rappeler cet outil. Sans demande (« demande » vide) : rappeler l'outil, ne pas s'arrêter."""
+    from atelier.integrations import boite_cursor
+
+    return boite_cursor.suivante(attente_s)
+
+
+@outil
+def atelier_demande_terminee(id: str, resume: str = "", echec: bool = False) -> dict:
+    """Rend compte d'une demande prise dans la boîte de l'atelier : resume = une ou deux phrases pour l'automaticien (ce
+    qui a été fait, ce qui reste à décider) ; echec=True si la demande n'a pas pu être menée, avec la raison. Aucun
+    secret ni donnée personnelle dans le résumé. Ensuite : atelier_demande_suivante()."""
+    from atelier.integrations import boite_cursor
+
+    return boite_cursor.terminer(id, resume, echec)
+
+
 # =========================================================================== règles Cursor (V2, phase 2)
 @outil
 def cursor_regles(regle: str = "") -> list[dict]:

@@ -76,6 +76,8 @@ PHRASES = {
     "test_design_proposer_regroupements": lambda a: f"Cursor propose de regrouper des cas de l'US {_a(a, 'cle')} (à appliquer ou écarter)",
     "test_design_doublons_a_juger": lambda a: f"Cursor lit les cas de l'US {_a(a, 'cle')} et les tests existants proches pour juger les doublons",
     "test_design_juger_doublons": lambda a: f"Cursor dit pour chaque cas de l'US {_a(a, 'cle')} : réutiliser, faire évoluer ou créer (à décider)",
+    "atelier_demande_suivante": lambda a: "Cursor attend la prochaine demande déposée dans l'atelier",
+    "atelier_demande_terminee": lambda a: f"Cursor rend compte de la demande {_a(a, 'id')}",
     "discovery_donnees_catalogue": lambda a: "Cursor consulte le référentiel de données (variables, profils, générateurs)",
     "discovery_donnees_pour_champs": lambda a: f"Cursor cherche les données des champs de l'écran {_a(a, 'ecran')}",
     "discovery_donnee": lambda a: f"Cursor demande la variable {_a(a, 'cle')}",

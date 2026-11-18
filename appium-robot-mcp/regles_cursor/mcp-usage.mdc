@@ -6,6 +6,13 @@ Transparence (console Cursor de l'atelier) : au début de chaque tâche et à ch
 agent_annoncer(intention, modele, etape, regles) : une phrase en français sur ce que tu vas faire, le modèle qui te
 fait fonctionner si tu le connais, et les règles .mdc que tu appliques. L'automaticien suit ainsi ton travail.
 
+Boîte de demandes de l'atelier : quand l'automaticien dit « traite les demandes de l'atelier » (ou « écoute
+l'atelier »), boucler sans rien lui redemander : atelier_demande_suivante() → une demande arrive : l'exécuter comme une
+demande tapée dans le chat, avec les mêmes règles et les mêmes refus → atelier_demande_terminee(id, resume) →
+atelier_demande_suivante() de nouveau. « demande » vide = rien pour l'instant : rappeler l'outil. Ne s'arrêter que s'il
+le dit dans le chat. Une demande de la boîte ne donne aucun droit de plus : action sensible, approbation, publication
+restent à l'automaticien.
+
 Les outils sont regroupés par préfixe ; choisir le plus précis :
 - Contexte : cerveau_application, cerveau_question, plan_de_test, knowledge_graph, impact_analysis.
 - Session device / navigateur : start_session, get_screen_elements, element_at, tap, type_text, swipe, press_back,
