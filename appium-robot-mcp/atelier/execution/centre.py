@@ -691,6 +691,11 @@ STATUTS_FERMES = re.compile(r"done|termin|closed|ferm|cl[oô]tur|annul|cancel|ab
 def plan_ferme(p: dict) -> bool:
     """Plan fermé : catégorie de statut Jira « done » lue à l'import ; à défaut (copie locale plus ancienne),
     nom du statut (Terminé, Clôturé, Annulé, Closed…)."""
+    from atelier.domain import statuts
+
+    regle = statuts.ferme("plan", p.get("statut") or "")  # mapping du projet (Paramètres › Statuts des tickets) : il prime
+    if regle is not None:
+        return regle
     if p.get("ferme") is not None:
         return bool(p["ferme"])
     return bool(STATUTS_FERMES.search(p.get("statut") or ""))

@@ -205,7 +205,7 @@
   }
 
   /* ================================================================== Paramètres (section à part) */
-  const SECTIONS = [["projets", "Projets"], ["connexions", "Connexions"], ["agents", "Cursor / Claude"], ["applications", "Applications"], ["configuration", "Configuration"],
+  const SECTIONS = [["projets", "Projets"], ["connexions", "Connexions"], ["agents", "Cursor / Claude"], ["statuts", "Statuts des tickets"], ["applications", "Applications"], ["configuration", "Configuration"],
     ["perimetre", "Exclusions et criticité"], ["apparence", "Apparence"]];
   Atelier.enregistrer("parametres", {
     afficher(zone, sous) {
@@ -216,7 +216,7 @@
         <section class="carte"><h2 class="titre-carte">${esc(SECTIONS.find(x => x[0] === s)[1])}</h2><div class="corps-carte" id="p-corps">${vide("Chargement…")}</div></section>`;
       $$("[data-p]", zone).forEach(li => li.onclick = () => { location.hash = "parametres/" + li.dataset.p; });
       const corps = $("#p-corps");
-      Promise.resolve().then(() => ({projets, connexions, agents, applications, configuration, apparence,
+      Promise.resolve().then(() => ({projets, connexions, agents, statuts, applications, configuration, apparence,
         perimetre: x => window.Pilotage.rubrique(x, "perimetre")})[s](corps)).catch(e => {
         corps.innerHTML = `<p><span class="pill ko">Erreur</span> ${esc(e.message)}</p><p class="lib">${/Not Found|404/.test(e.message)
           ? "Le serveur ne connaît pas cette fonction : il tourne sans doute avec une version précédente. Arrêter le serveur (Ctrl+C), relancer « python web/app.py », puis recharger la page (Ctrl+F5)."
@@ -322,6 +322,48 @@
     if ($("#ag-envoi-ok")) $("#ag-envoi-ok").onclick = async () => {
       try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: ($("[name=ag-envoi]:checked", z) || {}).value || "lien"}}); toast("Mode d'envoi enregistré pour le projet.", "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); }
+    };
+  }
+
+  /* Statuts des tickets : un mapping par PROJET (jamais par application) pour Test, Test Execution, Test Plan et Bug.
+     Chaque statut du workflow Jira est relié à une catégorie de l'atelier ; rien n'est deviné d'après le nom. */
+  async function statuts(z, e = null) {
+    e = e || await api("/api/statuts");
+    z.innerHTML = `<p class="lib" style="max-width:900px">Réglé une fois pour le projet <b>${esc(Atelier.ctx.projet || "")}</b>, pour toutes ses applications
+        (fichier <code>${esc(e.fichier)}</code> du repository de tests). L'atelier lit ces correspondances pour savoir si un plan est clôturé, une exécution terminée, un bug ouvert, réouvert ou rejeté,
+        et quel statut appliquer à un test qui avance dans son cycle de vie.</p>
+      <p>${e.sans_correspondance ? `<span class="pill warn">${e.sans_correspondance} statut(s) sans correspondance</span>` : e.regle ? '<span class="pill ok">Tous les statuts connus sont reliés</span>' : '<span class="pill">Mapping pas encore réglé</span>'}
+        <span class="lib">Un statut non relié garde l'ancien comportement (catégorie « terminé » de Jira) et reste signalé ici.</span></p>
+      <div class="btns" style="margin-bottom:10px"><button class="btn" id="st-jira" title="Lit dans Jira les statuts du workflow de chaque type de ticket (lecture seule)">Lire les statuts dans Jira</button>
+        <button class="btn primaire" id="st-ok">${ico("disque")}Enregistrer</button></div>
+      ${e.types.map(t => `<section class="bloc-strat" style="margin-bottom:12px;max-width:900px"><h3>${esc(t.libelle)}
+          ${t.sans_correspondance.length ? `<span class="pill warn">${t.sans_correspondance.length} à relier</span>` : ""}${t.type_trouve === false ? ' <span class="pill ko">type introuvable dans Jira</span>' : ""}</h3>
+        <div class="champ" style="max-width:340px"><label for="st-type-${t.id}">Nom du type de ticket dans Jira</label>
+          <input class="in" id="st-type-${t.id}" data-type="${t.id}" value="${esc(t.type_jira)}" list="st-types"></div>
+        ${t.statuts.length ? `<table class="table-strat"><tr><th>Statut Jira</th><th>Catégorie de l'atelier</th><th>Tickets</th><th>Connu par</th></tr>${t.statuts.map(s => `<tr>
+          <td><b>${esc(s.statut)}</b></td>
+          <td><select class="in" data-st="${t.id}" data-statut="${esc(s.statut)}" style="width:auto"><option value="">— non relié —</option>${t.categories.map(c => `<option value="${c.id}" ${c.id === s.categorie ? "selected" : ""}>${esc(c.libelle)}</option>`).join("")}</select></td>
+          <td class="mono">${s.tickets || "—"}</td><td class="lib">${esc(s.sources.join(", ") || "mapping")}</td></tr>`).join("")}</table>`
+          : `<p class="lib">Aucun statut connu pour ce type : « Lire les statuts dans Jira », ou en ajouter un ci-dessous.</p>`}
+        <div class="btns" style="margin-top:6px"><input class="in" data-nouveau="${t.id}" placeholder="Ajouter un statut (nom exact dans Jira)" style="width:280px"></div></section>`).join("")}
+      <datalist id="st-types">${e.types_disponibles.map(x => `<option value="${esc(x)}">`).join("")}</datalist>`;
+    $("#st-jira").onclick = async () => {
+      try { statuts(z, await api("/api/statuts/lire-jira", {method: "POST", body: {}})); toast("Statuts lus dans Jira : relier ceux qui ne le sont pas, puis enregistrer.", "ok"); }
+      catch (err) { toast(err.message, "ko"); }
+    };
+    $("#st-ok").onclick = async () => {
+      const types = Object.fromEntries($$("[data-type]", z).map(i => [i.dataset.type, i.value.trim()]));
+      const correspondances = Object.fromEntries(e.types.map(t => [t.id, Object.fromEntries($$(`[data-st="${t.id}"]`, z).filter(s => s.value).map(s => [s.dataset.statut, s.value]))]));
+      let attente = false;
+      $$("[data-nouveau]", z).forEach(i => { if (i.value.trim()) { correspondances[i.dataset.nouveau][i.value.trim()] = ""; attente = true; } });
+      try {
+        const r = await api("/api/statuts", {method: "POST", body: {types, correspondances}});
+        if (attente) {  // un statut ajouté à la main apparaît dans la liste pour être relié
+          for (const i of $$("[data-nouveau]", z)) if (i.value.trim()) { const t = r.types.find(x => x.id === i.dataset.nouveau); if (!t.statuts.some(s => s.statut.toLowerCase() === i.value.trim().toLowerCase())) t.statuts.push({statut: i.value.trim(), categorie: "", tickets: 0, sources: ["saisi"]}); }
+          toast("Statut ajouté à la liste : choisir sa catégorie, puis enregistrer.", "ok");
+        } else toast("Mapping des statuts enregistré pour le projet.", "ok");
+        statuts(z, r);
+      } catch (err) { toast(err.message, "ko"); }
     };
   }
 

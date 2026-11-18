@@ -44,8 +44,12 @@ def _etats() -> dict:
 def config() -> dict:
     from atelier.generation import conception
 
+    from atelier.domain import statuts as statuts_projet
+
     c = conception.mapping().get("cycle_vie") or {}
-    return {"statuts": {**DEFAUT_CONFIG["statuts"], **(c.get("statuts") or {})},
+    # statut Jira de chaque étape : celui réglé ici, sinon le premier statut relié à l'étape dans le mapping du projet
+    regles = {e: (c.get("statuts") or {}).get(e) or statuts_projet.statut_pour("test", e) for e in ETAPES}
+    return {"statuts": {**DEFAUT_CONFIG["statuts"], **regles},
             "champ_candidat": c.get("champ_candidat", ""), "valeur_candidat": c.get("valeur_candidat") or "true"}
 
 

@@ -796,6 +796,7 @@
         <button class="btn" id="mp-add">${ico("plus")}Ajouter un champ personnalisé</button></div>
       ${t.non_mappes.length ? `<p class="lib">Données de l'instantané non mappées : ${t.non_mappes.map(esc).join(", ")}</p>` : ""}
       <h3 class="lib" style="margin-top:14px">STATUTS <span class="pill ${t.statuts_sans_equivalent.length ? "warn" : "ok"}">${t.statuts_sans_equivalent.length} sans équivalent</span></h3>
+      <p class="lib">Statuts de la revue de conception. Les statuts des tickets Test, Test Execution, Test Plan et Bug se règlent par projet dans <a href="#parametres/statuts">Paramètres › Statuts des tickets</a>.</p>
       <p class="lib">Aucun équivalent n'est supposé : chaque statut interne doit être relié explicitement à un statut du workflow Jira. <span id="mp-wf">Lecture des statuts du workflow Test dans Jira…</span></p>
       <table class="table-strat"><tr><th>Statut interne</th><th>Statut externe (Jira / Xray)</th></tr>${m.statuts.map((s, i) => `<tr><td>${esc(m.libelles_revue[s.interne] || s.interne)}</td>
         <td><input class="in" data-st="${i}" value="${esc(s.externe || "")}" placeholder="À configurer"></td></tr>`).join("")}</table>

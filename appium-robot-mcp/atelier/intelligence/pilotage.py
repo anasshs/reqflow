@@ -200,6 +200,18 @@ def _bugs() -> list[dict]:
     return [{**b, "tests": sorted(b["tests"])} for b in vus.values() if b.get("cle")]
 
 
+def _etat_bug(b: dict) -> str:
+    """Catégorie du bug d'après le mapping des statuts du projet ; statut non relié : « fermé » ou « ouvert » selon la
+    catégorie « terminé » de Jira lue à l'import."""
+    from atelier.domain import statuts
+
+    return statuts.categorie("bug", b.get("statut", "")) or ("ferme" if b.get("ferme") else "ouvert")
+
+
+def _bug_ouvert(b: dict) -> bool:
+    return _etat_bug(b) in ("ouvert", "en_cours", "reouvert")
+
+
 def _critique(b: dict) -> bool | None:
     p = str(b.get("priorite") or "").strip().casefold()
     return None if not p else p in CRITIQUES
@@ -231,8 +243,8 @@ def _mesures(f: dict) -> dict:
     pub, non_pub = _publies()
     derniers = {t["cle"]: _classe((t.get("statut_xray") or {}).get("statut", "")) for t in tests}
     executes = [c for c, k in derniers.items() if k in ("reussi", "echec", "bloque")]
-    bugs = _bugs()
-    ouverts = [b for b in bugs if not b.get("ferme")]
+    bugs = [b for b in _bugs() if _etat_bug(b) != "rejete"]  # un bug rejeté n'est pas une anomalie de l'application
+    ouverts = [b for b in bugs if _bug_ouvert(b)]
     crit = [b for b in ouverts if _critique(b)]
     stab, raison_stab = _stabilite()
     return {"exigences": ex, "date_exigences": date_ex, "raison_exigences": raison_ex, "tests": tests, "cles": cles,
@@ -476,10 +488,19 @@ def execution(f: dict | None = None) -> dict:
     sb = "bugs liés aux test runs des exécutions Xray (copie locale) + Jira"
     b_ = lambda id_, lib, v, defi, form, raison="": _ind(id_, lib, v, defi, form, sb, "#centre/vue", date_=m["date_xray"], raison=raison)  # noqa: E731
     lu = _pat().get("executions") is not None and bool(_pat())
+    from atelier.domain import statuts as statuts_projet
+
+    mapping_bugs = bool(statuts_projet.mapping()["correspondances"]["bug"])
     anomalies = {"indicateurs": [
         b_("total", "Bugs identifiés", len(bugs) if lu else None, "Bugs liés à un test run. Un bug saisi dans Jira sans lien avec un test run n'est pas vu.", "bugs distincts liés aux test runs", "exécutions Xray non importées"),
         b_("ouverts", "Ouverts", len(ouverts) if lu else None, "Statut Jira non terminé.", "bugs non terminés", "exécutions Xray non importées"),
         b_("resolus", "Résolus", len(bugs) - len(ouverts) if lu else None, "Statut Jira terminé.", "bugs terminés", "exécutions Xray non importées"),
+        b_("reouverts", "Réouverts", sum(_etat_bug(b) == "reouvert" for b in bugs) if lu and mapping_bugs else None,
+           "Bugs dont le statut actuel est relié à « Réouvert » dans le mapping du projet.", "bugs au statut réouvert",
+           "relier les statuts des bugs (Paramètres › Statuts des tickets)" if lu else "exécutions Xray non importées"),
+        b_("rejetes", "Rejetés (non comptés)", len(_bugs()) - len(bugs) if lu and mapping_bugs else None,
+           "Bugs au statut relié à « Rejeté » : écartés de tous les comptes d'anomalies.", "bugs au statut rejeté",
+           "relier les statuts des bugs (Paramètres › Statuts des tickets)" if lu else "exécutions Xray non importées"),
         b_("critiques", "Critiques ouverts", len(m["bugs_critiques"]) if m["priorite_bugs_connue"] and lu else None, "Priorité Jira élevée.", "bugs ouverts de priorité élevée",
            "priorité non lue : réimporter les exécutions Xray"),
         b_("non_affectes", "Ouverts sans responsable", sum(not b.get("assigne") for b in ouverts) if any("assigne" in b for b in bugs) or not bugs else None,
@@ -490,7 +511,8 @@ def execution(f: dict | None = None) -> dict:
            "tests en échec des exécutions portant un bug ouvert", "exécutions Xray non importées"),
     ], "par_module": sorted(par_module.items(), key=lambda kv: -kv[1]),
         "ouverts": [{k: b.get(k) for k in ("cle", "resume", "statut", "priorite", "assigne", "executions", "tests")} for b in ouverts[:40]],
-        "non_mesure": ["Bugs réouverts, bugs récurrents et bugs par sprint ou par version : non lus dans Jira.",
+        "non_mesure": [("Bugs récurrents et bugs par sprint ou par version : non lus dans Jira." if mapping_bugs else
+                        "Bugs réouverts : relier les statuts des bugs dans Paramètres › Statuts des tickets. Bugs récurrents, par sprint ou par version : non lus dans Jira."),
                        "Bugs détectés par des tests manuels ou automatisés : l'origine du test run n'est pas rapprochée du bug."]}
     return {"activite": activite, "taux": taux, "anomalies": anomalies, "responsables": responsables(f), "filtres": f, "depuis": depuis}
 
@@ -512,12 +534,15 @@ def responsables(f: dict | None = None) -> dict:
             l(u.get("assigne"))["us_a_couvrir"] += 1
             l(u.get("assigne"))["elements"].append(k)
         l(u.get("assigne"))["cas_a_valider"] += sum(c.get("statut") == "Proposé" for c in u.get("cas") or [])
+    from atelier.domain import statuts as statuts_projet
+
     for e in _pat().get("executions") or []:
-        if not e.get("resolu") and any(_classe(r.get("statut")) in ("non_execute", "en_cours") for r in (e.get("runs") or {}).values()):
+        fermee = statuts_projet.ferme("execution", e.get("statut", ""))  # mapping du projet ; statut non relié : date de résolution Jira
+        if not (bool(e.get("resolu")) if fermee is None else fermee) and any(_classe(r.get("statut")) in ("non_execute", "en_cours") for r in (e.get("runs") or {}).values()):
             l(e.get("assigne"))["executions_ouvertes"] += 1
             l(e.get("assigne"))["elements"].append(e.get("cle"))
     for b in _bugs():
-        if not b.get("ferme"):
+        if _bug_ouvert(b):
             l(b.get("assigne"))["bugs_ouverts"] += 1
             l(b.get("assigne"))["elements"].append(b.get("cle"))
     etat, _ = _memo("strategie", lambda: _sur(strategie.etat), 120)
@@ -599,7 +624,7 @@ def evolutions(f: dict | None = None) -> list[dict]:
                     "source": "dépôt Git local", "noeud": nid, "tests_directs": [t for r in _referentiel() if r.get("fichier") == fm["fichier"]
                                                                               for t in ([r["cle_xray"]] if isinstance(r.get("cle_xray"), str) else r.get("cle_xray") or []) if t]})
     for b in _bugs():
-        if b.get("ferme") and _jour(b.get("resolu")) >= depuis:
+        if _etat_bug(b) in ("resolu", "ferme") and _jour(b.get("resolu")) >= depuis:
             out.append({"id": f"bug:{b['cle']}", "nature": "Bug corrigé", "element": b["cle"], "detail": b.get("resume", ""), "date": _jour(b.get("resolu")),
                         "source": "Jira (bugs des exécutions)", "noeud": trouver_us(b["cle"]), "tests_directs": list(b["tests"])})
     vus, propres = set(), []

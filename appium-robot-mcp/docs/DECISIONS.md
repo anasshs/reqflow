@@ -603,3 +603,18 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Recommandations : règles sur des faits, sans génération par une IA.
 - L'import des bugs des exécutions lit en plus priorité, responsable, création et résolution (lecture seule Jira).
 - L'ancien Dashboard devient « Suivi des runs » (#operations).
+
+## 2026-11-18 — Mapping des statuts des tickets, par projet
+- Demande de l'utilisateur : un mapping des statuts des tickets Test, Test Execution, Test Plan et Bug, dans les
+  paramètres, par projet et non par application.
+- `atelier/domain/statuts.py`, fichier `atelier_statuts.yaml` du repository de tests (versionné, commun à toutes les
+  applications du projet). Écran : Paramètres › Statuts des tickets. Le nom Jira de chaque type de ticket est réglable.
+- Chaque statut du workflow est relié à une catégorie de l'atelier (test : étapes du cycle de vie + obsolète ; exécution :
+  à faire, en cours, terminée, annulée ; plan : à faire, en cours, clôturé, annulé ; bug : ouvert, en cours, résolu,
+  fermé, réouvert, rejeté). Statuts proposés : ceux des copies locales, et ceux lus dans Jira à la demande (lecture seule).
+- Effets : plan clôturé (Execution Center), bug ouvert / réouvert / rejeté et exécution ouverte (Dashboard), statut Jira
+  appliqué par le cycle de vie d'un test quand il n'est pas réglé dans Xray Mapping. Un bug rejeté sort des comptes.
+- Un statut non relié garde l'ancien repli (catégorie « terminé » de Jira, puis nom du statut) et reste signalé : aucun
+  projet existant ne change de comportement tant qu'il n'a rien réglé.
+- Non modifié : les statuts de la revue de conception restent dans Test Design › Xray Mapping ; les statuts des test runs
+  Xray (PASSED, FAILED…) ne font pas partie de ce mapping.

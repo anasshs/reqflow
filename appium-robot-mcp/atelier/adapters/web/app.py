@@ -2247,6 +2247,33 @@ def _filtre_app_ctx() -> dict:
         return {}
 
 
+# --------------------------------------------------------------------------- statuts des tickets (mapping par projet)
+@app.get("/api/statuts")
+def statuts_tickets():
+    from atelier.domain import statuts
+
+    return _call(statuts.etat)
+
+
+@app.post("/api/statuts")
+async def statuts_tickets_enregistrer(req: Request):
+    from atelier.domain import statuts
+    from atelier.intelligence import pilotage
+
+    b = await req.json()
+    r = _call(statuts.enregistrer, b.get("types"), b.get("correspondances"))
+    pilotage.vider_memo()
+    return r
+
+
+@app.post("/api/statuts/lire-jira")
+async def statuts_tickets_lire_jira():
+    """Statuts du workflow de chaque type de ticket, lus dans Jira (lecture seule), fusionnés à l'état du mapping."""
+    from atelier.domain import statuts
+
+    return await asyncio.to_thread(_call, lambda: statuts.etat(statuts.lire_jira()))
+
+
 # --------------------------------------------------------------------------- Dashboard de pilotage
 def _filtres_pilotage(sprint: str = "", module: str = "", version: str = "", plateforme: str = "", responsable: str = "", depuis: str = "") -> dict:
     return {k: v for k, v in {"sprint": sprint, "module": module, "version": version, "plateforme": plateforme, "responsable": responsable,
