@@ -29,10 +29,12 @@ from urllib.parse import urlparse
 
 import yaml
 
+from atelier.discovery.parsing import UIA_ID
 from atelier.domain import projet
 
 SEUIL = float(os.environ.get("MAP_SEUIL_SIMILARITE", "0.72"))
-ID_PREFIX = ("id=", "accessibility_id=", "data-testid=")
+SEUIL_LIBELLES = 0.85  # reconnaissance par les seuls libellés (identifiants tous renommés) : plus exigeante
+ID_PREFIX = ("id=", "accessibility_id=", "data-testid=", UIA_ID)  # UIA_ID : testTag Jetpack Compose
 INTERACTIFS = ("champ", "bouton", "case", "lien", "liste", "element")
 
 # Actions jamais touchées par l'exploration automatique (app bancaire) — ajustable par application.
@@ -89,6 +91,13 @@ def motif_url(url: str) -> str:
 def similarite(a, b) -> float:
     A, B = set(a or []), set(b or [])
     return len(A & B) / len(A | B) if (A | B) else 0.0
+
+
+def valeur_id(locator: str) -> str:
+    """L'identifiant porté par un locator d'identifiant (« id=x », testTag Compose…)."""
+    if locator.startswith(UIA_ID):
+        return locator[len(UIA_ID):].rsplit('"', 1)[0]
+    return locator.split("=", 1)[1]
 
 
 def robustesse(locator: str) -> str:
@@ -310,14 +319,19 @@ def _save_transitions(ts: list, s: str | None = None):
     _dump(_dir(s) / "transitions.yaml", ts)
 
 
-def signature(elements: list[dict]) -> list[str]:
+def signature(elements: list[dict], sans_ids: bool = False) -> list[str]:
+    """Empreinte d'un écran : identifiants stables, à défaut libellés fixes. sans_ids : l'empreinte que l'écran avait
+    AVANT d'avoir des identifiants de test (libellés seuls), pour le reconnaître quand ses testTag arrivent."""
     toks = set()
     for e in elements:
         locs = e.get("locators") or []
         idl = next((l for l in locs if l.startswith(ID_PREFIX)), None)
-        if idl and not est_dynamique(idl.split("=", 1)[1]):
-            toks.add("id:" + idl.split("=", 1)[1])
+        ident = valeur_id(idl) if idl else ""
+        if ident and not sans_ids and not est_dynamique(ident):
+            toks.add("id:" + ident)
         elif e.get("libelle") and not est_dynamique(e["libelle"]):
+            if sans_ids and ident and e["libelle"] == ident.split("/")[-1]:
+                continue  # élément sans texte : son « libellé » n'est que son identifiant
             toks.add(f"{e.get('type', '?')}:{_norm(e['libelle'])}")
     return sorted(toks)
 
@@ -331,17 +345,46 @@ def titre_probable(elements: list[dict]) -> str:
     return textes[0]["libelle"] if textes else ""
 
 
+def _libelles_connus(e: dict, platform: str) -> list[str]:
+    """Empreinte par libellés de l'écran cartographié : le reconnaître quand ses identifiants ont TOUS été renommés
+    (vues classiques « package:id/x » remplacées par des testTag, ou testTag renommés par les développeurs)."""
+    toks = set()
+    for el in (e.get("elements") or {}).values():
+        locs = (el.get("locators") or {}).get(platform) or []
+        lib = el.get("libelle") or ""
+        if not locs or not lib or est_dynamique(lib):
+            continue
+        if lib in {valeur_id(l).split("/")[-1] for l in locs if l.startswith(ID_PREFIX)}:
+            continue  # élément sans texte : son « libellé » n'est que son identifiant
+        toks.add(f"{el.get('type', '?')}:{_norm(lib)}")
+    return sorted(toks)
+
+
+def _sans_texte_porte(toks: list[str]) -> list[str]:
+    """En Compose, le libellé d'un bouton est un nœud texte enfant : il apparaît deux fois (« bouton:valider » et
+    « texte:valider »), une seule fois dans une vue classique. On ne garde que l'élément qui le porte."""
+    portes = {t.split(":", 1)[1] for t in toks if not t.startswith("texte:")}
+    return [t for t in toks if not (t.startswith("texte:") and t.split(":", 1)[1] in portes)]
+
+
 def reconnaitre(sig: list[str], platform: str, contexte: str = "", elements: list | None = None,
                 s: str | None = None):
     best, score = None, 0.0
     obs_locs = {l for e in (elements or []) for l in (e.get("locators") or [])}
+    libelles = signature(elements, sans_ids=True) if elements else sig  # l'écran tel qu'il était sans identifiants
+    portes, titre = _sans_texte_porte(libelles), titre_probable(elements or [])
     for e in ecrans(s):
         p = (e.get("plateformes") or {}).get(platform)
         if p and p.get("signature"):
             if platform == "web" and contexte and p.get("contexte") and p["contexte"] != contexte:
                 continue
-            sc = max([similarite(sig, p["signature"])] +
-                     [similarite(sig, st["signature"]) for st in e.get("etats", []) if st.get("plateforme") == platform])
+            connues = [p["signature"]] + [st["signature"] for st in e.get("etats", []) if st.get("plateforme") == platform]
+            sc = max(similarite(x, c) for x in (sig, libelles) for c in connues)
+            if sc < SEUIL and len(libelles) >= 3:  # identifiants renommés : mêmes libellés et même titre
+                meme_titre = not titre or not e.get("titre") or _norm(titre) == _norm(e["titre"])
+                sl = similarite(portes, _sans_texte_porte(_libelles_connus(e, platform))) if meme_titre else 0.0
+                if meme_titre and sl >= SEUIL_LIBELLES:
+                    sc = sl
         else:  # écran importé sans empreinte : on compare les locators connus
             connus = {l for el in (e.get("elements") or {}).values() for l in (el.get("locators", {}).get(platform) or [])}
             sc = (len(connus & obs_locs) / len(connus)) * 0.9 if connus else 0.0
@@ -350,18 +393,57 @@ def reconnaitre(sig: list[str], platform: str, contexte: str = "", elements: lis
     return (best, score) if score >= SEUIL else (None, score)
 
 
+def _cle_connue(els: dict, x: dict, platform: str, pris: set, unique: bool = True) -> str | None:
+    """Clé de l'élément déjà cartographié que cet élément observé désigne, quand son identifiant de test vient d'arriver
+    (ou a changé de nom) : même type et un locator en commun (texte, position relative au libellé…). Les scénarios, les
+    keywords et les liens du Knowledge Graph passent par la clé : elle ne doit pas changer avec le locator."""
+    locs = set(x.get("locators") or [])
+    ids = [valeur_id(l).split("/")[-1] for l in locs if l.startswith(ID_PREFIX)]
+    if not ids:
+        return None
+    libres = {k: el for k, el in els.items() if k not in pris and el.get("type") == x.get("type")
+              and (el.get("locators") or {}).get(platform)}
+    for k, el in libres.items():
+        if locs & set(el["locators"][platform]):
+            return k
+    # rien en commun (vue classique devenue composant Compose : le texte n'est plus porté par le même nœud) : le même
+    # libellé visible, s'il ne désigne qu'un seul élément de ce type de part et d'autre
+    lib = x.get("libelle") or ""
+    if unique and lib and not est_dynamique(lib) and lib not in ids:
+        memes = [k for k, el in libres.items() if _norm(el.get("libelle") or "") == _norm(lib)]
+        if len(memes) == 1:
+            return memes[0]
+    return None
+
+
 def _fusion_elements(e: dict, elements: list[dict], platform: str, s: str | None = None):
     els = e.setdefault("elements", {})
     gardes = [x for x in elements if x.get("type") in INTERACTIFS
               or (x.get("libelle") and not est_dynamique(x["libelle"]))][:80]
+    pris = {x["key"] for x in gardes if x["key"] in els}
+    nb: dict = {}
+    for x in gardes:
+        c = (x.get("type"), _norm(x.get("libelle") or ""))
+        nb[c] = nb.get(c, 0) + 1
     for x in gardes:
         k = x["key"]
+        retrouve = None
+        if k not in els:  # identifiant de test arrivé ou renommé : l'élément déjà connu garde sa clé métier
+            retrouve = _cle_connue(els, x, platform, pris, nb[(x.get("type"), _norm(x.get("libelle") or ""))] == 1)
+            k = x["key"] = retrouve or k
+        pris.add(k)
         entry = els.setdefault(k, {"type": x.get("type"), "libelle": "" if est_dynamique(x.get("libelle", "")) else x.get("libelle", ""),
                                    "locators": {}})
         anciens = entry["locators"].get(platform) or []
         nouveaux = [l for l in x.get("locators", []) if l not in anciens]
         a_id = any(l.startswith(ID_PREFIX) for l in anciens)
         ids_nouveaux = [l for l in nouveaux if l.startswith(ID_PREFIX)]
+        disparus = [l for l in anciens if l.startswith(ID_PREFIX) and l not in x.get("locators", [])] if retrouve and ids_nouveaux else []
+        if disparus:  # l'identifiant a été renommé : l'ancien n'existe plus dans l'application, il ne reste pas en secours
+            anciens = [l for l in anciens if l not in disparus]
+            e.setdefault("changements", []).append({"type": "identifiant_remplace", "plateforme": platform, "cle": k,
+                                                    "ancien": disparus[0], "locator": ids_nouveaux[0],
+                                                    "build": config_app(s).get("build", ""), "date": _now()})
         if ids_nouveaux and anciens and not a_id:  # un tag est apparu : on monte en gamme
             e.setdefault("changements", []).append({"type": "amelioration", "plateforme": platform, "cle": k,
                                                     "locator": ids_nouveaux[0], "build": config_app(s).get("build", ""),
@@ -384,7 +466,15 @@ def observer(elements: list[dict], platform: str, contexte: str = "", build: str
              "essayes": {}, "cree": _now()}
         score = 1.0
     p = e.setdefault("plateformes", {}).setdefault(platform, {})
+    arrives = sorted(t for t in set(sig) - set(p.get("signature") or []) if t.startswith("id:"))
     if not p.get("signature"):
+        p["signature"] = sig
+    elif arrives and max(similarite(sig, c) for c in [p["signature"]] + [
+            st["signature"] for st in e.get("etats", []) if st.get("plateforme") == platform]) < SEUIL:
+        # des identifiants de test sont arrivés ou ont été renommés (testTag, accessibilityIdentifier, data-testid) :
+        # même écran, reconnu par ses libellés ; son empreinte passe aux nouveaux identifiants, sans doublon ni état parasite
+        e.setdefault("changements", []).append({"type": "identifiants", "plateforme": platform, "ajoutes": arrives[:30],
+                                                "build": build, "date": _now()})
         p["signature"] = sig
     elif score < 0.999:
         ajoutes = sorted(set(sig) - set(p["signature"]))
@@ -700,7 +790,8 @@ def texte_rapport_tags(lignes: list[dict], app: str) -> str:
     out = [f"Identifiants de test à ajouter — application {app}", "",
            "Android (Jetpack Compose) : activer une fois à la racine",
            "  Modifier.semantics { testTagsAsResourceId = true }",
-           "puis ajouter Modifier.testTag(\"<tag>\") sur chaque élément ci-dessous.",
+           "puis ajouter Modifier.testTag(\"<tag>\") sur chaque élément ci-dessous (option active aussi dans le build de recette).",
+           "Reprendre le tag proposé tel quel : c'est la clé déjà utilisée par les tests, rien n'est à renommer.",
            "iOS (SwiftUI) : .accessibilityIdentifier(\"<tag>\"). Web : attribut data-testid.", ""]
     for x in lignes:
         out.append(f"- [{x['plateforme']}] écran {x['ecran']} — {x['libelle'] or x['cle']} → tag « {x['tag_propose']} »"

@@ -411,7 +411,7 @@
     if (window.CorrectionsLocators) window.CorrectionsLocators($("#lo-fa", z), () => locators(z)).catch(e => { $("#lo-fa", z).textContent = e.message; });
     api("/api/studio/locators/corrections").then(c => {
       $("#lo-cor").innerHTML = c.length ? `<table><tr><th>Locator</th><th>Actuel</th><th>Proposé</th><th>Source</th><th></th></tr>${c.map((x, i) => `<tr><td class="mono">${esc(x.id)}</td>
-        <td class="mono">${esc(x.valeur)} ${pill(x.etat)}</td><td>${x.proposition ? `<input class="in mono" data-prop="${i}" value="${esc(x.proposition)}" style="width:240px"> ${pill(x.fiabilite_proposee)}` : '<span class="lib">aucune source fiable : corriger dans l\'éditeur</span>'}</td>
+        <td class="mono">${esc(x.valeur)} ${pill(x.etat)}</td><td>${x.proposition ? `<input class="in mono" data-prop="${i}" value="${esc(x.proposition)}" style="width:420px;max-width:100%"> ${pill(x.fiabilite_proposee)}` : '<span class="lib">aucune source fiable : corriger dans l\'éditeur</span>'}</td>
         <td class="lib">${esc(x.source || (x.secours_utilises ? "" : "fragile, aucun secours utilisé ni valeur stable observée"))}</td>
         <td>${x.proposition ? `<button class="btn petit primaire" data-corr="${i}" title="Remplace la valeur dans ${esc(x.fichier)} (historique de l'éditeur). Les suites concernées repassent en revue ; fiabilité confirmée après 3 runs stables.">Appliquer</button>` : ""}</td></tr>`).join("")}</table>`
         : "Aucune correction à proposer : aucun locator fragile ou obsolète, aucun secours utilisé dans les derniers runs.";

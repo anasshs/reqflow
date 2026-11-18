@@ -119,15 +119,17 @@ def propositions_correction() -> list[dict]:
         if not l.get("valeur") or not l.get("fichier"):
             continue
         usages = utilises.get(l["valeur"], [])
-        if l["etat"] not in ("Fragile", "Obsolete") and not usages:
+        stables = [v for v in observes.get((l["ecran"], l["cle"], l["plateforme"]), []) if v != l["valeur"] and studio.fiabilite(v)[1] == "Stable"]
+        # un identifiant de test est apparu sur l'écran (testTag…) : proposé aussi pour un locator « Reliable » (texte)
+        identifiant_arrive = bool(stables) and l["etat"] == "Reliable"
+        if l["etat"] not in ("Fragile", "Obsolete") and not usages and not identifiant_arrive:
             continue
         prop, source = "", ""
         if usages:
             prop, source = usages[0]["secours"], f"secours utilisé à l'exécution ({len(usages)} fois, dernier : {usages[0]['run']})"
-        else:
-            stables = [v for v in observes.get((l["ecran"], l["cle"], l["plateforme"]), []) if v != l["valeur"] and studio.fiabilite(v)[1] == "Stable"]
-            if stables:
-                prop, source = stables[0], "valeur stable observée sur l'écran cartographié"
+        elif stables:
+            prop, source = stables[0], ("identifiant de test apparu sur l'écran cartographié" if identifiant_arrive
+                                        else "valeur stable observée sur l'écran cartographié")
         out.append({"id": l["id"], "ecran": l["ecran"], "cle": l["cle"], "plateforme": l["plateforme"], "fichier": l["fichier"], "etat": l["etat"],
                     "valeur": l["valeur"], "proposition": prop, "source": source, "secours_utilises": len(usages),
                     "fiabilite_proposee": studio.fiabilite(prop)[1] if prop else ""})

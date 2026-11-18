@@ -465,3 +465,23 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   une IA (aucune n'est conservée) ; auteur = session du poste, rôles d'Automation Studio pas encore appliqués à ces décisions ; stockage durable des relations
   reporté à la phase 5 de la refonte (un journal consigne les preuves perdues).
 - Aucun outil MCP ajouté ; `discovery_juger_correlations` garde sa signature (champs facultatifs en plus).
+
+## 2026-11-18 — Transition des applications mobiles vers les testTag (Jetpack Compose)
+- Contexte : les applications mobiles passent aux testTag. Un testTag (avec `testTagsAsResourceId = true`) est lu comme
+  un resource-id SANS « package:id/ ». Le locator `id=` d'Appium complète le nom avec le package de l'application et ne
+  le trouve pas, sauf réglage `disableIdLocatorAutocompletion`. L'atelier génère donc pour ces identifiants
+  `android=new UiSelector().resourceId("<tag>")`, qui marche sans réglage ; un resource-id complet garde `id=`.
+- La clé métier d'un élément ne change pas quand son identifiant arrive ou change de nom : l'élément observé est rattaché
+  à l'élément déjà cartographié de même type qui partage un locator (texte, position relative au libellé). Un tag nommé
+  comme la clé (« champ_montant ») redonne directement cette clé : c'est le tag que propose `map_tags_report`.
+- L'écran est reconnu par ses libellés quand ses identifiants arrivent (son empreinte passait de 100 % à moins de 30 %
+  de ressemblance, donc un doublon) ; son empreinte passe aux identifiants, changement « identifiants » consigné.
+- Le Studio classe ces locators « Stable ». Fixture : tests/fixtures/hierarchies/android_compose_testtag.xml.
+- Identifiant RENOMMÉ (« id=…:id/valider » ou un testTag devient « Sp_valider_btn ») : rejoué, l'écran était pris pour un
+  nouvel écran. Il est maintenant reconnu par ses libellés et son titre (seuil plus exigeant, 0,85), l'élément par un
+  locator commun ou, à défaut, par son libellé s'il est unique ; l'ancien identifiant, disparu de l'application, est
+  retiré (changement « identifiant_remplace »). Un champ identifié garde en secours l'ancre « libellé qui précède ».
+  Limite assumée : un champ sans libellé propre n'est pas rapproché (rien n'est deviné). Le Studio propose aussi le
+  testTag pour un locator repéré par son texte. Fixtures : android_compose_testtag_renomme, android_classique_vers_compose.
+- Non vérifié sur un vrai build Compose ni avec un vrai Appium : le comportement d'Appium vient de la documentation et
+  des retours de la communauté, à confirmer à la première livraison avec testTag.

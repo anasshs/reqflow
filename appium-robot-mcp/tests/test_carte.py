@@ -132,3 +132,87 @@ def test_fichiers_yaml_lisibles(carte, projet):
     carte.observer(_els("android_classique"), "android")
     f = next((projet / "app_map" / "banque_demo" / "ecrans").glob("*.yaml"))
     assert yaml.safe_load(f.read_text("utf-8"))["plateformes"]["android"]["signature"]
+
+
+# --------------------------------------------------------------------------- transition Jetpack Compose vers testTag
+def test_les_testtag_arrivent_meme_ecran_memes_cles(carte):
+    """L'application passe aux testTag : l'écran est reconnu (pas de doublon), chaque élément garde sa clé métier, le
+    nouvel identifiant passe en premier et l'ancien locator reste en secours."""
+    avant = carte.observer(_els("android_compose"), "android", build="1.0")
+    cles = set(carte.ecran(avant["id"])["elements"])
+    assert carte.rapport_tags()  # éléments sans identifiant : la liste donnée aux développeurs
+    apres = carte.observer(_els("android_compose_testtag"), "android", build="1.1")
+    assert not apres["nouveau"] and apres["id"] == avant["id"] and len(carte.ecrans()) == 1
+    e = carte.ecran(avant["id"])
+    assert set(e["elements"]) == cles  # aucune clé nouvelle, même quand le tag porte un autre nom (continuer_virement)
+    bouton = e["elements"]["bouton_continuer"]["locators"]["android"]
+    assert bouton[0] == 'android=new UiSelector().resourceId("continuer_virement")' and 'android=new UiSelector().text("Continuer")' in bouton
+    champ = e["elements"]["champ_montant"]["locators"]["android"]
+    assert champ[0] == 'android=new UiSelector().resourceId("champ_montant")' and champ[1].startswith("xpath=//*[@text='Montant']/following")
+    assert carte.robustesse(bouton[0]) == "robuste" and carte.valeur_id(bouton[0]) == "continuer_virement"
+    types = [c["type"] for c in e["changements"]]
+    assert types.count("amelioration") == 3 and types.count("identifiants") == 1 and not e.get("etats")
+    assert {x["cle"] for x in carte.rapport_tags()} == set()  # plus rien d'interactif à demander aux développeurs
+    encore = carte.observer(_els("android_compose_testtag"), "android", build="1.1")
+    assert encore["id"] == avant["id"] and encore["score"] == 1.0 and len(carte.ecrans()) == 1
+
+
+def test_un_ecran_avec_testtag_ne_se_confond_pas_avec_un_autre(carte):
+    a = carte.observer(_els("android_classique"), "android")["id"]
+    b = carte.observer(_els("android_compose_testtag"), "android")
+    assert b["nouveau"] and b["id"] != a  # la reconnaissance par libellés ne fusionne pas deux écrans différents
+    assert carte.signature(_els("android_compose_testtag"), sans_ids=True) == carte.signature(_els("android_compose"))
+
+
+def test_studio_classe_un_testtag_stable():
+    from atelier.generation import studio
+
+    assert studio.fiabilite('android=new UiSelector().resourceId("champ_montant")') == ("resource-id", "Stable")
+    assert studio.fiabilite('android=new UiSelector().text("Continuer")')[1] != "Stable"
+
+
+def test_studio_propose_le_testtag_meme_pour_un_locator_par_texte(carte, projet):
+    """Le dépôt repère le bouton par son texte (« Reliable ») ; son testTag arrive dans la carte sous la même clé :
+    le Studio propose de passer à l'identifiant."""
+    from atelier.generation import studio_avance
+
+    e = carte.observer(_els("android_compose"), "android")
+    carte.renommer(e["id"], "nouveau_virement")
+    (projet / "resources").mkdir(exist_ok=True)
+    (projet / "resources" / "virement.resource").write_text(
+        '*** Variables ***\n&{LOC_NOUVEAU_VIREMENT_ANDROID}    bouton_continuer=android=new UiSelector().text("Continuer")\n', "utf-8")
+    assert not [c for c in studio_avance.propositions_correction() if c["proposition"]]
+    carte.observer(_els("android_compose_testtag"), "android")
+    c = [c for c in studio_avance.propositions_correction() if c["cle"] == "bouton_continuer"][0]
+    assert c["proposition"] == 'android=new UiSelector().resourceId("continuer_virement")' and c["fiabilite_proposee"] == "Stable"
+
+
+def test_un_testtag_renomme_par_les_developpeurs_reste_le_meme_element(carte):
+    """L'ancien identifiant disparaît, un autre le remplace (« continuer_virement » devient « Sp_continuer_btn ») : même
+    écran, mêmes clés, l'ancien identifiant ne reste pas en secours."""
+    a = carte.observer(_els("android_compose_testtag"), "android", build="1.1")
+    cles = set(carte.ecran(a["id"])["elements"])
+    b = carte.observer(_els("android_compose_testtag_renomme"), "android", build="1.2")
+    assert b["id"] == a["id"] and len(carte.ecrans()) == 1
+    e = carte.ecran(a["id"])
+    assert set(e["elements"]) == cles
+    locs = e["elements"]["bouton_continuer_virement"]["locators"]["android"]
+    assert locs[0] == 'android=new UiSelector().resourceId("Sp_continuer_btn")' and not [l for l in locs if "continuer_virement" in l]
+    assert [c["type"] for c in e["changements"]].count("identifiant_remplace") == 3 and not e.get("etats")
+    assert carte.observer(_els("android_compose_testtag_renomme"), "android", build="1.2")["score"] == 1.0
+
+
+def test_ecran_classique_reecrit_en_compose_avec_testtag(carte):
+    """« id=com.exemple.banque:id/valider » devient le testTag « Sp_valider_btn » : aucun identifiant commun, l'écran
+    est reconnu par ses libellés et son titre, le bouton par son libellé, le champ par le libellé qui le précède."""
+    a = carte.observer(_els("android_classique"), "android", build="1.0")
+    b = carte.observer(_els("android_classique_vers_compose"), "android", build="2.0")
+    assert b["id"] == a["id"] and len(carte.ecrans()) == 1
+    els = carte.ecran(a["id"])["elements"]
+    assert els["bouton_valider"]["locators"]["android"][0] == 'android=new UiSelector().resourceId("Sp_valider_btn")'
+    assert els["champ_montant"]["locators"]["android"][0] == 'android=new UiSelector().resourceId("Sp_montant_input")'
+    assert not [l for k in ("bouton_valider", "champ_montant", "texte_titre") for l in els[k]["locators"]["android"] if l.startswith("id=com.")]
+    # limite connue : un champ sans libellé propre (deux champs de suite) n'est pas rapproché, jamais deviné
+    assert els["champ_motif"]["locators"]["android"] == ["id=com.exemple.banque:id/motif"] and "champ_sp_motif_input" in els
+    autre = carte.observer(_els("android_compose"), "android")
+    assert autre["nouveau"] and len(carte.ecrans()) == 2  # un autre écran reste un autre écran

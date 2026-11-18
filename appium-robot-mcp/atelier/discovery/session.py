@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import time
 
-from atelier.discovery.parsing import parse_elements
+from atelier.discovery.parsing import UIA_ID, parse_elements
 from atelier.domain import evenements
 from atelier.integrations import appium as appium_int
 
@@ -195,7 +195,7 @@ def element_at(x_ratio: float, y_ratio: float) -> dict:
     if not hits:
         raise LookupError("Aucun élément à cet endroit.")
     # le plus petit élément qui contient le point, en privilégiant ceux qui ont un id
-    hits.sort(key=lambda e: (not e["locators"][0].startswith(("id=", "accessibility_id=")),
+    hits.sort(key=lambda e: (not e["locators"][0].startswith(("id=", "accessibility_id=", UIA_ID)),
                              e["rect"][2] * e["rect"][3]))
     return hits[0]
 

@@ -60,6 +60,8 @@ def _inv():
 def fiabilite(valeur: str) -> tuple[str, str]:
     """(stratégie, niveau) : stable (identifiant technique), fiable (css / rôle / prédicat), fragile (texte, xpath)."""
     v = valeur.strip()
+    if v.startswith("android=") and ".resourceId(" in v:  # testTag Jetpack Compose lu par un sélecteur UiAutomator
+        return "resource-id", "Stable"
     strat = "xpath" if v.startswith("//") else v.split("=", 1)[0] if "=" in v else "css"
     if strat in ("id", "accessibility_id", "data-testid", "resource-id"):
         return strat, "Stable"

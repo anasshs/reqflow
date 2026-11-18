@@ -1,11 +1,23 @@
 """Lecture des hiérarchies mobiles (XML Appium) : éléments significatifs et locators AppiumLibrary
-classés du plus robuste au plus fragile (Android classique, Jetpack Compose sans testTag, iOS)."""
+classés du plus robuste au plus fragile (Android classique, Jetpack Compose avec ou sans testTag, iOS)."""
 from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
 
 from atelier.domain.projet import slug
+
+
+# Identifiant de test Jetpack Compose (Modifier.testTag + testTagsAsResourceId) : le resource-id est le tag tel quel,
+# sans « package:id/ ». Le locator id= d'Appium complète le nom avec le package de l'application et ne le trouverait
+# pas (sauf réglage disableIdLocatorAutocompletion) : on passe par un sélecteur UiAutomator, qui marche sans réglage.
+UIA_ID = 'android=new UiSelector().resourceId("'
+
+
+def locator_id_android(rid: str) -> str:
+    if ":id/" in rid:
+        return f"id={rid}"
+    return UIA_ID + rid.replace("\\", "\\\\").replace('"', '\\"') + '")'
 
 
 def _xq(value: str) -> str:
@@ -58,13 +70,14 @@ def parse_elements(source: str, platform: str) -> list[dict]:
             if not (rid or text or desc or clickable):
                 continue
             if rid:
-                locs.append(f"id={rid}")
+                locs.append(locator_id_android(rid))
+            tag = bool(rid) and ":id/" not in rid  # testTag Compose
             if desc:
                 locs.append(f"accessibility_id={desc}")
             if text:
                 locs.append(f"xpath=//*[@text={_xq(text)}]")
             enfant = ""
-            if clickable and not (rid or text or desc):  # bouton Compose : le libellé est porté par un enfant
+            if clickable and not (text or desc) and (tag or not rid):  # bouton Compose (avec ou sans testTag) : libellé porté par un enfant
                 enfant = next((n.attrib.get("text") or n.attrib.get("content-desc") for n in node.iter()
                                if n is not node and (n.attrib.get("text") or n.attrib.get("content-desc"))), "")
                 if enfant:
@@ -101,8 +114,13 @@ def parse_elements(source: str, platform: str) -> list[dict]:
         if not locs:
             locs.append(f"xpath={_abs_xpath(node, parents)}")
         kind = _kind(cls)
+        nom = slug(base or cls.split('.')[-1])
+        if platform == "android" and locs[0].startswith(UIA_ID) and nom.startswith(f"{kind}_"):
+            cle = nom  # un testTag déjà nommé comme la clé métier (« champ_montant ») redonne exactement cette clé
+        else:
+            cle = f"{kind}_{nom}"
         elements.append({
-            "key": f"{kind}_{slug(base or cls.split('.')[-1])}",
+            "key": cle,
             "type": kind,
             "classe": cls.split(".")[-1],
             "libelle": label,
@@ -134,11 +152,14 @@ def _uia(text: str) -> str:
 def _android_sans_ids(elements: list[dict]):
     """Jetpack Compose sans testTag : pas de resource-id. On privilégie
     - pour un bouton / texte : UiSelector().text(...) (plus rapide et lisible qu'un XPath) ;
-    - pour un champ : locator RELATIF au libellé qui le précède (sa valeur change à la saisie)."""
+    - pour un champ : locator RELATIF au libellé qui le précède (sa valeur change à la saisie).
+    Avec un testTag, le champ garde ce locator relatif en SECOURS : c'est lui qui permet de reconnaître l'élément déjà
+    cartographié quand son identifiant arrive."""
     dernier_libelle = ""
+    libre = False  # le dernier libellé n'a pas encore servi d'ancre à un champ (deux champs de suite : pas d'ancre sûre)
     for e in elements:
         locs = e["locators"]
-        a_id = any(l.startswith(("id=", "accessibility_id=")) for l in locs)
+        a_id = any(l.startswith(("id=", "accessibility_id=", UIA_ID)) for l in locs)
         libelle = e.get("libelle") or ""
         statique = libelle and not re.search(r"\d[\d\s.,]*\d|•|@", libelle) and len(libelle) <= 40
         if e["type"] == "champ" and not a_id:
@@ -148,7 +169,14 @@ def _android_sans_ids(elements: list[dict]):
             e["locators"] = rel + autres + texte or locs
             if dernier_libelle:
                 e["key"] = f"champ_{slug(dernier_libelle)}"
+        elif e["type"] == "champ" and dernier_libelle and libre:
+            # champ identifié (resource-id ou testTag) : l'ancre reste en secours ; c'est elle qui relie le champ déjà
+            # cartographié à celui dont l'identifiant vient d'arriver ou d'être renommé
+            rel = f"xpath=//*[@text={_xq(dernier_libelle)}]/following::android.widget.EditText[1]"
+            e["locators"] = locs + ([rel] if rel not in locs else [])
         elif not a_id and libelle and statique and e["type"] != "champ":
             e["locators"] = [_uia(libelle)] + locs
+        if e["type"] == "champ":
+            libre = False
         if e["type"] == "texte" and statique:
-            dernier_libelle = libelle
+            dernier_libelle, libre = libelle, True

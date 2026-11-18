@@ -16,7 +16,7 @@ def test_android_classique_ids_en_premier():
     els = _parse("android_classique", "android")
     assert list(els) == ["texte_titre", "champ_montant", "champ_motif", "texte_l_operation_est_immediate",
                          "bouton_valider", "bouton_annuler"]
-    assert els["champ_montant"]["locators"] == ["id=com.exemple.banque:id/montant"]
+    assert els["champ_montant"]["locators"][0] == "id=com.exemple.banque:id/montant"  # l'ancre du libellé suit, en secours
     assert els["bouton_valider"]["locators"] == ["id=com.exemple.banque:id/valider",
                                                  "accessibility_id=Valider le virement",
                                                  "xpath=//*[@text='Valider']"]
@@ -89,3 +89,23 @@ def test_by_strategies():
     assert server._by("//x") == (AppiumBy.XPATH, "//x")
     assert server._by('nsp=label == "V"') == (AppiumBy.IOS_PREDICATE, 'label == "V"')
     assert server._by("brut") == (AppiumBy.ID, "brut")
+
+
+def test_compose_avec_testtag_locator_sans_reglage_appium():
+    """Un testTag est lu sans « package:id/ » : le locator id= d'Appium le compléterait avec le package et ne le
+    trouverait pas ; le sélecteur UiAutomator marche sans réglage. Le libellé et les locators de secours restent."""
+    els = _parse("android_compose_testtag", "android")
+    champ = els["champ_montant"]  # tag nommé comme la clé métier : exactement la même clé qu'avant
+    assert champ["locators"] == ['android=new UiSelector().resourceId("champ_montant")',
+                                 "xpath=//*[@text='Montant']/following::android.widget.EditText[1]"]
+    bouton = els["bouton_continuer_virement"]
+    assert bouton["libelle"] == "Continuer" and bouton["locator_unique"] is True  # plus d'ambiguïté avec le texte enfant
+    assert bouton["locators"][0] == 'android=new UiSelector().resourceId("continuer_virement")'
+    classiques = [e["locators"][0] for e in _parse("android_classique", "android").values() if ":id/" in e["locators"][0]]
+    assert classiques and all(l.startswith("id=") for l in classiques)  # un resource-id complet garde le locator id=
+
+
+def test_champ_identifie_garde_l_ancre_du_libelle_qui_precede():
+    els = _parse("android_classique", "android")
+    assert els["champ_montant"]["locators"] == ["id=com.exemple.banque:id/montant", "xpath=//*[@text='Virement']/following::android.widget.EditText[1]"]
+    assert els["champ_motif"]["locators"] == ["id=com.exemple.banque:id/motif"]  # deux champs de suite : pas d'ancre sûre
