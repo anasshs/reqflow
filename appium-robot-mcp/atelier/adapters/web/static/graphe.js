@@ -256,7 +256,7 @@ class GrapheVue {
     for (const r of this.liens) {
       if (!this.pos.has(r.de) || !this.pos.has(r.vers)) continue;  // extrémité repliée (« + N autres »)
       const autre = r.de === this.centre ? this.parId.get(r.vers) : this.parId.get(r.de);
-      const g = el("g", {class: "gv-lien" + (r.provenance === "déduit" ? " gv-deduit" : "") +
+      const g = el("g", {class: "gv-lien" + (r.metier?.type === "VERIFIED_ON" ? " gv-preuve" : "") + (r.provenance === "déduit" ? " gv-deduit" : "") +
         (r.statut === "à valider" ? " gv-a-valider" : "")}, this.gLiens);
       const ligne = el("path", {"marker-end": "url(#gv-fleche)", style: `stroke:${couleurNoeud(autre)}`}, g);
       const t = el("text", {class: "gv-lien-texte"}, g);

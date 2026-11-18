@@ -227,6 +227,7 @@ tr.cliquable { cursor: pointer; } tr.cliquable:hover td { background: var(--surf
 .gv-svg:active { cursor: grabbing; }
 .gv-lien path { fill: none; stroke-width: 1.4; opacity: .75; }
 .gv-lien.gv-deduit path, .gv-lien.gv-a-valider path { stroke-dasharray: 5 4; stroke: var(--warn) !important; }
+.gv-lien.gv-preuve path { stroke-dasharray: 1.5 4; stroke-linecap: round; }  /* preuve issue des tests, pas une association validée */
 .gv-lien-texte { font-size: 10px; fill: var(--ink-2); text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: var(--bg-2); stroke-width: 4px; }
 .gv-loin .gv-lien-texte { display: none; }
 .gv-noeud { cursor: pointer; }
@@ -549,3 +550,20 @@ tr.sel > td { background: var(--accent-soft); }
 .pu-prop ul { margin: 4px 0 0; padding-left: 18px; }
 .pu-couvre { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 6px; }
 .pu-couvre .pill { font-size: 11px; }
+
+/* Discovery › Corrélation : écrans découverts, détail de l'écran, exigences Jira */
+.co-grille { display: grid; grid-template-columns: 250px minmax(0, 1fr) minmax(0, 1.15fr); gap: 12px; align-items: start; }
+@media (max-width: 1150px) { .co-grille { grid-template-columns: minmax(0, 1fr); } }
+.co-liste { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#co-ecrans { display: flex; flex-direction: column; gap: 6px; max-height: 70vh; overflow: auto; }
+.co-ecran { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface-2); color: inherit; cursor: pointer; font: inherit; }
+.co-ecran[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.co-ecran > span { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.co-liens li { display: block; }
+.co-ligne { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.co-ligne .item { flex: 1; min-width: 140px; }
+.co-just { display: block; margin-top: 3px; }
+.co-preuves { margin-top: 4px; font-size: 12px; } .co-preuves summary { cursor: pointer; color: var(--muted); } .co-preuves p { margin: 4px 0 4px 10px; }
+.co-defile { max-height: 260px; overflow: auto; }
+#co-centre h3.lib, #co-droite h3.lib { margin-top: 14px; }

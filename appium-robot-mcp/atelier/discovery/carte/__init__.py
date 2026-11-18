@@ -533,13 +533,34 @@ def renommer(eid: str, nom: str, module: str | None = None, alias: list | None =
     autre = next((x for x in ecrans(s) if x.get("nom") == nom and x["id"] != e["id"]), None)
     if autre:
         return fusionner(e["id"], autre["id"], s)
+    ancien = e.get("nom") or e["id"]
     e["nom"] = nom
     if module is not None:
         e["module"] = module
     if alias is not None:
         e["alias"] = alias
     _save_ecran(e, s)
+    _suivre_renommage(ancien, nom, s)
     return e
+
+
+def _suivre_renommage(ancien: str, nouveau: str, s: str | None = None, fusion: tuple | None = None):
+    """Les liens déclarés dans le Knowledge Graph (exigence « réalisé par » écran, règles…) et les décisions de corrélation
+    suivent l'écran renommé ou fusionné : l'identifiant de la carte est stable, celui du graphe porte le nom."""
+    if s is not None and s != app_courante():
+        return
+    try:
+        from atelier.domain import declarations
+
+        declarations.renommer_ecran(ancien, nouveau)
+        if fusion:
+            from atelier.discovery import correlation
+
+            correlation.migrer_ecran(*fusion)
+    except Exception as ex:  # noqa: BLE001 — la carte reste utilisable ; l'écart est signalé, pas masqué
+        import warnings
+
+        warnings.warn(f"Liens de l'écran « {ancien} » non reportés sur « {nouveau} » : {ex}", stacklevel=2)
 
 
 def fusionner(source: str, cible: str, s: str | None = None) -> dict:
@@ -566,7 +587,8 @@ def fusionner(source: str, cible: str, s: str | None = None) -> dict:
         if t["de"] != t["vers"] and not any(x["id"] == t["id"] for x in ts):
             ts.append(t)
     _save_transitions(ts, s)
-    (_dir(s) / "ecrans" / f"{source}.yaml").unlink(missing_ok=True)
+    (_dir(s) / "ecrans" / f"{a['id']}.yaml").unlink(missing_ok=True)
+    _suivre_renommage(a.get("nom") or a["id"], b.get("nom") or b["id"], s, fusion=(a["id"], b["id"]))
     return b
 
 

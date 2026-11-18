@@ -35,6 +35,8 @@ TYPES_RELATIONS = {
     "execute_par": "Est exécuté par", "impacte": "Impacte", "utilise": "Utilise",
     # V2, phase 5 : champs et anomalies
     "possede": "Possède", "concerne": "Concerne", "detecte_par": "Est détectée par", "associe_a": "Est associée à",
+    # corrélation exigence ↔ écran : preuve issue des tests (jamais déclarée à la main, jamais une couverture)
+    "verifiee_sur": "Est vérifiée sur",
 }
 PROVENANCES = ("observé", "déclaré", "déduit")
 

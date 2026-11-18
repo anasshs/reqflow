@@ -112,6 +112,7 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
     _resultats(g, derniers_resultats())
     if avec_declarations:
         declarations.appliquer(g)
+    _verifiees_sur(g, set(declarations.charger()["relations_masquees"]) if avec_declarations else set())
     _enrichir_champs(g)
     _depuis_anomalies(g)
     _marquer_automatisation(g)
@@ -195,6 +196,53 @@ def _depuis_carte(g: Graphe):
                      proprietes={"action": t["action"].get("libelle") or t["action"].get("cle") or t["action"].get("type"),
                                  "plateforme": t["plateforme"], "interdite": t.get("interdite", False),
                                  "fiabilite": round(t["reussites"] / max(t["essais"], 1), 2)})
+
+
+def _verifiees_sur(g: Graphe, masquees: set | None = None):
+    """Exigence « vérifiée sur » écran : PREUVE issue des tests, créée automatiquement. Un test automatisé utilise les
+    locators de l'écran (dépôt), ou est passé par l'écran pendant un run cartographié ; il porte une clé Xray ; ce test
+    Xray est lié à l'exigence. Une seule relation par couple, qui garde toutes ses preuves (test Xray, scripts, locators).
+    Seuls les écrans de la carte (vus pendant une Discovery) sont reliés. Cette relation ne dit pas que l'écran réalise
+    l'exigence (un test de bout en bout traverse aussi la connexion) : elle n'entre dans aucun calcul de couverture ni
+    d'impact ; « réalisé par » reste une décision humaine (Discovery › Corrélation)."""
+    import re as _re
+
+    cle_xray = _re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
+    for n in [x for x in g.noeuds.values() if x.type == "ecran" and x.proprietes.get("id_carte")]:
+        par_test: dict[str, set] = {}
+        for s in {n.id} | g.atteignables(n.id, "aval", {"contient"}):
+            for i in g.atteignables(s, "amont", RELATIONS_DEPENDANCE):
+                if g.noeuds[i].type == "test_robot":
+                    par_test.setdefault(i, set())
+                    if g.noeuds[s].type == "locator":
+                        par_test[i].add(g.noeuds[s].libelle)
+        preuves: dict[str, dict] = {}
+
+        def preuve(cle: str) -> dict:
+            return preuves.setdefault(cle, {"test_xray": cle, "scripts": [], "locators": set(), "origines": set()})
+
+        for t, locs in par_test.items():
+            tn = g.noeuds[t]
+            cles = set(tn.proprietes.get("cles_xray") or []) | {
+                x.de.split(":", 1)[1] for x in g.entrants(t, fiables=True) if x.type == "implemente_par" and g.noeuds[x.de].type == "test"}
+            for c in cles:
+                p = preuve(c)
+                p["scripts"].append({"nom": tn.libelle, "fichier": tn.proprietes.get("fichier") or ""})
+                p["locators"] |= locs
+                p["origines"].add("locators utilisés par le script")
+        for x in g.sortants(n.id):
+            if x.type == "teste_par" and x.source == "carte (TNR)" and cle_xray.match(x.vers.split(":", 1)[1]):
+                preuve(x.vers.split(":", 1)[1])["origines"].add("écran traversé pendant un run cartographié")
+        for c in sorted(preuves):
+            p = preuves[c]
+            for x in g.entrants(f"test:{c}", fiables=True):
+                if x.type != "teste_par" or g.noeuds[x.de].type not in ("epic", "user_story", "bug"):
+                    continue
+                if f"{x.de}|verifiee_sur|{n.id}" in (masquees or ()):
+                    continue
+                rel = g.relier(x.de, n.id, "verifiee_sur", source="tests automatisés", proprietes={"preuves": []})
+                rel.proprietes["preuves"].append({"test_xray": c, "scripts": sorted(p["scripts"], key=lambda s: (s["fichier"], s["nom"])),
+                                                  "locators": sorted(p["locators"]), "origines": sorted(p["origines"])})
 
 
 def _depuis_depot(g: Graphe, inv: dict):

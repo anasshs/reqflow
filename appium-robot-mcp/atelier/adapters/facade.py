@@ -907,8 +907,10 @@ def discovery_correlations_a_juger(ecran: str = "", limite: int = 15) -> dict:
 @outil
 def discovery_juger_correlations(jugements: list[dict]) -> dict:
     """Corrélation écran ↔ exigence : dépose ton jugement. jugements : [{"ecran": id ou nom, "exigence": clé, "verdict":
-    "concerne" | "ne_concerne_pas", "justification"}]. Le lien n'entre dans le Knowledge Graph qu'après confirmation de
-    l'automaticien. Renvoie les jugements retenus et refusés (avec la raison)."""
+    "concerne" | "ne_concerne_pas" | "incertain", "justification", "preuves": [éléments de l'écran ou phrases de l'exigence
+    sur lesquels tu t'appuies] (facultatif), "confiance": "faible" | "moyenne" | "forte" (facultatif, ton estimation)}].
+    Le lien « réalisé par » n'entre dans le Knowledge Graph qu'après confirmation de l'automaticien ; une proposition qu'il
+    a rejetée est refusée. Renvoie les jugements retenus et refusés (avec la raison)."""
     from atelier.discovery import correlation
 
     return correlation.deposer_correlations(jugements or [], "Cursor (MCP)")

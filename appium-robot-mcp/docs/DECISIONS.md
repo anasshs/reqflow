@@ -449,3 +449,19 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   y mènent toujours. Le filtre est retrouvé en revenant d'un autre onglet du graphe, pas depuis un autre écran.
 - Sur le graphe complet, le filtre est appliqué par le serveur (avant le plafond d'affichage) ; autour d'un élément
   exploré, il masque les voisins des autres types, l'élément exploré restant affiché. Aucune route ni outil MCP modifié.
+
+## 2026-11-18 — Corrélation exigences ↔ écrans : « vérifiée sur » et « réalisé par »
+- Décision de l'utilisateur : deux relations distinctes. « Vérifiée sur » = preuve issue des tests, créée seule par le
+  graphe (écran → locators → scripts Robot → clé Xray → exigence), avec ses preuves. « Réalisé par » = association
+  fonctionnelle, active seulement après une décision humaine (preuve promue, proposition d'une IA confirmée, lien manuel).
+  Détail : docs/CORRELATION_EXIGENCES_ECRANS.md.
+- Pourquoi : un test de bout en bout traverse la connexion et l'accueil ; relier ces écrans à toutes les exigences
+  fabriquerait de la couverture fonctionnelle. La preuve de test reste un fait, exclu de la couverture et du périmètre.
+- Prérequis imposé par le serveur : l'écran doit être dans la carte (vu pendant une Discovery) ; un écran connu du seul
+  dépôt n'est pas reliable. « Vérifiée sur » ne se déclare pas à la main.
+- Verdict « incertain », preuves et estimation (faible, moyenne, forte) ajoutés au jugement d'une IA ; l'estimation est
+  indicative, jamais calculée. Rejet humain mémorisé : la proposition n'est plus proposée ni redéposable.
+- Écarts assumés avec la spécification : sens Exigence → Écran (lecture « réalisé par ») ; aucune capture transmise à
+  une IA (aucune n'est conservée) ; auteur = session du poste, rôles d'Automation Studio pas encore appliqués à ces décisions ; stockage durable des relations
+  reporté à la phase 5 de la refonte (un journal consigne les preuves perdues).
+- Aucun outil MCP ajouté ; `discovery_juger_correlations` garde sa signature (champs facultatifs en plus).

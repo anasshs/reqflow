@@ -473,6 +473,11 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       ${m.type ? `<dt>Système d'origine</dt><dd>${esc(m.source_system)}</dd><dt>Validation</dt><dd>${esc(m.validation_status)}${m.confidence !== null && m.confidence !== undefined && m.validation_status === "PROPOSED" ? ` · confiance ${Math.round(m.confidence * 100)} %` : ""}</dd>
         ${m.a_confirmer ? `<dt>À confirmer</dt><dd class="warn-t">${esc(m.a_confirmer)}</dd>` : ""}<dt>Ancienne relation</dt><dd>${esc(r.historique || r.libelle)}</dd>` : `<dt>Provenance</dt><dd>${esc(r.provenance)}</dd><dt>Statut</dt><dd>${esc(r.statut)}</dd>`}
       <dt>Source</dt><dd>${esc(r.source)}</dd></dl>
+      ${m.type === "VERIFIED_ON" ? `<p class="lib">Preuve issue des tests : un test automatisé de l'exigence passe par cet écran. Ce n'est pas une couverture fonctionnelle ;
+        le lien « réalisé par » se décide dans <a href="#discovery/correlation">Discovery › Corrélation</a>.</p>` : ""}
+      ${(r.proprietes?.preuves || []).length ? `<h3 class="lib">PREUVES (${r.proprietes.preuves.length})</h3>${r.proprietes.preuves.map(p => `<p class="lib"><b class="mono">${esc(p.test_xray)}</b> · ${esc((p.origines || []).join(" ; "))}
+        ${(p.scripts || []).length ? `<br>Scripts : ${p.scripts.map(x => `${esc(x.nom)} <span class="mono">${esc(x.fichier)}</span>`).join(", ")}` : ""}
+        ${(p.locators || []).length ? `<br>Locators : <span class="mono">${p.locators.map(esc).join(", ")}</span>` : ""}</p>`).join("")}` : ""}
       <div class="btns" style="margin-top:10px">${r.statut === "à valider" ? `<button class="btn succes" id="rv">${ico("check")}Valider</button>` : ""}
       <button class="btn danger" id="rs">${r.provenance === "observé" ? "Masquer" : "Supprimer"}</button></div>`);
     if ($("#rv")) $("#rv").onclick = () => action("/api/graphes/valider", {id: r.id}, null);
@@ -486,7 +491,43 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     if (reselection) { G?.selectionner(reselection, false); selectionner(reselection); } else { S.selection = null; panneauParDefaut(); }
   }
 
-  function formulaireRelation(id) {
+  /* écran ↔ exigence Jira : lien « réalisé par », même modèle (et même historique) que Discovery › Corrélation */
+  async function formulaireRealise(n) {
+    const versEcran = n.type !== "ecran", carteId = n.proprietes?.id_carte;
+    detail(versEcran ? "Relier à un écran" : "Relier à une exigence Jira", `<p class="lib"><b>${esc(n.libelle)}</b> : lien « réalisé par » (exigence → écran), validé à votre nom et historisé.
+        L'écran doit avoir été vu pendant une Discovery.</p>
+      ${!versEcran && !carteId ? `<p class="warn-t">Cet écran vient seulement du dépôt de tests : il n'est pas dans la carte de l'application. Lancer une Discovery avant de le relier.</p>`
+        : `<div class="champ"><label for="rr-q">${versEcran ? "Écran de la carte" : "Exigence (clé ou mots du résumé)"}</label><input class="in" id="rr-q" type="search"></div><div id="rr-res"></div>`}
+      <p><button class="lien" id="rr-autre">Autre type de relation…</button></p>`);
+    $("#rr-autre").onclick = () => formulaireRelation(n.id, true);
+    if (!$("#rr-q")) return;
+    const ecrans = versEcran ? (await api("/api/discovery/correlation").catch(() => ({ecrans: []}))).ecrans : [];
+    const cle = versEcran ? (n.proprietes?.cle || n.id.split(":").slice(1).join(":")) : "";
+    const lister = async () => {
+      const q = $("#rr-q")?.value.trim() || "";
+      const l = versEcran ? ecrans.filter(e => !q || `${e.nom} ${e.module}`.toLowerCase().includes(q.toLowerCase())).slice(0, 20).map(e => ({ecran: e.id, cle, lib: e.nom, sous: e.module}))
+        : (await api(`/api/discovery/correlation/exigences?q=${encodeURIComponent(q)}&ecran=${encodeURIComponent(carteId)}`).catch(() => []))
+          .map(x => ({ecran: carteId, cle: x.cle, lib: x.cle, sous: x.resume, deja: x.lien === "réalisé par"}));
+      if (!$("#rr-res")) return;
+      $("#rr-res").innerHTML = l.length ? `<ul class="liste">${l.map((x, i) => `<li><span class="mono">${esc(x.lib)}</span><span class="item">${esc(x.sous || "")}</span>
+        ${x.deja ? '<span class="pill ok">déjà reliée</span>' : `<button class="btn petit primaire" data-rr="${i}">Relier</button>`}</li>`).join("")}</ul>`
+        : `<p class="lib">${versEcran ? "Aucun écran dans la carte : lancer une Discovery." : "Aucune exigence trouvée dans la copie locale Jira."}</p>`;
+      $$("[data-rr]").forEach(b => b.onclick = async () => {
+        const x = l[+b.dataset.rr];
+        try { await api("/api/discovery/correlation/confirmer", {method: "POST", body: {ecran: x.ecran, cle: x.cle, origine: "manuel"}}); toast(`${x.cle} « réalisé par » ${versEcran ? x.lib : n.libelle} : lien validé.`, "ok"); }
+        catch (e) { toast(e.message, "ko"); return; }
+        await charger(true);
+        selectionner(n.id);
+      });
+    };
+    let t;
+    $("#rr-q").oninput = () => { clearTimeout(t); t = setTimeout(lister, 250); };
+    lister();
+  }
+
+  function formulaireRelation(id, generique = false) {
+    const choisi = S.data?.noeuds.find(x => x.id === id);
+    if (!generique && choisi && ["ecran", "epic", "user_story", "bug"].includes(choisi.type)) return formulaireRealise(choisi);
     detail("Ajouter une relation", `<p class="lib">Depuis <code>${esc(id)}</code></p>
       <div class="champ"><label for="r-type">Relation</label><select class="in" id="r-type">${Object.entries(RELATIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
       <div class="champ"><label for="r-cible">Vers (identifiant)</label><input class="in" id="r-cible" list="r-ids" placeholder="ex. ecran:virement_saisie"></div>

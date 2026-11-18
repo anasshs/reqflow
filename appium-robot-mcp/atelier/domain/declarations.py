@@ -212,6 +212,42 @@ def supprimer_relation(rid: str, statut_actuel: str, auteur: str = "automaticien
     _historiser("suppression_relation", auteur, rid, avant=avant)
 
 
+def renommer_ecran(ancien: str, nouveau: str) -> int:
+    """Un écran renommé (ou fusionné) dans la carte garde ses liens : les identifiants `ecran:<nom>`, `locator:<nom>.…`
+    et `composant:<nom>.…` sont réécrits partout dans les déclarations. Renvoie le nombre de relations reportées (0 : rien à reporter)."""
+    def m(i: str) -> str:
+        if i == f"ecran:{ancien}":
+            return f"ecran:{nouveau}"
+        for p in ("locator", "composant"):
+            if i.startswith(f"{p}:{ancien}."):
+                return f"{p}:{nouveau}." + i[len(f"{p}:{ancien}."):]
+        return i
+
+    def mr(i: str) -> str:
+        parts = i.split("|")
+        return "|".join((m(parts[0]), parts[1], m(parts[2]))) if len(parts) == 3 else m(i)
+
+    if not ancien or ancien == nouveau:
+        return 0
+    with _verrou:
+        data = charger()
+        avant = json.dumps(data, sort_keys=True, default=str)
+        data["noeuds"] = {m(k): v for k, v in data["noeuds"].items()}
+        data["relations"] = {mr(k): {**v, "de": m(v["de"]), "vers": m(v["vers"])} for k, v in data["relations"].items()}
+        data["modifications"] = {mr(k): v for k, v in data["modifications"].items()}
+        data["masques"] = [m(x) for x in data["masques"]]
+        data["relations_masquees"] = [mr(x) for x in data["relations_masquees"]]
+        data["fusions"] = {m(k): m(v) for k, v in data["fusions"].items()}
+        data["rejets"] = {mr(k): v for k, v in data["rejets"].items()}
+        apres = json.dumps(data, sort_keys=True, default=str)
+        if avant == apres:
+            return 0
+        _sauver(data)
+    n = sum(1 for k in json.loads(apres)["relations"] if k not in json.loads(avant)["relations"]) or 1
+    _historiser("renommage_ecran", "automaticien", f"ecran:{ancien}", apres={"nouveau": f"ecran:{nouveau}", "relations": n})
+    return n
+
+
 def fusionner(source: str, cible: str, auteur: str = "automaticien"):
     _auteur(auteur)
     if auteur == "ia":

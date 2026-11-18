@@ -255,6 +255,20 @@ def ajouter_relation(de: str, vers: str, type: str, auteur: str = "automaticien"
     for x in (de, vers):
         if x not in g.noeuds:
             raise KeyError(f"Élément inconnu : {x}")
+    if type == "verifiee_sur":
+        raise PermissionError("« Vérifiée sur » est une preuve issue des tests : elle ne se déclare pas à la main.")
+    from atelier.discovery import correlation
+
+    a, b = g.noeuds[de], g.noeuds[vers]
+    if type == "impacte" and {a.type, b.type} & set(correlation.TYPES_EXIGENCE) and "ecran" in (a.type, b.type):
+        # exigence ↔ écran : même modèle que Discovery › Corrélation (« réalisé par », exigence → écran)
+        ex, ec = (a, b) if b.type == "ecran" else (b, a)
+        if not ec.proprietes.get("id_carte"):
+            raise ValueError(f"L'écran {ec.libelle} n'est pas dans la carte de l'application : il faut l'avoir vu pendant "
+                             "une Discovery avant de le relier à une exigence.")
+        if auteur == "automaticien":
+            return correlation.confirmer(ec.proprietes["id_carte"], ex.proprietes.get("cle") or ex.id.split(":", 1)[1], "manuel")
+        de, vers = ex.id, ec.id
     return declarations.ajouter_relation(de, vers, type, auteur)
 
 

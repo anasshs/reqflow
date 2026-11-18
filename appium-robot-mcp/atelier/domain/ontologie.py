@@ -26,7 +26,8 @@ from atelier.domain.graphe import Graphe, Noeud, Relation
 
 UNIVERS = ("BUSINESS", "TESTING", "APPLICATION")
 SYSTEMES = ("JIRA", "XRAY", "APPLICATION_DISCOVERY", "AI_INFERENCE", "AUTOMATION_STUDIO", "EXECUTION_CENTER",
-            "USER_DECLARATION", "API_CONTRACT")  # les deux derniers : extensions (saisie humaine, contrat OpenAPI)
+            "USER_DECLARATION", "API_CONTRACT",  # extensions : saisie humaine, contrat OpenAPI
+            "AUTOMATED_TEST", "CURSOR_VALIDATED")  # corrélation : preuve issue des tests, proposition d'une IA confirmée
 STATUTS = ("OFFICIAL", "PROPOSED", "VALIDATED", "REJECTED", "OBSOLETE")
 
 # type cible -> (univers, libellé, extension hors spécification)
@@ -93,6 +94,8 @@ RELATIONS = {
     "DEPENDS_ON": ("extension", "Dépend de", True), "IMPACTS": ("extension", "Impacte", True),
     "AFFECTS": ("extension", "Affecte", True), "DETECTED_BY": ("extension", "Détecté par", True),
     "RELATED_TO": ("extension", "Lié à", True),
+    # preuve issue des tests : un test de l'exigence passe par l'écran (à ne pas confondre avec REALIZED_BY)
+    "VERIFIED_ON": ("extension", "Vérifiée sur", True),
 }
 
 _CLE_JIRA = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
@@ -151,7 +154,7 @@ def systeme(provenance: str, source: str, defaut: str = "") -> str:
     if provenance == "déduit":
         return "AI_INFERENCE"
     if provenance == "déclaré":
-        return "USER_DECLARATION"
+        return "CURSOR_VALIDATED" if "proposée par" in s else "USER_DECLARATION"
     if "failure analysis" in s or "tnr" in s or "résultat" in s:
         return "EXECUTION_CENTER"
     if "xray" in s:
@@ -240,6 +243,7 @@ REGLES = [
     ("utilise", None, ("Keyword",), "USES_KEYWORD", False, "", ""),
     ("utilise", None, ("PageObject",), "USES_PAGE_OBJECT", False, "", ""),
     ("utilise", None, None, "DEPENDS_ON", False, "", "« utilise » sans sens métier reconnu pour cette paire"),
+    ("verifiee_sur", _EXIGENCES + ("JiraBug",), ("Screen",), "VERIFIED_ON", False, "AUTOMATED_TEST", ""),
     ("impacte", _EXIGENCES + ("BusinessFeature",), ("Screen", "UIComponent"), "REALIZED_BY", False, "", ""),
     ("impacte", None, None, "IMPACTS", False, "", ""),
     ("possede", ("UIComponent", "Screen"), ("BusinessRule", "ApplicationRule"), "IMPLEMENTS_RULE", False, "", ""),
@@ -314,6 +318,7 @@ def property_graph(g: Graphe, projet_id: str) -> dict:
                        "source_system": m["source_system"], "source_reference": r.source, "confidence": m["confidence"],
                        "validation_status": m["validation_status"], "project_id": projet_id,
                        "created_at": date, "updated_at": date, "last_observed_at": date,
+                       "evidence_references": list(r.proprietes.get("preuves") or []),
                        "properties": dict(r.proprietes), "legacy": {"id": r.id, "type": r.type, "inverse": m["inverse"]},
                        "extension": m["extension"], "to_confirm": m["a_confirmer"]})
     return {"project_id": projet_id, "nodes": noeuds, "edges": aretes}

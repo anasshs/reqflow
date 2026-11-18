@@ -1707,11 +1707,51 @@ async def discovery_correlation():
     return await asyncio.to_thread(_call, correlation.synthese)
 
 
+@app.get("/api/discovery/correlation/historique")
+async def discovery_correlation_historique(ecran: str = ""):
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.historique, ecran)
+
+
+@app.get("/api/discovery/correlation/exigences")
+async def discovery_correlation_exigences(q: str = "", ecran: str = ""):
+    """Exigences de la copie locale Jira, pour un lien manuel."""
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.chercher_exigences, q, ecran)
+
+
 @app.get("/api/discovery/correlation/{eid}")
 async def discovery_correlation_ecran(eid: str):
     from atelier.discovery import correlation
 
-    return await asyncio.to_thread(_call, correlation.ecran, eid)
+    return await asyncio.to_thread(_call, correlation.detail, eid)
+
+
+@app.post("/api/discovery/correlation/actualiser")
+async def discovery_correlation_actualiser():
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.actualiser)
+
+
+@app.post("/api/discovery/correlation/rejeter")
+async def discovery_correlation_rejeter(req: Request):
+    from atelier.discovery import correlation
+
+    b = await req.json()
+    return _call(correlation.rejeter, b["ecran"], b["cle"], b.get("motif", ""))
+
+
+@app.post("/api/discovery/correlation/retirer")
+async def discovery_correlation_retirer(req: Request):
+    from atelier.discovery import correlation
+
+    b = await req.json()
+    r = _call(correlation.retirer, b["ecran"], b["cle"], b.get("motif", ""))
+    emit({"type": "graphe_change"})
+    return r
 
 
 @app.post("/api/discovery/correlation/ia")
@@ -1744,7 +1784,7 @@ async def discovery_correlation_confirmer(req: Request):
     from atelier.discovery import correlation
 
     b = await req.json()
-    r = _call(correlation.confirmer, b["ecran"], b["cle"])
+    r = _call(correlation.confirmer, b["ecran"], b["cle"], b.get("origine", ""))
     emit({"type": "graphe_change"})
     return r
 
