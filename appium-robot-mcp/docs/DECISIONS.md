@@ -698,3 +698,23 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Jeu de données : le profil de Discovery › Données (celui dont Cursor tire ses saisies), pas `data/jdd`.
 - MCP : un outil ajouté (`discovery_parcours_cadre`, lecture) et un paramètre facultatif (`discovery_demarrer(parcours=…)`).
   112 outils ; les noms et signatures existants sont conservés.
+
+## 2026-11-19 — Refonte du design : barre latérale, barre de contexte, palette indigo
+- Demande de l'utilisateur, sur une maquette fournie : une interface qui ne ressemble plus à un prototype.
+- Ossature : barre latérale sombre (modules, ressources, paramètres) à la place des onglets du haut ; barre de contexte
+  claire au-dessus de la zone de travail. La barre latérale se réduit aux icônes (choix mémorisé), et d'office sur les
+  écrans de travail denses (Scénario BDD, Éditeur, Exécution, Knowledge Graph) sous 1700 px de large.
+- Les rubriques d'un module ne sont plus une seconde colonne : elles tiennent sur une barre au-dessus du contenu, qui
+  prend toute la largeur. Le bouton « Console Cursor » est logé dans la barre latérale (il recouvrait le contenu).
+- Palette : une seule couleur d'accent (indigo) ; vert, orange et rouge réservés aux états. Thème clair par défaut,
+  thème sombre conservé. Titres de carte en casse normale, tableaux et pastilles allégés, champs et boutons sur fond blanc.
+- Repris de la maquette : la structure et le langage visuel. Non repris : ses chiffres, son assistant illustré et ses
+  entrées de menu sans écran derrière (Bibliothèque, Composants, Utilisateurs) — rien n'est affiché sans source réelle.
+  La barre latérale ne propose que des destinations existantes ; « Accueil » ouvre le Dashboard de pilotage.
+- Mise en œuvre : `plateforme.css` (règles modifiées à leur place), `plateforme.html`, socle `plateforme.js` (navigation
+  latérale `NAV`, entrée active, réduction). Aucun écran de module n'a été réécrit ; aucune route ni outil MCP modifié.
+- Corrigé au passage : le Dashboard échouait (« can only concatenate list ») dès qu'un écran était relié à une exigence.
+  La synthèse de corrélation rend maintenant aussi les clés (`cles_realisees`, `cles_verifiees`), lues par le pilotage.
+- Dashboard (demande du même jour) : une icône par indicateur et par bloc, au trait, sur quatre teintes (indigo pour les
+  volumes, vert pour l'acquis, orange et rouge pour les défauts). Un indicateur de défaut reste gris tant que sa valeur
+  est nulle : la couleur signale quelque chose à traiter, jamais une alerte à vide.

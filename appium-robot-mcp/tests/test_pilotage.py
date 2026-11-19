@@ -211,11 +211,13 @@ def test_le_dashboard_defile():
 
 
 def test_la_page_ne_depasse_pas_la_fenetre():
-    """Sans largeur de colonne, la grille de la page prenait la largeur minimale de la barre d'onglets : bandeau, onglets
-    et écran débordaient à droite, boutons coupés à 1366 px et moins (constaté dans un navigateur le 2026-11-18)."""
+    """Sans largeur de colonne bornée, la grille de la page prenait la largeur minimale de son contenu : bandeau et écran
+    débordaient à droite, boutons coupés à 1366 px et moins (constaté dans un navigateur le 2026-11-18). Depuis la barre
+    latérale (2026-11-19) : la colonne de travail reste bornée, la barre de contexte peut se tronquer, la navigation défile."""
     import re
     from pathlib import Path
 
     css = (Path(__file__).resolve().parents[1] / "atelier" / "adapters" / "web" / "static" / "plateforme.css").read_text("utf-8")
-    assert re.search(r"body\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)", css)
-    assert re.search(r"\.droite\s*\{[^}]*flex:\s*none", css) and re.search(r"\.onglets\s*\{[^}]*overflow-x:\s*auto", css)
+    assert re.search(r"body\s*\{[^}]*grid-template-columns:\s*var\(--nav-w\)\s+minmax\(0,\s*1fr\)", css)
+    assert re.search(r"\.entete\s*\{[^}]*min-width:\s*0", css) and re.search(r"#ecran\s*\{[^}]*min-width:\s*0", css)
+    assert re.search(r"\.droite\s*\{[^}]*flex:\s*none", css) and re.search(r"\.onglets\s*\{[^}]*overflow-y:\s*auto", css)

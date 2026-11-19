@@ -55,6 +55,10 @@ const ICONES = {
   aide: "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.9-.9 1.6V14M12 17h.01",
   xray: "M4 4h16v16H4zM8 12l3 3 5-6", fleche: "M5 12h14M13 6l6 6-6 6", mobile: "M7 2h10v20H7zM11 18h2", git: "M6 3v12M18 9a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM18 9v1a5 5 0 0 1-5 5H6",
   bouclier: "M12 2 4 5v6c0 5 3.4 9.5 8 11 4.6-1.5 8-6 8-11V5z", lint: "M4 7h10M4 12h16M4 17h7M17 15l2 2 3-4",
+  maison: "M3 11.5 12 4l9 7.5M5.5 10v10h4.5v-6h4v6h4.5V10", replier: "M14 6l-6 6 6 6M20 5v14", deplier: "M10 6l6 6-6 6M4 5v14",
+  horloge: "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M12 7v5l3 2", alerte: "M12 3.5 2.5 20h19zM12 10v4.5M12 17.2h.01", eclair: "M13 2 4.5 13.5H11L10 22l8.5-11.5H12z",
+  pause: "M8.5 5v14M15.5 5v14", calque: "M12 3 3 8l9 5 9-5zM3 12.5l9 5 9-5M3 17l9 5 9-5",
+  equipe: "M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.3a3.5 3.5 0 0 1 0 6.4M18 14.2a6.5 6.5 0 0 1 3.5 5.8",
 };
 const ico = (nom, titre = "") => `<svg class="i" viewBox="0 0 24 24" ${titre ? "" : 'aria-hidden="true"'}>${titre ? `<title>${esc(titre)}</title>` : ""}<path d="${ICONES[nom] || ""}"/></svg>`;
 
@@ -170,7 +174,17 @@ const Atelier = {
   ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"], ["parcours", "Parcours", "historique"],
     ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["centre", "Execution Center", "execution"],
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]],
-  /* écrans de travail rattachés à un module (l'onglet du module reste actif) */
+  /* barre latérale : [adresse, libellé, icône], par groupe. Seules des destinations qui existent ; « parametres » couvre
+     les rubriques de Paramètres qui n'ont pas leur propre entrée */
+  NAV: [["", [["dashboard", "Accueil", "maison"]]],
+    ["Plateforme", [["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "cible"], ["parcours", "Parcours", "historique"],
+      ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["centre", "Execution Center", "execution"],
+      ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]]],
+    ["Ressources", [["graphe", "Knowledge Graph", "graphe"], ["bdd", "Scénarios BDD", "bdd"], ["editeur", "Éditeur de code", "fichier"],
+      ["discovery/donnees", "Jeux de données", "donnee"]]],
+    ["Paramètres", [["parametres/projets", "Projets", "dossier"], ["parametres/applications", "Applications", "mobile"],
+      ["parametres/connexions", "Connexions", "lien"], ["parametres", "Paramètres", "parametres"]]]],
+  /* écrans de travail rattachés à un module, quand ils n'ont pas leur propre entrée dans la barre latérale */
   PARENT: {bdd: "conception", editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance"},
 
   enregistrer(id, ecran) { this.ecrans[id] = ecran; },
@@ -194,9 +208,10 @@ const Atelier = {
 
   async demarrer() {
     this._theme();
-    $("#onglets").innerHTML = this.ONGLETS.map(([id, lib, i]) => `<button data-ecran="${id}">${ico(i)}${esc(lib)}</button>`).join("") +
-      `<span class="sep"></span><button data-ecran="parametres" class="parametres">${ico("parametres")}Paramètres</button>`;
-    $("#onglets").onclick = e => { const b = e.target.closest("[data-ecran]"); if (b) location.hash = b.dataset.ecran; };
+    $("#onglets").innerHTML = this.NAV.map(([groupe, entrees]) => (groupe ? `<div class="groupe">${esc(groupe)}</div>` : "")
+      + entrees.map(([adresse, lib, i]) => `<button data-ecran="${adresse}" title="${esc(lib)}">${ico(i)}<span>${esc(lib)}</span></button>`).join("")).join("");
+    $("#onglets").onclick = e => { const b = e.target.closest("[data-ecran]"); if (b) location.hash = b.dataset.ecran === "parametres" ? "parametres/configuration" : b.dataset.ecran; };
+    this._navigation();
     $("#b-alertes").innerHTML = ico("cloche");
     $("#b-alertes").onclick = () => { location.hash = "graphe/anomalies"; };
     $("header .droite a").innerHTML = ico("ext");
@@ -220,8 +235,10 @@ const Atelier = {
     const [id, ...reste] = (location.hash.slice(1) || "dashboard").split("/");
     const nom = this.ecrans[id] ? id : "dashboard";
     const onglet = this.PARENT[nom] || nom;
-    $$("#onglets [data-ecran]").forEach(b => b.dataset.ecran === onglet ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+    this.nomCourant = nom;
+    this._entreeActive(nom, reste.join("/"));
     try { this.ecranCourant?.quitter?.(); } catch { /* écran précédent déjà fermé */ }
+    this._navEtat(this.navChoix === "reduite" || this._navAuto(nom));
     const zone = $("#ecran");
     zone.className = "";
     zone.removeAttribute("style");
@@ -229,6 +246,50 @@ const Atelier = {
     this.ecranCourant = this.ecrans[nom];
     document.title = `${(this.ONGLETS.find(o => o[0] === onglet) || [0, "Paramètres"])[1]} — AI Test Platform`;
     this.ecranCourant.afficher(zone, decodeURIComponent(reste.join("/")));
+  },
+
+  /* ------------------------------------------------------------------ barre latérale */
+  /* entrée active : l'adresse la plus précise qui commence l'adresse courante ; sinon le module auquel l'écran est rattaché */
+  _entreeActive(nom, reste) {
+    const adresse = nom === "parametres" && !reste ? "parametres/projets" : reste ? `${nom}/${reste}` : nom;
+    const boutons = $$("#onglets [data-ecran]");
+    let actif = null;
+    for (const b of boutons) {
+      const a = b.dataset.ecran;
+      if ((adresse === a || adresse.startsWith(a + "/") || (a.includes("/") && adresse.startsWith(a))) && (!actif || a.length > actif.dataset.ecran.length)) actif = b;
+    }
+    actif = actif || boutons.find(b => b.dataset.ecran === (this.PARENT[nom] || nom));
+    boutons.forEach(b => b === actif ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+  },
+
+  /* Réduite aux icônes : par choix (mémorisé), ou d'office sur un écran de travail dense quand la fenêtre est étroite.
+     Sur un tel écran, le bouton ne vaut que jusqu'au prochain changement d'écran. */
+  ECRANS_DENSES: ["bdd", "editeur", "execution", "graphe"],
+  _navAuto(nom) { return this.ECRANS_DENSES.includes(nom) && innerWidth < 1700; },
+  _navEtat(reduite, signaler = false) {
+    const b = $("#b-nav");
+    const change = document.body.classList.contains("nav-reduite") !== reduite;
+    document.body.classList.toggle("nav-reduite", reduite);
+    // clic sur « Réduire » pendant qu'un écran est affiché : ceux qui dessinent selon la largeur (graphe, liens BDD) se recalculent.
+    // À un changement d'écran, rien à signaler : la largeur est posée avant que le nouvel écran se dessine.
+    if (change && signaler) window.dispatchEvent(new Event("resize"));
+    b.innerHTML = `${ico(reduite ? "deplier" : "replier")}<span>Réduire</span>`;
+    b.title = reduite ? "Afficher les libellés de la barre latérale" : "Réduire la barre latérale aux icônes";
+    b.setAttribute("aria-expanded", String(!reduite));
+  },
+  _navigation() {
+    let choix = "ouverte";
+    try { choix = localStorage.getItem("atelier-nav") || "ouverte"; } catch { /* stockage indisponible */ }
+    this.navChoix = choix;
+    $("#b-nav").onclick = () => {
+      const reduite = !document.body.classList.contains("nav-reduite");
+      if (!this._navAuto(this.nomCourant)) {
+        this.navChoix = reduite ? "reduite" : "ouverte";
+        try { localStorage.setItem("atelier-nav", this.navChoix); } catch { /* préférence non mémorisée */ }
+      }
+      this._navEtat(reduite, true);
+    };
+    this._navEtat(choix === "reduite");
   },
 
   /* ------------------------------------------------------------------ thème */
@@ -267,7 +328,7 @@ const Atelier = {
       <div><label>Version</label><span class="val">${esc(c.version || "—")}</span></div>
       <div><label for="c-plat">Plateforme</label><span class="ligne">${ico({android: "android", ios: "pomme", web: "globe"}[this.plateforme] || "mobile")}<select id="c-plat">${plats.map(p => `<option value="${p}" ${p === this.plateforme ? "selected" : ""}>${{android: "Android", ios: "iOS", web: "Web", api: "API"}[p] || esc(p)}</option>`).join("")}</select></span></div>
       <div><label for="c-env">Environnement</label><select id="c-env">${(c.environnements || []).map(e => `<option ${e === this.env ? "selected" : ""}>${esc(e)}</option>`).join("") || "<option value=''>Aucun JDD</option>"}</select></div>
-      <div><label>Outil</label><span class="val">${Atelier.plateforme === "web" ? "Browser + Robot Framework" : "Appium + Robot Framework"}</span></div>
+      <div class="secondaire"><label>Outil</label><span class="val">${Atelier.plateforme === "web" ? "Browser + Robot Framework" : "Appium + Robot Framework"}</span></div>
       <div><label>Xray</label><span class="val" title="${esc(c.xray?.detail || "")}" style="color:var(--${xray[0] === "ok" ? "ok" : xray[0] === "ko" ? "ko" : "ink"})">${ico("xray")}${xray[1]}</span></div>
 `;
     const u = c.utilisateur || "";

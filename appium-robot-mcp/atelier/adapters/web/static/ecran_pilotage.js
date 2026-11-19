@@ -9,14 +9,39 @@
   const ZONES = ["synthese", "decision", "conception", "execution", "tnr"];
   const qs = () => Object.entries(F).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
   const lire = z => api(`/api/pilotage/${z}${qs() ? "?" + qs() : ""}`);
-  const titre = (t, a = "") => `<h2 class="titre-carte">${t}${a ? `<span class="actions-titre">${a}</span>` : ""}</h2>`;
+  /* Icônes : une par bloc (discrète, dans le titre) et une par indicateur. La couleur dit la nature de la mesure, pas une
+     alerte : un indicateur de défaut (bugs, tests instables, éléments sans…) reste neutre tant que sa valeur est nulle. */
+  const ICO_BLOC = {"Vue globale": "dashboard", "État de préparation de la livraison": "bouclier", "Alertes prioritaires": "cloche",
+    "Couverture des exigences": "cible", "Application Discovery et rapprochement avec Jira": "recherche", "Qualité de la conception": "assertion",
+    "Couverture par sprint": "rapports", "Résultats des campagnes": "execution", "Bugs et anomalies": "alerte",
+    "Responsabilités et charge de travail": "equipe", "Intelligence de non-régression (TNR)": "rejouer", "Aide à la décision : que faire maintenant ?": "ia"};
+  const ICO_IND = {
+    exigences: ["calque", ""], total: ["calque", ""], couvertes: ["assertion", "ok"], reliees: ["lien", "ok"], taux_couverture: ["cible", ""],
+    tests: ["xray", ""], tests_xray: ["xray", ""], bdd: ["bdd", ""], automatises: ["editeur", ""], automatisees: ["editeur", "ok"], manuelles: ["fichier", ""],
+    taux_reussite: ["rapports", "ok"], premier_passage: ["rapports", "ok"], final: ["rapports", "ok"], validees: ["assertion", "ok"], reussis: ["check", "ok"],
+    approuves: ["assertion", "ok"], apres_retry: ["rejouer", "ok"], executees: ["play", ""], executes: ["play", ""], en_cours: ["execution", ""],
+    tnr: ["rejouer", ""], relances: ["rejouer", ""], duree: ["horloge", ""], modules: ["dossier", ""], fonctionnalites: ["branche", ""],
+    ecrans: ["mobile", ""], parcours: ["fleche", ""], regles: ["bouclier", ""], en_revue: ["recherche", ""],
+    bugs_ouverts: ["alerte", "warn"], bugs_critiques: ["alerte", "ko"], instables: ["eclair", "warn"], echoues: ["x", "ko"], echec: ["x", "ko"],
+    bloques: ["pause", "warn"], blocage: ["pause", "warn"], non_executes: ["stop", "warn"], sans_test: ["aide", "warn"], partielles: ["condition", "warn"],
+    sans_precondition: ["lint", "warn"], sans_jdd: ["donnee", "warn"], sans_resultat: ["assertion", "warn"], redondants: ["copie", "warn"],
+    ouverts: ["alerte", "warn"], critiques: ["alerte", "ko"], reouverts: ["rejouer", "warn"], non_affectes: ["equipe", "warn"], resolus: ["check", "ok"],
+    rejetes: ["x", ""], resolution: ["horloge", ""], tests_associes: ["xray", ""],
+    a_valider: ["horloge", "warn"], ecrans_sans_exigence: ["ecran", "warn"], ecrans_non_valides: ["ecran", "warn"], exigences_sans_ecran: ["lien", "warn"]};
+  const icone = i => {
+    const [nom, ton] = ICO_IND[i.id] || [];
+    if (!nom) return "";
+    const defaut = ton === "warn" || ton === "ko";
+    return `<span class="kpi-ico ${defaut && !(i.disponible && Number(i.valeur) > 0) ? "neutre" : ton}" aria-hidden="true">${ico(nom)}</span>`;
+  };
+  const titre = (t, a = "") => `<h2 class="titre-carte">${ICO_BLOC[t] ? ico(ICO_BLOC[t]) : ""}${t}${a ? `<span class="actions-titre">${a}</span>` : ""}</h2>`;
   const attente = (m = "Calcul…") => `<div class="corps-carte">${vide(m)}</div>`;
   const PRIO = {haute: "ko", moyenne: "warn", basse: ""};
   const infobulle = i => `${i.definition}\nFormule : ${i.formule}\nSource : ${i.source}${i.date ? `\nDonnées du ${i.date}` : ""}${i.disponible ? "" : `\nIndisponible : ${i.raison}`}`;
   const valeur = i => i.disponible ? `${i.valeur}${i.unite === "%" ? " %" : i.unite ? " " + esc(i.unite) : ""}` : "—";
   const evolution = i => i.evolution === null || i.evolution === undefined || i.evolution === 0 ? "" : `<small title="Depuis l'instantané précédent (${i.precedent})" style="color:var(--muted)">${i.evolution > 0 ? "▲ +" : "▼ "}${i.evolution}</small>`;
   const tuile = i => `<a class="kpi" href="${esc(i.lien || "#dashboard")}" title="${esc(infobulle(i))}" style="text-decoration:none;color:inherit;display:block">
-    <div class="v" ${i.disponible ? "" : 'style="color:var(--muted)"'}>${valeur(i)} ${evolution(i)}</div><div class="l">${esc(i.libelle)}</div>
+    <div class="kpi-tete"><div class="v" ${i.disponible ? "" : 'style="color:var(--muted)"'}>${valeur(i)} ${evolution(i)}</div>${icone(i)}</div><div class="l">${esc(i.libelle)}</div>
     ${i.disponible ? (i.detail ? `<div class="l" style="font-size:10.5px">${esc(i.detail)}</div>` : "") : `<div class="l" style="font-size:10.5px">${esc(i.raison)}</div>`}</a>`;
   const tuiles = (l, colonnes = 4) => `<div class="kpis" style="grid-template-columns:repeat(${colonnes},minmax(0,1fr))">${l.map(tuile).join("")}</div>`;
   const notes = l => l && l.length ? `<p class="lib" style="margin-top:8px">Non mesuré : ${l.map(esc).join(" ")}</p>` : "";
@@ -174,7 +199,11 @@
       zone = z; jeton = Symbol("pilotage");
       const j = jeton;
       z.className = "g-dash";
-      z.innerHTML = `<section class="carte s12"><div class="corps-carte" id="pz-filtres">${vide("Chargement…")}</div></section>
+      const c = Atelier.ctx || {}, appli = (c.applications || []).find(x => x.slug === c.application);
+      z.innerHTML = `<header class="page-tete"><div><h1>Bonjour${c.utilisateur ? " " + esc(c.utilisateur) : ""}</h1>
+          <p>État du projet <b>${esc(c.projet || "—")}</b>${appli ? ` · application ${esc(appli.nom)}` : ""}. Chaque indicateur vient d'une source réelle.</p></div>
+          <div class="btns"><a class="btn primaire" href="#discovery/cadrage/nouveau" title="Préparer un parcours utilisateur avant de le dérouler (Discovery)">${ico("plus")}Nouveau parcours</a></div></header>
+        <section class="carte s12"><div class="corps-carte" id="pz-filtres">${vide("Chargement…")}</div></section>
         <section class="carte s12" id="pz-synthese">${titre("Vue globale")}${attente()}</section>
         <section class="carte s5" id="pz-preparation">${titre("État de préparation de la livraison")}${attente()}</section>
         <section class="carte s7" id="pz-alertes">${titre("Alertes prioritaires")}${attente()}</section>

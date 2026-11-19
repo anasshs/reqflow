@@ -11,19 +11,27 @@
   (function () {
     var t = null;
     try { t = localStorage.getItem("atelier-theme"); } catch (e) { /* stockage indisponible */ }
-    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", t);
   })();
 </script>
 <link rel="stylesheet" href="/static/plateforme.css">
 </head>
 <body>
-<header class="entete">
-  <div class="logo">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 29 27H3Z" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M16 12 22.5 24h-13Z" fill="var(--violet)" opacity=".85"/></svg>
+<script>
+  /* barre latérale réduite : état mémorisé, posé avant le premier rendu */
+  try { if (localStorage.getItem("atelier-nav") === "reduite") document.body.classList.add("nav-reduite"); } catch (e) { /* stockage indisponible */ }
+</script>
+<aside class="nav-lat" aria-label="Navigation">
+  <a class="logo" href="#dashboard" title="Accueil">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 29 27H3Z" fill="none" stroke="var(--logo-1)" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M16 12 22.5 24h-13Z" fill="var(--logo-2)"/></svg>
     <div><b>AI Test Platform</b><small>Enterprise</small></div>
-  </div>
+  </a>
+  <nav class="onglets" id="onglets" aria-label="Espaces"></nav>
+  <div class="nav-pied"><button id="b-nav" aria-expanded="true"></button></div>
+</aside>
+<header class="entete">
   <div class="ctx" id="ctx" aria-label="Contexte de travail"></div>
   <div class="droite">
     <button class="icone" id="b-alertes" title="Anomalies et propositions à valider" aria-label="Anomalies"></button>
@@ -33,7 +41,6 @@
     <div class="utilisateur" id="utilisateur"></div>
   </div>
 </header>
-<nav class="onglets" id="onglets" aria-label="Espaces"></nav>
 <main id="ecran"></main>
 <script src="/static/graphe.js"></script>
 <script src="/static/plateforme.js"></script>
