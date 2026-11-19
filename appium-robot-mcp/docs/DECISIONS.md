@@ -669,3 +669,17 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Décision : `--force` reste absent par défaut. Une case de Paramètres › Cursor / Claude (étape 4) l'ajoute pour le
   projet (`cli_force` dans `atelier_cursor.yaml`), avec l'avertissement : l'agent peut alors aussi lancer des commandes
   du poste et écrire des fichiers sans demander. Rôle automaticien exigé.
+
+## 2026-11-19 — « Générer le script Robot » de Test Design mène à Automation Studio
+- Constat de l'utilisateur : dans Construction BDD, le bouton générait le script sur place (calcul local, sans Cursor),
+  avec des keywords vides pour les étapes sans keyword, puis ouvrait l'éditeur de code. Rien ne menait à Automation
+  Studio, où Cursor construit le test.
+- Décision : le bouton ouvre Automation Studio › BDD → Robot (mapping) sur le scénario en cours. Test Design conçoit,
+  Automation Studio automatise.
+- Sur cet écran : « Faire construire par Cursor » (keywords manquants créés dans le socle, dry run, soumission en revue)
+  et « Générer le script Robot » (aperçu puis écriture, jamais d'écrasement implicite). L'ancienne prévisualisation
+  seule est remplacée par cette fenêtre, qui porte les mêmes contrôles qu'avant : écriture bloquée tant qu'une étape
+  proche d'un keyword existant n'est pas tranchée, keywords à implémenter listés.
+- Après écriture, le script entre en revue « Généré » comme avant, et l'atelier ouvre Revue et publication sur ce
+  script (et non plus l'éditeur de code).
+- Aucune route ni aucun outil MCP modifié : seuls deux écrans changent.

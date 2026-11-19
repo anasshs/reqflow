@@ -293,7 +293,7 @@
     const etatsLoc = x => `<span class="pill ${PILL[x.etat] || ""}" title="${esc(x.etat)}">${esc(x.id)}</span>`;
     z.innerHTML = `${entete("BDD to Automation", `<select class="in" id="mp-cle" style="width:auto">${l.map(b => `<option ${b.cle === cle ? "selected" : ""}>${esc(b.cle)}</option>`).join("")}</select>
         <button class="btn primaire" id="mp-cursor" title="Copie la demande à coller dans Cursor : il construit le test avec les outils du MCP, l'écrit et le soumet en revue ; vous l'approuvez ici">${ico("ia")}Faire construire par Cursor</button>
-        <a class="btn" href="#bdd/${encodeURIComponent(cle)}" title="Ouvre le scénario dans Construction BDD pour corriger les étapes ou le mapping (propositions IA par étape)">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn primaire" id="mp-gen" title="Montre le test Robot qui serait généré ; rien n'est écrit">${ico("play")}Prévisualiser le Robot</button>`)}
+        <a class="btn" href="#bdd/${encodeURIComponent(cle)}" title="Ouvre le scénario dans Construction BDD pour corriger les étapes ou le mapping (propositions IA par étape)">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn" id="mp-gen" title="Aperçu du test Robot généré depuis le mapping, puis écriture dans le projet (jamais d'écrasement implicite) ; le script entre en revue">${ico("editeur")}Générer le script Robot</button>`)}
       <div class="corps-carte"><p><b>${esc(m.cle)}</b> · ${esc(m.titre)} · JDD <span class="mono">${esc(m.jdd || "—")}</span> · BDD ${esc(m.statut_bdd)} ·
         <span class="pill ok">${m.existants} étape(s) reliée(s) au socle</span> <span class="pill ${m.a_creer ? "warn" : ""}">${m.a_creer} keyword(s) à créer</span></p>
       ${m.scenarios.map(s => `<h3 class="lib" style="margin:12px 0 6px">${esc(s.type === "principal" ? "SCÉNARIO" : "BRANCHE " + s.type.toUpperCase())} · ${esc(s.nom)}</h3>
@@ -308,10 +308,27 @@
       + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants dans le socle sans wrapper 1:1, vérifie en dry_run, `
       + `écris la suite puis studio_soumettre_revue. Je valide dans Automation Studio › Revue et publication.`);
     $("#mp-gen").onclick = async () => {
-      try { const g = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: false}});
-        modale(`Robot généré · ${cle} (prévisualisation, rien n'est écrit)`, `<pre class="code-bloc">${esc(g.contenu || g.robot || JSON.stringify(g, null, 1))}</pre>
-          <p class="lib">Écriture : depuis Construction BDD (jamais d'écrasement implicite), puis revue technique dans Automation Review.</p>`);
-      } catch (e) { toast(e.message, "ko"); }
+      let g;
+      try { g = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: false}}); } catch (e) { return toast(e.message, "ko"); }
+      const bloquants = (g.keywords_proches || []).filter(x => !x.confirme);
+      const fen = modale(`Générer le script Robot · ${cle}`, `
+        <div class="btns" style="margin-bottom:8px"><span class="pill ok">${g.keywords_reutilises.length} keyword(s) du socle réutilisé(s)</span>
+          <span class="pill ${g.keywords_a_creer.length ? "warn" : "ok"}">${g.keywords_a_creer.length} keyword(s) à implémenter</span></div>
+        ${bloquants.length ? `<p class="lib"><span class="pill ko">Écriture bloquée</span> Étapes proches d'un keyword existant, à trancher dans <a href="#bdd/${encodeURIComponent(cle)}">Construction BDD</a> (reprendre le keyword ou confirmer un nouveau keyword) : ${bloquants.map(x => `« ${esc(x.etape)} » ≈ « ${esc(x.keyword)} »`).join(", ")}</p>` : ""}
+        ${g.keywords_a_creer.length ? `<p class="lib">À implémenter : ${esc(g.keywords_a_creer.join(", "))}. Écrits ici, ils échouent explicitement tant qu'ils ne sont pas implémentés ;
+          « Faire construire par Cursor » les crée dans le socle et vérifie le test avant de le soumettre.</p>` : ""}
+        <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}"></div>
+        <pre class="code-bloc" style="max-height:42vh;overflow:auto">${esc(g.contenu)}</pre>`,
+        `<label class="lib" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="g-ecr"> Remplacer s'il existe</label>
+         <button class="btn primaire" id="g-ok" title="Le script entre en revue « Généré » : vous décidez dans Revue et publication">${ico("disque")}Écrire dans le projet</button>`);
+      $("#g-ok", fen.el).onclick = async () => {
+        try {
+          const r = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: true, chemin: $("#g-ch", fen.el).value, ecraser: $("#g-ecr", fen.el).checked}});
+          fen.fermer(); toast(`Écrit : ${r.ecrit}. Le script est en revue.`, "ok");
+          try { sessionStorage.setItem("studio-revue", r.ecrit); } catch (e) { /* facultatif */ }
+          location.hash = "studio/revue";
+        } catch (e) { toast(e.message, "ko"); }
+      };
     };
   }
 

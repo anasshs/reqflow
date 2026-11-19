@@ -72,7 +72,7 @@
         <div class="gros-btns">
           <button class="btn violet" id="b-analyser">${ico("ia")}Analyser le scénario</button>
           <button class="btn" id="b-couv">${ico("bouclier")}Vérifier la couverture</button>
-          <button class="btn primaire" id="b-generer">${ico("editeur")}<span>Générer le script Robot<small>Robot Framework</small></span></button>
+          <button class="btn primaire" id="b-generer" title="Ouvre Automation Studio › BDD → Robot sur ce scénario : mapping étape → keyword, construction par Cursor ou écriture du script">${ico("editeur")}<span>Générer le script Robot<small>Automation Studio</small></span></button>
           <button class="btn succes" id="b-valider">${ico("check")}Valider le scénario</button>
         </div>`;
       $$("[data-ajout]").forEach(b => b.onclick = () => ajout(b.dataset.ajout));
@@ -93,7 +93,7 @@
       $("#b-q").onkeydown = e => { if (e.key === "Enter") analyserIA($("#b-q").value.trim()); };
       $("#b-analyser").onclick = () => analyserIA("");
       $("#b-couv").onclick = () => { S.ongletIA = "qualite"; $$(".panneau-ia [data-o]").forEach(x => x.setAttribute("aria-selected", x.dataset.o === "qualite")); reco(); toast("Contrôles de couverture recalculés."); };
-      $("#b-generer").onclick = generer;
+      $("#b-generer").onclick = () => { location.hash = "studio/mapping/" + encodeURIComponent(S.cle); };  // la génération se fait dans Automation Studio
       $("#b-valider").onclick = () => operation({op: "valider"}, "Scénario validé.");
       window.addEventListener("resize", liens);
       charger();
@@ -444,26 +444,6 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
     }
     if (!S.sel) return toast("Sélectionner d'abord une étape.", "ko");
     $(quoi === "ecran" ? "#p-ecran" : "#p-api")?.focus();
-  }
-
-  async function generer() {
-    let g;
-    try { g = await api(`/api/bdd/${encodeURIComponent(S.cle)}/generer`, {method: "POST", body: {}}); } catch (e) { return toast(e.message, "ko"); }
-    const m = modale("Générer le script Robot", `
-      <div class="btns" style="margin-bottom:8px"><span class="pill ok">${g.keywords_reutilises.length} keyword(s) du socle réutilisé(s)</span>
-        <span class="pill ${g.keywords_a_creer.length ? "warn" : "ok"}">${g.keywords_a_creer.length} keyword(s) à implémenter</span></div>
-      ${(g.keywords_proches || []).filter(x => !x.confirme).length ? `<p class="lib"><span class="pill ko">Écriture bloquée</span> Étapes proches d'un keyword existant, à trancher dans le scénario (reprendre le keyword ou confirmer un nouveau keyword) : ${g.keywords_proches.filter(x => !x.confirme).map(x => `« ${esc(x.etape)} » ≈ « ${esc(x.keyword)} »`).join(", ")}</p>` : ""}
-      ${g.keywords_a_creer.length ? `<p class="lib">À implémenter (ils échouent explicitement tant qu'ils ne le sont pas) : ${esc(g.keywords_a_creer.join(", "))}</p>` : ""}
-      <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}"></div>
-      <pre class="code" style="display:block;padding:10px;max-height:45vh;overflow:auto">${esc(g.contenu)}</pre>`,
-      `<label class="lib" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="g-ecr"> Remplacer s'il existe</label>
-       <button class="btn primaire" id="g-ok">${ico("disque")}Écrire dans le projet</button>`);
-    $("#g-ok", m.el).onclick = async () => {
-      try {
-        const r = await api(`/api/bdd/${encodeURIComponent(S.cle)}/generer`, {method: "POST", body: {ecrire: true, chemin: $("#g-ch", m.el).value, ecraser: $("#g-ecr", m.el).checked}});
-        m.fermer(); toast(`Écrit : ${r.ecrit}`, "ok"); location.hash = "editeur/" + encodeURIComponent(r.ecrit);
-      } catch (e) { toast(e.message, "ko"); }
-    };
   }
 
   async function test() {
