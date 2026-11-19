@@ -568,6 +568,28 @@ tr.sel > td { background: var(--accent-soft); }
   border-radius: 8px; background: var(--surface-2); color: inherit; cursor: pointer; font: inherit; }
 .co-ecran[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 .co-ecran > span { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* Discovery › Préparer un parcours : étapes du cadrage */
+.cad-etapes { display: flex; list-style: none; margin: 0; padding: 10px 12px 0; gap: 6px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.cad-etapes li { flex: 1 1 0; min-width: 132px; }
+.cad-etapes button { width: 100%; display: flex; align-items: center; gap: 8px; background: none; border: 0; border-bottom: 3px solid var(--line-2); padding: 8px 6px 10px;
+  cursor: pointer; color: var(--muted); font-size: 12.5px; text-align: left; white-space: nowrap; }
+.cad-etapes button[aria-selected="true"] { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
+.cad-etapes button:disabled { opacity: .45; cursor: not-allowed; }
+.cad-n { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 600; }
+.cad-n svg { width: 13px; height: 13px; }
+.cad-etapes button.fait .cad-n { background: var(--ok-soft, var(--accent-soft)); border-color: transparent; color: var(--ok, var(--accent-ink)); }
+.cad-pied { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); justify-content: flex-end; }
+.cad-pied [data-prec] { margin-right: auto; }
+.cad-exigences li { display: block; }
+.cad-ligne { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cad-ligne .item { flex: 1; min-width: 160px; }
+.cad-criteres { margin: 4px 0 2px; padding-left: 18px; color: var(--muted); font-size: 12.5px; }
+.cad-choix { display: inline-flex; gap: 6px; align-items: center; padding: 6px 10px; border: 1px solid var(--line-2); border-radius: 8px; cursor: pointer; }
+.cad-recap th { width: 190px; text-align: left; vertical-align: top; color: var(--muted); font-weight: 500; }
+.cad-ecrans { margin: 6px 0 10px; padding-left: 22px; }
+.cad-ecrans li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+.cad-ecrans li > * { margin-right: 8px; }
+.df-cadre { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); }
 .co-liens li { display: block; }
 .co-ligne { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .co-ligne .item { flex: 1; min-width: 140px; }

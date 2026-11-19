@@ -155,6 +155,9 @@ def ecran(eid: str, ctx=None) -> dict:
     mots = _mots(e.get("nom", ""), e.get("titre", ""), e.get("module", ""))
     proposees = []
     ecartees = set(exigences) | {x["cle"] for x in rejetees}
+    from atelier.discovery import parcours_utilisateur
+
+    du_parcours = parcours_utilisateur.exigences_des_ecrans().get(e["id"], {})  # exigences des parcours qui traversent l'écran
     if mots:
         for x in pat.get("exigences", []):
             if x["cle"] in ecartees:
@@ -163,7 +166,13 @@ def ecran(eid: str, ctx=None) -> dict:
             if communs:
                 proposees.append({"cle": x["cle"], "resume": x.get("resume", ""), "type": x["type"], "mots": sorted(communs),
                                   "score": len(communs)})
-        proposees.sort(key=lambda p: (-p["score"], p["cle"]))
+    for p in proposees:
+        if p["cle"] in du_parcours:
+            p["parcours"] = du_parcours[p["cle"]]
+    vues = {p["cle"] for p in proposees}
+    proposees += [{"cle": k, "resume": ex_par_cle[k].get("resume", ""), "type": ex_par_cle[k]["type"], "mots": [], "score": 0, "parcours": noms}
+                  for k, noms in du_parcours.items() if k not in vues and k not in ecartees and k in ex_par_cle]
+    proposees.sort(key=lambda p: (not p.get("parcours"), -p["score"], p["cle"]))
     proposees = _avec_jugements(jug, proposees, ecartees, pat)
     fichiers = sorted({t["fichier"] for t in imp["tests_robot"] if t.get("fichier")}
                       | {n.proprietes.get("fichier") for n in g.noeuds.values()
@@ -409,7 +418,7 @@ def _avec_jugements(jug: dict, proposees: list[dict], ecartees: set, pat: dict) 
             out.append({"cle": cle, "resume": x.get("resume", ""), "type": x.get("type", ""), "mots": [], "score": 0, "jugement": j})
     ordre = {"concerne": 0, "incertain": 1, None: 2, "ne_concerne_pas": 3}
     rang = lambda p: ordre.get((p.get("jugement") or {}).get("verdict"), 2)  # noqa: E731
-    return sorted((p for p in out if p["cle"] not in ecartees), key=lambda p: (rang(p), -p["score"], p["cle"]))
+    return sorted((p for p in out if p["cle"] not in ecartees), key=lambda p: (rang(p), not p.get("parcours"), -p["score"], p["cle"]))
 
 
 def _vue_ecran(e: dict) -> dict:
@@ -443,6 +452,7 @@ def correlations_a_juger(eid: str = "", limite: int = 15) -> dict:
                        "verifiees_par_tests": [{"cle": v["cle"], "resume": court(v["resume"], 160), "tests": v["via"],
                                                 "jugement": v.get("jugement")} for v in c["verifiees"]],
                        "candidats": [{"cle": p["cle"], "resume": court(p["resume"], 160), "mots_communs": p["mots"],
+                                      "parcours": p.get("parcours", []),
                                       "description": court((par_cle.get(p["cle"]) or {}).get("description"), 300),
                                       "criteres": [court(x, 160) for x in ((par_cle.get(p["cle"]) or {}).get("criteres") or [])[:6]],
                                       "jugement": p.get("jugement")} for p in c["exigences_proposees"]]})

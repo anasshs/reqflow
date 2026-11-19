@@ -683,3 +683,18 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Après écriture, le script entre en revue « Généré » comme avant, et l'atelier ouvre Revue et publication sur ce
   script (et non plus l'éditeur de code).
 - Aucune route ni aucun outil MCP modifié : seuls deux écrans changent.
+
+## 2026-11-19 — Initiation de Discovery : préparer un parcours utilisateur avant de le dérouler
+- Demande de l'utilisateur : présenter la Discovery avec Cursor comme un assistant qui fait choisir le jeu de données,
+  nommer le parcours et rattacher une epic ou une US avant le déroulé sur device ou web ; les parcours sont sauvegardés,
+  rouvrables et modifiables.
+- Décision : un écran en cinq étapes dans Discovery (« Préparer un parcours »), pas un nouveau module. Détail :
+  docs/PARCOURS_UTILISATEUR.md.
+- Nom : « parcours utilisateur », pour ne pas le confondre avec le « parcours de fonctionnalité » du menu Parcours.
+- Lien parcours ↔ exigence validé d'office (déclaré par l'automaticien) ; lien écran ↔ exigence inchangé : proposition
+  à confirmer dans Corrélation. Les exigences du parcours y sont seulement proposées en premier pour ses écrans.
+- Relation choisie pour exigence → parcours : `associe_a` (règle d'ontologie `HAS_JOURNEY`), et non `contient`, pour
+  qu'elle n'entre ni dans les périmètres ni dans la couverture.
+- Jeu de données : le profil de Discovery › Données (celui dont Cursor tire ses saisies), pas `data/jdd`.
+- MCP : un outil ajouté (`discovery_parcours_cadre`, lecture) et un paramètre facultatif (`discovery_demarrer(parcours=…)`).
+  112 outils ; les noms et signatures existants sont conservés.

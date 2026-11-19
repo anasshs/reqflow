@@ -89,7 +89,7 @@ def test_outils_et_contrat_mcp(env):
     e, _, _ = env
     noms = client_mcp.lister_outils(e)
     attendu = json.loads((Path(__file__).parent / "fixtures" / "outils_mcp.json").read_text("utf-8"))
-    assert set(attendu) <= set(noms) and len(noms) == 111  # 76 historiques conservés + 12 ajoutés en V2 + agent_annoncer (console Cursor) + 2 granularité + 10 jugements délégués à Cursor + studio_rapprocher_etapes + 2 jugement des keywords + 5 référentiel de données Discovery + 2 boîte de demandes
+    assert set(attendu) <= set(noms) and len(noms) == 112  # 76 historiques conservés + 12 ajoutés en V2 + agent_annoncer (console Cursor) + 2 granularité + 10 jugements délégués à Cursor + studio_rapprocher_etapes + 2 jugement des keywords + 5 référentiel de données Discovery + 2 boîte de demandes + discovery_parcours_cadre
     r = client_mcp.session([("cursor_regles", {}), ("coverage_ui", {}), ("failure_connaissance", {}), ("knowledge_entites", {"type": "champ"}),
                             ("test_design_doublons", {"titre": "Connexion refusée avec un mot de passe invalide"})], e)
     assert not any(x["erreur"] for x in r), [x for x in r if x["erreur"]]

@@ -259,6 +259,7 @@ REGLES = [
     # anomalies (Failure Analysis)
     ("concerne", None, None, "AFFECTS", False, "", ""),
     ("detecte_par", None, None, "DETECTED_BY", False, "", ""),
+    ("associe_a", _EXIGENCES + ("JiraBug",), _PARCOURS, "HAS_JOURNEY", False, "", ""),  # cadrage d'un parcours utilisateur
     ("associe_a", None, None, "RELATED_TO", False, "", ""),
 ]
 

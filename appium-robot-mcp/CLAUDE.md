@@ -18,12 +18,13 @@ Application Intelligence, Failure Analysis, Quality Governance : docs/INTELLIGEN
 Testabilité des US (stratégie actionnable) : docs/TESTABILITE_US.md.
 Corrélation exigences ↔ écrans (« vérifiée sur » automatique, « réalisé par » validé) : docs/CORRELATION_EXIGENCES_ECRANS.md.
 Discovery Data Setup (référentiel universel de variables, profils, générateurs, contexte de session) : docs/DISCOVERY_DATA_SETUP.md.
+Parcours utilisateur (initiation de Discovery : cadrer un parcours avant de le dérouler, le rouvrir, le valider) : docs/PARCOURS_UTILISATEUR.md.
 Dashboard de pilotage (couverture, exécution, TNR par analyse d'impact, état de préparation) : docs/DASHBOARD_PILOTAGE.md.
 Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
 fonctionnalité, demandes d'action validées côté serveur, 11 règles Cursor versionnées, couverture parcours / UI, Test
 Design par catégories et doublons, Champ / Anomalie, échecs reliés à la connaissance, jugements délégués à Cursor (granularité, doublons, redondances, liens
-exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 111 outils MCP (76 historiques
+exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 112 outils MCP (76 historiques
 inchangés) ; classement de sécurité de chaque outil : tests/test_securite_outils.py (à compléter pour tout nouvel outil) ;
 client MCP de test : tests/client_mcp.py.
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).

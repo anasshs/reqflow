@@ -18,7 +18,7 @@ Les outils sont regroupés par préfixe ; choisir le plus précis :
 - Session device / navigateur : start_session, get_screen_elements, element_at, tap, type_text, swipe, press_back,
   wait_for, screenshot, stop_session.
 - Carte : where_am_i, list_screens, screen_info, goto_screen, name_screen, export_screen_resource, map_*.
-- Discovery : discovery_demarrer, discovery_ecran_courant, discovery_proposer, discovery_parcours_vers_bdd, discovery_terminer.
+- Discovery : discovery_parcours_cadre, discovery_demarrer, discovery_ecran_courant, discovery_proposer, discovery_parcours_vers_bdd, discovery_terminer.
 - Données du Discovery : discovery_donnees_catalogue, discovery_donnees_pour_champs, discovery_donnee, discovery_donnee_definir,
   discovery_donnees_contexte ; saisie par référence type_text(locator, "{{var:CLE}}").
 - Construction : studio_socle, studio_rapprocher_etapes, studio_keywords_a_juger, studio_juger_keywords, studio_scenario_bdd, studio_generer_depuis_bdd, studio_construire_test,

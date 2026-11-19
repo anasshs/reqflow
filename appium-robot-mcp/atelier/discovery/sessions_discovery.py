@@ -92,7 +92,12 @@ def creer(config: dict) -> dict:
     if not app:
         raise ValueError("Aucune application : la déclarer d'abord (Paramètres › Applications).")
     cfg_app = carte.config_app(app)
-    plateforme = config.get("plateforme") or (cfg_app.get("plateformes") or ["web"])[0]
+    cadre = {}
+    if config.get("parcours"):  # session qui déroule un parcours utilisateur préparé : le cadrage complète la configuration
+        from atelier.discovery import parcours_utilisateur
+
+        cadre = parcours_utilisateur.cadre_session(str(config["parcours"]), app)
+    plateforme = config.get("plateforme") or cadre.get("plateforme") or (cfg_app.get("plateformes") or ["web"])[0]
     if plateforme not in (cfg_app.get("plateformes") or []):
         raise ValueError(f"Plateforme {plateforme} non déclarée pour {cfg_app.get('nom')}.")
     mode = config.get("mode") or "guidee"
@@ -104,15 +109,19 @@ def creer(config: dict) -> dict:
         sid += "b"
     s = {"id": sid, "statut": "Préparée", "cree": _maintenant(), "auteur": _auteur(),
          "config": {"app": app, "app_nom": cfg_app.get("nom", app), "build": config.get("build") or cfg_app.get("build", ""),
-                    "plateforme": plateforme, "environnement": config.get("environnement", ""),
+                    "plateforme": plateforme, "environnement": config.get("environnement") or cadre.get("environnement", ""),
                     "device": config.get("device", ""), "langue": config.get("langue") or cfg_app.get("langue", "fr"),
-                    "mode": mode, "point_depart": config.get("point_depart", ""), "profondeur": entier("profondeur", 3),
-                    "max_ecrans": entier("max_ecrans", 30), "perimetre": config.get("perimetre", ""),
-                    "profil_donnees": _profil_donnees(config.get("profil_donnees", "")),
+                    "mode": mode, "point_depart": config.get("point_depart") or cadre.get("point_depart", ""),
+                    "profondeur": entier("profondeur", 3),
+                    "max_ecrans": entier("max_ecrans", 30), "perimetre": config.get("perimetre") or cadre.get("perimetre", ""),
+                    "profil_donnees": _profil_donnees(config.get("profil_donnees") or cadre.get("profil_donnees", "")),
+                    "parcours": cadre.get("parcours", ""), "parcours_nom": cadre.get("parcours_nom", ""),
                     "actions_interdites": [a.strip() for a in config.get("actions_interdites") or [] if str(a).strip()]},
          "periodes": [], "annotations": 0, "sensibles": 0}
     _ecrire(s)
-    _evenement(sid, {"type": "session_creee", "detail": MODES[mode]})
+    _evenement(sid, {"type": "session_creee", "detail": MODES[mode] + (f" · parcours « {cadre['parcours_nom']} »" if cadre else "")})
+    if cadre:
+        parcours_utilisateur.rattacher_session(cadre["parcours"], sid)
     return s
 
 
@@ -167,6 +176,13 @@ def arreter(sid: str) -> dict:
     s["resultats"] = _resultats(s)
     _ecrire(s)
     _evenement(sid, {"type": "arret", "detail": f"{s['resultats']['nouveaux_ecrans']} nouvel(aux) écran(s)"})
+    if s["config"].get("parcours"):  # les écrans traversés sont proposés au parcours ; jamais d'échec de l'arrêt pour autant
+        try:
+            from atelier.discovery import parcours_utilisateur
+
+            parcours_utilisateur.session_terminee(s)
+        except Exception as e:  # noqa: BLE001
+            _evenement(sid, {"type": "parcours", "detail": f"écrans non rattachés au parcours : {e}"[:300]})
     return s
 
 

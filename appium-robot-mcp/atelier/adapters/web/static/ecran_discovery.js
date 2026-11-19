@@ -5,9 +5,10 @@
   /* Écrans, composants et validation se consultent dans Application Intelligence (une seule liste d'écrans, une seule
      boîte « À valider ») : ces anciennes adresses y mènent. */
   const VERS_AI = {ecrans: "intelligence/ecrans", composants: "intelligence/ecrans", validation: "intelligence/a_valider"};
-  /* 6 entrées : explorer, puis consulter ce qui a été observé ; les anciens écrans deviennent des onglets (adresses inchangées) */
+  /* 7 entrées : préparer un parcours, explorer, puis consulter ce qui a été observé ; les anciens écrans deviennent des onglets (adresses inchangées) */
   const GROUPES = [
     ["vue", "Vue d'ensemble", [["vue", "Vue d'ensemble"]], "Ce que la Discovery connaît de l'application et quoi explorer ensuite"],
+    ["cadrage", "Préparer un parcours", [["cadrage", "Parcours utilisateur"]], "Avant de dérouler l'application : nom du parcours, exigences Jira, données, cible ; les parcours sont enregistrés et se rouvrent"],
     ["studio", "Explorer", [["studio", "Explorer"], ["sessions", "Sessions"]], "Lancer ou reprendre une exploration (device, émulateur, navigateur), guidée, assistée ou par Cursor"],
     ["resultats", "Résultats", [["resultats", "Synthèse"], ["navigation", "Navigation"], ["comportements", "Comportements"], ["api", "API observées"]],
       "Ce qui a été observé : parcours, transitions, comportements, appels réseau"],
@@ -30,7 +31,8 @@
         if (ECRAN) { try { sessionStorage.setItem("ai-ecran", ECRAN); } catch (e) { /* facultatif */ } }
         location.hash = VERS_AI[sous]; return;
       }
-      R = MENU.some(m => m[0] === sous) ? sous : "vue";
+      const [rubrique, ...reste] = (sous || "").split("/");
+      R = MENU.some(m => m[0] === rubrique) ? rubrique : "vue";
       const G = groupeDe(R);
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Application Discovery"><div class="titre-carte">APPLICATION DISCOVERY</div>
@@ -45,6 +47,7 @@
       const garde = setTimeout(() => { const c = $("#di-contenu .corps-carte"); if (c && c.textContent.includes("Chargement…")) c.innerHTML = vide("Toujours en calcul…", "Le serveur n'a pas encore répondu : voir la console du serveur (python web/app.py)."); }, 30000);
       try {
         if (R.startsWith("donnees")) await DiscoveryDonnees.afficher(z, R);
+        else if (R === "cadrage") await DiscoveryParcours.afficher(z, reste.join("/"));
         else await ({vue, sessions, studio, navigation, comportements, apiObs, resultats, correlation, historique, parametres}[R === "api" ? "apiObs" : R])(z);
       }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
@@ -66,7 +69,7 @@
   async function vue(z) {
     const v = await apiDelai("/api/discovery/vue?graphe=0", 60000), k = v.kpi;
     if (!v.app) { z.innerHTML = entete("Vue d'ensemble") + pas("Aucune application", `<a href="#parametres/applications">Déclarer l'application</a> (Paramètres › Applications), puis lancer une session.`); return; }
-    z.innerHTML = `${entete("Vue d'ensemble", `${v.active ? `<a class="btn" href="#discovery/studio">Reprendre ${esc(v.active.id)}</a>` : ""}<button class="btn primaire" id="dv-new">${ico("plus")}Démarrer une Discovery</button>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Vue d'ensemble", `${v.active ? `<a class="btn" href="#discovery/studio">Reprendre ${esc(v.active.id)}</a>` : ""}<a class="btn primaire" href="#discovery/cadrage" title="Nommer le parcours, rattacher les exigences, choisir les données et la cible avant de dérouler">${ico("plus")}Préparer un parcours</a><button class="btn" id="dv-new" title="Exploration libre, sans parcours préparé">Explorer librement</button>`)}<div class="corps-carte">
       <h3 class="lib">CARTE DE L'APPLICATION</h3>${kpis([[k.ecrans, "écrans"], [k.transitions, "transitions"], [k.actions, "actions observées"], [k.composants, "composants"], [k.locators, "locators"], [v.sessions, "sessions"]])}
       ${kpis([[k.sans_locator_stable, "interactifs sans locator stable", k.sans_locator_stable ? "warn-t" : ""], [k.ecrans_avec_variantes, "écrans avec variantes"], [k.ecrans_modifies, "écrans modifiés", k.ecrans_modifies ? "warn-t" : ""], [k.a_nommer, "écrans à nommer", k.a_nommer ? "warn-t" : ""]])}
       <h3 class="lib">KNOWLEDGE GRAPH</h3><div id="dv-kg"><p class="lib">Calcul du graphe (dépôt Robot, copie Jira / Xray, JDD, OpenAPI)… <span id="dv-t">0</span> s</p></div>
@@ -103,7 +106,7 @@
     const l = await api("/api/discovery/sessions");
     const s0 = l.find(s => s.id === SESSION) || l.find(s => ["En cours", "En pause"].includes(s.statut)) || l[0];
     const ouvrir = `<button class="btn primaire" id="st-ouvrir">${ico("recherche")}${s0 && ["En cours", "En pause"].includes(s0.statut) ? "Reprendre dans la fenêtre Discovery" : "Démarrer une Discovery"}</button>`;
-    const avecCursor = `<button class="btn" id="st-cursor" title="Ouvre le chat de Cursor avec la demande d'exploration : il parcourt l'application, vous validez">${ico("ia")}Explorer avec Cursor</button> `;
+    const avecCursor = `<a class="btn" href="#discovery/cadrage" title="Cadrer le parcours avant de l'explorer : nom, exigences, données, cible. Cursor reçoit alors une demande précise">Préparer un parcours</a> <button class="btn" id="st-cursor" title="Ouvre le chat de Cursor avec une demande d'exploration libre : il parcourt l'application, vous validez">${ico("ia")}Explorer avec Cursor</button> `;
     const explorerCursor = () => DemanderCursor("Explorer avec Cursor", "Explore l'application avec moi (Discovery). Commence par cerveau_application() pour voir ce qui est déjà connu, "
       + "puis demande-moi la plateforme, l'environnement, le périmètre et le profil de données avant start_session et discovery_demarrer. "
       + "Avance écran par écran, propose ce que tu comprends, et laisse-moi les actions sensibles.", undefined, ["discovery_proposer"], {chat: true});
@@ -288,6 +291,7 @@
       <ul class="liste co-liens">${c.exigences_proposees.map(x => `<li><span class="co-ligne">${cle(x.cle)}<span class="item">${esc(x.resume)}</span>
           <button class="btn petit primaire" data-conf="${esc(x.cle)}">Confirmer</button><button class="btn petit" data-rej="${esc(x.cle)}">Rejeter</button></span>
         ${x.jugement ? jugementCo(x.jugement) : `<span class="pill warn" title="Mots communs entre le nom de l'écran et le résumé de l'exigence : sans compréhension du texte, jamais une conclusion">ressemblance des mots</span>`}
+        ${(x.parcours || []).length ? `<span class="lib co-just"><span class="pill info">Parcours</span> exigence du parcours « ${esc(x.parcours.join(" », « "))} », qui traverse cet écran</span>` : ""}
         ${x.mots.length ? `<span class="lib co-just">Mots communs : ${esc(x.mots.join(", "))}</span>` : ""}</li>`).join("") || "<li class='lib'>Aucune proposition en attente.</li>"}</ul>
       ${c.rejetees.length ? `<details class="co-preuves"><summary>${c.rejetees.length} proposition(s) rejetée(s)</summary>${c.rejetees.map(x => `<p class="lib"><b class="mono">${esc(x.cle)}</b> ${esc(x.resume)}
         <br>Rejetée par ${esc(x.par)} le ${dateCo(x.date)}${x.motif ? ` : ${esc(x.motif)}` : ""}</p>`).join("")}</details>` : ""}</section>`;

@@ -5,7 +5,7 @@
 (() => {
   const CL = {safe: ["ok", "Safe"], controlled: ["info", "Controlled"], sensitive: ["warn", "Sensitive"], forbidden: ["ko", "Forbidden"]};
   const pill = k => `<span class="pill ${(CL[k] || ["", k])[0]}">${(CL[k] || ["", k])[1]}</span>`;
-  let F = null, minuteur = null, SESSION = null;
+  let F = null, minuteur = null, SESSION = null, CADRE = null;  // CADRE : parcours utilisateur préparé que la session déroule
 
   const memo = {
     lire() { try { return JSON.parse(localStorage.getItem("discovery-fenetre") || "{}"); } catch (e) { return {}; } },
@@ -83,10 +83,11 @@
     lanceur();
   }
 
-  async function ouvrir() {
+  async function ouvrir(cadre) {
     fenetre();
     F.classList.remove("reduite");
     $(".df-lanceur")?.remove();
+    CADRE = cadre && typeof cadre.id === "string" && cadre.id.startsWith("PU-") ? cadre : null;  // sinon : exploration libre
     const a = await api("/api/discovery/sessions").catch(() => []);
     const s = a.find(x => ["En cours", "En pause"].includes(x.statut));
     if (s) { SESSION = s.id; enDirect(); } else choisir();
@@ -119,6 +120,7 @@
     if (plats.includes("web")) cibles.push({p: "web", udid: "", lib: "Navigateur", det: "Chromium piloté par l'atelier"});
     const mobilesAbsents = plats.filter(p => p !== "web" && !cibles.some(c => c.p === p));
     const diag = mobilesAbsents.length ? await api("/api/devices/diagnostic").catch(() => null) : null;
+    if (CADRE?.plateforme) cibles.splice(0, cibles.length, ...cibles.filter(c => c.p === CADRE.plateforme));  // la plateforme vient du cadrage
     const pourquoi = () => {
       const l = [`Application <b>${esc(app.nom)}</b> déclarée pour : ${plats.map(esc).join(", ") || "aucune plateforme"}${plats.includes("web") ? "" : " (pas de web : le navigateur n'est pas proposé ; l'ajouter dans Paramètres › Applications si l'application a une version web)"}.`];
       if (mobilesAbsents.includes("android") && diag) {
@@ -130,13 +132,15 @@
       if (mobilesAbsents.includes("ios") && diag) l.push(diag.xcrun || diag.idevice_id ? "iOS : aucun simulateur démarré ni iPhone branché." : "iOS : outils Apple absents (xcrun, libimobiledevice) : iOS n'est disponible que sur un Mac.");
       return l.map(x => `<li>${x}</li>`).join("");
     };
-    corps.innerHTML = `<p class="lib">Application <b>${esc(app.nom)}</b> ${esc(app.build || "")} · projet du header. Choisir où découvrir :</p>
+    corps.innerHTML = `${CADRE ? `<p class="df-cadre"><b>Parcours « ${esc(CADRE.nom)} »</b>${(CADRE.exigences || []).length ? ` · ${esc(CADRE.exigences.join(", "))}` : ""}${CADRE.profil_donnees ? ` · données ${esc(CADRE.profil_donnees)}` : ""}
+        <br><span class="lib">Les écrans traversés seront proposés à ce parcours à la fin de la session. <button class="lien" id="df-libre">Explorer librement à la place</button></span></p>` : ""}
+      <p class="lib">Application <b>${esc(app.nom)}</b> ${esc(app.build || "")} · projet du header. Choisir où ${CADRE ? "dérouler le parcours" : "découvrir"} :</p>
       <div class="df-cibles">${cibles.map((c, i) => `<label class="df-cible"><input type="radio" name="df-c" value="${i}" ${i === 0 ? "checked" : ""}><span><b>${esc(c.lib)}</b><br><span class="lib">${esc(c.det || "")}</span></span></label>`).join("")
         || `<p class="warn-t">Aucune cible disponible.</p>`}</div>
       ${mobilesAbsents.length || !cibles.length ? `<ul class="lib" style="margin:4px 0;padding-left:18px">${pourquoi()}</ul><button class="btn petit" id="df-rech">Rechercher à nouveau</button>` : ""}
       <div class="grille-2">
         <div class="champ" id="df-url-c" hidden><label for="df-url">Adresse</label><input class="in" id="df-url" value="${esc(app.web?.url || "")}" placeholder="https://recette.exemple.fr"></div>
-        <div class="champ"><label for="df-env">Environnement</label><input class="in" id="df-env" value="${esc(Atelier.env || "")}" placeholder="recette"></div>
+        <div class="champ"><label for="df-env">Environnement</label><input class="in" id="df-env" value="${esc(CADRE?.environnement || Atelier.env || "")}" placeholder="recette"></div>
         <div class="champ"><label for="df-mode">Mode</label><select class="in" id="df-mode"><option value="guidee">Je navigue (guidé)</option><option value="assistee">Je navigue avec suggestions (assisté)</option><option value="autonome">L'atelier explore seul (actions sûres)</option></select></div>
       </div>
       <details><summary class="lib">Options</summary><div class="grille-2" style="margin-top:6px">
@@ -144,7 +148,8 @@
         <div class="champ"><label for="df-max">Écrans maximum</label><input class="in" type="number" id="df-max" value="30"></div>
         <div class="champ" style="grid-column:1/-1"><label for="df-int">Actions interdites pour cette session (une par ligne)</label><textarea class="in" id="df-int" rows="2" placeholder="Confirmer le virement"></textarea></div>
         <label class="lib" id="df-vis-c" hidden><input type="checkbox" id="df-vis"> afficher aussi la fenêtre du navigateur sur le poste</label></div></details>
-      <div class="btns"><button class="btn primaire" id="df-go" ${cibles.length ? "" : "disabled"}>${ico("play")}Démarrer la Discovery</button></div>`;
+      <div class="btns"><button class="btn primaire" id="df-go" ${cibles.length ? "" : "disabled"}>${ico("play")}${CADRE ? "Dérouler le parcours" : "Démarrer la Discovery"}</button></div>`;
+    if ($("#df-libre", F)) $("#df-libre", F).onclick = () => { CADRE = null; choisir(); };
     const maj = () => { const c = cibles[+($("input[name=df-c]:checked", F)?.value ?? 0)]; const web = c?.p === "web"; $("#df-url-c", F).hidden = !web; $("#df-vis-c", F).hidden = !web; };
     $$("input[name=df-c]", F).forEach(r => r.onchange = maj);
     maj();
@@ -157,11 +162,12 @@
         const valeurs = c.p === "web" ? {url: $("#df-url", F).value.trim(), headless: !$("#df-vis", F).checked} : {...(app[c.p] || {})};
         await api("/api/connecter", {method: "POST", body: {platform: c.p, udid: c.udid, valeurs}});
         const s = await api("/api/discovery/sessions", {method: "POST", body: {app: app.slug, plateforme: c.p, mode: $("#df-mode", F).value, environnement: $("#df-env", F).value.trim(),
-          device: c.udid || "navigateur", build: app.build || "", profondeur: +$("#df-prof", F).value, max_ecrans: +$("#df-max", F).value, actions_interdites: $("#df-int", F).value.split("\n")}});
+          device: c.udid || "navigateur", build: app.build || "", profondeur: +$("#df-prof", F).value, max_ecrans: +$("#df-max", F).value, actions_interdites: $("#df-int", F).value.split("\n"),
+          ...(CADRE ? {parcours: CADRE.id} : {})}});
         await api(`/api/discovery/sessions/${s.id}/demarrer`, {method: "POST", body: {}});
         SESSION = s.id;
         enDirect();
-      } catch (e) { toast(e.message, "ko"); b.disabled = false; b.innerHTML = `${ico("play")}Démarrer la Discovery`; }
+      } catch (e) { toast(e.message, "ko"); b.disabled = false; b.innerHTML = `${ico("play")}${CADRE ? "Dérouler le parcours" : "Démarrer la Discovery"}`; }
     };
   }
 
@@ -169,7 +175,7 @@
   async function enDirect() {
     clearInterval(minuteur);
     const s = await api("/api/discovery/sessions/" + SESSION), c = s.config, enCours = s.statut === "En cours";
-    $("#df-etat", F).innerHTML = `· ${esc(c.app_nom)} · ${esc(c.plateforme)}${c.environnement ? " · " + esc(c.environnement) : ""} <span class="pill ${enCours ? "ok" : "warn"}">${esc(s.statut)}</span>`;
+    $("#df-etat", F).innerHTML = `· ${esc(c.app_nom)} · ${esc(c.plateforme)}${c.environnement ? " · " + esc(c.environnement) : ""}${c.parcours_nom ? ` · parcours « ${esc(c.parcours_nom)} »` : ""} <span class="pill ${enCours ? "ok" : "warn"}">${esc(s.statut)}</span>`;
     $("#df-corps", F).innerHTML = `<div class="btns">
         ${enCours ? `<button class="btn petit" id="df-pause">Pause</button>` : `<button class="btn petit primaire" id="df-reprendre">Reprendre</button>`}
         <button class="btn petit" id="df-back">← Retour</button>
@@ -280,8 +286,8 @@
       $("#df-corps", F).innerHTML = `<h3>Session ${esc(s.id)} terminée</h3>
         <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">${[[r.nouveaux_ecrans, "nouveaux écrans"], [r.nouvelles_transitions, "nouvelles transitions"], [r.ecrans_visites, "écrans visités"],
           [r.comportements ?? 0, "comportements"], [(r.endpoints || []).length, "endpoints"], [r.refus ?? 0, "actions refusées"]].map(([v, l]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("")}</div>
-        <div class="btns"><a class="btn primaire" href="#discovery/resultats">Voir les résultats</a><a class="btn" href="#discovery/validation">Nommer les écrans</a><button class="btn" id="df-bdd">Créer le test BDD de ce parcours</button><button class="btn" id="df-encore">Nouvelle Discovery</button></div>`;
-      $("#df-encore", F).onclick = choisir;
+        <div class="btns">${s.config.parcours ? `<a class="btn primaire" href="#discovery/cadrage/${encodeURIComponent(s.config.parcours)}" title="Garder ou retirer les écrans traversés">Valider les écrans du parcours</a>` : ""}<a class="btn${s.config.parcours ? "" : " primaire"}" href="#discovery/resultats">Voir les résultats</a><a class="btn" href="#discovery/validation">Nommer les écrans</a><button class="btn" id="df-bdd">Créer le test BDD de ce parcours</button><button class="btn" id="df-encore">Nouvelle Discovery</button></div>`;
+      $("#df-encore", F).onclick = () => { CADRE = null; choisir(); };
       $("#df-bdd", F).onclick = () => window.DiscoveryVersBdd ? window.DiscoveryVersBdd({session: s.id}) : toast("Ouvrir l'onglet Discovery.", "ko");
     } catch (e) { toast(e.message, "ko"); }
   }

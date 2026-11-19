@@ -529,16 +529,32 @@ def testabilite_deposer_proposition(cle: str, constats: list, cas: list) -> dict
 
 
 @outil
-def discovery_demarrer(environnement: str = "", mode: str = "assistee", perimetre: str = "", profil_donnees: str = "") -> dict:
+def discovery_demarrer(environnement: str = "", mode: str = "assistee", perimetre: str = "", profil_donnees: str = "",
+                       parcours: str = "") -> dict:
     """Démarre une session Discovery sur l'application de la carte et la plateforme de la session ouverte
     (start_session d'abord). Pendant la session, tap et type_text sont classés (Safe / Controlled / Sensitive /
     Forbidden) : les actions interdites et sensibles sont refusées, la saisie dépend de l'environnement.
-    profil_donnees : profil du référentiel de données (Discovery › Données) dont la session tire ses valeurs."""
+    profil_donnees : profil du référentiel de données (Discovery › Données) dont la session tire ses valeurs.
+    parcours : identifiant d'un parcours utilisateur préparé dans l'atelier (« PU-… », voir discovery_parcours_cadre) ;
+    la session le déroule : environnement, périmètre et profil viennent du cadrage s'ils ne sont pas précisés, et les
+    écrans traversés sont proposés au parcours à la fin."""
     from atelier.discovery import session, sessions_discovery
 
     s = sessions_discovery.creer({"plateforme": session.plateforme() or "", "environnement": environnement, "mode": mode,
-                                  "perimetre": perimetre, "device": "agent MCP", "profil_donnees": profil_donnees})
+                                  "perimetre": perimetre, "device": "agent MCP", "profil_donnees": profil_donnees, "parcours": parcours})
     return {k: v for k, v in sessions_discovery.demarrer(s["id"]).items() if k in ("id", "statut", "config")}
+
+
+@outil
+def discovery_parcours_cadre(parcours: str = "") -> dict:
+    """Cadrage d'un parcours utilisateur préparé par l'automaticien avant l'exploration (Discovery › Préparer un parcours).
+    Sans argument : les parcours préparés (identifiant, nom, statut, exigences, profil de données, cible). Avec un
+    identifiant « PU-… » : objectif, point de départ, résultat attendu, exigences Jira avec description et critères
+    d'acceptation, variables du profil prêtes ou bloquées (jamais leur valeur), écrans déjà traversés. Lecture seule :
+    le cadrage ne se modifie que dans l'atelier."""
+    from atelier.discovery import parcours_utilisateur
+
+    return parcours_utilisateur.cadre_agent(parcours)
 
 
 # Référentiel universel de données (Discovery Data Setup) : l'automaticien prépare variables, profils et générateurs dans

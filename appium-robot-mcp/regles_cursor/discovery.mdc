@@ -12,6 +12,10 @@ Démarrage :
 2. Connexion AVANT la session Discovery : identifiants lus avec get_jdd (jeu de données indiqué par l'automaticien,
    jamais tapés dans le chat ni recopiés dans tes messages) ; l'OTP / la validation forte est faite par l'automaticien.
 3. discovery_demarrer(environnement="recette", mode="assistee") : sans session Discovery, rien n'est rattaché.
+   Si l'automaticien a préparé un parcours utilisateur (identifiant « PU-… » dans sa demande) : lis d'abord
+   discovery_parcours_cadre("PU-…") (objectif, point de départ, résultat attendu, exigences et critères, données prêtes),
+   puis discovery_demarrer(parcours="PU-…"). Reste dans ce parcours ; à la fin, les écrans traversés lui sont proposés.
+   Tu ne modifies jamais le cadrage : s'il manque une exigence ou une donnée, dis-le à l'automaticien.
    Un menu ou un lien vers un sujet sensible (« Virements », « Bénéficiaires ») est de la navigation : autorisé ;
    une action sur ce sujet (« Nouveau virement », « Ajouter un bénéficiaire ») est sensible : refusée à l'agent, sauf si
    l'automaticien a autorisé l'agent sur cet environnement (Discovery › Settings) ; chaque action sensible est tracée.

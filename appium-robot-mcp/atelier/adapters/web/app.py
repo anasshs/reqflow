@@ -1924,6 +1924,48 @@ def discovery_parcours():
             for n in g.noeuds.values() if n.type == "parcours"]
 
 
+@app.get("/api/discovery/cadrage")
+def discovery_cadrage(archives: bool = False):
+    """Parcours utilisateur préparés (initiation de Discovery) et ce que l'écran de cadrage propose."""
+    from atelier.discovery import parcours_utilisateur
+
+    return {"parcours": _call(parcours_utilisateur.lister, archives), "options": _call(parcours_utilisateur.options)}
+
+
+@app.post("/api/discovery/cadrage")
+async def discovery_cadrage_enregistrer(req: Request):
+    """Crée (sans « id ») ou modifie un parcours utilisateur ; seuls les champs fournis changent."""
+    from atelier.discovery import parcours_utilisateur
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, parcours_utilisateur.enregistrer, b.get("id", ""),
+                                {k: b[k] for k in parcours_utilisateur.LIBELLES if k in b})
+    emit({"type": "carte_change"})
+    return r
+
+
+@app.get("/api/discovery/cadrage/{pid}")
+def discovery_cadrage_detail(pid: str):
+    from atelier.discovery import parcours_utilisateur
+
+    return _call(parcours_utilisateur.obtenir, pid)
+
+
+@app.post("/api/discovery/cadrage/{pid}/{action}")
+async def discovery_cadrage_action(pid: str, action: str, req: Request):
+    """valider (écrans gardés) · archiver / restaurer · dupliquer (nouveau nom)."""
+    from atelier.discovery import parcours_utilisateur as pu
+
+    b = await req.json() if (await req.body()) else {}
+    actions = {"valider": lambda: pu.valider(pid, b.get("ecrans")), "archiver": lambda: pu.archiver(pid, True, b.get("motif", "")),
+               "restaurer": lambda: pu.archiver(pid, False, b.get("motif", "")), "dupliquer": lambda: pu.dupliquer(pid, b.get("nom", ""))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    r = await asyncio.to_thread(_call, actions[action])
+    emit({"type": "carte_change"})
+    return r
+
+
 @app.get("/api/discovery/comparer")
 def discovery_comparer(a: str, b: str):
     return _call(sessions_discovery.comparer, a, b)
