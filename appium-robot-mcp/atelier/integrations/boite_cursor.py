@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -38,6 +39,7 @@ import threading
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 from atelier.domain import projet
 
@@ -157,7 +159,95 @@ def cli() -> dict:
     args = os.environ.get("ATELIER_CURSOR_CLI_ARGS", "").strip() or ARGS_DEFAUT
     return {"commande": trouvee or candidats[0], "trouvee": bool(trouvee), "arguments": args,
             "valide": "{demande}" in args, "delai_s": int(os.environ.get("ATELIER_CURSOR_CLI_DELAI", "900") or 900),
-            "mcp_du_projet": (projet.PROJECT_DIR / ".cursor" / "mcp.json").exists()}
+            "mcp_du_projet": (projet.PROJECT_DIR / ".cursor" / "mcp.json").exists(), "permissions": permissions_cli()}
+
+
+# --------------------------------------------------------------------------- ce que l'agent a le droit d'appeler
+# Sans fenêtre, personne ne peut approuver un appel d'outil : l'agent en ligne de commande refuse alors chaque outil de
+# l'atelier (« refusé »), même serveur MCP chargé. Deux conditions, toutes deux vérifiables ici :
+#   1. le serveur MCP est approuvé pour la ligne de commande (« agent mcp enable appium-robot », une fois par poste) ;
+#   2. les outils de l'atelier sont autorisés dans .cursor/cli.json du projet de tests (jeton Mcp(appium-robot:*)).
+# Seuls les outils de l'atelier sont autorisés : ni commande du poste, ni écriture de fichier (pas de --force).
+SERVEUR_MCP = "appium-robot"
+JETON_MCP = f"Mcp({SERVEUR_MCP}:*)"
+
+
+def _fichier_permissions():
+    return projet.PROJECT_DIR / ".cursor" / "cli.json"
+
+
+def permissions_cli() -> dict:
+    """Les outils de l'atelier sont-ils autorisés pour l'agent en ligne de commande, dans ce projet de tests ?"""
+    f, erreur, permises = _fichier_permissions(), "", []
+    if f.exists():
+        try:
+            permises = list(((json.loads(f.read_text("utf-8")) or {}).get("permissions") or {}).get("allow") or [])
+        except (ValueError, OSError, AttributeError) as e:
+            erreur = f"fichier illisible : {e}"[:200]
+    accordee = any(p in (JETON_MCP, f"Mcp({SERVEUR_MCP}:*)", "Mcp(*:*)") for p in permises)
+    return {"fichier": ".cursor/cli.json", "jeton": JETON_MCP, "accordee": accordee, "erreur": erreur}
+
+
+def autoriser_outils_cli() -> dict:
+    """Ajoute le jeton des outils de l'atelier à .cursor/cli.json du projet ; les autres permissions sont conservées."""
+    f = _fichier_permissions()
+    conf = {}
+    if f.exists():
+        try:
+            conf = json.loads(f.read_text("utf-8")) or {}
+        except ValueError as e:
+            raise ValueError(f".cursor/cli.json illisible ({e}) : le corriger à la main, rien n'a été modifié.") from e
+        if not isinstance(conf, dict):
+            raise ValueError(".cursor/cli.json n'est pas un objet JSON : le corriger à la main, rien n'a été modifié.")
+    perms = conf.setdefault("permissions", {})
+    perms.setdefault("allow", [])
+    perms.setdefault("deny", [])
+    if JETON_MCP not in perms["allow"]:
+        perms["allow"].append(JETON_MCP)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(conf, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    return permissions_cli()
+
+
+def verifier_cli(lanceur=None) -> dict:
+    """Demande à l'agent en ligne de commande l'état de ses serveurs MCP (« agent mcp list », dans le projet de tests) :
+    dit si celui de l'atelier est chargé, à approuver, ou inconnu, avec la commande à taper le cas échéant."""
+    c = cli()
+    r = {"commande": c["commande"], "trouvee": c["trouvee"], "serveur": "inconnu", "detail": "", "a_faire": "",
+         "permissions": c["permissions"]}
+    if not c["trouvee"]:
+        r["a_faire"] = "Installer l'agent Cursor en ligne de commande, ou régler ATELIER_CURSOR_CLI sur son chemin."
+        return r
+    exe = shutil.which(c["commande"])
+    nom = Path(exe).name
+    try:
+        p = (lanceur or subprocess.run)([exe, "mcp", "list"], cwd=str(projet.PROJECT_DIR), capture_output=True, text=True,
+                                        encoding="utf-8", errors="replace", timeout=60, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        r["detail"] = "aucune réponse après 60 s"
+        r["a_faire"] = f"Dans un terminal : {nom} login, puis {nom} mcp list."
+        return r
+    except OSError as e:
+        r["detail"] = str(e)[:300]
+        return r
+    sortie = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", f"{p.stdout or ''}\n{p.stderr or ''}")
+    ligne = next((l.strip() for l in sortie.splitlines() if l.strip().lower().startswith(SERVEUR_MCP + ":")), "")
+    r["detail"] = (ligne or sortie.strip())[-300:]
+    etat_ = ligne.split(":", 1)[1].strip().lower() if ligne else ""
+    if not ligne:
+        r["serveur"] = "absent"
+        r["a_faire"] = "Étape 1 : installer le MCP dans Cursor, puis vérifier à nouveau."
+    elif "approval" in etat_:
+        r["serveur"] = "a_approuver"
+        r["a_faire"] = f"Dans un terminal, une fois : {nom} mcp enable {SERVEUR_MCP}"
+    elif etat_.startswith(("ready", "loaded", "connected")):
+        r["serveur"] = "charge"
+    else:
+        r["serveur"] = "en_erreur"
+        r["a_faire"] = "Vérifier que l'atelier est lancé (serveur MCP démarré, étape 1), puis vérifier à nouveau."
+    if r["serveur"] == "charge" and not c["permissions"]["accordee"]:
+        r["a_faire"] = "Serveur chargé, mais ses outils ne sont pas autorisés sans fenêtre : « Autoriser les outils de l'atelier »."
+    return r
 
 
 def _lanceur_script(executable: str) -> bool:

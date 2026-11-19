@@ -305,6 +305,13 @@
           ${bo.ia.impose ? `<span class="lib">imposé par la variable IA_FOURNISSEUR (« ${esc(bo.ia.impose)} »)</span>` : ""}</label>
         ${bo.ia.boutons_cursor ? "" : `<p><span class="pill ko">Boutons masqués</span> ${esc(bo.ia.aide)}</p>`}
         <div class="btns"><button class="btn primaire" id="ag-envoi-ok">Valider</button></div>
+        ${bo.envoi === "cli" ? `<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:6px"><p><b>Ligne de commande : ce que Cursor a le droit d'appeler</b></p>
+          <p>${bo.cli.permissions.erreur ? `<span class="pill ko">${esc(bo.cli.permissions.erreur)}</span>` : bo.cli.permissions.accordee ? '<span class="pill ok">outils de l\'atelier autorisés</span>' : '<span class="pill ko">outils de l\'atelier non autorisés</span>'}
+            <span class="lib mono">${esc(bo.cli.permissions.fichier)} · ${esc(bo.cli.permissions.jeton)}</span></p>
+          <p class="lib">Sans fenêtre, personne ne peut approuver un appel : Cursor refuse alors chaque outil de l'atelier et rien n'est déposé. L'autorisation ne couvre que les outils de l'atelier, ni les commandes du poste ni l'écriture de fichiers.</p>
+          <div class="btns">${bo.cli.permissions.accordee ? "" : '<button class="btn primaire" id="ag-cli-autoriser">Autoriser les outils de l\'atelier</button>'}
+            <button class="btn" id="ag-cli-verif" title="Lance « agent mcp list » dans le projet de tests : dit si le serveur de l'atelier est chargé ou à approuver">Vérifier la ligne de commande</button></div>
+          <div id="ag-cli-r" class="lib"></div></div>` : ""}
         <p class="lib">Ensuite chaque « Demander à Cursor » part d'un clic, sans choix à refaire. L'exploration passe toujours par le chat de Cursor : vous devez voir l'agent et lui répondre.</p>`) : ""}
       <details><summary class="lib">Claude Desktop</summary><p style="margin-top:6px">${statut(cl)} <span class="lib mono">${esc(cl.fichier)}</span></p>
         <div class="btns"><button class="btn" data-inst="claude">${cl.a_jour ? "Réinstaller" : "Installer dans Claude Desktop"}</button></div>
@@ -323,6 +330,18 @@
       catch (e) { $("#ag-test-r").textContent = e.message; } };
     $("#ag-copie").onclick = () => navigator.clipboard.writeText(JSON.stringify(d.config, null, 2)).then(() => toast("Configuration copiée.", "ok"), () => toast("Copie impossible : la sélectionner dans « Configuration ».", "ko"));
     $("#ag-rafr").onclick = () => agents(z);
+    if ($("#ag-cli-autoriser")) $("#ag-cli-autoriser").onclick = async () => {
+      try { await api("/api/cursor/cli/autoriser", {method: "POST", body: {}}); toast("Outils de l'atelier autorisés pour la ligne de commande.", "ok"); agents(z); }
+      catch (e) { toast(e.message, "ko"); }
+    };
+    if ($("#ag-cli-verif")) $("#ag-cli-verif").onclick = async () => {
+      $("#ag-cli-r").textContent = "Interrogation de Cursor en ligne de commande…";
+      try { const r = await api("/api/cursor/cli/verifier", {method: "POST", body: {}});
+        const lib = {charge: ["ok", "serveur de l'atelier chargé"], a_approuver: ["ko", "serveur de l'atelier à approuver"], absent: ["ko", "serveur de l'atelier inconnu de la ligne de commande"],
+          en_erreur: ["ko", "serveur de l'atelier en erreur"], inconnu: ["warn", "état inconnu"]}[r.serveur];
+        $("#ag-cli-r").innerHTML = `<span class="pill ${lib[0]}">${lib[1]}</span> <span class="mono">${esc(r.detail)}</span>${r.a_faire ? `<br><b>À faire :</b> <span class="mono">${esc(r.a_faire)}</span>` : ""}`; }
+      catch (e) { $("#ag-cli-r").textContent = e.message; }
+    };
     if ($("#ag-envoi-ok")) $("#ag-envoi-ok").onclick = async () => {
       try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: ($("[name=ag-envoi]:checked", z) || {}).value || "lien", ...($("#ag-ia-cursor").disabled ? {} : {ia_cursor: $("#ag-ia-cursor").checked})}}); toast("Réglages Cursor enregistrés pour le projet.", "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); }

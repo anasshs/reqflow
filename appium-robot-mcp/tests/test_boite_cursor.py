@@ -179,3 +179,58 @@ def test_cursor_ia_de_l_atelier_reglable_sans_variable(boite, projet, monkeypatc
     monkeypatch.delenv("IA_FOURNISSEUR")
     (projet / "atelier_cursor.yaml").write_text("ia: anthropic\n", "utf-8")       # un fournisseur à clé ne se règle pas par fichier
     assert fournisseur_ia.fournisseur() == "aucun"
+
+
+def test_ligne_de_commande_serveur_approuve_et_outils_autorises(boite, projet, monkeypatch, tmp_path):
+    """Sans fenêtre, l'agent refuse les outils de l'atelier tant que le serveur MCP n'est pas approuvé et que ses outils
+    ne sont pas autorisés : l'atelier le vérifie et le dit, au lieu de laisser la demande finir sur des refus."""
+    import json
+    import types
+    from pathlib import Path
+
+    assert boite.verifier_cli()["trouvee"] is False                          # commande absente : dit quoi installer
+    monkeypatch.setenv("ATELIER_CURSOR_CLI", _faux_agent(tmp_path))
+    vus = []
+
+    def faux(sortie):
+        def lanceur(ligne, **kw):
+            vus.append((ligne[1:], kw["cwd"]))
+            return types.SimpleNamespace(stdout=sortie, stderr="", returncode=0)
+        return lanceur
+
+    r = boite.verifier_cli(faux("autre: ready\n\x1b[31mappium-robot: not loaded (needs approval)\x1b[0m\n"))
+    assert r["serveur"] == "a_approuver" and r["a_faire"].endswith("mcp enable appium-robot")
+    assert vus[-1] == (["mcp", "list"], str(projet))                         # interrogé dans le projet de tests, sans shell
+    assert boite.verifier_cli(faux("autre: ready\n"))["serveur"] == "absent"
+    assert boite.verifier_cli(faux("appium-robot: error (connection refused)\n"))["serveur"] == "en_erreur"
+    r = boite.verifier_cli(faux("appium-robot: ready\n"))
+    assert r["serveur"] == "charge" and "Autoriser les outils" in r["a_faire"]   # chargé, mais outils pas encore autorisés
+
+    # autorisation : les seuls outils de l'atelier, les permissions existantes du projet sont conservées
+    f = Path(projet) / ".cursor" / "cli.json"
+    f.parent.mkdir(exist_ok=True)
+    f.write_text(json.dumps({"permissions": {"allow": ["Read(**)"], "deny": ["Shell(rm)"]}, "autre": 1}), "utf-8")
+    assert boite.cli()["permissions"]["accordee"] is False
+    assert boite.autoriser_outils_cli()["accordee"] is True
+    conf = json.loads(f.read_text("utf-8"))
+    assert conf == {"permissions": {"allow": ["Read(**)", "Mcp(appium-robot:*)"], "deny": ["Shell(rm)"]}, "autre": 1}
+    boite.autoriser_outils_cli()
+    assert json.loads(f.read_text("utf-8")) == conf                          # sans doublon
+    assert boite.verifier_cli(faux("appium-robot: ready\n"))["a_faire"] == ""
+    f.write_text("{pas du json", "utf-8")
+    assert boite.cli()["permissions"]["erreur"]
+    with pytest.raises(ValueError, match="illisible"):
+        boite.autoriser_outils_cli()
+    assert f.read_text("utf-8") == "{pas du json"                            # jamais écrasé
+
+
+def test_routes_ligne_de_commande(boite, projet, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from web_app_loader import charger_app_web
+
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200
+    assert c.post("/api/cursor/cli/verifier").json()["trouvee"] is False
+    assert c.post("/api/cursor/cli/autoriser").json()["accordee"] is True
+    assert c.get("/api/cursor/boite").json()["cli"]["permissions"]["accordee"] is True

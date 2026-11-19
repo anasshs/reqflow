@@ -689,6 +689,22 @@ async def cursor_envoi(req: Request):
     return _call(boite_cursor.regler_envoi, b.get("envoi", ""))
 
 
+@app.post("/api/cursor/cli/verifier")
+async def cursor_cli_verifier():
+    """Interroge l'agent en ligne de commande : serveur MCP de l'atelier chargé ou à approuver, outils autorisés ou non."""
+    from atelier.integrations import boite_cursor
+
+    return await asyncio.to_thread(_call, boite_cursor.verifier_cli)
+
+
+@app.post("/api/cursor/cli/autoriser")
+def cursor_cli_autoriser():
+    """Autorise les seuls outils de l'atelier pour l'agent en ligne de commande (.cursor/cli.json du projet de tests)."""
+    from atelier.integrations import boite_cursor
+
+    return _call(boite_cursor.autoriser_outils_cli)
+
+
 @app.post("/api/cursor/boite/{did}/annuler")
 def cursor_boite_annuler(did: str):
     from atelier.integrations import boite_cursor

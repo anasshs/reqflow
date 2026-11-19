@@ -645,3 +645,19 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Le panneau lit maintenant l'état de la demande déposée (toutes les 4 s tant qu'elle n'est pas finie) : dans la boîte
   et Cursor n'écoute pas (avec la phrase à lui dire), prise, terminée avec son compte rendu, échec avec la raison
   rendue par la ligne de commande. En ligne de commande, il dit que rien n'apparaîtra dans le chat de Cursor.
+
+## 2026-11-19 — Ligne de commande de Cursor : serveur approuvé et outils autorisés, vérifiés par l'atelier
+- Constats de l'utilisateur, sur son poste : `agent mcp list` rendait « appium-robot: not loaded (needs approval) »
+  malgré l'option `--approve-mcps` ; une fois le serveur approuvé à la main (`agent mcp enable appium-robot`), la
+  demande aboutissait mais chaque appel d'outil de l'atelier était refusé, donc rien n'était déposé.
+- Cause : sans fenêtre, personne ne peut approuver un appel d'outil. Deux conditions distinctes : serveur MCP approuvé
+  pour la ligne de commande (par poste) ; outils autorisés dans `.cursor/cli.json` du projet de tests.
+- Paramètres › Cursor / Claude, étape 4, en mode ligne de commande : « Vérifier la ligne de commande » lance
+  `agent mcp list` dans le projet (sans shell) et dit si le serveur est chargé, à approuver (avec la commande à taper)
+  ou inconnu ; « Autoriser les outils de l'atelier » ajoute le jeton `Mcp(appium-robot:*)` à `.cursor/cli.json`, les
+  autres permissions étant conservées, un fichier illisible n'étant jamais écrasé.
+- `--force` reste écarté : il autoriserait aussi les commandes du poste et l'écriture de fichiers. Seuls les outils de
+  l'atelier, eux-mêmes bornés par les invariants de sécurité, sont autorisés.
+- Non vérifié sur la documentation officielle (cursor.com inaccessible depuis la session) : la syntaxe du jeton vient
+  d'une recherche web, et un retour du forum Cursor signale qu'une liste d'autorisation n'a pas toujours suffi en mode
+  sans fenêtre. À confirmer par l'essai réel de l'utilisateur.
