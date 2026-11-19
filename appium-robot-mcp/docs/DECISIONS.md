@@ -637,3 +637,11 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   ne peut pas la contourner.
 - Seul « cursor » se règle ainsi : avec lui l'atelier n'appelle aucun modèle. « interne » et « anthropic » demandent
   une URL ou une clé et restent réglés par variables d'environnement.
+
+## 2026-11-19 — Suivi des demandes : l'état réel d'une demande déposée
+- Constat de l'utilisateur : demande envoyée, panneau bloqué sur « En attente de Cursor », rien dans le chat de Cursor.
+  Le panneau ne lisait que l'activité MCP : une demande restée dans la boîte (Cursor n'écoute pas) ou un lancement en
+  ligne de commande en échec étaient muets.
+- Le panneau lit maintenant l'état de la demande déposée (toutes les 4 s tant qu'elle n'est pas finie) : dans la boîte
+  et Cursor n'écoute pas (avec la phrase à lui dire), prise, terminée avec son compte rendu, échec avec la raison
+  rendue par la ligne de commande. En ligne de commande, il dit que rien n'apparaîtra dans le chat de Cursor.

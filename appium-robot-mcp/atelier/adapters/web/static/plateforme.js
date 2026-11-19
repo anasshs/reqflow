@@ -107,8 +107,8 @@ window.DemanderCursor = async (titre, texte, _explication, attendus = [], option
   const e = options.chat ? null : await api("/api/cursor/boite").catch(() => null);
   if (e && e.envoi !== "lien") {
     try {
-      await api("/api/cursor/boite", {method: "POST", body: {titre, texte, attendus, ecran: location.hash}});
-      window.SuiviCursor?.ajouter(titre, attendus);
+      const dep = await api("/api/cursor/boite", {method: "POST", body: {titre, texte, attendus, ecran: location.hash}});
+      window.SuiviCursor?.ajouter(titre, attendus, {id: dep.id, mode: dep.mode});  // le suivi affiche l'état réel de la demande déposée
       return toast(e.envoi === "cli" ? "Cursor est lancé : le suivi s'affiche en bas à droite."
         : e.ecoute.active ? "Demande envoyée à Cursor : le suivi s'affiche en bas à droite."
           : `Demande déposée. Cursor n'écoute pas : dire une fois dans son chat « ${PHRASE_BOITE} »`, e.envoi === "cli" || e.ecoute.active ? "ok" : "");

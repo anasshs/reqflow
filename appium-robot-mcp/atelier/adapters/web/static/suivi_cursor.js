@@ -39,6 +39,34 @@
     else if (e.etat === "fin" && (d.attendus || []).includes(e.nom)) { d.depots++; d.depot = t; }
   }
 
+  /* Demande déposée dans la boîte ou lancée en ligne de commande : son état réel (en attente, prise, terminée, échouée)
+     et si Cursor écoute la boîte. Sans cela, un envoi qui n'aboutit pas restait muet. */
+  let sonde = null;
+  const aSuivre = () => ouvertes().filter(d => d.boite && !["terminée", "échouée", "annulée"].includes(d.boite.statut));
+  async function sonder() {
+    if (!aSuivre().length) { clearInterval(sonde); sonde = null; return; }
+    const e = await api("/api/cursor/boite").catch(() => null);
+    if (!e) return;
+    let change = false;
+    for (const d of ouvertes().filter(x => x.boite)) {
+      const r = e.demandes.find(x => x.id === d.boite.id);
+      const neuf = {...d.boite, statut: r ? r.statut : d.boite.statut, erreur: (r && r.erreur) || "", resultat: (r && r.resultat) || "", ecoute: e.ecoute.active};
+      if (JSON.stringify(neuf) !== JSON.stringify(d.boite)) { d.boite = neuf; change = true; }
+    }
+    if (change) { ecrire(); rendre(); }
+  }
+  function etatDepot(d) {
+    const b = d.boite;
+    if (!b) return {texte: "", alerte: false};
+    if (b.statut === "échouée") return {texte: `${b.mode === "cli" ? "Cursor en ligne de commande a échoué" : "Demande en échec"} : ${b.erreur || "raison inconnue"}`, alerte: true};
+    if (b.statut === "terminée") return {texte: `Terminé${b.resultat ? " : " + b.resultat.slice(0, 300) : "."}`, alerte: false};
+    if (b.mode === "cli") return {texte: b.statut === "prise" ? "Cursor travaille en ligne de commande, sans fenêtre : rien n'apparaît dans son chat. Le résultat s'affichera ici." : "Lancement de Cursor en ligne de commande…", alerte: false};
+    if (b.statut === "prise") return {texte: "Cursor a pris la demande dans la boîte.", alerte: false};
+    if (b.ecoute === null) return {texte: "Demande déposée dans la boîte de l'atelier…", alerte: false};
+    return b.ecoute ? {texte: "Dans la boîte : Cursor écoute, il la prendra à son prochain passage.", alerte: false}
+      : {texte: "Dans la boîte, mais Cursor ne l'écoute pas. Dans le chat de Cursor (mode Agent), écrire une fois : « Traite les demandes de l'atelier. »", alerte: true};
+  }
+
   /* au rechargement : les événements gardés par l'atelier (heure HH:MM:SS du jour) refont le suivi */
   async function rattraper() {
     if (!ouvertes().length) return;
@@ -57,6 +85,10 @@
   /* ------------------------------------------------------------------ affichage */
   function etat(d, maintenant) {
     if (d.depot) return {n: 4, lib: `Résultat déposé${d.depots > 1 ? ` (${d.depots} dépôts)` : ""}`, cls: "ok"};
+    const b = d.boite || {};  // demande déposée : son état réel prime sur l'absence d'activité
+    if (b.statut === "échouée") return {n: 1, lib: "Échec de l'envoi", cls: "warn"};
+    if (b.statut === "terminée") return {n: 4, lib: "Terminé par Cursor", cls: "ok"};
+    if (b.statut === "prise" && !d.prise) return {n: 2, lib: "Prise en compte", cls: "run"};
     if (d.prise) return {n: d.appels ? 3 : 2, lib: d.appels ? "Cursor travaille" : "Prise en compte", cls: "run"};
     return {n: 1, lib: "En attente de Cursor", cls: maintenant - d.t0 > SANS_SIGNE_MS ? "warn" : "attente"};
   }
@@ -66,7 +98,9 @@
     const pas = ["Envoyée", "Prise en compte", "En cours", "Résultat déposé"].map((l, i) =>
       `<span class="sc-pas ${i + 1 < e.n || (i + 1 === e.n && e.n === 4) ? "fait" : i + 1 === e.n ? "actif" : ""}" title="${esc(l)}">${esc(l)}</span>`).join("");
     let aide = "";
-    if (!d.prise && maintenant - d.t0 > SANS_SIGNE_MS) aide = "Aucun signe de Cursor : la demande a-t-elle été envoyée dans son chat (mode Agent) ? Le serveur « appium-robot » est-il vert dans Settings › MCP ?";
+    const depot = etatDepot(d);
+    if (depot.texte) aide = "";  // l'état réel de la demande remplace l'aide générique
+    else if (!d.prise && maintenant - d.t0 > SANS_SIGNE_MS) aide = "Aucun signe de Cursor : la demande a-t-elle été envoyée dans son chat (mode Agent) ? Le serveur « appium-robot » est-il vert dans Settings › MCP ?";
     else if (d.prise && !d.depot && maintenant - d.derniere_t > SILENCE_MS) aide = `Plus aucun appel depuis ${duree(maintenant - d.derniere_t)} : Cursor attend sans doute une réponse ou la confirmation d'un outil dans son chat.`;
     const ici = (location.hash || "#dashboard") === d.ecran;
     return `<div class="sc-carte" data-id="${esc(d.id)}">
@@ -77,6 +111,7 @@
       ${d.prise ? `<div class="sc-ligne lib">prise en compte en ${duree(d.prise - d.t0)} · ${d.appels} appel${d.appels > 1 ? "s" : ""}${d.erreurs ? ` · <span style="color:var(--ko)">${d.erreurs} erreur${d.erreurs > 1 ? "s" : ""}</span>` : ""}</div>` : ""}
       ${d.dernier ? `<div class="sc-der" title="${esc(d.dernier.phrase)}">${esc(d.dernier.phrase)} <span class="lib">· il y a <span data-dur="${d.dernier.t}">${duree(maintenant - d.dernier.t)}</span></span></div>` : ""}
       ${d.erreur && !d.depot ? `<div class="sc-der" style="color:var(--ko)" title="${esc(d.erreur)}">${esc(d.erreur)}</div>` : ""}
+      ${depot.texte ? `<div class="sc-aide" ${depot.alerte ? 'style="color:var(--ko)"' : ""}>${esc(depot.texte)}</div>` : ""}
       ${aide ? `<div class="sc-aide">${esc(aide)}</div>` : ""}
       <div class="btns">${!ici ? `<button class="btn petit${d.depot ? " primaire" : ""}" data-sc-voir>${d.depot ? "Voir le résultat" : "Revenir à l'écran"}</button>` : ""}
         <button class="btn petit" data-sc-console>Console Cursor</button></div></div>`;
@@ -125,18 +160,22 @@
   /* ------------------------------------------------------------------ API */
   window.SuiviCursor = {
     /* titre : la demande ; attendus : outils MCP dont la fin signifie « résultat déposé » */
-    ajouter(titre, attendus = []) {
-      const d = {id: Math.random().toString(36).slice(2, 10), titre, attendus, t0: Date.now(), ecran: location.hash || "#dashboard"};
+    /* boite : {id, mode} d'une demande déposée (boîte de demandes ou ligne de commande), pour afficher son état réel */
+    ajouter(titre, attendus = [], boite = null) {
+      const d = {id: Math.random().toString(36).slice(2, 10), titre, attendus, t0: Date.now(), ecran: location.hash || "#dashboard",
+        boite: boite ? {...boite, statut: "en attente", erreur: "", resultat: "", ecoute: null} : null};
       vierge(d);
       demandes = [...demandes.filter(x => !x.ferme), d].slice(-MAX);
       replie = false;
       ecrire(); rendre();
+      if (boite) { sonder(); if (!sonde) sonde = setInterval(sonder, 4000); }
     },
   };
 
   const s = lire();
   demandes = Array.isArray(s.demandes) ? s.demandes : [];
   replie = !!s.replie;
+  if (aSuivre().length) { sonder(); sonde = setInterval(sonder, 4000); }  // page rechargée : le suivi des demandes déposées reprend
   const recevoir = e => { if (e.rejeu || !ouvertes().length) return; integrer(e, Date.now()); ecrire(); rendre(); };
   Atelier.on("mcp_outil", recevoir);
   Atelier.on("mcp_annonce", recevoir);
