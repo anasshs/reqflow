@@ -151,9 +151,31 @@ def test_lanceur_windows_la_demande_passe_par_un_fichier(boite, projet, monkeypa
     assert len(list((projet / "studio" / "demandes_cursor").glob("*.md"))) == 1
 
 
-def test_boutons_cursor_masques_dit_dans_les_parametres(boite, monkeypatch):
+def test_cursor_ia_de_l_atelier_reglable_sans_variable(boite, projet, monkeypatch):
+    """Les boutons « Demander à Cursor » dépendent du fournisseur d'IA : réglable dans les paramètres, sans variable
+    d'environnement à taper avant de lancer l'atelier ; la variable, quand elle existe, s'impose."""
+    from fastapi.testclient import TestClient
+
+    from atelier.intelligence import fournisseur_ia
+    from web_app_loader import charger_app_web
+
     monkeypatch.delenv("IA_FOURNISSEUR", raising=False)
     ia = boite.etat()["ia"]
-    assert ia["fournisseur"] == "aucun" and ia["boutons_cursor"] is False and "IA_FOURNISSEUR=cursor" in ia["aide"]
-    monkeypatch.setenv("IA_FOURNISSEUR", "cursor")
-    assert boite.etat()["ia"] == {"fournisseur": "cursor", "boutons_cursor": True, "aide": ""}
+    assert ia["fournisseur"] == "aucun" and ia["boutons_cursor"] is False and "cocher" in ia["aide"] and ia["impose"] == ""
+    boite.regler_envoi("boite")
+    assert boite.regler_ia(True)["ia"] == {"fournisseur": "cursor", "boutons_cursor": True, "impose": "", "aide": ""}
+    assert fournisseur_ia.fournisseur() == "cursor" and fournisseur_ia.etat()["appel_direct"] is False
+    assert (projet / "atelier_cursor.yaml").read_text("utf-8").split() == ["envoi:", "boite", "ia:", "cursor"]   # les deux réglages cohabitent
+    assert boite.regler_envoi("lien")["ia"]["boutons_cursor"] is True and boite.envoi() == "lien"                # l'un n'efface pas l'autre
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200
+    assert c.post("/api/cursor/envoi", json={"envoi": "boite", "ia_cursor": False}).json()["ia"]["fournisseur"] == "aucun"
+    assert c.post("/api/cursor/envoi", json={"envoi": "boite", "ia_cursor": True}).json()["ia"]["boutons_cursor"] is True
+    # la variable de l'entreprise s'impose, et le réglage du projet ne peut pas la contourner
+    monkeypatch.setenv("IA_FOURNISSEUR", "aucun")
+    assert fournisseur_ia.fournisseur() == "aucun" and boite.etat()["ia"]["impose"] == "aucun"
+    with pytest.raises(ValueError, match="imposé par la variable"):
+        boite.regler_ia(True)
+    monkeypatch.delenv("IA_FOURNISSEUR")
+    (projet / "atelier_cursor.yaml").write_text("ia: anthropic\n", "utf-8")       # un fournisseur à clé ne se règle pas par fichier
+    assert fournisseur_ia.fournisseur() == "aucun"

@@ -683,7 +683,10 @@ async def cursor_envoi(req: Request):
     """Mode d'envoi des demandes à Cursor, réglé une fois pour le projet (Paramètres › Cursor / Claude)."""
     from atelier.integrations import boite_cursor
 
-    return _call(boite_cursor.regler_envoi, (await req.json()).get("envoi", ""))
+    b = await req.json()
+    if "ia_cursor" in b and bool(b["ia_cursor"]) != boite_cursor.etat()["ia"]["boutons_cursor"]:
+        _call(boite_cursor.regler_ia, bool(b["ia_cursor"]))  # Cursor est l'IA de l'atelier : affiche les boutons « Demander à Cursor »
+    return _call(boite_cursor.regler_envoi, b.get("envoi", ""))
 
 
 @app.post("/api/cursor/boite/{did}/annuler")

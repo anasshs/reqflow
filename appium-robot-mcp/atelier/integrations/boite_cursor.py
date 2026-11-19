@@ -69,12 +69,39 @@ def envoi() -> str:
     """Mode d'envoi des demandes réglé pour le projet ; « lien » tant que rien n'est réglé ou si le fichier est illisible."""
     import yaml
 
+    v = _reglages().get("envoi")
+    return v if v in ENVOIS else "lien"
+
+
+def _reglages() -> dict:
+    """Réglages Cursor du projet (atelier_cursor.yaml) : mode d'envoi et fournisseur d'IA ; {} si absent ou illisible."""
+    import yaml
+
     f = _fichier_reglage()
     try:
-        v = ((yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}).get("envoi")
-    except (OSError, yaml.YAMLError, AttributeError):
-        v = None
-    return v if v in ENVOIS else "lien"
+        d = (yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}
+    except (OSError, yaml.YAMLError):
+        d = {}
+    return d if isinstance(d, dict) else {}
+
+
+def _ecrire_reglages(**champs) -> None:
+    import yaml
+
+    _fichier_reglage().write_text(yaml.safe_dump({**_reglages(), **champs}, allow_unicode=True, sort_keys=True), "utf-8")
+
+
+def regler_ia(cursor: bool) -> dict:
+    """Cursor est (ou n'est plus) l'IA de l'atelier pour ce projet : c'est ce qui affiche les boutons « Demander à
+    Cursor ». Refusé quand l'entreprise impose un fournisseur par la variable IA_FOURNISSEUR."""
+    from atelier.domain import roles
+    from atelier.intelligence import fournisseur_ia
+
+    roles.exiger("construire")
+    if fournisseur_ia.impose():
+        raise ValueError(f"Le fournisseur d'IA est imposé par la variable IA_FOURNISSEUR (« {fournisseur_ia.impose()} ») : il ne se change pas ici.")
+    _ecrire_reglages(ia="cursor" if cursor else "aucun")
+    return etat()
 
 
 def regler_envoi(mode: str) -> dict:
@@ -88,7 +115,7 @@ def regler_envoi(mode: str) -> dict:
         raise ValueError(f"Mode d'envoi : {', '.join(ENVOIS)}.")
     if mode == "cli":
         _ligne("essai")  # commande absente ou mal réglée sur ce poste : dit avant d'enregistrer
-    _fichier_reglage().write_text(yaml.safe_dump({"envoi": mode}, allow_unicode=True), "utf-8")
+    _ecrire_reglages(envoi=mode)
     return etat()
 
 
@@ -238,10 +265,10 @@ def _fournisseur_ia() -> dict:
     dans les paramètres évite de chercher des boutons absents."""
     from atelier.intelligence import fournisseur_ia
 
-    f = fournisseur_ia.fournisseur()
-    return {"fournisseur": f, "boutons_cursor": f == "cursor",
-            "aide": "" if f == "cursor" else ("Les boutons « Demander à Cursor » sont masqués : l'atelier est lancé avec le fournisseur d'IA "
-                                              f"« {f} ». Arrêter l'atelier, définir la variable IA_FOURNISSEUR=cursor, puis le relancer.")}
+    f, impose = fournisseur_ia.fournisseur(), fournisseur_ia.impose()
+    return {"fournisseur": f, "boutons_cursor": f == "cursor", "impose": impose,
+            "aide": "" if f == "cursor" else (f"Les boutons « Demander à Cursor » sont masqués : la variable IA_FOURNISSEUR impose « {impose} »." if impose
+                                              else "Les boutons « Demander à Cursor » sont masqués : cocher « Cursor est l'IA de l'atelier », puis Valider.")}
 
 
 def _fichier_ecoute():

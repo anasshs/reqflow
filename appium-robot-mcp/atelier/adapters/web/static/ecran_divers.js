@@ -300,8 +300,10 @@
           <button class="btn" id="ag-rafr">Actualiser</button></div><div id="ag-test-r" class="lib"></div>`)}
       ${bo ? etape(4, bo.envoi !== "lien", "Envoi des demandes à Cursor (réglé une fois, pour tout le projet)", `
         ${Object.entries(bo.envois).map(([v, lib]) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 0"><input type="radio" name="ag-envoi" value="${v}" ${v === bo.envoi ? "checked" : ""}> <span>${esc(lib)}</span> ${etatEnvoi(v)}</label>`).join("")}
-        ${bo.ia.boutons_cursor ? "" : `<p><span class="pill ko">Boutons masqués</span> ${esc(bo.ia.aide)}
-          <span class="lib mono">PowerShell : $env:IA_FOURNISSEUR="cursor" &nbsp;·&nbsp; cmd : set IA_FOURNISSEUR=cursor</span></p>`}
+        <label style="display:flex;gap:8px;align-items:center;padding:6px 0 3px;border-top:1px solid var(--line);margin-top:6px"><input type="checkbox" id="ag-ia-cursor" ${bo.ia.boutons_cursor ? "checked" : ""} ${bo.ia.impose ? "disabled" : ""}>
+          <span><b>Cursor est l'IA de l'atelier</b> : affiche les boutons « Demander à Cursor » dans les modules</span>
+          ${bo.ia.impose ? `<span class="lib">imposé par la variable IA_FOURNISSEUR (« ${esc(bo.ia.impose)} »)</span>` : ""}</label>
+        ${bo.ia.boutons_cursor ? "" : `<p><span class="pill ko">Boutons masqués</span> ${esc(bo.ia.aide)}</p>`}
         <div class="btns"><button class="btn primaire" id="ag-envoi-ok">Valider</button></div>
         <p class="lib">Ensuite chaque « Demander à Cursor » part d'un clic, sans choix à refaire. L'exploration passe toujours par le chat de Cursor : vous devez voir l'agent et lui répondre.</p>`) : ""}
       <details><summary class="lib">Claude Desktop</summary><p style="margin-top:6px">${statut(cl)} <span class="lib mono">${esc(cl.fichier)}</span></p>
@@ -322,7 +324,7 @@
     $("#ag-copie").onclick = () => navigator.clipboard.writeText(JSON.stringify(d.config, null, 2)).then(() => toast("Configuration copiée.", "ok"), () => toast("Copie impossible : la sélectionner dans « Configuration ».", "ko"));
     $("#ag-rafr").onclick = () => agents(z);
     if ($("#ag-envoi-ok")) $("#ag-envoi-ok").onclick = async () => {
-      try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: ($("[name=ag-envoi]:checked", z) || {}).value || "lien"}}); toast("Mode d'envoi enregistré pour le projet.", "ok"); agents(z); }
+      try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: ($("[name=ag-envoi]:checked", z) || {}).value || "lien", ...($("#ag-ia-cursor").disabled ? {} : {ia_cursor: $("#ag-ia-cursor").checked})}}); toast("Réglages Cursor enregistrés pour le projet.", "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); }
     };
   }

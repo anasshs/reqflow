@@ -1,4 +1,4 @@
-"""Fournisseur d'IA de l'atelier, choisi par l'entreprise (IA_FOURNISSEUR) :
+"""Fournisseur d'IA de l'atelier, choisi par l'entreprise (IA_FOURNISSEUR) ou, à défaut, réglé pour le projet :
 
 - « aucun »    : uniquement des règles explicables (défaut sûr) ;
 - « cursor »   : l'agent de Cursor lit les données via le MCP et dépose ses propositions dans l'atelier (outils
@@ -6,6 +6,11 @@
 - « interne »  : LLM hébergé par l'entreprise, API compatible OpenAI (POST <IA_INTERNE_URL>/chat/completions),
                  modèle IA_INTERNE_MODELE, jeton dans la variable IA_INTERNE_JETON (ou le coffre) ;
 - « anthropic » : API Claude (ANTHROPIC_API_KEY), seulement si l'entreprise l'autorise.
+
+La variable IA_FOURNISSEUR, quand elle est définie, s'impose (choix de l'entreprise). Sans elle, le projet peut choisir
+« cursor » dans Paramètres › Cursor / Claude (fichier atelier_cursor.yaml) : c'est le seul choix possible sans variable,
+parce qu'avec Cursor l'atelier n'appelle lui-même aucun modèle. « interne » et « anthropic » demandent une URL ou une
+clé : ils restent réglés par variables d'environnement.
 
 Quel que soit le fournisseur : les textes sont masqués avant envoi (e-mails, IBAN, cartes, secrets, longs nombres),
 une proposition d'IA n'est jamais appliquée sans validation humaine, et le fournisseur / modèle est historisé.
@@ -18,9 +23,31 @@ import os
 FOURNISSEURS = ("aucun", "cursor", "interne", "anthropic")
 
 
+REGLABLES_SANS_VARIABLE = ("aucun", "cursor")
+
+
+def impose() -> str:
+    """Fournisseur imposé par la variable d'environnement IA_FOURNISSEUR ; « » si elle n'est pas définie."""
+    f = (os.environ.get("IA_FOURNISSEUR") or "").strip().lower()
+    return f if f in FOURNISSEURS else ""
+
+
+def du_projet() -> str:
+    """Fournisseur réglé pour le projet (atelier_cursor.yaml) ; « » s'il n'y en a pas ou si le fichier est illisible."""
+    import yaml
+
+    from atelier.domain import projet
+
+    f = projet.PROJECT_DIR / "atelier_cursor.yaml"
+    try:
+        v = str(((yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}).get("ia") or "").strip().lower()
+    except (OSError, yaml.YAMLError, AttributeError):
+        v = ""
+    return v if v in REGLABLES_SANS_VARIABLE else ""
+
+
 def fournisseur() -> str:
-    f = (os.environ.get("IA_FOURNISSEUR") or "aucun").strip().lower()
-    return f if f in FOURNISSEURS else "aucun"
+    return impose() or du_projet() or "aucun"
 
 
 def etat() -> dict:

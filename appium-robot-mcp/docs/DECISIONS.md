@@ -628,3 +628,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   (macOS, Linux, .exe), rien ne change : la demande reste un argument, sans shell.
 - Non essayé avec un vrai Cursor sous Windows : installation `irm 'https://cursor.com/install?win32=true' | iex` relevée
   dans la documentation publique ; à confirmer sur le poste.
+
+## 2026-11-18 — « Cursor est l'IA de l'atelier » réglable dans les paramètres
+- Constat de l'utilisateur : après avoir connecté Cursor, les boutons « Demander à Cursor » restaient absents. Ils
+  dépendent du fournisseur d'IA, jusqu'ici fixé par la seule variable IA_FOURNISSEUR à définir avant le lancement.
+- Sans variable, le projet peut maintenant choisir Cursor dans Paramètres › Cursor / Claude (`ia: cursor` dans
+  `atelier_cursor.yaml`, à côté du mode d'envoi). La variable, quand elle est définie, s'impose et le réglage du projet
+  ne peut pas la contourner.
+- Seul « cursor » se règle ainsi : avec lui l'atelier n'appelle aucun modèle. « interne » et « anthropic » demandent
+  une URL ou une clé et restent réglés par variables d'environnement.
