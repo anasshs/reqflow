@@ -311,7 +311,11 @@
           <p class="lib">Sans fenêtre, personne ne peut approuver un appel : Cursor refuse alors chaque outil de l'atelier et rien n'est déposé. L'autorisation ne couvre que les outils de l'atelier, ni les commandes du poste ni l'écriture de fichiers.</p>
           <div class="btns">${bo.cli.permissions.accordee ? "" : '<button class="btn primaire" id="ag-cli-autoriser">Autoriser les outils de l\'atelier</button>'}
             <button class="btn" id="ag-cli-verif" title="Lance « agent mcp list » dans le projet de tests : dit si le serveur de l'atelier est chargé ou à approuver">Vérifier la ligne de commande</button></div>
-          <div id="ag-cli-r" class="lib"></div></div>` : ""}
+          <div id="ag-cli-r" class="lib"></div>
+          <label style="display:flex;gap:8px;align-items:flex-start;padding:8px 0 3px"><input type="checkbox" id="ag-cli-force" ${bo.cli.force ? "checked" : ""}>
+            <span><b>Laisser Cursor agir sans approbation (option --force)</b><br><span class="lib">À cocher si Cursor répond que les appels à l'atelier sont « refusés » malgré l'autorisation ci-dessus.
+            Attention : Cursor peut alors aussi lancer des commandes sur ce poste et écrire des fichiers sans demander. Réglage du projet, partagé avec l'équipe par le repository de tests. Puis « Valider ».</span></span></label>
+          ${bo.cli.force ? '<p><span class="pill warn">--force actif</span> <span class="lib">Cursor agit sans approbation en ligne de commande.</span></p>' : ""}</div>` : ""}
         <p class="lib">Ensuite chaque « Demander à Cursor » part d'un clic, sans choix à refaire. L'exploration passe toujours par le chat de Cursor : vous devez voir l'agent et lui répondre.</p>`) : ""}
       <details><summary class="lib">Claude Desktop</summary><p style="margin-top:6px">${statut(cl)} <span class="lib mono">${esc(cl.fichier)}</span></p>
         <div class="btns"><button class="btn" data-inst="claude">${cl.a_jour ? "Réinstaller" : "Installer dans Claude Desktop"}</button></div>
@@ -343,7 +347,7 @@
       catch (e) { $("#ag-cli-r").textContent = e.message; }
     };
     if ($("#ag-envoi-ok")) $("#ag-envoi-ok").onclick = async () => {
-      try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: ($("[name=ag-envoi]:checked", z) || {}).value || "lien", ...($("#ag-ia-cursor").disabled ? {} : {ia_cursor: $("#ag-ia-cursor").checked})}}); toast("Réglages Cursor enregistrés pour le projet.", "ok"); agents(z); }
+      try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: ($("[name=ag-envoi]:checked", z) || {}).value || "lien", ...($("#ag-ia-cursor").disabled ? {} : {ia_cursor: $("#ag-ia-cursor").checked}), ...($("#ag-cli-force") ? {cli_force: $("#ag-cli-force").checked} : {})}}); toast("Réglages Cursor enregistrés pour le projet.", "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); }
     };
   }

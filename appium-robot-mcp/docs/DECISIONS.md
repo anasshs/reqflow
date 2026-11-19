@@ -661,3 +661,11 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Non vérifié sur la documentation officielle (cursor.com inaccessible depuis la session) : la syntaxe du jeton vient
   d'une recherche web, et un retour du forum Cursor signale qu'une liste d'autorisation n'a pas toujours suffi en mode
   sans fenêtre. À confirmer par l'essai réel de l'utilisateur.
+
+## 2026-11-19 — Ligne de commande de Cursor : option --force, choix explicite de l'automaticien
+- Essai réel de l'utilisateur sur son poste : la même demande (appel de `cursor_regles`) est refusée avec
+  `--approve-mcps --trust`, et aboutit avec `--force` en plus. L'essai a été fait depuis le dossier de l'atelier : il ne
+  prouve pas que l'autorisation ciblée de `.cursor/cli.json` est ignorée, seulement que `--force` suffit.
+- Décision : `--force` reste absent par défaut. Une case de Paramètres › Cursor / Claude (étape 4) l'ajoute pour le
+  projet (`cli_force` dans `atelier_cursor.yaml`), avec l'avertissement : l'agent peut alors aussi lancer des commandes
+  du poste et écrire des fichiers sans demander. Rôle automaticien exigé.

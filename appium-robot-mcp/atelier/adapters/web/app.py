@@ -686,6 +686,8 @@ async def cursor_envoi(req: Request):
     b = await req.json()
     if "ia_cursor" in b and bool(b["ia_cursor"]) != boite_cursor.etat()["ia"]["boutons_cursor"]:
         _call(boite_cursor.regler_ia, bool(b["ia_cursor"]))  # Cursor est l'IA de l'atelier : affiche les boutons « Demander à Cursor »
+    if "cli_force" in b and bool(b["cli_force"]) != boite_cursor.cli()["force"]:
+        _call(boite_cursor.regler_force, bool(b["cli_force"]))  # option --force de la ligne de commande : choix explicite
     return _call(boite_cursor.regler_envoi, b.get("envoi", ""))
 
 

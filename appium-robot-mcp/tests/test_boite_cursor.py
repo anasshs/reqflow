@@ -234,3 +234,16 @@ def test_routes_ligne_de_commande(boite, projet, monkeypatch):
     assert c.post("/api/cursor/cli/verifier").json()["trouvee"] is False
     assert c.post("/api/cursor/cli/autoriser").json()["accordee"] is True
     assert c.get("/api/cursor/boite").json()["cli"]["permissions"]["accordee"] is True
+
+
+def test_option_force_choix_explicite(boite, projet, monkeypatch, tmp_path):
+    """--force n'est jamais mis par défaut ; l'automaticien peut l'activer pour le projet quand l'agent refuse les outils."""
+    monkeypatch.setenv("ATELIER_CURSOR_CLI", _faux_agent(tmp_path))
+    assert boite.cli()["force"] is False and "--force" not in boite.cli()["arguments"]
+    assert boite.regler_force(True)["cli"]["force"] is True
+    d = boite.deposer("Analyse", "Analyse l'US DEMO-3.", mode="cli", attendre=True)
+    assert "ARGS=-p|Analyse l'US DEMO-3.|--output-format|text|--approve-mcps|--trust|--force" in d["resultat"]
+    monkeypatch.setenv("ATELIER_CURSOR_CLI_ARGS", "-p {demande} --force")
+    assert boite.cli()["arguments"] == "-p {demande} --force"                 # jamais en double
+    monkeypatch.delenv("ATELIER_CURSOR_CLI_ARGS")
+    assert boite.regler_force(False)["cli"]["force"] is False and "--force" not in boite.cli()["arguments"]

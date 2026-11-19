@@ -106,6 +106,18 @@ def regler_ia(cursor: bool) -> dict:
     return etat()
 
 
+def regler_force(force: bool) -> dict:
+    """Ajoute (ou retire) l'option --force de la ligne de commande de Cursor pour ce projet. Constat du 2026-11-19 : sans
+    fenêtre, l'agent refuse les outils de l'atelier malgré l'autorisation ciblée de .cursor/cli.json ; seul --force les
+    laisse passer. Il autorise AUSSI les commandes du poste et l'écriture de fichiers par l'agent : choix explicite de
+    l'automaticien, jamais activé par défaut."""
+    from atelier.domain import roles
+
+    roles.exiger("construire")
+    _ecrire_reglages(cli_force=bool(force))
+    return etat()
+
+
 def regler_envoi(mode: str) -> dict:
     """Règle une fois le mode d'envoi des demandes à Cursor pour tout le projet (rôle automaticien)."""
     import yaml
@@ -157,7 +169,10 @@ def cli() -> dict:
     candidats = [commande] if commande else ["agent", "cursor-agent"]
     trouvee = next((c for c in candidats if shutil.which(c)), "")
     args = os.environ.get("ATELIER_CURSOR_CLI_ARGS", "").strip() or ARGS_DEFAUT
-    return {"commande": trouvee or candidats[0], "trouvee": bool(trouvee), "arguments": args,
+    force = _reglages().get("cli_force") is True
+    if force and "--force" not in shlex.split(args):
+        args += " --force"
+    return {"commande": trouvee or candidats[0], "trouvee": bool(trouvee), "arguments": args, "force": force,
             "valide": "{demande}" in args, "delai_s": int(os.environ.get("ATELIER_CURSOR_CLI_DELAI", "900") or 900),
             "mcp_du_projet": (projet.PROJECT_DIR / ".cursor" / "mcp.json").exists(), "permissions": permissions_cli()}
 
@@ -245,7 +260,7 @@ def verifier_cli(lanceur=None) -> dict:
     else:
         r["serveur"] = "en_erreur"
         r["a_faire"] = "Vérifier que l'atelier est lancé (serveur MCP démarré, étape 1), puis vérifier à nouveau."
-    if r["serveur"] == "charge" and not c["permissions"]["accordee"]:
+    if r["serveur"] == "charge" and not c["permissions"]["accordee"] and not c["force"]:
         r["a_faire"] = "Serveur chargé, mais ses outils ne sont pas autorisés sans fenêtre : « Autoriser les outils de l'atelier »."
     return r
 
@@ -317,7 +332,10 @@ def deposer(titre: str, texte: str, attendus: list[str] | None = None, ecran: st
         raise ValueError("Mode : boite ou cli.")
     if mode == "cli":
         _ligne(texte)  # commande absente ou mal réglée : dit tout de suite, rien n'est déposé
-    d = {"id": "DC-" + uuid.uuid4().hex[:8], "titre": " ".join(str(titre or "Demande").split())[:160], "texte": texte[:12000],
+    did = uuid.uuid4().hex[:8]
+    while did.isdigit():  # un identifiant tout en chiffres serait masqué comme un numéro dans le compte rendu de l'agent
+        did = uuid.uuid4().hex[:8]
+    d = {"id": "DC-" + did, "titre": " ".join(str(titre or "Demande").split())[:160], "texte": texte[:12000],
          "attendus": [str(a) for a in (attendus or [])][:8], "ecran": str(ecran or "")[:200], "mode": mode,
          "statut": "en attente", "cree": _maintenant()}
     with _verrou:
