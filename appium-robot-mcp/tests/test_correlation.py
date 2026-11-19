@@ -163,3 +163,19 @@ def test_une_preuve_perdue_est_consignee(banque, tmp_path):
     (tmp_path / "tests" / "virement.robot").write_text(ROBOT.replace("DEMO-13", "sans_cle").replace("DEMO-11", "sans_cle_2"), "utf-8")
     assert correlation.actualiser()["perdus"] == 1 and not correlation.ecran(banque)["verifiees"]
     assert [x["evenement"] for x in correlation.historique()] == ["lien vérifié perdu : plus aucune preuve", "preuve perdue"]
+
+
+def test_tableau_de_bord_avec_un_ecran_relie_a_une_exigence(banque):
+    """Le tableau de bord échouait (TypeError) dès qu'un écran portait un lien : la synthèse rend des nombres, et les
+    clés des exigences reliées dans « cles_… » (constaté sur le Dashboard le 2026-11-19)."""
+    from atelier.discovery import correlation
+    from atelier.intelligence import pilotage
+
+    e = correlation.synthese()["ecrans"][0]
+    assert (e["verifiees"], e["cles_verifiees"], e["realisees"], e["cles_realisees"]) == (1, ["DEMO-2"], 0, [])
+    correlation.confirmer(banque, "DEMO-4", "manuel")
+    e = correlation.synthese()["ecrans"][0]
+    assert (e["realisees"], e["cles_realisees"]) == (1, ["DEMO-4"])
+    pilotage.vider_memo()
+    assert "exigences_sans_ecran" in {i["id"] for i in pilotage.conception()["discovery"]["indicateurs"]}   # le calcul aboutit
+    assert pilotage.decision()                                                                            # et l'aide à la décision aussi

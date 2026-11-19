@@ -220,6 +220,7 @@ def synthese() -> dict:
         out.append({"id": c["id"], "nom": c["nom"], "module": c["module"], "noeud": c["noeud"], "plateformes": c["plateformes"],
                     "tests_robot": len(c["tests_robot"]), "tests_xray": len(c["tests_xray"]), "exigences": len(c["exigences"]),
                     "realisees": len(c["realisees"]), "verifiees": len(c["verifiees"]),
+                    "cles_realisees": [x["cle"] for x in c["realisees"]], "cles_verifiees": [x["cle"] for x in c["verifiees"]],
                     "proposees": len(c["exigences_proposees"]), "fichiers": len(c["fichiers"]), "etat": etat})
     try:
         suivre_preuves(ctx)

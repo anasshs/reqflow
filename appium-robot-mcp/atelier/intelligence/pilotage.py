@@ -346,7 +346,8 @@ def conception(f: dict | None = None) -> dict:
     fo, te = (vue or {}).get("fonctionnel") or {}, (vue or {}).get("technique") or {}
     d = lambda id_, lib, v, defi, lien="#discovery/resultats", raison_="": _ind(id_, lib, v, defi, "nombre", "carte de l'application + Knowledge Graph", lien, raison=raison_ or r1)  # noqa: E731
     ecrans = (corr or {}).get("ecrans") or []
-    avec_ecran = {c for e in ecrans for c in (e.get("realisees") or []) + (e.get("verifiees") or [])}
+    # « realisees » et « verifiees » sont des nombres dans la synthèse : les clés sont dans « cles_… »
+    avec_ecran = {c for e in ecrans for c in (e.get("cles_realisees") or []) + (e.get("cles_verifiees") or [])}
     par_etat: dict = {}
     for nd in noeuds or []:
         etat = ("validé par un utilisateur" if nd["provenance"] == "déclaré" and nd["statut"] == "validé" else "en attente de validation" if nd["statut"] != "validé"
