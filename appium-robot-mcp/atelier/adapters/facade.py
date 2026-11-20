@@ -1055,6 +1055,30 @@ def discovery_juger_correlations(jugements: list[dict]) -> dict:
     return correlation.deposer_correlations(jugements or [], "Cursor (MCP)")
 
 
+@outil
+def release_a_interpreter(release: str, build: str = "") -> dict:
+    """Releases : tout pour interpréter la Release Note (sans build) ou un build reçu — texte masqué, évolutions tirées
+    par les règles, éléments du Knowledge Graph (US, epics, bugs, écrans, modules, parcours), patrimoine de tests Xray
+    (module, criticité, exigences, automatisé, dernier statut), anomalies Jira, périmètre des règles, consigne et format
+    de dépôt. Lire avant release_deposer_interpretation. Lecture seule."""
+    from atelier.intelligence import release_ia
+
+    return release_ia.a_interpreter(release, build)
+
+
+@outil
+def release_deposer_interpretation(release: str, build: str = "", evolutions: list[dict] | None = None,
+                                   tests: list[dict] | None = None, synthese: str = "") -> dict:
+    """Releases : dépose ton interprétation. evolutions : [{"evolution": id des règles ou vide, "texte": si nouvelle,
+    "type", "elements": [ids du Knowledge Graph], "justification"}] ; tests (build seulement) : [{"test": clé, "action":
+    "ajouter" | "ecarter", "categorie": "retest" | "ciblee" | "qualification", "justification"}] ; synthese : le risque du
+    build en deux ou trois phrases. Contrôlé par le serveur (éléments et tests connus, justification), appliqué comme
+    proposition par défaut que le QA valide ; rien n'est écrit dans Jira / Xray. Renvoie les retenus et les refus."""
+    from atelier.intelligence import release_ia
+
+    return release_ia.deposer(release, build, evolutions or [], tests or [], synthese or "", "Cursor (MCP)")
+
+
 __all__ = [f.__name__ for f in OUTILS]
 
 

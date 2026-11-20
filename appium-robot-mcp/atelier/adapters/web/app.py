@@ -2697,6 +2697,22 @@ async def releases_build(rid: str, bid: str):
     return await asyncio.to_thread(_call, builds.vue, rid, bid)
 
 
+@app.get("/api/releases-ia/etat")
+async def releases_ia_etat():
+    from atelier.intelligence import release_ia
+
+    return await asyncio.to_thread(_call, release_ia.etat_ia)
+
+
+@app.post("/api/releases/{rid}/interpreter")
+async def releases_interpreter(rid: str, req: Request):
+    """Interprétation par l'IA à appel direct (LLM interne / Claude) ; avec Cursor, la demande passe par le MCP."""
+    from atelier.intelligence import release_ia
+
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, release_ia.interpreter_ia, rid, str(b.get("build") or ""))
+
+
 @app.post("/api/releases/{rid}/builds/{bid}/actualiser-xray")
 async def releases_build_actualiser_xray(rid: str, bid: str):
     """Relit dans Xray les résultats des exécutions du build (depuis sa réception)."""

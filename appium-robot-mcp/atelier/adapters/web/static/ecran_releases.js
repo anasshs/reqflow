@@ -9,7 +9,7 @@
   const QUALIF = {"En cours": "info", "Qualifiée": "ok", "Qualifiée par dérogation": "warn"};
   const CAT = {retest: ["Retest", "ko"], ciblee: ["Non-régression ciblée", "warn"], qualification: ["Qualification", "info"]};
   const RES = {reussi: "ok", echec: "ko", bloque: "warn"};
-  let Z = null, ID = "", BID = "", FORM = "", T = null, B = null;
+  let Z = null, ID = "", BID = "", FORM = "", T = null, B = null, AUTO_IA = "";
   const date = x => esc(String(x || "").slice(0, 16).replace("T", " "));
   const pill = (t, c = "") => `<span class="pill ${c}">${esc(t)}</span>`;
   const kpi = (v, l, c = "") => `<div class="kpi"><div class="v ${c}">${v ?? "—"}</div><div class="l">${esc(l)}</div></div>`;
@@ -57,7 +57,8 @@
     $("#rf-ok").onclick = async () => {
       try { const r = await api("/api/releases", {method: "POST", body: {nom: $("#rf-nom").value, version: $("#rf-version").value, date_prevue: $("#rf-date").value,
           perimetre: $("#rf-perimetre").value, texte: $("#rf-texte").value}});
-        FORM = ""; toast(`Release créée${r.evolutions.length ? ` : ${r.evolutions.length} évolution(s) dans le périmètre initial` : ""}.`, "ok"); aller(r.id); }
+        FORM = ""; toast(`Release créée${r.evolutions.length ? ` : ${r.evolutions.length} évolution(s) dans le périmètre initial` : ""}.`, "ok");
+        if (r.evolutions.length) { AUTO_IA = "initial"; aller(r.id + "/initial"); } else aller(r.id); }
       catch (e) { toast(e.message, "ko"); } };
     $("#rf-nom").focus();
   }
@@ -203,16 +204,52 @@
       if (r) { toast(`Créé dans Xray : ${r.creees.join(", ")}${r.plan ? ` (Test Plan ${r.plan.cle})` : ""}.`, "ok"); executionsBuild(zone_); } };
   }
 
+  /* ------------------------------------------------------------------ interprétation par Cursor (par défaut) ou l'IA configurée */
+  let MODE_IA = null;
+  const modeIA = () => (MODE_IA = MODE_IA || api("/api/releases-ia/etat").catch(() => { MODE_IA = null; return {mode: "regles"}; }));
+  /* bloc affiché au-dessus des évolutions : qui a interprété, synthèse, refus, et le bouton pour (re)demander */
+  async function blocIA(zone_, interp, bid, nom, rafraichir) {
+    const m = await modeIA();
+    const qui = interp ? esc(interp.source) : "";
+    zone_.innerHTML = `<div class="rel-ia ${interp ? "" : "a-faire"}"><div><b>${interp ? `Interprété par ${qui}` : m.mode === "regles" ? "Interprétation par les règles (secours)" : "Interprétation demandée à " + (m.mode === "cursor" ? "Cursor" : "l'IA")}</b>
+        ${interp ? `<span class="lib">le ${date(interp.date)}</span>` : ""}
+        ${interp?.synthese ? `<p style="margin:4px 0 0">${esc(interp.synthese)}</p>` : ""}
+        <p class="lib" style="margin:4px 0 0">${interp ? "Rattachements et tests proposés par l'IA appliqués par défaut, chacun avec sa justification : délier, garder ou écarter ci-dessous, puis valider."
+          : m.mode === "regles" ? "Aucune IA configurée (Paramètres › Cursor / Claude) : découpage ligne par ligne et rapprochement par les mots."
+          : "En attendant, la proposition des règles s'affiche ; elle est remplacée dès que l'interprétation est déposée."}</p>
+        ${(interp?.refus || []).length ? `<details><summary class="lib">${interp.refus.length} proposition(s) refusée(s) par le serveur</summary><ul class="rel-puces">${interp.refus.map(x => `<li><span class="mono">${esc(x.objet)}</span> : ${esc(x.raison)}</li>`).join("")}</ul></details>` : ""}</div>
+      <div class="btns">${m.mode === "cursor" ? `<button class="btn petit ${interp ? "" : "primaire"}" data-ia-demander>${interp ? "Réinterpréter avec Cursor" : "Demander à Cursor"}</button>`
+        : m.mode === "direct" ? `<button class="btn petit ${interp ? "" : "primaire"}" data-ia-demander>${interp ? "Réinterpréter" : "Interpréter avec l'IA"}</button>` : ""}</div></div>
+      <div data-ia-demande></div>`;
+    const demander = async () => {
+      if (m.mode === "cursor") return DemanderCursor(`Interprétation : ${bid ? "build" : "Release Note"} de ${nom}`,
+        `Interprète ${bid ? `le build ${B?.numero || bid} de la release « ${nom} »` : `la Release Note de la release « ${nom} »`}. `
+        + `Lis tout avec release_a_interpreter(release="${ID}"${bid ? `, build="${bid}"` : ""}) : le texte, les évolutions tirées par les règles, les éléments du Knowledge Graph `
+        + `de l'application, le patrimoine de tests Xray (module, criticité, exigences, automatisé), les anomalies Jira${bid ? " et le périmètre proposé par les règles" : ""}. `
+        + `Puis dépose avec release_deposer_interpretation : chaque évolution rattachée aux éléments du graphe qu'elle touche${bid ? ", les tests à ajouter (retest, ciblee, qualification) ou à écarter" : ""}, `
+        + "chacun avec une justification courte, et une synthèse du risque en deux ou trois phrases. Je valide dans l'atelier ; rien n'est écrit dans Jira ni Xray.",
+        undefined, ["release_deposer_interpretation"], {zone: $("[data-ia-demande]", zone_)});
+      const b_ = $("[data-ia-demander]", zone_); if (b_) { b_.disabled = true; b_.textContent = "Interprétation en cours…"; }
+      try { const r = await api(`/api/releases/${ID}/interpreter`, {method: "POST", body: {build: bid}});
+        if (r.disponible === false) return toast(r.raison, "ko");
+        toast(`Interprétation déposée : ${r.retenus.evolutions.length} rattachement(s), ${r.retenus.tests.length} avis sur des tests${r.refus.length ? `, ${r.refus.length} refus` : ""}.`, "ok"); rafraichir(); }
+      catch (e) { toast(e.message, "ko"); if (b_) { b_.disabled = false; b_.textContent = "Réessayer"; } } };
+    if ($("[data-ia-demander]", zone_)) $("[data-ia-demander]", zone_).onclick = demander;
+    SuivreCursor("release-ia", ["release_deposer_interpretation"], zone_, rafraichir);
+    if (AUTO_IA && AUTO_IA === (bid || "initial") && !interp && m.mode !== "regles") { AUTO_IA = ""; demander(); }
+  }
+
   /* ------------------------------------------------------------------ évolutions (Release Note ou contenu d'un build) */
   function evolutions(liste_, types, ops) {
     const lien = (e, l) => l.etat === "confirmé"
-      ? `<span class="pill ok" title="${esc(l.origine || "")}${l.par ? " · " + esc(l.par) : ""}">${esc(l.libelle)} <span class="lib">${esc(l.type)}</span> <button class="lien" data-ev-op="delier" data-e="${e.id}" data-n="${esc(l.noeud)}" aria-label="Retirer ce rattachement">×</button></span>`
+      ? `<span class="pill ok" title="${esc(l.origine || "")}${l.par ? " · " + esc(l.par) : ""}">${esc(l.libelle)} <span class="lib">${esc(l.type)}${l.ia ? " · IA" : ""}</span> <button class="lien" data-ev-op="delier" data-e="${e.id}" data-n="${esc(l.noeud)}" aria-label="Retirer ce rattachement">×</button></span>`
       : `<span class="pill warn" title="Proposé par les mots communs : ${esc((l.mots || []).join(", "))}. Une proposition n'est pas un rattachement.">${esc(l.libelle)} <span class="lib">${esc(l.type)}</span></span>
          <button class="btn petit" data-ev-op="confirmer" data-e="${e.id}" data-n="${esc(l.noeud)}">Confirmer</button><button class="btn petit" data-ev-op="rejeter" data-e="${e.id}" data-n="${esc(l.noeud)}">Rejeter</button>`;
     return `<ul class="liste rel-evolutions">${liste_.map(e => { const vis = (e.liens || []).filter(l => l.etat !== "rejeté");
       return `<li class="rel-evo"><div class="rel-ligne"><select class="in" data-ev-type="${e.id}" style="width:auto" aria-label="Type de l'évolution ${e.id}">${Object.entries(types).map(([k, v]) => `<option value="${k}" ${k === e.type ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
           <span class="item">${esc(e.texte)}</span>${e.nouveaute ? pill(e.nouveaute, {nouvelle: "ok", "déjà livrée": "", "touche le périmètre existant": "info"}[e.nouveaute]) : ""}${pill(e.etat, ETAT[e.etat])}
           <button class="icone" data-ev-op="supprimer_evolution" data-e="${e.id}" aria-label="Supprimer l'évolution ${e.id}">${ico("x")}</button></div>
+        ${e.interpretation_ia ? `<div class="lib">Interprétation : ${esc(e.interpretation_ia.justification)}</div>` : ""}
         <div class="lib">${e.ligne ? `Ligne ${e.ligne}` : esc(e.origine || "")}${e.rubrique ? ` · rubrique « ${esc(e.rubrique)} »` : ""}${(e.tests || []).length ? ` · ${e.tests.length} test(s) : ${esc(e.tests.slice(0, 8).join(", "))}` : ""}
           ${e.sans_test ? ' · <span class="pill warn">aucun test : à créer</span>' : ""}</div>
         ${(e.cles_inconnues || []).length ? `<div class="lib"><span class="pill warn">clé inconnue</span> ${esc(e.cles_inconnues.join(", "))} : absente du Knowledge Graph (synchroniser Jira, ou relier à la main).</div>` : ""}
@@ -250,9 +287,11 @@
     z.innerHTML = `<p class="lib" style="margin-top:0">${r.evolutions.length} évolution(s) : ${r.rattachees} rattachée(s), ${r.a_trancher} à trancher, ${r.non_rattachees} non rattachée(s) · ${r.tests.length} test(s) par l'analyse d'impact.
         ${r.statut === "Validée" ? `Envoyée au TNR du Dashboard le ${date(r.validation?.date)}. <button class="lien" id="ri-rouvrir">Retirer du TNR</button>`
           : `<button class="btn petit" id="ri-tnr" title="Les évolutions rattachées entrent aussi dans l'analyse d'impact du TNR (Dashboard)">Envoyer au TNR du Dashboard</button>`}</p>
+      <div id="ri-ia"></div>
       ${evolutions(r.evolutions, r.types)}
       <details style="margin-top:10px"><summary class="lib">Texte d'origine (conservé tel quel)</summary><pre class="code-bloc" style="white-space:pre-wrap">${esc(r.texte)}</pre></details>`;
     brancherEvolutions(z, c => opRelease(c));
+    blocIA($("#ri-ia", z), r.interpretation_ia, "", r.nom, () => initial());
     if ($("#ri-tnr")) $("#ri-tnr").onclick = () => opRelease({op: "valider"}, "Évolutions envoyées au TNR du Dashboard.");
     if ($("#ri-rouvrir")) $("#ri-rouvrir").onclick = () => opRelease({op: "rouvrir"}, "Retirée du TNR.");
   }
@@ -296,7 +335,7 @@
       try { const b = await api(`/api/releases/${ID}/builds`, {method: "POST", body: {numero: $("#bf-num").value, date_reception: $("#bf-date").value, description: $("#bf-desc").value,
           texte: $("#bf-texte").value, anomalies: $("#bf-anom").value, changements: $("#bf-chg").value}});
         toast(`Build ${b.numero} reçu : ${b.evolutions.length} évolution(s), ${b.comparaison.anomalies_a_retester.length} anomalie(s) à retester, ${b.perimetre.length} test(s) proposé(s).`, "ok");
-        aller(ID + "/" + b.id); liste(); }
+        AUTO_IA = b.id; aller(ID + "/" + b.id); liste(); }
       catch (e) { toast(e.message, "ko"); } };
   }
 
@@ -312,10 +351,11 @@
       "En exécution": "", "Passed": "", "Failed": ""}[B.statut] || "";
     const verdict = !ouvert && !["Passed", "Failed"].includes(B.statut) ? `<button class="btn succes" data-verdict="passed">Déclarer Passed</button><button class="btn danger" data-verdict="failed">Déclarer Failed</button>` : "";
     const ligne = x => `<tr style="${x.decision === "rejetée" ? "opacity:.55" : ""}"><td><b>${esc(x.test)}</b> <span class="lib">${esc(x.resume)}</span>${x.automatise ? "" : ' <span class="pill" title="Aucun script publié : à exécuter à la main dans Xray">manuel</span>'}</td>
-        <td>${esc(x.module || "—")}</td><td>${x.impact === "direct" ? pill("direct", "ko") : x.impact === "indirect" ? pill("indirect", "warn") : x.impact === "ajout" ? pill("ajouté") : ""}</td>
+        <td>${esc(x.module || "—")}</td><td>${x.impact === "direct" ? pill("direct", "ko") : x.impact === "indirect" ? pill("indirect", "warn") : x.impact === "ajout" ? pill("ajouté") : x.impact === "ia" ? pill("IA", "violet") : ""}</td>
         <td class="lib">${x.motifs.map(esc).join("<br>")}</td><td>${esc(x.criticite || "—")}</td>
         <td>${x.execute ? pill(x.dernier_statut, RES[x.resultat]) : x.dernier_statut ? `<span class="lib" title="Dernier résultat, antérieur à la réception du build">${esc(x.dernier_statut)} le ${esc(x.derniere_execution)}</span>` : '<span class="lib">jamais exécuté</span>'}</td>
-        <td style="white-space:nowrap">${x.decision ? `${pill(x.decision, x.decision === "rejetée" ? "" : "ok")}${ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">annuler</button>` : ""}`
+        <td style="white-space:nowrap">${x.decision_ia ? `<span class="pill" title="${esc(x.decision_motif)}">écarté par l'IA</span>${ouvert ? ` <button class="btn petit" data-dec="${esc(x.test)}" data-v="acceptée" title="${esc(x.decision_motif)}">Garder</button>` : ""}`
+          : x.decision ? `${pill(x.decision, x.decision === "rejetée" ? "" : "ok")}${ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">annuler</button>` : ""}`
           : ouvert ? `<button class="btn petit" data-dec="${esc(x.test)}" data-v="acceptée">Accepter</button> <button class="btn petit" data-dec="${esc(x.test)}" data-v="rejetée">Écarter</button>` : ""}</td></tr>`;
     const anomalies = (titre, l, cls = "") => l.length ? `<p style="margin:6px 0 2px"><b>${titre}</b> (${l.length})</p><ul class="rel-puces">${l.map(x => `<li><b class="${cls}">${esc(x.cle)}</b> ${esc(x.resume || "")} <span class="lib">${esc([x.statut, x.priorite].filter(Boolean).join(" · "))}${(x.tests || []).length ? " · tests " + esc(x.tests.join(", ")) : ""}</span></li>`).join("")}</ul>` : "";
     z.innerHTML = `<section class="bloc-strat" style="margin-top:12px"><h3>Build ${esc(B.numero)} ${pill(B.statut, STATUT[B.statut])} <span class="lib">reçu le ${esc(B.date_reception)} par ${esc(B.recu_par || "")}${c.precedent ? ` · comparé au build ${esc(c.precedent)}` : " · premier build, comparé au périmètre initial"}</span>
@@ -326,6 +366,7 @@
       <div id="rb-verdict"></div>
       ${B.verdict ? `<p class="lib">Déclaré ${esc(B.statut)} par ${esc(B.verdict.par)} le ${date(B.verdict.date)}${B.verdict.motif ? ` · ${esc(B.verdict.motif)}` : ""}.</p>` : ""}
       ${(B.campagnes || []).length ? `<p class="lib">Campagne(s) : ${B.campagnes.map(x => `<a href="#centre/campagnes">${esc(x.nom)}</a> (${x.tests} tests)`).join(", ")}.</p>` : ""}
+      <div id="rb-ia"></div>
       <div class="grille-2 rel-comparaison">
         <div><h3 class="lib">NOUVELLES ÉVOLUTIONS</h3>${listeEvo(c.nouvelles)}${c.deja_livrees.length ? `<p class="lib">${c.deja_livrees.length} évolution(s) déjà livrée(s) dans un build précédent.</p>` : ""}
           <h3 class="lib">CORRECTIONS</h3>${listeEvo(c.corrections)}</div>
@@ -381,6 +422,7 @@
       $("#rv-non").onclick = () => { v.innerHTML = ""; };
       $("#rv-ok").onclick = () => opBuild({op, motif: $("#rv-motif").value}, `Build déclaré ${op === "passed" ? "Passed" : "Failed"} : la release reste à qualifier.`); });
     executionsBuild($("#rb-xray", z));
+    blocIA($("#rb-ia", z), B.interpretation, BID, B.release?.nom || "", () => vueBuild());
     z.scrollIntoView({block: "nearest"});
   }
 })();

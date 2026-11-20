@@ -403,6 +403,7 @@ def _modifier_evolutions(r: dict, g, evolutions: list, op: str, p: dict, prefixe
             if p["type"] not in TYPES:
                 raise ValueError(f"Type inconnu : {p['type']}")
             e["type"] = p["type"]
+            e["type_par_qa"] = True
         if p.get("texte") is not None and str(p["texte"]).strip() and str(p["texte"]).strip() != e["texte"]:
             e["texte"] = str(p["texte"]).strip()[:1000]
             e["cles_jira"] = sorted(set(_CLE_JIRA.findall(e["texte"])))

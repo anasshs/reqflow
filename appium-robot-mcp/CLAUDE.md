@@ -20,13 +20,13 @@ Corrélation exigences ↔ écrans (« vérifiée sur » automatique, « réalis
 Discovery Data Setup (référentiel universel de variables, profils, générateurs, contexte de session) : docs/DISCOVERY_DATA_SETUP.md.
 Parcours utilisateur (initiation de Discovery : cadrer un parcours avant de le dérouler, le rouvrir, le valider) : docs/PARCOURS_UTILISATEUR.md.
 Dashboard de pilotage (couverture, exécution, TNR par analyse d'impact, état de préparation) : docs/DASHBOARD_PILOTAGE.md.
-Releases (création, Release Note, builds successifs comparés, périmètre retest / ciblée / qualification, verdict par build, critères de sortie et qualification ; écran Releases) : docs/RELEASE_NOTES.md.
+Releases (interprétation par Cursor par défaut, création, Release Note, builds successifs comparés, périmètre retest / ciblée / qualification, verdict par build, critères de sortie et qualification ; écran Releases) : docs/RELEASE_NOTES.md.
 De l'US au test automatisé (un seul fil dans un périmètre : couverture des US ou parcours, puis automatisation ; guide dans l'outil) : docs/DE_L_US_AU_TEST_AUTOMATISE.md.
 Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
 fonctionnalité, demandes d'action validées côté serveur, 11 règles Cursor versionnées, couverture parcours / UI, Test
 Design par catégories et doublons, Champ / Anomalie, échecs reliés à la connaissance, jugements délégués à Cursor (granularité, doublons, redondances, liens
-exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 112 outils MCP (76 historiques
+exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 114 outils MCP (76 historiques
 inchangés) ; classement de sécurité de chaque outil : tests/test_securite_outils.py (à compléter pour tout nouvel outil) ;
 client MCP de test : tests/client_mcp.py.
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).

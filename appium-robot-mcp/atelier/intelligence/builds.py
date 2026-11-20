@@ -173,6 +173,15 @@ def analyser(r: dict, b: dict, g=None) -> dict:
     for cle, d in (b.get("decisions") or {}).items():
         if d.get("decision") == "ajoutée":
             ajouter(cle, "ciblee", f"ajouté par {d.get('par', '?')} : {d.get('motif', '')}".strip(" :"), "ajout")
+    # interprétation de l'IA (Cursor par défaut) : tests ajoutés ou écartés, proposition par défaut que le QA peut défaire
+    avis = b.get("avis_ia") or {}
+    qui = "Cursor" if "Cursor" in str(avis.get("source") or "") else "IA"
+    ecartes_ia = {}
+    for x in avis.get("tests") or []:
+        if x["action"] == "ajouter":
+            ajouter(x["test"], x["categorie"], f"{qui} : {x['justification']}", "ia")
+        else:
+            ecartes_ia[x["test"]] = x
 
     publies = p._publies()[0]
     from atelier.intelligence import plan_release
@@ -188,12 +197,16 @@ def analyser(r: dict, b: dict, g=None) -> dict:
         if loc and loc["statut"] in plan_release.CLASSE and (not execute or loc["date"][:19] >= str(sx.get("fin") or "")[:19]):
             sx, classe, execute = {"statut": loc["statut"], "fin": loc["date"]}, plan_release.CLASSE[loc["statut"]], True
         d = (b.get("decisions") or {}).get(cle) or {}
-        lignes.append({**x, "resume": t.get("resume", ""), "module": t.get("module", ""), "criticite": t.get("criticite", ""), "connu": cle in info,
+        ia_ecarte = not d and cle in ecartes_ia
+        if ia_ecarte:
+            d = {"decision": "rejetée", "par": avis.get("source", ""), "motif": f"{qui} : {ecartes_ia[cle]['justification']}"}
+        lignes.append({"decision_ia": ia_ecarte, **x, "resume": t.get("resume", ""), "module": t.get("module", ""), "criticite": t.get("criticite", ""), "connu": cle in info,
                        "automatise": cle in publies, "dernier_statut": sx.get("statut", ""), "derniere_execution": str(sx.get("fin") or "")[:10],
                        "execute": execute, "resultat": classe if execute else "", "decision": d.get("decision", ""),
                        "decision_par": d.get("par", ""), "decision_motif": d.get("motif", "")})
     lignes.sort(key=lambda x: (ORDRE[x["categorie"]], x["impact"] != "direct", x["test"]))
-    return {"comparaison": comparaison, "perimetre": lignes}
+    return {"comparaison": comparaison, "perimetre": lignes,
+            "interpretation": {k: avis.get(k) for k in ("source", "date", "synthese", "refus")} if avis else None}
 
 
 def _retenus(lignes: list) -> list:

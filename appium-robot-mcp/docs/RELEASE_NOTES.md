@@ -68,6 +68,31 @@ non-régression → Test Executions → résultats de qualification. Moteur : `a
 Chaque build garde son analyse, son périmètre validé, sa campagne, son verdict et les anomalies ouvertes à sa
 réception : on ne repart jamais de zéro. Le Dashboard affiche un résumé des releases.
 
+## Interprétation par Cursor (par défaut)
+
+Les règles découpent ligne par ligne et rapprochent par les mots ; elles ne comprennent pas le sens. L'interprétation de
+la Release Note et de chaque build est donc confiée **par défaut à Cursor** (ou à l'IA à appel direct configurée) ; les
+règles restent le secours, présentées comme telles.
+
+- **Demandée d'office** : à la création d'une release avec sa Release Note, et à la réception d'un build, la demande part
+  vers Cursor (mode d'envoi réglé dans Paramètres › Cursor / Claude). « Réinterpréter avec Cursor » la relance.
+- **Ce que Cursor lit** (`release_a_interpreter`, lecture seule) : le texte masqué, les évolutions tirées par les
+  règles, les éléments du Knowledge Graph (US, epics, bugs, écrans, modules, parcours, endpoints), le patrimoine de tests
+  Xray (module, criticité, étiquettes, exigences, automatisé, dernier statut), les anomalies Jira et, pour un build, le
+  périmètre des règles.
+- **Ce qu'il dépose** (`release_deposer_interpretation`) : les évolutions (découpage, type) rattachées aux éléments du
+  graphe ; pour un build, les tests à ajouter (retest, ciblée, qualification) ou à écarter ; une synthèse du risque.
+  Chaque proposition a une justification.
+- **Contrôlé par le serveur** : élément du graphe connu, test du patrimoine connu, action et catégorie connues,
+  justification présente ; un rattachement rejeté par le QA n'est jamais réécrit ; un build au périmètre validé est
+  refusé (le rouvrir). Les refus sont renvoyés et affichés.
+- **Appliqué par défaut** : les rattachements comptent dans l'analyse d'impact (comparaison, périmètre, TNR) ; les tests
+  ajoutés apparaissent avec l'impact « IA » et leur raison ; les tests écartés sont « écartés par l'IA », que le QA peut
+  **Garder**. Le QA délie, garde, écarte, puis valide. Rien n'est écrit dans Jira ni Xray par l'IA.
+
+Moteur `atelier/intelligence/release_ia.py` ; routes `GET /api/releases-ia/etat`, `POST /api/releases/{id}/interpreter`
+(appel direct) ; outils MCP `release_a_interpreter` (L) et `release_deposer_interpretation` (P).
+
 ## Plan Xray de la release et Test Executions
 
 - **Un Test Plan Xray par release**, créé à la demande (onglet « Plan Xray et exécutions ») ou à la première exécution.
@@ -100,9 +125,8 @@ Moteur `atelier/intelligence/plan_release.py` ; routes `GET/POST /api/releases/{
 
 ## Ce qui n'est pas fait (suite du cahier)
 
-- **Compréhension par une IA** : la lecture est faite par des règles. Elle découpe bien une note en liste, mal un texte
-  rédigé en paragraphes ; elle ne comprend pas qu'« optimisation du paiement » concerne le virement. Étape suivante :
-  déléguer l'extraction et le rapprochement à l'IA configurée (Cursor, Claude, LLM interne), avec validation humaine.
+- **Interprétation par Cursor** : faite (voir plus haut), mais pas encore essayée sur un vrai projet ; le découpage de
+  l'exécution Xray (par type, par module) reste proposé par les règles.
 - **Teams** : ni lecture du canal, ni notifications. Les notifications de changement de Microsoft Graph demandent une
   adresse publique, incompatible avec l'écoute sur 127.0.0.1 : la lecture se fera par interrogation périodique, une
   fois l'accès accordé par l'administrateur Microsoft 365.

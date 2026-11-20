@@ -887,3 +887,14 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   `updateTestRunStatus`). Le plan et les exécutions sont stockés dans la release ; toute écriture Xray est une action
   explicite du QA. Un statut posé depuis l'atelier compte dans le résultat du build tant qu'aucun résultat Xray plus
   récent n'existe. Aucun outil MCP ajouté, aucune dépendance.
+
+## 2026-11-20 — Cursor interprète par défaut les releases et les builds
+- Demande : passer par défaut par Cursor pour interpréter la release et créer le périmètre de test, en s'appuyant sur la
+  connaissance de l'application et le patrimoine (tests, exigences, bugs).
+- Décision : `atelier/intelligence/release_ia.py`, sur le modèle des jugements délégués (`jugement_ia.py`) : deux outils
+  MCP (`release_a_interpreter` en lecture, `release_deposer_interpretation` en proposition), contrôle serveur de chaque
+  proposition. Écart assumé avec les autres jugements : ce qui est retenu s'applique PAR DÉFAUT (rattachements utilisés
+  par l'analyse d'impact, tests ajoutés ou écartés), au lieu d'attendre une confirmation une à une ; le QA garde la main
+  (délier, garder, écarter, valider) et ses décisions ne sont jamais écrasées. Les rattachements restent dans la release :
+  rien n'entre dans le Knowledge Graph, rien n'est écrit dans Jira ni Xray. Demande envoyée d'office à la création et à la
+  réception d'un build ; règles en secours sans IA. 114 outils MCP ; aucune dépendance.

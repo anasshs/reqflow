@@ -766,5 +766,9 @@ body.sans-lanceur .df-lanceur { display: none; }
 .rel-puces { margin: 4px 0 8px; padding-left: 18px; }
 .rel-puces li { margin: 2px 0; }
 .rel-comparaison h3 { margin: 10px 0 4px; }
+.rel-ia { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; padding: 10px 12px; margin: 0 0 10px;
+  border: 1px solid var(--violet-soft); border-radius: 10px; background: var(--violet-soft); }
+.rel-ia.a-faire { background: transparent; border: 1px dashed var(--line-2); }
+.rel-ia .btns { flex: none; }
 tr.sel td { background: var(--accent-soft); }
 @media (max-width: 1150px) { .g-rel { grid-template-columns: minmax(0, 1fr); } }
