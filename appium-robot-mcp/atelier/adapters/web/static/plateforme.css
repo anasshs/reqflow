@@ -706,3 +706,4 @@ body.sans-lanceur .df-lanceur { display: none; }
   .dr-zones, .se-zones, .mp-zones.ouvert { grid-template-columns: minmax(0, 1fr); height: auto; }
   .dr-zones #dr-ecran { min-height: 260px; } .dr-zones #dr-tl { max-height: 50vh; } #mp-apercu { position: static; max-height: none; }
 }
+.ca-actions { flex-wrap: nowrap; white-space: nowrap; align-items: center; }
