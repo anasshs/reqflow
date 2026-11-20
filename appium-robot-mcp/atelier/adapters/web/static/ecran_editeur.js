@@ -43,7 +43,8 @@
             <div class="bascule-mode"><button aria-pressed="true">Mode source</button><button id="e-visuel" title="Ouvrir le scénario BDD du test">Mode visuel</button></div></div>
           <div class="code editeur" id="e-ed"><div class="numeros" id="e-num"></div><div class="surface"><pre id="e-pre" aria-hidden="true"></pre>
             <textarea id="e-txt" spellcheck="false" aria-label="Contenu du fichier" wrap="off"></textarea></div></div>
-          <div class="statut-ed"><span id="e-pos">Ligne 1, Col 1</span><span tabindex="0" style="text-decoration:underline dotted;cursor:help" title="Ctrl + clic (ou F12) : ouvrir la définition d'un keyword, d'une variable ou d'un fichier importé.&#10;Ctrl + Espace : suggestions de keywords, variables, clés de locators et ressources ; elles s'ouvrent aussi en tapant (flèches, Entrée ou Tab, Échap).">Raccourcis</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
+          <div class="statut-ed"><button class="lien" id="e-annuler" title="Annuler la dernière modification (Ctrl + Z)" disabled>↶ Annuler</button>
+            <button class="lien" id="e-retablir" title="Rétablir la modification annulée (Ctrl + Y ou Ctrl + Maj + Z)" disabled>↷ Rétablir</button><span id="e-pos">Ligne 1, Col 1</span><span tabindex="0" style="text-decoration:underline dotted;cursor:help" title="Ctrl + clic (ou F12) : ouvrir la définition d'un keyword, d'une variable ou d'un fichier importé.&#10;Ctrl + Espace : suggestions de keywords, variables, clés de locators et ressources ; elles s'ouvrent aussi en tapant (flèches, Entrée ou Tab, Échap).&#10;Ctrl + Z : annuler. Ctrl + Y ou Ctrl + Maj + Z : rétablir.&#10;Alt + ← : revenir là où l'on était avant d'ouvrir une définition.">Raccourcis</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
             <span style="margin-left:auto" id="e-robocop-statut"></span><span id="e-lint-statut"></span></div>
         </section>
         <section class="carte"><h2 class="titre-carte">Propriétés du test<span class="actions-titre"><button class="icone" id="e-props-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2><div class="corps-carte" id="e-props"></div></section>
@@ -67,7 +68,12 @@
         if ((e.ctrlKey || e.metaKey) && e.key === " ") { e.preventDefault(); return completer(true); }
         if (e.key === "Tab") { e.preventDefault(); inserer("    "); }
         if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); enregistrer(); }
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "z") { e.preventDefault(); return rejouer(e.shiftKey ? 1 : -1); }
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "y") { e.preventDefault(); return rejouer(1); }
+        if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); return revenir(); }
       };
+      $("#e-annuler").onclick = () => { rejouer(-1); t.focus(); };
+      $("#e-retablir").onclick = () => { rejouer(1); t.focus(); };
       t.onkeyup = position;
       // Ctrl + clic (ou Cmd + clic, ou F12 au clavier) : ouvrir la définition du keyword, de la variable ou du fichier importé
       t.onclick = e => { position(); if (e.ctrlKey || e.metaKey) definition(); };
@@ -160,7 +166,7 @@
     if (!S.ouverts.has(chemin)) {
       try {
         const r = await api("/api/projet/fichier?chemin=" + encodeURIComponent(chemin));
-        S.ouverts.set(chemin, {contenu: r.contenu, original: r.contenu, modifie: false});
+        S.ouverts.set(chemin, {contenu: r.contenu, original: r.contenu, modifie: false, memoire: [{c: r.contenu, a: 0, b: 0}], rang: 0, dernier: 0});
       } catch (e) { toast(e.message, "ko"); return; }
     }
     S.courant = chemin;
@@ -187,6 +193,7 @@
     $("#e-type").textContent = S.courant?.split(".").pop() === "robot" || S.courant?.endsWith(".resource") ? "Robot Framework" : (S.courant?.split(".").pop() || "").toUpperCase();
     ["#e-enr", "#e-lint", "#e-robocop", "#e-dry", "#e-exe"].forEach(s => $(s).disabled = !f);
     $("#e-dry").disabled = $("#e-exe").disabled = !f || !S.courant.endsWith(".robot");
+    boutonsMemoire();
     surligner();
   }
 
@@ -202,10 +209,59 @@
   function modifie() {
     const f = S.ouverts.get(S.courant);
     if (!f) return;
-    f.contenu = $("#e-txt").value;
+    const t = $("#e-txt"), a = t.selectionStart, b = t.selectionEnd, haut = t.scrollTop;
+    f.contenu = t.value;
+    if (!S.rejoue) memoriser(f, a, b);
     const avant = f.modifie;
     f.modifie = f.contenu !== f.original;
-    if (avant !== f.modifie) { rendreFichier(); $("#e-txt").focus(); }
+    if (avant !== f.modifie) { rendreFichier(); t.focus(); t.setSelectionRange(a, b); t.scrollTop = haut; }
+    boutonsMemoire();
+  }
+
+  /* ------------------------------------------------------------------ mémoire des modifications (annuler / rétablir)
+     Une mémoire par fichier ouvert, tenue par l'éditeur : les insertions faites par l'atelier (suggestion acceptée,
+     keyword créé, tabulation) s'annulent comme la frappe, ce que la mémoire du navigateur ne sait pas faire. La frappe
+     continue (moins de 700 ms entre deux touches) compte pour un seul pas. Limite : 300 pas par fichier. */
+  function memoriser(f, a, b) {
+    const m = f.memoire, ici = Date.now();
+    if (m[f.rang].c === f.contenu) { m[f.rang].a = a; m[f.rang].b = b; return; }
+    if (f.rang === m.length - 1 && f.rang > 0 && ici - f.dernier < 700) m[f.rang] = {c: f.contenu, a, b};  // même geste de frappe
+    else { m.splice(f.rang + 1); m.push({c: f.contenu, a, b}); if (m.length > 300) m.shift(); f.rang = m.length - 1; }
+    f.dernier = ici;
+  }
+  function boutonsMemoire() {
+    const f = S.ouverts.get(S.courant);
+    if ($("#e-annuler")) { $("#e-annuler").disabled = !f || f.rang === 0; $("#e-retablir").disabled = !f || f.rang >= f.memoire.length - 1; }
+  }
+  function rejouer(sens) {
+    const f = S.ouverts.get(S.courant), t = $("#e-txt");
+    if (!f) return;
+    fermerCompletion();
+    const cible = f.rang + sens;
+    if (cible < 0 || cible >= f.memoire.length) return toast(sens < 0 ? "Rien à annuler." : "Rien à rétablir.");
+    f.rang = cible; f.dernier = 0;  // la prochaine frappe ouvre un nouveau pas
+    const e = f.memoire[cible];
+    // en annulant, le curseur va là où la modification annulée commençait ; en rétablissant, là où elle finissait
+    let debut = 0;
+    const max = Math.min(e.c.length, t.value.length);
+    while (debut < max && e.c[debut] === t.value[debut]) debut++;
+    const a = sens < 0 ? debut : e.a, b = sens < 0 ? debut : e.b;
+    S.rejoue = true;
+    t.value = e.c; t.setSelectionRange(a, b);
+    modifie(); surligner(); position();
+    S.rejoue = false;
+    const ligne = e.c.slice(0, a).split("\n").length;
+    if (Math.abs(t.scrollTop / 20 - ligne) > 12) t.scrollTop = Math.max(0, (ligne - 6) * 20);
+    clearTimeout(lintT); lintT = setTimeout(() => linter(true), 900);
+  }
+  /* revenir là où l'on était avant « aller à la définition » (Alt + ←) */
+  const RETOURS = [];
+  async function revenir() {
+    const r = RETOURS.pop();
+    if (!r) return toast("Aucun emplacement précédent.");
+    if (r.chemin !== S.courant) { if (!S.ouverts.has(r.chemin)) return toast("Le fichier précédent a été fermé."); await ouvrir(r.chemin); }
+    const t = $("#e-txt");
+    t.focus(); t.setSelectionRange(r.pos, r.pos); t.scrollTop = r.haut; position();
   }
 
   /* ------------------------------------------------------------------ coloration Robot Framework */
@@ -360,10 +416,11 @@
     try { d = await api("/api/editeur/definition", {method: "POST", body: {chemin: S.courant, contenu: f.contenu, ligne: avant.length, colonne: avant[avant.length - 1].length + 1}}); }
     catch (e) { return toast(e.message, "ko"); }
     if (!d.trouve) return toast(d.message || "Définition introuvable.");
+    RETOURS.push({chemin: S.courant, pos: t.selectionStart, haut: t.scrollTop}); if (RETOURS.length > 50) RETOURS.shift();
     if (d.fichier !== S.courant) await ouvrir(d.fichier);
     allerLigne(d.ligne);
     const ou = d.fichier === S.courant ? `ligne ${d.ligne}` : `${d.fichier}, ligne ${d.ligne}`;
-    toast(d.genre === "fichier" ? `Ouvert : ${d.fichier}` : `${d.genre === "variable" ? "Variable" : "Keyword"} ${d.nom} : ${ou}`
+    toast((d.genre === "fichier" ? `Ouvert : ${d.fichier}` : `${d.genre === "variable" ? "Variable" : "Keyword"} ${d.nom} : ${ou}`) + " · Alt + ← pour revenir"
       + ((d.autres || []).length ? ` · aussi défini dans ${d.autres.map(a => `${a.fichier}:${a.ligne}`).join(", ")}` : ""), "ok");
   }
 

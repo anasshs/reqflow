@@ -842,3 +842,6 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Auto-complétion (même jour, « c'est un plus ») : en tapant ou sur Ctrl + Espace, l'éditeur propose les keywords du
   dépôt et du fichier ouvert, les variables, les clés d'un dictionnaire de locators, les fichiers resource et les
   réglages ([Tags], [Arguments]…). Rien n'est inventé ni demandé à une IA : tout vient du dépôt ou du contenu affiché.
+- Mémoire des modifications (même jour) : l'éditeur tient sa propre mémoire annuler / rétablir par fichier ouvert
+  (Ctrl + Z, Ctrl + Y), pour que les insertions faites par l'atelier s'annulent comme la frappe ; Alt + ← revient à
+  l'emplacement d'avant un « aller à la définition ». La mémoire vit dans la page : elle est perdue si l'on recharge.

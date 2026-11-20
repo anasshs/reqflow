@@ -738,3 +738,5 @@ body.sans-lanceur .df-lanceur { display: none; }
 .g-ed .fil .bascule-mode { flex: none; }
 .g-ed .fil .bascule-mode button { white-space: nowrap; }
 .statut-ed span { white-space: nowrap; }
+.statut-ed button.lien { background: none; border: 0; padding: 0; cursor: pointer; color: var(--accent-ink); font: inherit; white-space: nowrap; }
+.statut-ed button.lien:disabled { color: var(--muted); cursor: default; opacity: .6; }
