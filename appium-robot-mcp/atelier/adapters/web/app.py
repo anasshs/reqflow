@@ -2560,6 +2560,12 @@ async def strategie_plan():
     return await asyncio.to_thread(_call, strategie.plan_automatisation)
 
 
+@app.get("/api/studio/candidats")
+async def studio_candidats(perimetre: str = ""):
+    """Candidats à l'automatisation, dans toute la copie Xray ou dans un périmètre (« us:… », « sprint:… », « module:… »)."""
+    return await asyncio.to_thread(_call, strategie.candidats_perimetre, perimetre)
+
+
 @app.post("/api/strategie/plan-automatisation")
 async def strategie_decider(req: Request):
     b = await req.json()

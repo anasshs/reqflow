@@ -749,3 +749,15 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   s'agrandit sur place ; l'aperçu du script Robot s'ouvre à droite du tableau de mapping. Le lanceur flottant de
   Discovery est masqué dans « Construire en direct ». `DemanderCursor` accepte `options.zone` pour s'afficher dans la
   page ; ailleurs, son comportement est inchangé. Aucune route ni outil MCP modifié.
+
+## 2026-11-20 — Un périmètre borné de l'US au test à automatiser
+- Question de l'utilisateur : peut-on passer d'une US à sa couverture par des tests fonctionnels, puis choisir les
+  tests à automatiser, dans un périmètre bien limité ?
+- Constat : chaque étape existait, mais le périmètre (sprint, dans Test Design › À concevoir) se perdait dans
+  Automation Studio › À automatiser, qui listait toute la copie locale Xray sans dire quelle US chaque test couvre.
+- Décision : « À automatiser » se borne à une US, à un sprint (la photo figée fait foi si le sprint est figé) ou à un
+  module ; chaque candidat affiche les US qu'il couvre (copie locale Xray et tests liés de la testabilité) et son statut
+  de revue de Test Design, « Prêt pour l'automatisation » en tête ; les US du sprint sans test sont signalées. Une US
+  et un sprint de « À concevoir » ouvrent « À automatiser » borné (`#studio/candidats/us:<clé>`, `sprint:<espace>|<id>`).
+  Moteur : `strategie.candidats_perimetre` ; route `GET /api/studio/candidats`. Périmètre inconnu : refusé.
+  `plan_automatisation` et sa route sont inchangés. Aucun outil MCP ajouté.

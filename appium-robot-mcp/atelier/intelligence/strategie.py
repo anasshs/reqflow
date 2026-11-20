@@ -664,6 +664,81 @@ def plan_automatisation() -> list[dict]:
     return out
 
 
+ORDRE_REVUE = {"Ready for Automation": 0, "Approved": 1, "In Review": 2, "Changes Requested": 3, "Draft": 4}
+TYPES_PERIMETRE_AUTO = {"sprint": "Sprint", "us": "User Story", "module": "Module"}
+
+
+def candidats_perimetre(perimetre: str = "") -> dict:
+    """Candidats à l'automatisation dans un périmètre borné, de l'US au test : chaque candidat porte les US qu'il couvre
+    (copie locale Xray et tests liés suivis par la testabilité) et son statut de revue de Test Design ; « Prêt pour
+    l'automatisation » passe en tête. Périmètre : « us:<clé> », « sprint:<espace>|<id> » (les US de la photo si le sprint
+    est figé, sinon celles du sprint) ou « module:<nom> ». Un périmètre inconnu est une erreur, jamais une liste non bornée."""
+    from atelier.generation import conception
+    from atelier.intelligence import patrimoine_xray, testabilite_us
+
+    plan = plan_automatisation()
+    pat = patrimoine_xray.charger_vue() or {"tests": [], "exigences": []}
+    resumes = {x["cle"]: x.get("resume") or "" for x in pat.get("exigences", [])}
+    us_par_test = {t["cle"]: set(t.get("exigences") or []) for t in pat.get("tests", [])}
+    try:
+        mes_espaces = {e["projet_jira"] for e in testabilite_us.espaces()}
+        suivies = {k: u for k, u in testabilite_us._us().items() if u.get("espace") in mes_espaces}
+    except Exception:  # noqa: BLE001 — testabilité non configurée : les liens de la copie locale Xray suffisent
+        suivies = {}
+    sprints: dict = {}
+    for u in suivies.values():
+        resumes.setdefault(u["cle"], u.get("resume") or "")
+        for t in u.get("tests_lies") or []:
+            us_par_test.setdefault(t, set()).add(u["cle"])
+        for sid, sp in (u.get("sprints") or {}).items():
+            sprints.setdefault(f"{u['espace']}|{sid}", {"libelle": f"{u['espace']} · {sp.get('nom') or sid}", "us": set(), "fige": False})["us"].add(u["cle"])
+    for k, sp in sprints.items():  # sprint figé : la photo immuable fait foi
+        try:
+            f = testabilite_us._fichier_sprint(*k.split("|", 1))
+            if f.exists():
+                sp["us"], sp["fige"] = set(json.loads(f.read_text("utf-8"))["us"]), True
+        except (OSError, ValueError, KeyError):
+            pass
+    revues = conception._revues()
+    lignes = []
+    for c in plan:
+        revue = (revues.get(f"test:{c['cle']}") or {}).get("statut", "Draft")
+        lignes.append({**c, "exigences": [{"cle": k, "resume": resumes.get(k, "")} for k in sorted(us_par_test.get(c["cle"], ()))],
+                       "revue": revue, "revue_libelle": conception.LIBELLES_REVUE.get(revue, revue), "pret": revue == "Ready for Automation"})
+    modules = sorted({c["module"] for c in lignes if c.get("module")}, key=str.lower)
+    couvertes = {x["cle"] for c in lignes for x in c["exigences"]}
+
+    def tests_de(us: set) -> list[dict]:
+        return [c for c in lignes if us & {x["cle"] for x in c["exigences"]}]
+
+    texte = str(perimetre or "").strip()
+    choix, us_sans_test = None, []
+    if texte:
+        genre, _, valeur = texte.partition(":")
+        if genre == "us" and (valeur in resumes or valeur in suivies):
+            choix = {"noeud": texte, "type": "us", "libelle": f"{valeur} {resumes.get(valeur, '')}".strip()}
+            retenus = tests_de({valeur})
+        elif genre == "sprint" and valeur in sprints:
+            sp = sprints[valeur]
+            choix = {"noeud": texte, "type": "sprint", "libelle": sp["libelle"] + (" (figé)" if sp["fige"] else ""), "us": len(sp["us"]), "fige": sp["fige"]}
+            retenus = tests_de(sp["us"])
+            us_sans_test = [{"cle": k, "resume": resumes.get(k, "")} for k in sorted(sp["us"] - couvertes)]
+        elif genre == "module" and valeur in modules:
+            choix = {"noeud": texte, "type": "module", "libelle": valeur}
+            retenus = [c for c in lignes if c.get("module") == valeur]
+        else:
+            raise KeyError(f"Périmètre inconnu : {texte} (attendu : us:<clé d'une US connue>, sprint:<espace>|<id> ou module:<nom>).")
+    else:
+        retenus = lignes
+    retenus = sorted(retenus, key=lambda c: (bool(c["automatise"]), ORDRE_REVUE.get(c["revue"], 9), c["cle"]))
+    perimetres = ([{"noeud": f"sprint:{k}", "type": "sprint", "libelle": sp["libelle"] + (" (figé)" if sp["fige"] else ""), "tests": len(tests_de(sp["us"]))}
+                   for k, sp in sorted(sprints.items(), key=lambda x: x[1]["libelle"].lower())]
+                  + [{"noeud": f"us:{k}", "type": "us", "libelle": f"{k} {resumes.get(k, '')}".strip(), "tests": len(tests_de({k}))} for k in sorted(couvertes)]
+                  + [{"noeud": f"module:{m}", "type": "module", "libelle": m, "tests": sum(c.get("module") == m for c in lignes)} for m in modules])
+    return {"candidats": retenus, "total": len(lignes), "perimetre": choix, "perimetres": perimetres, "us_sans_test": us_sans_test,
+            "prets": sum(c["pret"] and not c["automatise"] for c in retenus), "automatises": sum(bool(c["automatise"]) for c in retenus)}
+
+
 def decider_candidat(cle: str, statut: str, framework: str = "", effort: str = "", commentaire: str = "") -> dict:
     if statut not in DECISIONS_PLAN:
         raise ValueError(f"Statut de décision : {', '.join(DECISIONS_PLAN)} (« Recommandé par IA » est réservé à l'IA).")

@@ -247,22 +247,54 @@
   }
 
   /* ------------------------------------------------------------------ 2 candidats */
-  async function candidats(z) {
-    const [plan, ref, bdds] = await Promise.all([api("/api/strategie/plan-automatisation").catch(() => []), api("/api/centre/referentiel").catch(() => []), api("/api/bdd").catch(() => [])]);
-    const aBdd = new Set(bdds.map(b => b.cle));
+  /* Candidats dans un périmètre borné (US, sprint ou module) : de l'US à ses tests, puis à leur automatisation.
+     Le périmètre vient de l'adresse (#studio/candidats/us:CLE, ouvert depuis Test Design) ou du dernier choix. */
+  const REVUE_PILL = {"Ready for Automation": "ok", Approved: "violet", "In Review": "info", "Changes Requested": "warn", Draft: ""};
+  const kpisCa = l => `<div class="kpis" style="grid-template-columns:repeat(${l.length},minmax(0,1fr));margin:10px 0">${l.map(([v, t, c]) => `<div class="kpi"><div class="v ${c || ""}">${v}</div><div class="l">${t}</div></div>`).join("")}</div>`;
+  async function candidats(z, arg = "") {
+    let choisi = arg;
+    if (!choisi) { try { choisi = sessionStorage.getItem("as-perimetre") || ""; } catch (e) { /* facultatif */ } }
+    const garder = v => { try { sessionStorage.setItem("as-perimetre", v || ""); } catch (e) { /* facultatif */ } };
+    let d;
+    try { d = await api("/api/studio/candidats?perimetre=" + encodeURIComponent(choisi)); }
+    catch (e) {
+      if (!choisi || !/inconnu/i.test(e.message)) throw e;
+      garder(""); toast(`Périmètre « ${choisi} » indisponible : tous les candidats sont affichés.`, "ko");  // US, sprint ou module disparu
+      d = await api("/api/studio/candidats"); choisi = "";
+    }
+    garder(d.perimetre?.noeud || "");
+    const [ref, bdds] = await Promise.all([api("/api/centre/referentiel").catch(() => []), api("/api/bdd").catch(() => [])]);
+    const plan = d.candidats, aBdd = new Set(bdds.map(b => b.cle));
     const plats = c => [...new Set(ref.filter(t => t.cle_xray === c).flatMap(t => t.plateformes))].join(", ");
-    z.innerHTML = `${entete("Automation Candidates")}<div class="corps-carte">
-      <p class="lib">Candidats calculés (instantané Xray × dépôt) ; « Décider » enregistre la décision humaine (journalisée, rejet justifié). Le score d'automatisabilité n'est pas inventé : il reste « non calculé » tant que répétitivité, stabilité et complexité ne sont pas mesurées ; les critères disponibles et les manques sont affichés pour comprendre la recommandation.</p>
-      ${plan.length ? `<table class="table-strat"><tr><th>Clé Xray</th><th>Test</th><th>Module</th><th>Plateforme</th><th>Criticité</th><th>Répétition</th><th>Score</th><th>Statut</th><th>Critères / manques</th><th></th></tr>
-        ${plan.map(c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume || "")}</td><td>${esc(c.module || "")}</td><td>${esc(plats(c.cle) || "—")}</td><td>${esc(c.criticite || "")}</td>
-          <td class="lib">plans : ${esc((c.plans || []).length || "—")}</td><td class="lib">non calculé</td><td>${pill(c.statut_plan === "Automatisé" ? "Published" : "", c.statut_plan)}</td>
+    const TP = {sprint: "Sprints", us: "User Stories couvertes", module: "Modules"};
+    const menu = `<label class="lib" for="ca-perimetre">Périmètre</label>
+      <select class="in" id="ca-perimetre" style="width:auto;max-width:360px" title="Borne la liste à une US, à un sprint ou à un module"><option value="">Tous les tests (${d.total})</option>
+        ${d.perimetre && !d.perimetres.some(p => p.noeud === d.perimetre.noeud) ? `<option value="${esc(d.perimetre.noeud)}" selected>${esc(d.perimetre.libelle)} · 0 test</option>` : ""}
+        ${Object.entries(TP).map(([t, lib]) => { const l = d.perimetres.filter(p => p.type === t); return l.length ? `<optgroup label="${lib}">${l.map(p =>
+          `<option value="${esc(p.noeud)}" ${p.noeud === d.perimetre?.noeud ? "selected" : ""}>${esc(p.libelle.length > 70 ? p.libelle.slice(0, 69) + "…" : p.libelle)} · ${p.tests} test(s)</option>`).join("")}</optgroup>` : ""; }).join("")}</select>`;
+    const aFaire = plan.length - d.automatises;
+    z.innerHTML = `${entete("Automation Candidates", menu)}<div class="corps-carte">
+      ${d.perimetre ? `<p style="margin:0 0 8px"><span class="pill info">Périmètre</span> <b>${esc(d.perimetre.libelle)}</b>${d.perimetre.type === "sprint" ? ` · ${d.perimetre.us} US${d.perimetre.fige ? " (photo figée du sprint)" : ""}` : ""}
+        · ${plan.length} test(s) sur ${d.total}${d.perimetre.type === "us" ? ` · <a href="#conception/us">ouvrir Test Design › À concevoir</a>` : ""}</p>` : ""}
+      ${kpisCa([[plan.length, d.perimetre ? "tests dans le périmètre" : "tests"], [d.prets, "prêts pour l'automatisation", d.prets ? "ok-t" : ""], [aFaire - d.prets, "pas encore prêts (revue de Test Design)"], [d.automatises, "déjà automatisés"]])}
+      ${d.us_sans_test.length ? `<p><span class="pill warn">${d.us_sans_test.length} US sans test</span> <span class="lib">dans ce sprint : rien à automatiser tant que leurs cas ne sont pas conçus dans <a href="#conception/us">Test Design › À concevoir</a> : ${esc(d.us_sans_test.slice(0, 12).map(x => x.cle).join(", "))}${d.us_sans_test.length > 12 ? "…" : ""}</span></p>` : ""}
+      <p class="lib">Les tests « Prêt pour l'automatisation » (revue de Test Design) sont en tête. « Décider » enregistre la décision humaine (journalisée, rejet justifié). Le score d'automatisabilité n'est pas inventé : il reste « non calculé » tant que répétitivité, stabilité et complexité ne sont pas mesurées.</p>
+      ${plan.length ? `<table class="table-strat"><tr><th>Clé Xray</th><th>Test</th><th>US couvertes</th><th>Revue</th><th>Module</th><th>Plateforme</th><th>Criticité</th><th>Statut</th><th>Critères / manques</th><th></th></tr>
+        ${plan.map(c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume || "")}</td>
+          <td>${c.exigences.map(x => `<button class="lien mono" data-per="us:${esc(x.cle)}" title="${esc(x.resume || "")} — borner la liste à cette US">${esc(x.cle)}</button>`).join(" ") || '<span class="lib" title="Aucune US liée dans la copie locale Xray ni dans la testabilité">—</span>'}</td>
+          <td><span class="pill ${REVUE_PILL[c.revue] || ""}">${esc(c.revue_libelle)}</span></td>
+          <td>${esc(c.module || "")}</td><td>${esc(plats(c.cle) || "—")}</td><td>${esc(c.criticite || "")}</td><td>${pill(c.statut_plan === "Automatisé" ? "Published" : "", c.statut_plan)}</td>
           <td class="lib">${esc([...(c.justification || []), ...(c.donnees_manquantes || []).map(x => "manque : " + x)].join(" · "))}</td>
           <td class="btns" style="white-space:nowrap"><button class="btn petit ${aBdd.has(c.cle) ? "" : "primaire"}" data-bdd="${esc(c.cle)}" data-titre="${esc(c.resume || "")}"
               title="${aBdd.has(c.cle) ? "Ouvrir le scénario BDD (Gherkin) de ce test dans Construction BDD" : "Aucun scénario BDD : le créer depuis le test Xray (Gherkin ou étapes manuelles), puis l'ouvrir"}">${aBdd.has(c.cle) ? "BDD" : "Créer le BDD"}</button>
             <button class="btn petit" data-map="${esc(c.cle)}" data-titre="${esc(c.resume || "")}" title="${aBdd.has(c.cle) ? "Correspondance étape BDD → keyword du socle, locators et données ; prévisualisation du Robot" : "Mapping BDD → Robot : nécessite le scénario BDD (proposé à la création)"}">Mapping</button>
             <button class="btn petit" data-kg="${esc(c.cle)}" title="Ouvrir le Knowledge Graph centré sur ce test : exigences, écrans, scripts Robot et exécutions liés">Graphe</button>
             ${c.automatise ? "" : `<button class="btn petit" data-decider="${esc(c.cle)}" title="Approuver, mettre en construction, rejeter (justifié)… ; journalisé">Décider</button>`}</td></tr>`).join("")}</table>`
-        : vide("Aucun candidat", "Importer l'instantané Xray (Rapports › Patrimoine) : les candidats sont calculés automatiquement.")}</div>`;
+        : d.perimetre ? vide("Aucun test dans ce périmètre", d.perimetre.type === "module" ? "" : ` Concevoir d'abord les cas de test, puis les publier dans Xray : <a href="#conception/us">Test Design › À concevoir</a>.`)
+          : vide("Aucun candidat", "Importer l'instantané Xray (Rapports › Patrimoine) : les candidats sont calculés automatiquement.")}</div>`;
+    const borner = v => { garder(v); if (location.hash === "#studio/candidats") candidats(z); else location.hash = "studio/candidats"; };
+    $("#ca-perimetre").onchange = e => borner(e.target.value);
+    $$("[data-per]", z).forEach(b => b.onclick = () => borner(b.dataset.per));
     $$("[data-decider]", z).forEach(b => b.onclick = () => window.Pilotage.decider(plan.find(c => c.cle === b.dataset.decider), () => candidats(z)));
     $$("[data-bdd]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.bdd, b.dataset.titre));
     $$("[data-map]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.map, b.dataset.titre, "mapping"));

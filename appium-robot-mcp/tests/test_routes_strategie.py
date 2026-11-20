@@ -126,3 +126,12 @@ def test_routes_projets_bascule_refusee_si_run_en_file(client, tmp_path, monkeyp
     assert client.post("/api/projets/activer", json={"id": "autre"}).json()["actif"] == "autre"
     assert client.post("/api/projets/activer", json={"id": "courant"}).json()["actif"] == "courant"
     assert [j["op"] for j in client.get("/api/projets").json()["journal"]][:2] == ["bascule", "bascule"]
+
+
+def test_route_candidats_perimetre(client):
+    d = client.get("/api/studio/candidats").json()
+    assert d["total"] == 9 and d["perimetre"] is None
+    d = client.get("/api/studio/candidats", params={"perimetre": "us:DEMO-311"}).json()
+    assert sorted(c["cle"] for c in d["candidats"]) == ["DEMO-304", "DEMO-306"]
+    r = client.get("/api/studio/candidats", params={"perimetre": "us:DEMO-999"})
+    assert r.status_code == 400 and "inconnu" in r.json()["detail"].lower()

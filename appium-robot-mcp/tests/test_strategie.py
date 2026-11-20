@@ -217,3 +217,52 @@ def test_squads_du_perimetre_reprises_dans_la_politique_des_us(tmp_path, monkeyp
     with pytest.raises(ValueError):
         st.enregistrer_element("perimetre", {"nom": "Squad C", "niveau": "squad"})
     assert "squads_reprises_dans_politique" in (tmp_path / "strategie" / "journal.jsonl").read_text("utf-8")
+
+
+def test_candidats_dans_un_perimetre(st):
+    """De l'US au test à automatiser, dans un périmètre borné : US, sprint (photo figée) ou module. Chaque candidat porte
+    les US qu'il couvre et son statut de revue ; « Prêt pour l'automatisation » passe en tête."""
+    import json
+
+    from atelier.generation import conception
+    from atelier.intelligence import testabilite_us as t
+
+    d = st.candidats_perimetre()
+    assert d["total"] == 9 and d["perimetre"] is None and len(d["candidats"]) == 9
+    par_cle = {c["cle"]: c for c in d["candidats"]}
+    assert [x["cle"] for x in par_cle["DEMO-304"]["exigences"]] == ["DEMO-311"] and par_cle["DEMO-304"]["revue"] == "Draft"
+    assert ("us:DEMO-311", 2) in [(p["noeud"], p["tests"]) for p in d["perimetres"]]
+    assert ("module:Connexion", 9) in [(p["noeud"], p["tests"]) for p in d["perimetres"]]
+    assert [c["cle"] for c in d["candidats"]][:2] == ["DEMO-308", "DEMO-309"]            # non automatisés d'abord
+
+    # périmètre « US » : seulement les tests qui la couvrent
+    d = st.candidats_perimetre("us:DEMO-311")
+    assert sorted(c["cle"] for c in d["candidats"]) == ["DEMO-304", "DEMO-306"] and d["perimetre"]["type"] == "us" and d["automatises"] == 2
+    assert [c["cle"] for c in st.candidats_perimetre("module:Connexion")["candidats"]] == [c["cle"] for c in st.candidats_perimetre()["candidats"]]
+    for inconnu in ("us:DEMO-999", "module:Inconnu", "sprint:SQ1|12", "n'importe quoi"):
+        with pytest.raises(KeyError, match="Périmètre inconnu"):
+            st.candidats_perimetre(inconnu)                                               # jamais une liste silencieusement non bornée
+
+    # la revue de Test Design ordonne : « Prêt pour l'automatisation » en tête
+    conception._dossier().mkdir(parents=True, exist_ok=True)
+    (conception._dossier() / "revues.json").write_text(json.dumps({"test:DEMO-309": {"statut": "Ready for Automation", "historique": []}}), "utf-8")
+    d = st.candidats_perimetre()
+    assert d["candidats"][0]["cle"] == "DEMO-309" and d["candidats"][0]["pret"] and d["prets"] == 1
+    assert d["candidats"][0]["revue_libelle"] == "Prêt pour l'automatisation"
+
+    # périmètre « sprint » : les US du sprint suivies par la testabilité, avec leurs tests liés ; US sans test signalées
+    t.enregistrer_espace({"projet_jira": "SQ1", "projet_xray": "DEMO"})
+    us = {k: {"cle": k, "espace": "SQ1", "resume": r, "statut": "Détectée", "tests_lies": tl, "sprints": {"12": {"nom": "Sprint 12", "etat": "active"}}}
+          for k, r, tl in (("SQ1-1", "Verrouillage du compte", ["DEMO-308"]), ("SQ1-2", "Mot de passe oublié", []))}
+    t._sauver_us(us)
+    d = st.candidats_perimetre("sprint:SQ1|12")
+    assert [c["cle"] for c in d["candidats"]] == ["DEMO-308"] and d["perimetre"]["us"] == 2 and d["perimetre"]["fige"] is False
+    assert [x["cle"] for x in d["candidats"][0]["exigences"]] == ["DEMO-312", "SQ1-1"]     # copie Xray et tests liés de la testabilité
+    assert [x["cle"] for x in d["us_sans_test"]] == ["SQ1-2"]
+    assert st.candidats_perimetre("us:SQ1-2")["candidats"] == []                          # US connue, pas encore de test : liste vide, pas une erreur
+    t.figer_sprint("SQ1", "12")
+    us["SQ1-3"] = {"cle": "SQ1-3", "espace": "SQ1", "resume": "Ajoutée en cours de sprint", "statut": "Détectée", "tests_lies": ["DEMO-309"],
+                   "sprints": {"12": {"nom": "Sprint 12", "etat": "active"}}}
+    t._sauver_us(us)
+    d = st.candidats_perimetre("sprint:SQ1|12")
+    assert d["perimetre"]["fige"] and d["perimetre"]["us"] == 2 and [c["cle"] for c in d["candidats"]] == ["DEMO-308"]   # la photo figée fait foi
