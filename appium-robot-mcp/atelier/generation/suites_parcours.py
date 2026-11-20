@@ -74,13 +74,13 @@ def parcours_du_test(cle: str, m: dict | None = None) -> dict | None:
 
 def suite_du_parcours(p: dict, inv: dict, sauf_cle: str = "") -> str:
     """Suite existante du parcours : le fichier .robot qui porte le plus de tests du parcours (hors le test lui-même)."""
-    from atelier.generation import bdd
+    from atelier.generation import bdd, conception
 
     cles = _tests_des_us(set(p["exigences"]))
     for b in bdd.lister():  # scénarios rattachés à la main au même parcours
         if (bdd.charger(b["cle"]) or {}).get("parcours") in (p["id"], p["nom"]):
-            cles.add(b["cle"])
-    cles -= {sauf_cle}
+            cles |= {b["cle"], conception.cle_xray_du_scenario(b["cle"])} - {""}
+    cles -= {sauf_cle, conception.cle_xray_du_scenario(sauf_cle)}
     compte: dict = {}
     for t in inv["tests"].values():
         if cles & set(t.get("cles_xray") or []):
@@ -97,7 +97,9 @@ def cible(m: dict, inv: dict) -> dict:
     if suite and (inv["fichiers"].get(suite) or {}).get("type") == "robot":
         return {"chemin": suite, "ajout": True, "parcours": "", "raison": f"Suite choisie à la main : le test est ajouté à {suite}."}
     perdue = f"La suite choisie ({suite}) n'existe plus dans le dépôt. " if suite else ""
-    p = parcours_du_test(m["cle"], m)
+    from atelier.generation import conception
+
+    p = parcours_du_test(conception.cle_xray_du_scenario(m["cle"]) or m["cle"], m)  # les US sont liées au test Xray
     if not p:
         return {"chemin": rangement.chemin_robot(m), "ajout": False, "parcours": "",
                 "raison": perdue + "Aucun parcours métier pour ce test (ni choisi, ni déduit de ses US) : il garde sa propre suite. "

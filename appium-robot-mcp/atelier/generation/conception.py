@@ -401,6 +401,43 @@ def historique_sync(limite: int = 200) -> list[dict]:
     return list(reversed(l))[:limite]
 
 
+def cle_xray_du_scenario(cle: str) -> str:
+    """Clé du test Xray d'un scénario BDD : celle créée ou reliée à la publication (sync_xray.json), sinon la clé du
+    scénario si elle a la forme d'une clé Xray (scénario créé depuis un test Xray). Vide : pas encore dans Xray."""
+    from atelier.integrations.xray import KEY_RE
+
+    publiee = (_publications_xray().get(cle) or {}).get("xray") or ""
+    return publiee or (cle if KEY_RE.match(cle or "") else "")
+
+
+def reporter_cle_xray(cle: str, cle_xray: str) -> list[str]:
+    """Après la publication d'un scénario dans Xray : la clé du test Xray remplace la clé locale du scénario dans les
+    tags des scripts Robot déjà écrits (seul ce mot de la ligne [Tags] change). Les suites touchées repassent en revue
+    technique. Renvoie les fichiers modifiés."""
+    from atelier.execution.depot_robot import lire_depot
+    from atelier.generation import studio
+
+    if not cle_xray or cle_xray == cle:
+        return []
+    modifies = []
+    for rel in sorted({t["fichier"] for t in lire_depot()["tests"].values() if cle in (t.get("tags") or [])}):
+        texte = projet.lire_fichier(rel)
+        lignes = texte.split("\n")
+        for n, ligne in enumerate(lignes):
+            if ligne.strip().startswith("[Tags]"):
+                mots = re.split(r"(\s{2,}|\t)", ligne)  # séparateurs conservés tels quels
+                if cle in mots:
+                    lignes[n] = "".join(cle_xray if x == cle else x for x in mots)
+        nouveau = "\n".join(lignes)
+        if nouveau != texte:
+            projet.ecrire_fichier(rel, nouveau, True)
+            modifies.append(rel)
+    if modifies:
+        studio.renvoyer_en_revue(modifies, f"clé Xray {cle_xray} reportée dans le tag du test (scénario {cle} publié dans Xray)")
+        _journaliser("cle_xray_reportee", cle=cle, xray=cle_xray, fichiers=modifies)
+    return modifies
+
+
 def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None) -> dict:
     """Mode C : test absent de Xray -> création d'un test Cucumber (clé récupérée et conservée).
     Mode B : test Cucumber existant -> mise à jour du Gherkin, seulement si Xray n'a pas changé depuis la dernière
@@ -476,9 +513,17 @@ def _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision) -> dic
     autres = non_publies(m)
     if autres:
         resultat += f" ; {len(autres)} autre(s) scénario(s) non publié(s) dans ce test : {', '.join(autres)}"
+    scripts = []
+    try:  # la clé Xray arrive dans le code Robot déjà écrit ; un échec ici n'annule pas la publication
+        scripts = reporter_cle_xray(cle, cible)
+        if scripts:
+            resultat += f" ; clé {cible} reportée dans le tag de {', '.join(scripts)} (suite renvoyée en revue technique)"
+    except Exception as e:  # noqa: BLE001
+        resultat += f" ; report de la clé {cible} dans les scripts Robot impossible ({str(e)[:160]}) : à faire à la main"
     _historiser_sync(cible, "Local → Xray" if decision != "xray" else "Xray → Local", statut, resultat)
     _journaliser("publication_xray", cle=cle, xray=cible, statut=statut)
-    return {"conflit": False, "mode": mode, "cle_xray": cible, "statut": statut, "resultat": resultat, "non_publies": autres}
+    return {"conflit": False, "mode": mode, "cle_xray": cible, "statut": statut, "resultat": resultat, "non_publies": autres,
+            "scripts_mis_a_jour": scripts}
 
 
 def statuts_workflow_test(projet: str = "", jira=None) -> dict:

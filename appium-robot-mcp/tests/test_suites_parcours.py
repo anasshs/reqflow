@@ -193,3 +193,51 @@ def test_sans_relation_test_exigence_on_rattache_a_la_main(banque):
     assert c.post("/api/bdd/LIBRE-3/operation", json={"op": "rangement", "suite": g["chemin"]}).status_code == 200
     assert c.post("/api/bdd/LIBRE-3/generer", json={"ecrire": False}).json()["chemin"] == g["chemin"]
     assert c.post("/api/bdd/LIBRE-3/operation", json={"op": "rangement", "suite": "tests/absente.robot"}).status_code == 400
+
+
+class _XrayQuiCree:
+    """Faux client Xray : crée un test Cucumber et rend sa clé ; aucun test préexistant."""
+    def __init__(self):
+        self.crees = []
+
+    def lire_gherkin(self, cle):
+        return None
+
+    def creer_test_cucumber(self, projet_xray, resume, gherkin):
+        self.crees.append(resume)
+        return {"cle": f"{projet_xray}-{500 + len(self.crees)}", "issueId": str(9000 + len(self.crees))}
+
+    def ranger_test(self, *a):
+        pass
+
+
+def test_la_cle_du_test_xray_arrive_dans_le_code_robot(banque):
+    """Le scénario est publié en BDD dans Xray, et la clé du test créé devient le tag du test Robot : à la génération si
+    le scénario est déjà publié, par remplacement du tag si le script était déjà écrit."""
+    from atelier.adapters import facade
+    from atelier.domain import projet as pj
+    from atelier.generation import bdd, conception, studio
+
+    # 1. script écrit AVANT la publication : il porte la clé locale du scénario
+    bdd.creer("parcours_releve", "Exporter un relevé", depuis_xray={"gherkin": GHERKIN, "resume": "Exporter un relevé"})
+    g = facade.studio_generer_depuis_bdd("parcours_releve", ecrire=True)
+    assert (g["cle_xray"], g["tag"]) == ("", "parcours_releve") and "[Tags]    parcours_releve" in pj.lire_fichier(g["chemin"])
+    avant = pj.lire_fichier(g["chemin"])
+    r = conception.publier_bdd("parcours_releve", "DEMO", xray=_XrayQuiCree())
+    assert r["cle_xray"] == "DEMO-501" and r["scripts_mis_a_jour"] == [g["chemin"]] and "clé DEMO-501 reportée" in r["resultat"]
+    apres = pj.lire_fichier(g["chemin"])
+    assert "[Tags]    DEMO-501" in apres and "parcours_releve" not in [x for l in apres.splitlines() if "[Tags]" in l for x in l.split()]
+    assert apres == avant.replace("[Tags]    parcours_releve", "[Tags]    DEMO-501")              # seul le tag change
+    assert studio.revues_scripts()[g["chemin"]]["statut"] == "Technical Review"                    # la suite repasse en revue
+    assert conception.cle_xray_du_scenario("parcours_releve") == "DEMO-501"
+    assert conception.reporter_cle_xray("parcours_releve", "DEMO-501") == []                       # rien à refaire
+
+    # 2. scénario publié AVANT la génération : le tag est d'emblée la clé Xray
+    bdd.creer("parcours_plafond", "Changer son plafond", depuis_xray={"gherkin": GHERKIN, "resume": "Changer son plafond"})
+    assert conception.publier_bdd("parcours_plafond", "DEMO", xray=_XrayQuiCree())["scripts_mis_a_jour"] == []
+    g = facade.studio_generer_depuis_bdd("parcours_plafond")
+    assert (g["cle_xray"], g["tag"]) == ("DEMO-501", "DEMO-501") and "[Tags]    DEMO-501" in g["contenu"]
+
+    # 3. scénario créé depuis un test Xray : sa clé est déjà celle du test
+    bdd.creer("DEMO-15", "Liste des comptes", depuis_xray={"gherkin": GHERKIN, "resume": "Liste des comptes"})
+    assert facade.studio_generer_depuis_bdd("DEMO-15")["cle_xray"] == "DEMO-15"

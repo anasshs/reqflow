@@ -84,6 +84,19 @@ Règle de l'équipe : les tests d'un même parcours métier sont dans la même s
 Limites : l'ajout se fait par `studio_generer_depuis_bdd` et par l'aperçu de l'atelier ; `studio_construire_test`
 (assemblage par palette) écrit toujours une suite à part. Un test rattaché à un parcours après coup n'est pas déplacé.
 
+## La clé du test Xray dans le code Robot
+
+Chaque test Robot porte en tag la clé de son test Xray : c'est ce qui le relie à Xray (statut « Automatisé », suite
+d'un parcours, résultats d'exécution).
+
+- **Scénario créé depuis un test Xray** : sa clé est déjà celle du test ; elle est écrite en tag.
+- **Scénario créé dans l'atelier** (Discovery, saisie) : il est publié en BDD dans Xray (Scénarios BDD › Publier), ce
+  qui crée le test Cucumber. `conception.cle_xray_du_scenario` rend la clé créée ; la génération l'écrit en tag.
+- **Script écrit avant la publication** : il porte la clé locale du scénario. À la publication,
+  `conception.reporter_cle_xray` remplace ce mot dans la ligne `[Tags]` du test, rien d'autre, et renvoie la suite en
+  revue technique. Un échec de ce report n'annule pas la publication : il est signalé dans son résultat.
+- L'aperçu du script indique le tag qui sera écrit, et signale un scénario pas encore dans Xray.
+
 ## Trois statuts distincts
 
 | Statut | Porte sur | Valeurs | Qui le change |

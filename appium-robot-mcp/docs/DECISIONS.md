@@ -806,3 +806,10 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Décision : dans l'aperçu du script, l'automaticien choisit le parcours métier du test, ou directement une suite
   existante du dépôt. Le choix passe avant la déduction ; l'ajout suit les mêmes garanties (rien n'est réécrit, test
   déjà présent refusé, retour en revue technique). Aucun outil MCP ajouté.
+
+## 2026-11-20 — La clé du test Xray créé à la publication arrive dans le code Robot
+- Précision de l'utilisateur : le test est ajouté en BDD dans le référentiel Xray, puis sa clé va dans le code Robot.
+- Constat : la clé créée était enregistrée (sync_xray.json) mais le script gardait la clé locale du scénario en tag,
+  avant comme après la publication ; le test n'était alors pas reconnu comme lié à Xray.
+- Décision : la génération écrit en tag la clé du test Xray dès qu'elle existe ; la publication remplace le tag local
+  dans les scripts déjà écrits (un seul mot de la ligne [Tags]) et renvoie la suite en revue technique.

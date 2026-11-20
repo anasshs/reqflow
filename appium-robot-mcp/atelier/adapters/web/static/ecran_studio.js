@@ -370,6 +370,7 @@
       <ul><li>Le lien entre une US et ses tests vient de la copie locale Xray et des tests liés suivis par Test Design. Un test publié depuis une US apparaît ici après la synchronisation Xray suivante (Rapports › Patrimoine).</li>
         <li>Une US qui n'apparaît pas n'est ni dans la copie locale ni suivie par Test Design : l'ajouter par la politique des espaces Jira (Test Design › À concevoir).</li>
         <li>Un test sans US liée est listé à part, en bas du fil.</li>
+        <li><b>Le tag Xray.</b> Chaque test Robot porte en tag la clé de son test Xray : c'est ce qui le relie à Xray. Pour un scénario créé dans l'atelier, publier d'abord le scénario BDD dans Xray : le test Cucumber est créé, et sa clé devient le tag du script. Si le script était déjà écrit avec la clé locale, la publication remplace ce tag et renvoie la suite en revue technique.</li>
         <li><b>Une suite par parcours métier.</b> Les tests d'un même parcours (Discovery › Préparer un parcours, exigences rattachées) vont dans la même suite Robot : le premier crée la suite du parcours, les suivants y sont ajoutés en fin de suite, sans rien réécrire, et la suite repasse en revue technique. Un test sans parcours garde sa propre suite. Sans relation entre le test et une US, vous le rattachez à la main dans l'aperçu du script (BDD → Robot › Générer le script Robot) : choisir son parcours métier, ou directement une suite existante du dépôt.</li>
         <li>Cursor part du dépôt existant et suit sa structure : il reçoit les dossiers où l'équipe range déjà ses tests, ses keywords / page objects et ses locators, et un fichier rangé ailleurs est signalé dans la revue technique. La structure lue est visible dans ${ou("studio/parametres", "Environnement › Réglages")}.</li></ul></div>`;
   }
@@ -460,6 +461,8 @@
           <div class="champ"><label for="g-suite">ou suite existante</label>
             <select class="in" id="g-suite" title="Ajouter le test à une suite du dépôt, sans passer par un parcours"><option value="">Aucune</option>
               ${rg.suites.map(x => `<option value="${esc(x.fichier)}" ${x.fichier === rg.choix.suite ? "selected" : ""}>${esc(x.fichier)} · ${x.tests} test(s)</option>`).join("")}</select></div></div>
+        <p class="lib" style="margin:0 0 8px">${g.cle_xray ? `<span class="pill ok">Tag Xray</span> Le test portera le tag <b class="mono">${esc(g.tag)}</b>, la clé de son test Xray.`
+          : `<span class="pill warn">Pas encore dans Xray</span> Le test portera le tag local <b class="mono">${esc(g.tag)}</b>. Publier le scénario dans Xray (Scénarios BDD › Publier) : la clé Xray créée remplacera ce tag dans le script, même s'il est déjà écrit.`}</p>
         ${g.ajout_refuse ? `<p class="lib"><span class="pill ko">Ajout impossible</span> ${esc(g.ajout_refuse)}</p>` : ""}
         <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}" title="Modifier le chemin range le test dans une suite à part"></div>
         ${g.structure && !g.structure.conforme ? `<p class="lib"><span class="pill warn">Hors structure</span> ${esc(g.structure.message)} Corriger le chemin ci-dessus, ou le motif de rangement dans <a href="#conception/parametres">Test Design › Réglages</a>.</p>` : ""}

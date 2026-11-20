@@ -503,8 +503,12 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
     rapprochement, confirmes = reutilisation(m, inv), set()  # mots, jugement d'une IA et décisions de l'automaticien
     a_creer, reutilises, resources, proches = [], [], set(), {}
     lignes_tests = []
+    from atelier.generation import conception
+
+    # le tag est la clé du test Xray : celle créée à la publication du scénario, sinon la clé du scénario
+    cle_xray = conception.cle_xray_du_scenario(m["cle"])
     for s in m["scenarios"]:
-        tags = [m["cle"]] + (["negatif"] if s["type"] == "negatif" else [])
+        tags = [cle_xray or m["cle"]] + (["negatif"] if s["type"] == "negatif" else [])
         lignes_tests += ["", s["nom"], f"    [Tags]    {'    '.join(tags)}"]
         if m.get("jdd"):
             lignes_tests.append(f"    Initialiser Le Test    &{{JDD_{m['jdd'].upper()}}}")
@@ -550,7 +554,8 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
            "keywords_a_creer": a_creer,
            "keywords_proches": [{"etape": k, "keyword": p[0]["keyword"], "fichier": p[0]["fichier"], "confirme": k in confirmes}
                                 for k, p in proches.items()],
-           "parcours": choix["parcours"], "ajout": False, "raison_suite": choix["raison"]}
+           "parcours": choix["parcours"], "ajout": False, "raison_suite": choix["raison"], "cle_xray": cle_xray,
+           "tag": cle_xray or m["cle"]}
     if choix["ajout"]:  # la suite du parcours existe : on y ajoute le test, sans rien réécrire
         try:
             a = suites_parcours.ajouter(projet.lire_fichier(cible), out["contenu"])
