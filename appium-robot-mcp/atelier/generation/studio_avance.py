@@ -371,11 +371,13 @@ MODELES_DEFAUT = {
     "web": {"titre": "Test web depuis un scénario BDD",
             "texte": "Construis le test Robot web du scénario BDD {cle} ({titre}) avec le MCP de l'atelier : studio_socle, studio_scenario_bdd(\"{cle}\"), "
                      "start_session(platform=\"web\") et vérifie chaque étape à l'écran, propose les étapes délicates avec propose_step, "
-                     "réutilise le socle (aucun wrapper 1:1), studio_generer_depuis_bdd(\"{cle}\") puis dry run réussi, écris la suite et studio_soumettre_revue."},
+                     "réutilise le socle (aucun wrapper 1:1), studio_generer_depuis_bdd(\"{cle}\") puis dry run réussi, écris la suite et studio_soumettre_revue."
+                     " Range chaque fichier dans la structure existante du dépôt (studio_socle › structure) : aucun nouveau dossier racine."},
     "mobile": {"titre": "Test mobile (Android / iOS)",
                "texte": "Construis le test Robot mobile ({plateforme}) du scénario BDD {cle} ({titre}) : where_am_i, goto_screen vers les écrans connus, "
                         "screen_info avant de réanalyser, mêmes clés métier Android / iOS, locators stables (id, accessibility_id), studio_corrections_locators "
-                        "pour les fragiles ; propose les étapes délicates avec propose_step ; dry run réussi puis studio_soumettre_revue."},
+                        "pour les fragiles ; propose les étapes délicates avec propose_step ; dry run réussi puis studio_soumettre_revue."
+                        " Range chaque fichier dans la structure existante du dépôt (studio_socle › structure) : aucun nouveau dossier racine."},
     "api": {"titre": "Test d'API",
             "texte": "Construis le test Robot d'API (RequestsLibrary) du scénario BDD {cle} ({titre}) : données par jeu de données (list_jdd, get_jdd), "
                      "aucune donnée littérale, vérifie statut et contenu de chaque réponse, réutilise le socle ; dry run réussi puis studio_soumettre_revue."},

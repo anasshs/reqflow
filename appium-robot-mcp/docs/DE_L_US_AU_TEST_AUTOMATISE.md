@@ -40,6 +40,27 @@ Dans l'ordre du travail : **Décider** (enregistre la décision, ne lance rien) 
 fait passer le test à « En construction ») ; puis **Mapping** (ce qui existe dans le socle, génération sans Cursor) et
 le **Knowledge Graph** du test.
 
+## Ce qui est produit suit la structure du dépôt
+
+Cursor part du dépôt existant : il lit le socle (keywords, locators, données), puis ouvre l'application pour vérifier
+chaque étape et ne capturer que ce qui manque. Ce qu'il écrit doit être rangé comme l'équipe range déjà ses fichiers.
+
+- **Structure lue, jamais saisie** : `atelier/generation/structure_depot.py` lit dans le dépôt où sont les tests
+  (suites .robot), les keywords et page objects (.resource avec des keywords) et les locators (.resource qui ne porte
+  que des dictionnaires `&{LOC_…}`). Elle est affichée dans Automation Studio › Environnement › Réglages.
+- **Donnée à Cursor avant d'écrire** : `studio_socle` renvoie « structure » (racine et dossiers par genre) ; la
+  consigne est aussi dans la demande envoyée et dans la règle `automatisation.mdc`.
+- **Contrôlée** : `studio_generer_depuis_bdd` et `studio_construire_test` rendent le constat « structure » dès l'aperçu ;
+  la revue technique a un contrôle « structure » sur le script et les ressources qu'il importe. Le constat n'est pas
+  bloquant : l'automaticien le voit avant d'approuver.
+- **Règle** : un fichier est à sa place sous le dossier commun de son genre, ou dans un dossier voisin de même niveau
+  (un nouveau module à côté des tests existants). Il ne l'est pas dans un nouveau dossier à la racine du dépôt, ni dans
+  le dossier réservé à un autre genre. Sans fichier d'un genre, rien n'est imposé.
+
+Limites : un fichier écrit par `write_project_file` n'est contrôlé qu'en revue, s'il est importé par un script ; les
+jeux de données ne sont pas un genre contrôlé ; un projet qui a déjà ses règles Cursor versionnées garde sa règle
+`automatisation` active tant qu'elle n'est pas mise à jour (Paramètres › Cursor / Claude).
+
 ## Trois statuts distincts
 
 | Statut | Porte sur | Valeurs | Qui le change |
@@ -55,7 +76,8 @@ le **Knowledge Graph** du test.
 | Moteur | `candidats_perimetre`, `etape_us`, `ETAPES_FIL`, `marquer_en_construction` dans `atelier/intelligence/strategie.py` |
 | Routes | `GET /api/studio/candidats?perimetre=`, `POST /api/studio/candidats/construction` |
 | Écran et guide | `candidats` et `guide` dans `atelier/adapters/web/static/ecran_studio.js` |
-| Tests | `tests/test_strategie.py`, `tests/test_routes_strategie.py` |
+| Structure du dépôt | `atelier/generation/structure_depot.py` ; route `GET /api/studio/structure` |
+| Tests | `tests/test_strategie.py`, `tests/test_routes_strategie.py`, `tests/test_structure_depot.py` |
 
 ## Limites connues
 

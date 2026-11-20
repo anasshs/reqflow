@@ -778,3 +778,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   avec leurs actions. Une US sans test y figure avec le lien vers Test Design. Le parcours utilisateur de Discovery
   devient un périmètre (ses exigences rattachées). Un guide est intégré (Automation Studio › À automatiser › Guide),
   doublé par docs/DE_L_US_AU_TEST_AUTOMATISE.md. Aucune étape n'est saisie ; aucun outil MCP ajouté.
+
+## 2026-11-20 — Ce qui est généré suit la structure existante du dépôt
+- Demande de l'utilisateur : on part d'un code source qui a déjà sa structure (un dossier pour les locators, un autre
+  pour les pages et les keywords, puis les tests, les ressources…) ; Cursor doit produire dans la même logique.
+- Constat : rien ne lisait cette structure ; les dossiers par défaut étaient fixés dans le code.
+- Décision : la structure est lue dans le dépôt (aucun réglage), donnée à Cursor avant d'écrire (`studio_socle`,
+  demande, règle `automatisation`), et contrôlée à l'aperçu, à l'écriture et dans la revue technique (contrôle
+  « structure », non bloquant). Détail : docs/DE_L_US_AU_TEST_AUTOMATISE.md. Signatures des outils MCP inchangées
+  (deux outils rendent une clé de plus) ; aucun outil ajouté.

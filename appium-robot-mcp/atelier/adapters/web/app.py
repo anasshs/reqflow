@@ -2242,6 +2242,9 @@ async def bdd_generer(cle: str, req: Request):
     b = await req.json()
     m = _call(bdd._exiger, cle)
     g = await asyncio.to_thread(_call, bdd.generer_robot, m)
+    from atelier.generation import structure_depot
+
+    g["structure"] = await asyncio.to_thread(_call, structure_depot.controler, b.get("chemin") or g["chemin"], g["contenu"])
     if b.get("ecrire"):
         _call(bdd.refuser_doublons, m)  # étape proche d'un keyword existant : à trancher avant d'écrire
         chemin = b.get("chemin") or g["chemin"]
@@ -2558,6 +2561,14 @@ async def strategie_importer_perimetre():
 @app.get("/api/strategie/plan-automatisation")
 async def strategie_plan():
     return await asyncio.to_thread(_call, strategie.plan_automatisation)
+
+
+@app.get("/api/studio/structure")
+async def studio_structure():
+    """Structure lue dans le dépôt de tests : où sont rangés les tests, les keywords / page objects et les locators."""
+    from atelier.generation import structure_depot
+
+    return await asyncio.to_thread(_call, structure_depot.structure)
 
 
 @app.get("/api/studio/candidats")

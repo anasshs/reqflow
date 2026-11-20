@@ -308,6 +308,11 @@ def controles_script(fichier: str) -> list[dict]:
     add("locators", "moyenne" if fragiles else "ok", f"Locators fragiles / obsolètes : {', '.join(fragiles)}" if fragiles else "Locators stables ou fiables.")
     sans_jdd = [t["nom"] for t in tests if not t.get("jdd")]
     add("donnees", "basse" if sans_jdd else "ok", f"Sans jeu de données : {', '.join(sans_jdd)}" if sans_jdd else "Données via JDD.")
+    from atelier.generation import structure_depot
+
+    importes = [r for r in (inv["fichiers"].get(fichier) or {}).get("resources", []) if r in inv["fichiers"]]
+    ecarts = [c["message"] for c in (structure_depot.controler(f, contenu if f == fichier else "", inv) for f in [fichier, *importes]) if not c["conforme"]]
+    add("structure", "moyenne" if ecarts else "ok", " ".join(ecarts[:3]) if ecarts else "Le script et ses ressources sont rangés comme le reste du dépôt.")
     return out
 
 

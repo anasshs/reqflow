@@ -140,7 +140,7 @@
       }
       demandeCursor(cle ? `Construis le test Robot du scénario BDD ${cle} avec le MCP de l'atelier : studio_socle, studio_scenario_bdd("${cle}"), ouvre la session (start_session) et vérifie chaque étape à l'écran, `
         + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants sans wrapper 1:1, corrige les locators fragiles (studio_corrections_locators, studio_corriger_locator), `
-        + `vérifie en dry_run, écris la suite puis studio_soumettre_revue. Je suis l'écran et tes actions dans Automation Studio › Construire et je valide la revue.`
+        + `vérifie en dry_run, écris la suite puis studio_soumettre_revue. Range chaque fichier dans la structure existante du dépôt (studio_socle › structure). Je suis l'écran et tes actions dans Automation Studio › Construire et je valide la revue.`
         : "Construis un test Robot avec le MCP de l'atelier (studio_socle d'abord), puis soumets-le en revue avec studio_soumettre_revue.", cle); };
     // arrivée depuis « À automatiser › Construire » : le scénario est choisi et la demande préparée (une seule fois)
     let aLancer = "";
@@ -369,7 +369,8 @@
       <h3>6. À savoir</h3>
       <ul><li>Le lien entre une US et ses tests vient de la copie locale Xray et des tests liés suivis par Test Design. Un test publié depuis une US apparaît ici après la synchronisation Xray suivante (Rapports › Patrimoine).</li>
         <li>Une US qui n'apparaît pas n'est ni dans la copie locale ni suivie par Test Design : l'ajouter par la politique des espaces Jira (Test Design › À concevoir).</li>
-        <li>Un test sans US liée est listé à part, en bas du fil.</li></ul></div>`;
+        <li>Un test sans US liée est listé à part, en bas du fil.</li>
+        <li>Cursor part du dépôt existant et suit sa structure : il reçoit les dossiers où l'équipe range déjà ses tests, ses keywords / page objects et ses locators, et un fichier rangé ailleurs est signalé dans la revue technique. La structure lue est visible dans ${ou("studio/parametres", "Environnement › Réglages")}.</li></ul></div>`;
   }
 
   /* ------------------------------------------------------------------ 3 espaces */
@@ -426,7 +427,7 @@
     $("#mp-cle").onchange = e => { location.hash = "studio/mapping/" + encodeURIComponent(e.target.value); };
     $("#mp-cursor").onclick = () => demandeCursor(`Construis le test Robot du scénario BDD ${cle} avec le MCP de l'atelier : studio_socle, studio_scenario_bdd("${cle}"), `
       + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants dans le socle sans wrapper 1:1, vérifie en dry_run, `
-      + `écris la suite puis studio_soumettre_revue. Je valide dans Automation Studio › Revue et publication.`, cle);
+      + `écris la suite puis studio_soumettre_revue. Range chaque fichier dans la structure existante du dépôt (studio_socle › structure). Je valide dans Automation Studio › Revue et publication.`, cle);
     $("#mp-gen").onclick = async () => {
       let g;
       try { g = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: false}}); } catch (e) { return toast(e.message, "ko"); }
@@ -450,6 +451,7 @@
         ${g.keywords_a_creer.length ? `<p class="lib">À implémenter : ${esc(g.keywords_a_creer.join(", "))}. Écrits ici, ils échouent explicitement tant qu'ils ne sont pas implémentés ;
           « Faire construire par Cursor » les crée dans le socle et vérifie le test avant de le soumettre.</p>` : ""}
         <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}"></div>
+        ${g.structure && !g.structure.conforme ? `<p class="lib"><span class="pill warn">Hors structure</span> ${esc(g.structure.message)} Corriger le chemin ci-dessus, ou le motif de rangement dans <a href="#conception/parametres">Test Design › Réglages</a>.</p>` : ""}
         <label class="lib" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><input type="checkbox" id="g-ecr"> Remplacer s'il existe</label>
         <pre class="code-bloc">${esc(g.contenu)}</pre>`;
       $("#g-x", ap).onclick = () => zones.classList.remove("ouvert");
@@ -872,10 +874,13 @@
   function parametres(z) {
     z.innerHTML = `${entete("Settings")}<div class="corps-carte"><div class="grille-2">
       <section class="bloc-strat"><h3>Conventions (projet)</h3><ul class="liste"><li>Gherkin français, Page Object Model, séparation locators / keywords / scénarios.</li>
-        <li>INITIALISATION avec &amp;{JDD_&lt;NOM&gt;} ; tags clé Xray + tags fonctionnels ; pas de donnée littérale.</li><li>Dossiers : tests/, resources/socle, resources/locators, data/jdd.</li></ul></section>
+        <li>INITIALISATION avec &amp;{JDD_&lt;NOM&gt;} ; tags clé Xray + tags fonctionnels ; pas de donnée littérale.</li><li>Dossiers : ceux que le dépôt utilise déjà (bloc « Structure du dépôt » ci-dessous).</li></ul></section>
       <section class="bloc-strat"><h3>IA, Git, Xray</h3><dl class="props"><dt>IA</dt><dd>${Atelier.ctx.agent_integre ? "clé présente (CLAUDE_MODEL)" : "désactivée"} · validation humaine obligatoire</dd>
         <dt>Git</dt><dd>branche et commit local (branches protégées refusées, suites approuvées uniquement) ; push et merge request GitLab depuis « Revue et publication › Git et merge request » (suites approuvées et stables, dérogation justifiée sinon)</dd><dt>Xray</dt><dd><a href="#conception/mapping">Mapping (Test Design)</a></dd>
         <dt>Connexions communes</dt><dd><a href="#parametres">Paramètres globaux</a></dd></dl></section></div>
+      <section class="bloc-strat" style="margin-top:12px"><h3>Structure du dépôt</h3>
+        <p class="lib">Lue dans le dépôt, sans réglage : où l'équipe range déjà ses fichiers. Cursor la reçoit avant d'écrire (studio_socle) ; un fichier rangé ailleurs est signalé à l'écriture et dans la revue technique (contrôle « structure »).</p>
+        <div id="sd-z">Chargement…</div></section>
       <section class="bloc-strat" style="margin-top:12px"><h3>Modèles de demandes pour Cursor</h3>
         <p class="lib">Variables : {cle} (scénario BDD / test Xray), {titre}, {plateforme}. Proposés dans Construire › Avec Cursor. Un modèle par défaut modifié peut être rétabli.</p><div id="mo-z">Chargement…</div></section>
       <section class="bloc-strat" style="margin-top:12px"><h3>Rôles et droits</h3><div id="ro-z" class="lib">Chargement…</div></section></div>`;
@@ -889,6 +894,13 @@
       $$("[data-mo-x]").forEach(b => b.onclick = () => envoyer({cle: b.dataset.moX, supprimer: true}));
       $("#mo-aj").onclick = () => envoyer({cle: $("#mo-n").value.trim(), titre: "Nouveau modèle", texte: "Construis le test Robot du scénario {cle} ({titre}) avec le MCP de l'atelier, puis studio_soumettre_revue."});
     };
+    api("/api/studio/structure").then(s => { const zs = $("#sd-z"); if (!zs) return;
+      zs.innerHTML = s.vide ? `<p class="lib">Le dépôt ne contient encore aucun fichier Robot : rien n'est imposé. Le premier fichier de chaque genre fixera la structure.</p>`
+        : `<table class="table-strat"><tr><th>Genre</th><th>Dossier commun</th><th>Dossiers utilisés</th><th>Fichiers</th></tr>${Object.values(s.genres).map(g => `<tr><td>${esc(g.libelle)}</td>
+            <td class="mono">${g.fichiers ? esc(g.racine ? g.racine + "/" : "(plusieurs racines)") : '<span class="lib">aucun fichier : rien d\'imposé</span>'}</td>
+            <td class="mono lib">${esc(g.dossiers.map(d => `${d.dossier} (${d.fichiers})`).join(" · ") || "—")}</td><td>${g.fichiers}</td></tr>`).join("")}</table>
+          <p class="lib" style="margin-top:8px">Tests générés rangés selon le motif <span class="mono">${esc(s.regle_tests)}</span>${s.regle_tests_conforme ? "."
+            : ` <span class="pill warn">hors du dossier des tests existants</span> : à corriger dans <a href="#conception/parametres">Test Design › Réglages</a>.`}</p>`; }).catch(e => { if ($("#sd-z")) $("#sd-z").textContent = e.message; });
     api("/api/studio/modeles").then(rendreModeles).catch(e => { $("#mo-z").textContent = e.message; });
     const rendreRoles = r => {
       const lignes = Object.entries(r.utilisateurs).concat([["", "automaticien"]]);

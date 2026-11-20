@@ -685,8 +685,10 @@ def discovery_terminer() -> dict:
 def studio_socle(module: str = "", env: str = "") -> dict:
     """Ce qu'il faut réutiliser avant d'écrire un test : keywords du socle (nom, documentation, fichier, utilisations,
     signaux doublon / wrapper 1:1), locators par écran avec leur état (Stable, Reliable, Fragile, Obsolete, Missing),
-    jeux de données de l'environnement et conventions du projet. module : filtre sur l'écran ou la catégorie."""
-    from atelier.generation import studio
+    jeux de données de l'environnement, conventions du projet et « structure » : où le dépôt range déjà ses tests, ses
+    keywords / page objects et ses locators (racine et dossiers par genre) ; tout nouveau fichier suit cette structure.
+    module : filtre sur l'écran ou la catégorie."""
+    from atelier.generation import structure_depot, studio
 
     f = (module or "").lower()
     kws = [{k: x[k] for k in ("nom", "documentation", "fichier", "categorie", "utilisations", "doublon", "wrapper_1_1", "plateformes")}
@@ -695,7 +697,9 @@ def studio_socle(module: str = "", env: str = "") -> dict:
     envs = jdd.environnements()
     e = env or (envs[0] if envs else "")
     return {"keywords": kws, "locators": locs, "environnement": e, "jeux": jdd.lister(e) if e else [],
-            "conventions": ["Gherkin français + Page Object Model : locators / keywords / scénarios séparés",
+            "structure": structure_depot.resume(),
+            "conventions": ["ranger chaque fichier dans le dossier de son genre, comme le dépôt le fait déjà (« structure ») : aucun nouveau dossier racine",
+                            "Gherkin français + Page Object Model : locators / keywords / scénarios séparés",
                             "INITIALISATION : Initialiser Le Test    &{JDD_<NOM>} ; aucune donnée littérale dans le scénario",
                             "réutiliser les keywords du socle ; jamais de wrapper 1:1 par élément",
                             "tags : clé Xray + tags fonctionnels (smoke, e2e, negatif, consomme_donnee)",
@@ -732,10 +736,11 @@ def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "") 
     le fichier (jamais d'écrasement) ; il entre en revue technique « Généré » et ne s'exécute qu'après approbation de
     l'automaticien dans l'atelier. L'écriture est refusée tant qu'une étape proche d'un keyword existant n'est pas
     tranchée dans Test Design (reprendre le keyword, ou confirmer un nouveau keyword) : aucun doublon silencieux."""
-    from atelier.generation import bdd, studio
+    from atelier.generation import bdd, structure_depot, studio
 
     m = bdd._exiger(cle)
     g = bdd.generer_robot(m)
+    g["structure"] = structure_depot.controler(chemin or g["chemin"], g["contenu"])  # rangé comme le reste du dépôt ?
     if ecrire:
         bdd.refuser_doublons(m)
         cible = chemin or g["chemin"]
@@ -755,7 +760,10 @@ def studio_construire_test(nom: str, jdd_nom: str, etapes: list[dict], cle_xray:
     en revue technique « Généré » (approbation humaine dans l'atelier)."""
     from atelier.generation import studio
 
+    from atelier.generation import structure_depot
+
     c = studio.construire_test(nom, cle_xray, jdd_nom, etapes, tags or [])
+    c["structure"] = structure_depot.controler(c["fichier"], c["contenu"])  # rangé comme le reste du dépôt ?
     if ecrire:
         c["ecrit"] = studio.ecrire_test(c, "cursor")
     return c

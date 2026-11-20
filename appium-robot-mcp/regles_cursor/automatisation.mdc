@@ -28,6 +28,9 @@ Conventions du projet :
   get_jdd, check_jdd ; si aucun jeu ne convient, proposer la structure du jeu à créer.
 - Tags : clé Xray du test + tags fonctionnels (smoke, e2e, negatif, consomme_donnee).
 - Un seul scénario end-to-end par suite.
+- Structure du dépôt : studio_socle renvoie « structure » (racine et dossiers où l'équipe range déjà ses tests, ses
+  keywords / page objects et ses locators). Écrire chaque fichier dans le dossier de son genre ; ne jamais créer de
+  nouveau dossier racine ni mélanger des genres que le dépôt sépare. output_dir des locators : le dossier existant.
 
 Cerveau de l'application (avant tout) : cerveau_application() pour ce que l'atelier sait déjà (sources et leur
 fraîcheur, modules, lacunes), cerveau_application(module="…") pour le détail d'un module, cerveau_question("…")
