@@ -97,3 +97,16 @@ def test_un_dossier_voisin_reste_dans_la_structure(depot):
     assert sd.controler("tests/virement/virement.robot", SUITE)["conforme"]                        # voisin de tests/connexion
     assert not sd.controler("virement/virement.robot", SUITE)["conforme"]
     assert sd.controler("resources/keywords/connexion.resource")["conforme"]                       # fichier existant, jugé sans lui-même
+
+
+def test_l_editeur_signale_un_fichier_hors_structure(depot):
+    """Enregistrer depuis l'Éditeur de code rend le constat de structure, sans jamais bloquer l'enregistrement."""
+    from atelier.generation import editeur
+
+    r = editeur.enregistrer("resources/locators/virement.resource", LOCATORS.replace("CONNEXION", "VIREMENT"))
+    assert r["cree"] and r["structure"]["conforme"]
+    r = editeur.enregistrer("locators_bis/virement.resource", LOCATORS.replace("CONNEXION", "VIREMENT2"))
+    assert r["cree"] and not r["structure"]["conforme"] and "resources/locators/" in r["structure"]["message"]
+    assert (depot / "locators_bis" / "virement.resource").exists()                                  # enregistré quand même
+    p = editeur.proprietes("tests/connexion/connexion.robot")
+    assert p["suite"]["structure"]["conforme"] and p["suite"]["revue"] == "Generated" and p["suite"]["parcours"] == []  # jamais revue : « Généré »

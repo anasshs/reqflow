@@ -58,7 +58,15 @@ def enregistrer(chemin: str, contenu: str, version_lue: str | None = None) -> di
     cible.write_text(contenu, "utf-8")
     declarations._historiser("edition_fichier", "automaticien", f"fichier:{chemin}",
                              apres={"lignes_ajoutees": ajout, "lignes_retirees": retrait})
-    return {"chemin": chemin, "lignes_ajoutees": ajout, "lignes_retirees": retrait, "cree": not avant}
+    structure = None
+    if cible.suffix in (".robot", ".resource"):
+        try:  # rangé comme le reste du dépôt ? Constat rendu à l'éditeur, jamais bloquant
+            from atelier.generation import structure_depot
+
+            structure = structure_depot.controler(chemin, contenu)
+        except Exception:  # noqa: BLE001 — un dépôt illisible n'empêche pas d'enregistrer
+            structure = None
+    return {"chemin": chemin, "lignes_ajoutees": ajout, "lignes_retirees": retrait, "cree": not avant, "structure": structure}
 
 
 def historique(chemin: str) -> list[dict]:
@@ -97,11 +105,30 @@ def _lint_conventions(contenu: str) -> list[dict]:
     section, test, tags, init, debut = "", None, [], False, 0
     tags_suite = []
 
+    def locale(tous: list[str]) -> tuple[str, str]:
+        """(clé locale d'un scénario BDD portée en tag, clé Xray de ce scénario s'il est publié)."""
+        try:
+            from atelier.generation import bdd, conception
+
+            scenarios = {b["cle"] for b in bdd.lister()}
+            t = next((x for x in tous if x in scenarios and not KEY_RE.match(x)), "")
+            return t, (conception.cle_xray_du_scenario(t) if t else "")
+        except Exception:  # noqa: BLE001 — aucun scénario lisible : contrôle simple
+            return "", ""
+
     def fin_test():
         if test is None:
             return
         if not any(KEY_RE.match(t) for t in tags + tags_suite):
-            out.append({"ligne": debut, "message": f"Test « {test} » sans tag de clé Xray.", "gravite": "avertissement"})
+            cle, xray = locale(tags + tags_suite)
+            if cle and xray:
+                message = f"Test « {test} » : le tag « {cle} » est la clé locale du scénario, publié dans Xray sous {xray} : remplacer le tag par {xray}."
+            elif cle:
+                message = (f"Test « {test} » : le tag « {cle} » est la clé locale d'un scénario pas encore publié dans Xray. "
+                           "Publier le scénario (Scénarios BDD) : la clé Xray remplacera ce tag.")
+            else:
+                message = f"Test « {test} » sans tag de clé Xray."
+            out.append({"ligne": debut, "message": message, "gravite": "avertissement"})
         if not init:
             out.append({"ligne": debut, "message": f"Test « {test} » sans bloc INITIALISATION (Initialiser Le Test).",
                         "gravite": "avertissement"})
@@ -182,7 +209,22 @@ def proprietes(chemin: str) -> dict:
                       "autres_tests_impactes": [{"id": o, "nom": inv["tests"][o]["nom"],
                                                  "cles_xray": inv["tests"][o]["cles_xray"]} for o in autres]})
     info = inv["fichiers"].get(chemin, {})
-    return {"chemin": chemin, "tests": tests, "bibliotheques": info.get("bibliotheques", []),
+    suite = {"revue": "", "parcours": [], "structure": None}
+    try:  # où en est la suite : revue technique, parcours métier de ses tests, rangement dans le dépôt
+        from atelier.generation import structure_depot, studio, suites_parcours
+
+        suite["revue"] = (studio.revues_scripts().get(chemin) or {}).get("statut", "")
+        noms = []
+        for t in tests:
+            p = next((suites_parcours.parcours_du_test(x["cle"]) for x in t["xray"]), None)
+            t["parcours"] = (p or {}).get("nom", "")
+            if t["parcours"] and t["parcours"] not in noms:
+                noms.append(t["parcours"])
+        suite["parcours"] = noms
+        suite["structure"] = structure_depot.controler(chemin, "", inv)
+    except Exception:  # noqa: BLE001 — information d'appoint : jamais une raison de ne pas afficher la suite
+        pass
+    return {"chemin": chemin, "tests": tests, "suite": suite, "bibliotheques": info.get("bibliotheques", []),
             "resources": info.get("resources", []), "keywords_definis": [inv["keywords"][k]["nom"] for k in info.get("keywords", [])
                                                                           if k in inv["keywords"]]}
 

@@ -822,3 +822,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Décision : les écrans et les messages disent « test Gherkin ». Le nom du type dans Xray devient réglable (Test
   Design › Réglages › Mapping, défaut « Cucumber ») et sert à créer le test ; « Cucumber » et « Gherkin » sont tous deux
   reconnus à la lecture. À vérifier dans Xray par l'utilisateur : Réglages du projet › Test Types.
+
+## 2026-11-20 — L'Éditeur de code suit les règles du fil
+- Question de l'utilisateur : l'Éditeur de code est-il à jour ? Il ne connaissait aucune des règles ajoutées ce jour.
+- Décision : les propriétés d'une suite affichent sa revue technique, le parcours métier de ses tests et son rangement
+  dans la structure du dépôt ; l'enregistrement signale un fichier hors structure, sans bloquer ; le contrôle distingue
+  une clé locale de scénario (pas encore publié, ou publié sous une clé Xray à reporter) d'une clé absente ; les deux
+  fenêtres modales (« Plus d'actions », « Créer un keyword ») deviennent un menu déroulant et un formulaire dans la page.
+- Limite connue : sous environ 850 px de hauteur, le bas de la colonne de gauche de l'éditeur passe en partie sous le
+  panneau du bas (défaut antérieur de la grille, non corrigé ici).

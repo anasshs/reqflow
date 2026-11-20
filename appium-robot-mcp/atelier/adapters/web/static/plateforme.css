@@ -717,3 +717,8 @@ body.sans-lanceur .df-lanceur { display: none; }
 .guide ul { margin: 6px 0; padding-left: 20px; }
 .guide li { margin: 3px 0; }
 .ca-us h3 button.lien { margin-left: 0; font-size: 12.5px; }
+/* menu déroulant ancré sous un bouton (remplace une fenêtre modale pour quelques actions) */
+.menu-deroulant { position: fixed; z-index: 46; min-width: 230px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; display: flex; flex-direction: column; }
+.menu-deroulant button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: none; border: 0; border-radius: 6px; cursor: pointer; color: inherit; font: inherit; text-align: left; }
+.menu-deroulant button:hover, .menu-deroulant button:focus-visible { background: var(--surface-2); }
+.menu-deroulant button .i { color: var(--accent-ink); }

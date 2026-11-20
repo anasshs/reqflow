@@ -25,14 +25,14 @@
           <select class="in" id="e-device" aria-label="Device"></select>
           <span class="pill" id="e-session"></span>
         </div>
-        <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
-          <section class="carte" style="flex:1.25"><h2 class="titre-carte">Explorateur<span class="actions-titre"><button class="icone" id="e-rafr" title="Rafraîchir">${ico("rejouer")}</button></span></h2>
+        <div style="display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden">
+          <section class="carte" style="flex:1.25;min-height:0"><h2 class="titre-carte">Explorateur<span class="actions-titre"><button class="icone" id="e-rafr" title="Rafraîchir">${ico("rejouer")}</button></span></h2>
             <div class="corps-carte" id="e-arbre" style="padding:6px 4px"></div></section>
-          <section class="carte" style="flex:1"><h2 class="titre-carte">Réutilisation</h2>
+          <section class="carte" style="flex:1;min-height:0"><h2 class="titre-carte">Réutilisation</h2>
             <div class="sous-onglets" id="e-reu-onglets"></div>
             <div style="padding:8px 10px 0"><span class="boite" style="padding:0 6px"><input class="in" id="e-reu-q" placeholder="Rechercher un keyword…" style="border:0;background:none" aria-label="Rechercher dans la réutilisation">${ico("recherche")}</span></div>
             <div class="corps-carte" id="e-reu" style="padding-top:4px"></div>
-            <div style="padding:8px 10px;border-top:1px solid var(--line)"><button class="btn" id="e-nouveau-kw" style="width:100%;justify-content:center">${ico("plus")}Créer un keyword</button></div></section>
+            <div style="padding:8px 10px;border-top:1px solid var(--line)" id="e-kw-zone"><button class="btn" id="e-nouveau-kw" style="width:100%;justify-content:center">${ico("plus")}Créer un keyword</button></div></section>
         </div>
         <section class="carte">
           <div class="tabs-fichiers" id="e-tabs" role="tablist"></div>
@@ -74,12 +74,23 @@
       $("#e-suite").onchange = e => { if (e.target.value) location.hash = "editeur/" + encodeURIComponent(e.target.value); };
       $("#e-props-r").onclick = proprietes;
       $("#e-visuel").onclick = () => { const k = S.props?.tests?.[0]?.xray?.[0]?.cle; if (k) location.hash = "bdd/" + encodeURIComponent(k); else toast("Aucune clé Xray sur ce test : pas de scénario BDD associé."); };
-      $("#e-plus").onclick = () => {
-        const m = modale("Plus d'actions", `<ul class="menu-actions"><li id="pa-hist">${ico("historique")}Historique du fichier</li>
-          <li id="pa-fermer">${ico("x")}Fermer tous les onglets</li><li id="pa-graphe">${ico("graphe")}Ouvrir le Knowledge Graph</li></ul>`);
-        $("#pa-hist", m.el).onclick = () => { m.fermer(); S.ongletDep = "histo"; dependances(); };
-        $("#pa-fermer", m.el).onclick = () => { m.fermer(); if ([...S.ouverts.values()].some(f => f.modifie) && !confirm("Des modifications ne sont pas enregistrées. Fermer quand même ?")) return; S.ouverts.clear(); location.hash = "editeur"; };
-        $("#pa-graphe", m.el).onclick = () => { m.fermer(); location.hash = "graphe/connaissance"; };
+      $("#e-plus").onclick = ev => {
+        ev.stopPropagation();
+        if ($("#e-menu-plus")) return $("#e-menu-plus").remove();  // second clic : referme
+        const r = $("#e-plus").getBoundingClientRect(), menu = document.createElement("div");
+        menu.id = "e-menu-plus"; menu.className = "menu-deroulant"; menu.setAttribute("role", "menu");
+        menu.style.top = `${r.bottom + 4}px`; menu.style.right = `${Math.max(8, innerWidth - r.right)}px`;
+        menu.innerHTML = `<button role="menuitem" id="pa-hist">${ico("historique")}Historique du fichier</button>
+          <button role="menuitem" id="pa-fermer">${ico("x")}Fermer tous les onglets</button><button role="menuitem" id="pa-graphe">${ico("graphe")}Ouvrir le Knowledge Graph</button>`;
+        document.body.appendChild(menu);
+        const fermer = () => { menu.remove(); document.removeEventListener("click", dehors); document.removeEventListener("keydown", touche); };
+        const dehors = e => { if (!menu.contains(e.target)) fermer(); };
+        const touche = e => { if (e.key === "Escape") { fermer(); $("#e-plus")?.focus(); } };
+        document.addEventListener("click", dehors); document.addEventListener("keydown", touche);
+        $("#pa-hist", menu).onclick = () => { fermer(); S.ongletDep = "histo"; dependances(); };
+        $("#pa-fermer", menu).onclick = () => { fermer(); if ([...S.ouverts.values()].some(f => f.modifie) && !confirm("Des modifications ne sont pas enregistrées. Fermer quand même ?")) return; S.ouverts.clear(); location.hash = "editeur"; };
+        $("#pa-graphe", menu).onclick = () => { fermer(); location.hash = "graphe/connaissance"; };
+        $("#pa-hist", menu).focus();
       };
       $$("#e-mob-onglets [data-mp]").forEach(b => b.onclick = () => { Atelier.plateforme = b.dataset.mp; Atelier.diffuser({type: "contexte"}); });
       $("#e-identifier").onclick = identifier;
@@ -213,6 +224,7 @@
       const r = await api("/api/editeur/enregistrer", {method: "POST", body: {chemin: S.courant, contenu: f.contenu, version_lue: f.original}});
       f.original = f.contenu; f.modifie = false;
       toast(`Enregistré (+${r.lignes_ajoutees} / −${r.lignes_retirees} lignes, historisé).`, "ok");
+      if (r.structure && !r.structure.conforme) toast("Hors structure du dépôt : " + r.structure.message, "ko");
       rendreFichier(); arbre(); proprietes(); chargerReutil();
     } catch (e) { toast(e.message, "ko"); }
   }
@@ -255,14 +267,22 @@
 
   function nouveauKeyword() {
     if (!S.courant) return toast("Ouvrir d'abord un fichier .resource ou .robot.", "ko");
-    const m = modale("Créer un keyword", `<div class="champ"><label for="k-nom">Nom</label><input class="in" id="k-nom" placeholder="ex. Saisir Le Montant"></div>
-      <div class="champ"><label for="k-args">Arguments (séparés par des virgules)</label><input class="in" id="k-args" placeholder="ex. montant"></div>
-      <p class="lib">Vérifier d'abord la liste « Keywords » : jamais de wrapper 1:1 par élément, réutiliser le socle.</p>`, `<button class="btn primaire" id="k-ok">Insérer au curseur</button>`);
-    $("#k-ok", m.el).onclick = () => {
-      const nom = $("#k-nom", m.el).value.trim();
-      if (!nom) return;
-      const args = $("#k-args", m.el).value.split(",").map(a => a.trim()).filter(Boolean);
-      m.fermer();
+    // formulaire dans la carte « Réutilisation », sous la liste des keywords à réutiliser d'abord : rien n'est recouvert
+    const z = $("#e-kw-zone"), bouton = z.innerHTML, carte = z.closest("section"), flex = carte.style.flex;
+    const fermer = () => { z.innerHTML = bouton; carte.style.flex = flex; $("#e-nouveau-kw").onclick = nouveauKeyword; };
+    carte.style.flex = "2.6";  // la carte prend de la place sur l'explorateur le temps de la saisie : le formulaire ne déborde pas
+    z.innerHTML = `<input class="in" id="k-nom" placeholder="Nom du keyword (ex. Saisir Le Montant)" aria-label="Nom du keyword" style="margin-bottom:6px"
+        title="Vérifier d'abord la liste ci-dessus : jamais de wrapper 1:1 par élément, réutiliser le socle">
+      <input class="in" id="k-args" placeholder="Arguments, séparés par des virgules" aria-label="Arguments, séparés par des virgules" style="margin-bottom:6px">
+      <div class="btns"><button class="btn petit primaire" id="k-ok">Insérer au curseur</button><button class="btn petit" id="k-non">Annuler</button></div>`;
+    $("#k-nom").focus();
+    $("#k-non").onclick = fermer;
+    $("#k-nom").onkeydown = $("#k-args").onkeydown = e => { if (e.key === "Enter") $("#k-ok").click(); if (e.key === "Escape") fermer(); };
+    $("#k-ok").onclick = () => {
+      const nom = $("#k-nom").value.trim();
+      if (!nom) return $("#k-nom").focus();
+      const args = $("#k-args").value.split(",").map(a => a.trim()).filter(Boolean);
+      fermer();
       inserer(`\n${nom}\n    [Documentation]    À compléter.\n${args.length ? `    [Arguments]    ${args.map(a => "${" + a + "}").join("    ")}\n` : ""}    No Operation\n`);
     };
   }
@@ -347,7 +367,13 @@
     const x = t.xray[0] || {};
     const r = t.dernier_resultat;
     const boite = (v, icone = "") => `<span class="boite">${v}${icone ? ico(icone) : ""}</span>`;
-    $("#e-props").innerHTML = `<div class="lib" style="font-weight:600;color:var(--ink);margin-bottom:8px">Informations générales</div>
+    const su = p.suite || {}, REVUE = {Generated: ["", "Généré / non revu"], "Technical Review": ["info", "Revue technique"], "Changes Requested": ["warn", "Modifs demandées"],
+      Approved: ["violet", "Approuvé"], Published: ["ok", "Publié"], Rejected: ["ko", "Refusé"]}[su.revue];
+    $("#e-props").innerHTML = `<div class="lib" style="font-weight:600;color:var(--ink);margin-bottom:8px">Suite</div>
+      <div class="champ"><span>Revue technique</span><a class="boite" style="text-decoration:none" href="#studio/revue" title="Une modification enregistrée renvoie la suite en revue technique">${REVUE ? `<span class="pill ${REVUE[0]}">${REVUE[1]}</span>` : '<span class="lib">pas encore en revue</span>'}${ico("ext")}</a></div>
+      <div class="champ"><span>Parcours métier</span><span class="boite" title="Les tests d'un même parcours métier vont dans la même suite">${(su.parcours || []).length ? esc(su.parcours.join(", ")) + (t.parcours ? "" : ' <span class="lib">(ce test : aucun)</span>') : '<span class="lib">aucun : suite propre</span>'}</span></div>
+      <div class="champ"><span>Rangement</span><span class="boite" title="${esc(su.structure?.message || "")}">${!su.structure ? "—" : su.structure.conforme ? `<span class="pill ok">dans la structure du dépôt</span>` : `<span class="pill warn">hors structure</span> <span class="lib">attendu sous ${esc(su.structure.attendu)}</span>`}</span></div>
+      <div class="lib" style="font-weight:600;color:var(--ink);margin:12px 0 8px">Informations générales</div>
       <div class="champ"><span>Nom du test</span>${boite(esc(t.nom))}</div>
       <div class="champ"><span>ID Xray</span>${t.xray.length ? t.xray.map(k => `<a class="boite" style="color:var(--accent-ink);text-decoration:none" href="#bdd/${encodeURIComponent(k.cle)}">${esc(k.cle)}${ico("ext")}</a>`).join("") : '<span class="pill warn">aucune clé Xray en tag</span>'}</div>
       ${x.cle && !x.absent_instantane ? `<div class="champ"><span>Type</span>${boite(esc(x.type || "—"))}</div>

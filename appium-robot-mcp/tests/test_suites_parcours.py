@@ -268,3 +268,25 @@ def test_le_nom_du_type_gherkin_dans_xray_est_reglable(banque):
     assert x.options == {"type_test": "Gherkin"} and "type Xray « Gherkin »" in r["resultat"]
     with pytest.raises(ValueError, match="Nom d'un type de test Xray"):
         conception.enregistrer_mapping({"types": [{"xray": "", "editeur": "bdd"}]})
+
+
+def test_l_editeur_de_code_connait_le_fil(banque):
+    """Propriétés d'une suite : revue technique, parcours métier, rangement. Contrôle : une clé locale de scénario n'est
+    pas une clé absente."""
+    from atelier.adapters import facade
+    from atelier.generation import bdd, conception, editeur
+
+    bdd.creer("DEMO-11", "Virement simple", depuis_xray={"gherkin": GHERKIN, "resume": "Virement simple"})
+    g = facade.studio_generer_depuis_bdd("DEMO-11", ecrire=True)
+    p = editeur.proprietes(g["chemin"])
+    assert p["suite"]["revue"] == "Generated" and p["suite"]["parcours"] == ["Faire un virement"] and p["suite"]["structure"]["conforme"]
+    assert p["tests"][0]["parcours"] == "Faire un virement"
+
+    lint = lambda tag: [x["message"] for x in editeur.lint(f"*** Test Cases ***\nUn test\n    [Tags]    {tag}\n    Initialiser Le Test    &{{JDD_X}}\n    Log    x\n")["problemes"]
+                        if "tag" in x["message"]]  # noqa: E731
+    assert lint("DEMO-11") == []
+    assert lint("smoke") == ["Test « Un test » sans tag de clé Xray."]
+    bdd.creer("parcours_releve", "Exporter un relevé", depuis_xray={"gherkin": GHERKIN, "resume": "Exporter un relevé"})
+    assert "clé locale d'un scénario pas encore publié dans Xray" in lint("parcours_releve")[0]
+    conception.publier_bdd("parcours_releve", "DEMO", xray=_XrayQuiCree())
+    assert "publié dans Xray sous DEMO-501 : remplacer le tag par DEMO-501" in lint("parcours_releve")[0]
