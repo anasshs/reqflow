@@ -110,3 +110,47 @@ def test_l_editeur_signale_un_fichier_hors_structure(depot):
     assert (depot / "locators_bis" / "virement.resource").exists()                                  # enregistré quand même
     p = editeur.proprietes("tests/connexion/connexion.robot")
     assert p["suite"]["structure"]["conforme"] and p["suite"]["revue"] == "Generated" and p["suite"]["parcours"] == []  # jamais revue : « Généré »
+
+
+def test_aller_a_la_definition(depot):
+    """Ctrl + clic dans l'Éditeur de code : keyword, variable ou fichier importé sous le curseur, dans le fichier ouvert
+    (même non enregistré) puis dans le dépôt."""
+    from atelier.generation import editeur
+
+    def ou(chemin, contenu, cherche, decalage=1, n=1):
+        """Définition de la n-ième occurrence de « cherche » (curseur placé « decalage » caractères après son début)."""
+        lignes = contenu.splitlines()
+        vus = 0
+        for i, l in enumerate(lignes, 1):
+            if cherche in l:
+                vus += 1
+                if vus == n:
+                    return editeur.definition(chemin, contenu, i, l.index(cherche) + 1 + decalage)
+        raise AssertionError(cherche)
+
+    # keyword défini dans une ressource importée, appelé depuis la suite (préfixe BDD ignoré)
+    suite = SUITE.replace("    Saisir L'Identifiant\n", "    Given saisir l'identifiant\n    Log    ${LOC_CONNEXION_WEB}[champ_identifiant]\n    Fill Text    x    y\n")
+    d = ou("tests/connexion/connexion.robot", suite, "saisir l'identifiant", 8)
+    assert (d["trouve"], d["genre"], d["fichier"], d["ligne"]) == (True, "keyword", "resources/keywords/connexion.resource", 5)
+    # variable (dictionnaire de locators) déclarée dans un autre fichier ; le curseur peut être sur la clé entre crochets
+    d = ou("tests/connexion/connexion.robot", suite, "${LOC_CONNEXION_WEB}", 3)
+    assert (d["genre"], d["fichier"], d["ligne"]) == ("variable", "resources/locators/connexion.resource", 2)
+    assert ou("tests/connexion/connexion.robot", suite, "[champ_identifiant]", 2)["fichier"] == "resources/locators/connexion.resource"
+    # fichier importé
+    d = ou("tests/connexion/connexion.robot", suite, "Resource    ../../resources", 14)
+    assert (d["genre"], d["fichier"], d["ligne"]) == ("fichier", "resources/keywords/connexion.resource", 1)
+    # keyword d'une bibliothèque, texte libre : rien à ouvrir, avec la raison
+    d = ou("tests/connexion/connexion.robot", suite, "Fill Text", 2)
+    assert not d["trouve"] and "aucun keyword de ce nom dans le dépôt" in d["message"]
+    assert not editeur.definition("tests/connexion/connexion.robot", suite, 999, 1)["trouve"]
+
+    # dans le fichier ouvert, non enregistré : keyword local, argument, affectation, keyword à arguments intégrés
+    tampon = ("*** Variables ***\n${DELAI}    5s\n\n*** Test Cases ***\nUn test\n    ${solde}=    Lire Le Solde\n    Vérifier ${solde} Euros    ${DELAI}\n\n"
+              "*** Keywords ***\nLire Le Solde\n    RETURN    10\n\nVérifier ${montant} Euros\n    [Arguments]    ${attente}\n    Sleep    ${attente}\n    Log    ${montant}\n")
+    assert (ou("x.robot", tampon, "Lire Le Solde", 3)["fichier"], ou("x.robot", tampon, "Lire Le Solde", 3)["ligne"]) == ("x.robot", 10)
+    assert ou("x.robot", tampon, "Vérifier ${solde} Euros", 1)["ligne"] == 13            # arguments intégrés
+    assert ou("x.robot", tampon, "${DELAI}", 2, n=2)["ligne"] == 2                        # section Variables du même fichier
+    assert ou("x.robot", tampon, "${solde} Euros", 2)["ligne"] == 6                       # affectation plus haut dans le test
+    assert ou("x.robot", tampon, "Sleep    ${attente}", 11)["ligne"] == 14                # argument du keyword
+    d = ou("x.robot", tampon.replace("${DELAI}\n", "&{JDD_CLIENT}\n"), "&{JDD_CLIENT}", 2)
+    assert not d["trouve"] and "jeu de données" in d["message"]

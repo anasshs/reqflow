@@ -831,3 +831,11 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   fenêtres modales (« Plus d'actions », « Créer un keyword ») deviennent un menu déroulant et un formulaire dans la page.
 - Limite connue : sous environ 850 px de hauteur, le bas de la colonne de gauche de l'éditeur passe en partie sous le
   panneau du bas (défaut antérieur de la grille, non corrigé ici).
+
+## 2026-11-20 — Éditeur de code : panneaux repliables et « aller à la définition »
+- Demandes de l'utilisateur : pouvoir réduire les panneaux pour alléger l'espace de l'éditeur ; pouvoir faire
+  Ctrl + clic pour ouvrir un keyword, une variable, etc.
+- Décision : les quatre panneaux autour du code se replient (un par un, ou « Code seul »), choix gardé sur le poste.
+  Ctrl + clic, Cmd + clic ou F12 ouvre la définition d'un keyword appelé, d'une variable ou d'un fichier importé,
+  cherchée dans le fichier affiché puis dans le dépôt (`editeur.definition`, lecture seule). Un keyword de
+  bibliothèque ou un jeu de données n'a pas de définition à ouvrir : l'éditeur le dit.

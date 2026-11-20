@@ -43,7 +43,7 @@
             <div class="bascule-mode"><button aria-pressed="true">Mode source</button><button id="e-visuel" title="Ouvrir le scénario BDD du test">Mode visuel</button></div></div>
           <div class="code editeur" id="e-ed"><div class="numeros" id="e-num"></div><div class="surface"><pre id="e-pre" aria-hidden="true"></pre>
             <textarea id="e-txt" spellcheck="false" aria-label="Contenu du fichier" wrap="off"></textarea></div></div>
-          <div class="statut-ed"><span id="e-pos">Ligne 1, Col 1</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
+          <div class="statut-ed"><span id="e-pos">Ligne 1, Col 1</span><span title="Ouvrir la définition d'un keyword, d'une variable ou d'un fichier importé">Ctrl + clic ou F12 : définition</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
             <span style="margin-left:auto" id="e-robocop-statut"></span><span id="e-lint-statut"></span></div>
         </section>
         <section class="carte"><h2 class="titre-carte">Propriétés du test<span class="actions-titre"><button class="icone" id="e-props-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2><div class="corps-carte" id="e-props"></div></section>
@@ -65,7 +65,12 @@
         if (e.key === "Tab") { e.preventDefault(); inserer("    "); }
         if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); enregistrer(); }
       };
-      t.onkeyup = t.onclick = position;
+      t.onkeyup = position;
+      // Ctrl + clic (ou Cmd + clic, ou F12 au clavier) : ouvrir la définition du keyword, de la variable ou du fichier importé
+      t.onclick = e => { position(); if (e.ctrlKey || e.metaKey) definition(); };
+      t.addEventListener("keydown", e => { if (e.key === "F12") { e.preventDefault(); definition(); } if (e.key === "Control" || e.key === "Meta") t.classList.add("ctrl"); });
+      t.addEventListener("keyup", e => { if (e.key === "Control" || e.key === "Meta") t.classList.remove("ctrl"); });
+      t.addEventListener("blur", () => t.classList.remove("ctrl"));
       panneaux();
       $$("#e-panneaux [data-panneau]").forEach(b => b.onclick = () => { PANNEAUX[b.dataset.panneau] = !PANNEAUX[b.dataset.panneau]; panneaux(true); });
       $("#e-concentre").onclick = () => { const tout = !Object.values(PANNEAUX).some(Boolean); Object.keys(PANNEAUX).forEach(k => { PANNEAUX[k] = tout; }); panneaux(true); };
@@ -241,6 +246,23 @@
     const pos = lignes.slice(0, n - 1).reduce((a, l) => a + l.length + 1, 0);
     t.focus(); t.setSelectionRange(pos, pos + (lignes[n - 1] || "").length);
     t.scrollTop = Math.max(0, (n - 5) * 20);
+  }
+
+  /* Aller à la définition de ce qui est sous le curseur. Le contenu affiché est envoyé tel quel : la recherche vaut aussi
+     pour un fichier pas encore enregistré. Plusieurs définitions : la première est ouverte, les autres sont signalées. */
+  async function definition() {
+    const t = $("#e-txt"), f = S.ouverts.get(S.courant);
+    if (!f || !/\.(robot|resource)$/.test(S.courant)) return;
+    const avant = t.value.slice(0, t.selectionStart).split("\n");
+    let d;
+    try { d = await api("/api/editeur/definition", {method: "POST", body: {chemin: S.courant, contenu: f.contenu, ligne: avant.length, colonne: avant[avant.length - 1].length + 1}}); }
+    catch (e) { return toast(e.message, "ko"); }
+    if (!d.trouve) return toast(d.message || "Définition introuvable.");
+    if (d.fichier !== S.courant) await ouvrir(d.fichier);
+    allerLigne(d.ligne);
+    const ou = d.fichier === S.courant ? `ligne ${d.ligne}` : `${d.fichier}, ligne ${d.ligne}`;
+    toast(d.genre === "fichier" ? `Ouvert : ${d.fichier}` : `${d.genre === "variable" ? "Variable" : "Keyword"} ${d.nom} : ${ou}`
+      + ((d.autres || []).length ? ` · aussi défini dans ${d.autres.map(a => `${a.fichier}:${a.ligne}`).join(", ")}` : ""), "ok");
   }
 
   /* ------------------------------------------------------------------ actions */

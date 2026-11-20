@@ -726,3 +726,4 @@ body.sans-lanceur .df-lanceur { display: none; }
 .g-ed > [hidden] { display: none !important; }
 #e-panneaux { margin-left: auto; }
 #e-panneaux + .bascule-mode { margin-left: 0; }
+#e-txt.ctrl { cursor: pointer; }

@@ -3,6 +3,7 @@ propriétés d'une suite (Xray, JDD, requêtes, dernière exécution), réutilis
 from __future__ import annotations
 
 import difflib
+import re
 import shutil
 import subprocess
 import sys
@@ -247,3 +248,132 @@ def reutilisation() -> dict:
                                  "valeur": l["valeur"], "fichier": l["fichier"]} for lid, l in inv["locators"].items()),
                                key=lambda x: x["id"]),
             "resources": sorted(f for f in inv["fichiers"] if f.endswith(".resource"))}
+
+
+# =========================================================================== aller à la définition (Ctrl + clic)
+_VARIABLE = re.compile(r"[$@&%]\{([^{}]+)\}")
+_SECTION_ED = re.compile(r"^\*+\s*([A-Za-zé ]+?)\s*\**\s*$")
+_IMPORT = re.compile(r"^(Resource|Library|Variables)(\s{2,}|\t)(\S.*?)(\s{2,}|\t|$)", re.I)
+
+
+def _nom_variable(nom: str) -> str:
+    """Nom de variable comparable (règles de Robot : casse, espaces et _ ignorés ; accès « .attribut » retiré)."""
+    return re.sub(r"[\s_]+", "", nom.split(".")[0]).casefold()
+
+
+def _variables_declarees(texte: str) -> list[tuple[str, int]]:
+    """Variables de la section *** Variables *** d'un fichier : [(nom comparable, ligne)]."""
+    out, section = [], ""
+    for n, ligne in enumerate(texte.splitlines(), 1):
+        s = _SECTION_ED.match(ligne.strip())
+        if s:
+            section = s.group(1).lower()
+        elif section.startswith("variable"):
+            m = _VARIABLE.match(ligne)
+            if m:
+                out.append((_nom_variable(m.group(1)), n))
+    return out
+
+
+def _keywords_declares(texte: str) -> list[tuple[str, int]]:
+    """Keywords de la section *** Keywords *** d'un fichier : [(nom tel qu'écrit, ligne)]."""
+    out, section = [], ""
+    for n, ligne in enumerate(texte.splitlines(), 1):
+        s = _SECTION_ED.match(ligne.strip())
+        if s:
+            section = s.group(1).lower()
+        elif section.startswith("keyword") and ligne.strip() and not ligne[0].isspace() and not ligne.startswith("#"):
+            out.append((ligne.strip(), n))
+    return out
+
+
+def _correspond(appel: str, nom: str) -> bool:
+    """L'appel désigne-t-il ce keyword ? Même nom (casse, espaces et _ ignorés), ou keyword à arguments intégrés."""
+    from atelier.execution.depot_robot import cle_appel, normaliser
+
+    if cle_appel(appel) == normaliser(nom):
+        return True
+    if "${" not in nom:
+        return False
+    motif = "".join(".+?" if p.startswith("${") else re.escape(normaliser(p)) for p in re.split(r"(\$\{[^}]*\})", nom) if p)
+    return re.fullmatch(motif, cle_appel(appel)) is not None
+
+
+def definition(chemin: str, contenu: str, ligne: int, colonne: int) -> dict:
+    """Où est défini ce qui se trouve sous le curseur (ligne et colonne à partir de 1, dans le contenu affiché, même non
+    enregistré) : une variable (${…}, &{…}, @{…}), un keyword appelé, ou un fichier importé (Resource, Library,
+    Variables). Cherche d'abord dans le fichier ouvert, puis dans le dépôt. Lecture seule.
+    Rend {"trouve", "genre", "nom", "fichier", "ligne", "autres", "message"}."""
+    from atelier.execution import depot_robot
+
+    lignes = contenu.splitlines()
+    if not 1 <= ligne <= len(lignes):
+        return {"trouve": False, "message": "Rien sous le curseur."}
+    texte, col = lignes[ligne - 1], max(0, colonne - 1)
+    rien = lambda genre, nom, message: {"trouve": False, "genre": genre, "nom": nom, "message": message}  # noqa: E731
+    ok = lambda genre, nom, lieux: {"trouve": True, "genre": genre, "nom": nom, "fichier": lieux[0][0], "ligne": lieux[0][1],  # noqa: E731
+                                    "autres": [{"fichier": f, "ligne": n} for f, n in lieux[1:6]], "message": ""}
+
+    # 1. fichier importé
+    imp = _IMPORT.match(texte.strip())
+    if imp and not texte[:1].isspace():
+        cible = imp.group(3).strip()
+        try:
+            rel = (projet.safe_path(chemin).parent / cible).resolve().relative_to(projet.PROJECT_DIR).as_posix()
+        except ValueError:
+            return rien("fichier", cible, f"{cible} est hors du projet.")
+        if projet.safe_path(rel).is_file():
+            return ok("fichier", cible, [(rel, 1)])
+        return rien("fichier", cible, f"{cible} : bibliothèque ou fichier absent du projet (aucune définition à ouvrir).")
+
+    # 2. variable sous le curseur
+    for m in _VARIABLE.finditer(texte):
+        fin = m.end()
+        while fin < len(texte) and texte[fin] == "[":  # accès ${dico}[cle] : fait partie de la même référence
+            f2 = texte.find("]", fin)
+            if f2 < 0:
+                break
+            fin = f2 + 1
+        if m.start() <= col < fin:
+            nom, cle = m.group(0), _nom_variable(m.group(1))
+            lieux = [(chemin, n) for v, n in _variables_declarees(contenu) if v == cle]
+            # variable locale : argument ou affectation plus haut dans le même test / keyword
+            debut = next((i for i in range(ligne - 1, -1, -1) if lignes[i].strip() and not lignes[i][0].isspace()), 0)
+            for i in range(debut, ligne - 1):
+                l = lignes[i].strip()
+                if l.startswith("[Arguments]") or re.match(r"^(FOR\s|[$@&]\{[^}]+\}\s*=?(\s{2,}|\t))", l):
+                    if any(_nom_variable(v.group(1).split("=")[0]) == cle for v in _VARIABLE.finditer(l.split("    IN")[0] if l.startswith("FOR") else
+                                                                                                    (l if l.startswith("[Arguments]") else re.split(r"\s{2,}|\t", l)[0]))):
+                        lieux.append((chemin, i + 1))
+            if not lieux:
+                inv = depot_robot.lire_depot()
+                for rel in sorted(inv["fichiers"]):
+                    if rel != chemin:
+                        try:
+                            lieux += [(rel, n) for v, n in _variables_declarees(projet.lire_fichier(rel)) if v == cle]
+                        except OSError:
+                            continue
+            if lieux:
+                return ok("variable", nom, lieux)
+            if cle.startswith("jdd"):
+                return rien("variable", nom, f"{nom} est un jeu de données : il se consulte dans Jeux de données, pas dans un fichier Robot.")
+            return rien("variable", nom, f"{nom} : aucune déclaration trouvée dans le dépôt (variable de bibliothèque, de ligne de commande ou créée à l'exécution).")
+
+    # 3. keyword appelé : la cellule sous le curseur
+    pos, cellule = 0, ""
+    for part in re.split(r"(\s{2,}|\t)", texte):
+        if pos <= col < pos + len(part) and part.strip():
+            cellule = part.strip()
+        pos += len(part)
+    if not cellule or cellule.startswith(("[", "#", "...", "*")) or not re.search(r"[A-Za-zÀ-ÿ]", cellule):
+        return {"trouve": False, "message": "Rien à ouvrir sous le curseur : placer le curseur sur un keyword, une variable ou un fichier importé."}
+    lieux = [(chemin, n) for nom, n in _keywords_declares(contenu) if _correspond(cellule, nom) and n != ligne]
+    if not lieux:
+        inv = depot_robot.lire_depot()
+        for k in inv["keywords"].values():
+            if k["fichier"] != chemin and _correspond(cellule, k["nom"]):
+                lieux.append((k["fichier"], k["ligne"]))
+                lieux += [(d.rsplit(":", 1)[0], int(d.rsplit(":", 1)[1])) for d in k.get("doublons", [])]
+    if lieux:
+        return ok("keyword", cellule, lieux)
+    return rien("keyword", cellule, f"« {cellule} » : aucun keyword de ce nom dans le dépôt (keyword d'une bibliothèque, ou texte qui n'est pas un appel).")

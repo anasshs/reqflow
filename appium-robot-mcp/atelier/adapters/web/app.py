@@ -2287,6 +2287,13 @@ async def editeur_lint(req: Request):
     return await asyncio.to_thread(_call, editeur.lint, b["contenu"], b.get("chemin", "suite.robot"))
 
 
+@app.post("/api/editeur/definition")
+async def editeur_definition(req: Request):
+    """Aller à la définition : keyword, variable ou fichier importé sous le curseur (lecture seule)."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, editeur.definition, b["chemin"], b.get("contenu", ""), int(b.get("ligne", 0)), int(b.get("colonne", 0)))
+
+
 @app.post("/api/editeur/robocop")
 async def editeur_robocop(req: Request):
     b = await req.json()
