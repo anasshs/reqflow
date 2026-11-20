@@ -217,3 +217,27 @@ def test_suites_capture_et_utilisateur(client, depot):
     assert next(s for s in suites if s["fichier"] == "tests/virement.robot")["tests"] == 2
     assert client.post("/api/resultats/capturer", json={}).status_code == 400   # aucun device ni navigateur
     assert "utilisateur" in client.get("/api/contexte").json()
+
+
+def test_robocop_analyse_le_contenu_affiche_sans_l_enregistrer(depot, client):
+    """Robocop réel (ignoré s'il n'est pas installé) : problèmes structurés, contenu non enregistré analysé dans un fichier
+    temporaire, règles contraires aux conventions de l'atelier ignorées tant que le projet n'a pas sa configuration."""
+    pytest.importorskip("robocop")
+    from atelier.generation import editeur
+
+    avant = (depot / "tests" / "virement.robot").read_text("utf-8")
+    fautif = avant + "\n\n\n\n\nTest Ajouté Non Enregistré\n    Log    x\n"          # trop de lignes vides avant le test
+    r = editeur.robocop("tests/virement.robot", fautif)
+    assert r["disponible"] and r["configuration"] == "atelier" and [x["regle"] for x in r["regles_ignorees"]] == ["NAME18", "DOC02"]
+    assert r["problemes"] and all({"ligne", "colonne", "regle", "gravite", "message"} <= set(p) for p in r["problemes"])
+    assert not {p["regle"] for p in r["problemes"]} & {"NAME18", "DOC02"}
+    assert "atelier_robocop_" not in r["sortie"] and "tests/virement.robot" in r["sortie"]   # le chemin temporaire n'apparaît pas
+    assert (depot / "tests" / "virement.robot").read_text("utf-8") == avant                  # rien n'est écrit dans le projet
+    assert not (depot / ".robocop_cache").exists()                                           # ni cache laissé derrière
+    # le projet a sa configuration Robocop : elle fait foi, l'atelier n'ignore plus rien de lui-même
+    (depot / "robocop.toml").write_text("[tool.robocop.lint]\nignore = [\"SPC03\"]\n", "utf-8")
+    r = editeur.robocop("tests/virement.robot", fautif)
+    assert r["configuration"] == "robocop.toml" and r["regles_ignorees"] == []
+    # par la route de l'éditeur
+    r = client.post("/api/editeur/robocop", json={"chemin": "tests/virement.robot", "contenu": fautif}).json()
+    assert r["disponible"] and isinstance(r["problemes"], list)

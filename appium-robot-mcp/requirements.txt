@@ -12,5 +12,6 @@ uvicorn>=0.29
 anthropic>=0.40
 httpx>=0.27
 keyring>=25.0                  # coffre des secrets : Gestionnaire d'identifiants Windows (décision 2026-11-14)
+robotframework-robocop>=6.0    # bouton Robocop de l'Éditeur de code (qualité des .robot ; l'éditeur dit s'il manque)
 # Tests (pytest -q)
 pytest>=8.0

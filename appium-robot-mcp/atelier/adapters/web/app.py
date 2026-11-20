@@ -2297,7 +2297,7 @@ async def editeur_definition(req: Request):
 @app.post("/api/editeur/robocop")
 async def editeur_robocop(req: Request):
     b = await req.json()
-    return await asyncio.to_thread(_call, editeur.robocop, b["chemin"])
+    return await asyncio.to_thread(_call, editeur.robocop, b["chemin"], b.get("contenu"))
 
 
 @app.get("/api/editeur/proprietes")

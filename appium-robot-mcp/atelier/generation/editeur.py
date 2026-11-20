@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import sys
 
+from pathlib import Path
+
 from atelier.domain import projet
 
 EXTENSIONS = {".robot", ".resource", ".py", ".yaml", ".yml", ".feature", ".json", ".md", ".txt", ".xml", ".cfg", ".toml"}
@@ -154,19 +156,69 @@ def _lint_conventions(contenu: str) -> list[dict]:
     return out
 
 
-def robocop(chemin: str) -> dict:
-    """robocop (si installé) sur un fichier du projet."""
+# Règles de Robocop contraires aux conventions des tests générés par l'atelier ; ignorées tant que le projet n'a pas sa
+# propre configuration Robocop (qui fait alors foi, sans rien y ajouter).
+ROBOCOP_IGNOREES = {
+    "NAME18": "casse des noms de keywords : les étapes BDD sont des phrases en français (« Given je suis sur la page… »)",
+    "DOC02": "documentation de chaque test : le scénario Gherkin et la clé Xray en tiennent lieu",
+}
+_ISSUE_ROBOCOP = re.compile(r"^(?P<fichier>.+?):(?P<ligne>\d+):(?P<colonne>\d+) \[(?P<gravite>[A-Z])\] (?P<regle>[A-Z]+\d+) (?P<message>.*)$")
+
+
+def _configuration_robocop() -> str:
+    """Fichier de configuration Robocop du projet, s'il en a un (robocop.toml, robot.toml, ou [tool.robocop] de pyproject.toml)."""
+    for nom in ("robocop.toml", "robot.toml", ".robocop"):
+        if (projet.PROJECT_DIR / nom).is_file():
+            return nom
+    p = projet.PROJECT_DIR / "pyproject.toml"
+    try:
+        return "pyproject.toml" if p.is_file() and "[tool.robocop" in p.read_text("utf-8") else ""
+    except OSError:
+        return ""
+
+
+def robocop(chemin: str, contenu: str | None = None) -> dict:
+    """Robocop (s'il est installé) sur un fichier du projet. contenu : ce qui est affiché dans l'éditeur ; il est analysé
+    dans un fichier temporaire, le fichier du projet n'est ni lu ni écrit. Rend les problèmes (ligne, règle, message),
+    la sortie brute, et les règles ignorées quand le projet n'a pas sa configuration Robocop. Aucun cache n'est laissé
+    dans le projet."""
+    import tempfile
+
     cible = projet.safe_path(chemin)
     if not shutil.which("robocop"):
         try:
             import robocop  # noqa: F401
         except ImportError:
             return {"disponible": False, "message": "robocop non installé (pip install robotframework-robocop)."}
-    for cmd in ([sys.executable, "-m", "robocop", "check", str(cible)], [sys.executable, "-m", "robocop", str(cible)]):
-        r = subprocess.run(cmd, cwd=projet.PROJECT_DIR, capture_output=True, text=True, errors="replace", timeout=120)
-        if "No such command" not in r.stderr and "unrecognized" not in r.stderr.lower():
-            return {"disponible": True, "code_retour": r.returncode, "sortie": (r.stdout + r.stderr)[-8000:]}
-    return {"disponible": True, "code_retour": r.returncode, "sortie": (r.stdout + r.stderr)[-8000:]}
+    config = _configuration_robocop()
+    ignorees = {} if config else ROBOCOP_IGNOREES
+    with tempfile.TemporaryDirectory(prefix="atelier_robocop_") as tmp:
+        analyse = cible
+        if contenu is not None:
+            analyse = Path(tmp) / cible.name
+            analyse.write_text(contenu, "utf-8")
+        options = ["--no-cache", "-c", "print_issues.output_format=simple", *[x for r in ignorees for x in ("--ignore", r)]]
+        if config and contenu is not None:
+            options += ["--config", str(projet.PROJECT_DIR / config)]
+        essais = ([sys.executable, "-m", "robocop", "check", *options, str(analyse)],
+                  [sys.executable, "-m", "robocop", "check", str(analyse)],   # version sans ces options
+                  [sys.executable, "-m", "robocop", str(analyse)])            # versions antérieures à la commande « check »
+        r = None
+        for cmd in essais:
+            r = subprocess.run(cmd, cwd=projet.PROJECT_DIR, capture_output=True, text=True, errors="replace", timeout=120)
+            if not re.search(r"No such (command|option)|unrecognized|no such option", r.stderr + r.stdout, re.I):
+                break
+        sortie = (r.stdout + r.stderr).replace(str(analyse), chemin).replace(analyse.as_posix(), chemin)
+    problemes = []
+    for ligne in sortie.splitlines():
+        m = _ISSUE_ROBOCOP.match(ligne.strip())
+        if m:
+            problemes.append({"ligne": int(m["ligne"]), "colonne": int(m["colonne"]), "regle": m["regle"],
+                              "gravite": {"E": "erreur", "W": "avertissement", "I": "information"}.get(m["gravite"], "avertissement"),
+                              "message": m["message"]})
+    garde = sortie if len(sortie) <= 8000 else sortie[:6000] + "\n[… sortie abrégée …]\n" + sortie[-1800:]
+    return {"disponible": True, "code_retour": r.returncode, "problemes": problemes, "sortie": garde,
+            "configuration": config or "atelier", "regles_ignorees": [{"regle": k, "raison": v} for k, v in ignorees.items()]}
 
 
 # =========================================================================== propriétés et réutilisation

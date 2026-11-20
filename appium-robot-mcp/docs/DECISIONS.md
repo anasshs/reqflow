@@ -850,3 +850,11 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   réouverture ; le fichier du projet ne change que sur Ctrl + S, pour qu'un script approuvé ne reparte pas en revue à
   chaque lettre. Si le fichier a changé sur le disque depuis le brouillon, l'éditeur affiche le fichier et propose de
   reprendre ou d'abandonner le brouillon. Le brouillon reste sur le poste : il ne suit pas l'utilisateur ailleurs.
+
+## 2026-11-20 — Robocop dans l'Éditeur de code
+- Question de l'utilisateur : Robocop et le Linter fonctionnent-ils ? Essai réel : le Linter oui ; Robocop n'était pas
+  installé avec l'atelier, sa sortie était tronquée, et il reprochait aux tests générés leurs propres conventions.
+- Décision : `robotframework-robocop` entre dans requirements.txt. Robocop analyse le contenu affiché dans un fichier
+  temporaire (le fichier du projet n'est pas enregistré), rend un problème par ligne, et ignore NAME18 et DOC02 tant
+  que le projet n'a pas sa configuration Robocop ; avec une configuration du projet, celle-ci fait foi.
+- Conséquence assumée : sans configuration du projet, un vrai keyword mal casé n'est plus signalé par Robocop.

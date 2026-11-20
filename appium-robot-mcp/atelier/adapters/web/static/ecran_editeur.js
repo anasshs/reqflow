@@ -507,10 +507,14 @@
 
   async function robocop() {
     const f = S.ouverts.get(S.courant);
-    if (f?.modifie) await enregistrer();
-    const r = await api("/api/editeur/robocop", {method: "POST", body: {chemin: S.courant}}).catch(e => ({disponible: false, message: e.message}));
-    S.robocop = r;
-    $("#e-robocop-statut").innerHTML = !r.disponible ? `<span class="lib">Robocop non installé</span>` : r.code_retour === 0 ? '<span class="ok-t">✓ Robocop OK</span>' : '<span class="ko-t">✕ Robocop : à corriger</span>';
+    if (!f || !/\.(robot|resource)$/.test(S.courant)) return toast("Robocop analyse les fichiers .robot et .resource.");
+    $("#e-robocop-statut").innerHTML = '<span class="lib">Robocop…</span>';
+    // le contenu affiché est analysé tel quel : le fichier du projet n'est pas enregistré pour autant
+    const r = await api("/api/editeur/robocop", {method: "POST", body: {chemin: S.courant, contenu: f.contenu}}).catch(e => ({disponible: false, message: e.message}));
+    S.robocop = {...r, fichier: S.courant};
+    const n = (r.problemes || []).length;
+    $("#e-robocop-statut").innerHTML = !r.disponible ? `<span class="lib" title="${esc(r.message || "")}">Robocop non installé</span>`
+      : r.code_retour === 0 && !n ? '<span class="ok-t">✓ Robocop OK</span>' : `<span class="ko-t">✕ Robocop : ${n || "à corriger"}${n ? " problème(s)" : ""}</span>`;
     S.ongletBas = "problemes";
     ongletsBas();
   }
@@ -570,7 +574,11 @@
       const rc = S.robocop;
       z.innerHTML = (S.problemes.length ? S.problemes.map(p => `<div style="cursor:pointer" data-ligne="${p.ligne}"><span class="${p.gravite === "erreur" ? "fail" : "warn"}">${p.gravite === "erreur" ? "✕" : "!"}</span>
         <span class="t">L${p.ligne}</span><span>${esc(p.message)}</span></div>`).join("") : `<span class="pass">✓ Aucun problème (syntaxe Robot + conventions du projet).</span>`)
-        + (rc ? `<div style="margin-top:10px;display:block"><b>Robocop</b> : ${rc.disponible ? `<pre style="white-space:pre-wrap">${esc(rc.sortie || "aucun message")}</pre>` : esc(rc.message)}</div>` : "");
+        + (rc && rc.fichier === S.courant ? `<div style="margin-top:10px;display:block"><b>Robocop</b>${!rc.disponible ? ` : ${esc(rc.message)}`
+          : ` · ${(rc.problemes || []).length} problème(s) · ${rc.configuration === "atelier" ? `règles ignorées faute de configuration Robocop dans le projet : ${rc.regles_ignorees.map(x => `<span title="${esc(x.raison)}" style="text-decoration:underline dotted">${esc(x.regle)}</span>`).join(", ")}` : `configuration du projet (${esc(rc.configuration)})`}`}</div>
+          ${rc.disponible ? ((rc.problemes || []).map(p => `<div style="cursor:pointer" data-ligne="${p.ligne}"><span class="${p.gravite === "erreur" ? "fail" : "warn"}">${p.gravite === "erreur" ? "✕" : "!"}</span>
+            <span class="t">L${p.ligne}</span><span class="t">${esc(p.regle)}</span><span>${esc(p.message)}</span></div>`).join("")
+            || (rc.code_retour === 0 ? `<span class="pass">✓ Robocop : aucun problème.</span>` : `<pre style="white-space:pre-wrap">${esc(rc.sortie || "aucun message")}</pre>`)) : ""}` : "");
       $$("[data-ligne]", z).forEach(d => d.onclick = () => allerLigne(+d.dataset.ligne));
     } else {
       if (!S.courant) { z.innerHTML = "<span class='lib'>Aucun fichier.</span>"; return; }
