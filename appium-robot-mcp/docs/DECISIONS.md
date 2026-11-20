@@ -839,3 +839,6 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   Ctrl + clic, Cmd + clic ou F12 ouvre la définition d'un keyword appelé, d'une variable ou d'un fichier importé,
   cherchée dans le fichier affiché puis dans le dépôt (`editeur.definition`, lecture seule). Un keyword de
   bibliothèque ou un jeu de données n'a pas de définition à ouvrir : l'éditeur le dit.
+- Auto-complétion (même jour, « c'est un plus ») : en tapant ou sur Ctrl + Espace, l'éditeur propose les keywords du
+  dépôt et du fichier ouvert, les variables, les clés d'un dictionnaire de locators, les fichiers resource et les
+  réglages ([Tags], [Arguments]…). Rien n'est inventé ni demandé à une IA : tout vient du dépôt ou du contenu affiché.

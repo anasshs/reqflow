@@ -241,7 +241,22 @@ def reutilisation() -> dict:
             k = depot_robot.cle_appel(a)
             if k in inv["keywords"]:
                 appels[k] = appels.get(k, 0) + 1
-    return {"keywords": sorted(({"nom": k["nom"], "fichier": k["fichier"], "ligne": k["ligne"], "documentation": k["doc"],
+    variables: dict = {}
+    for rel in sorted(inv["fichiers"]):  # variables des sections *** Variables *** : proposées par l'auto-complétion
+        try:
+            texte, section = projet.lire_fichier(rel), ""
+        except OSError:
+            continue
+        for ligne in texte.splitlines():
+            s = _SECTION_ED.match(ligne.strip())
+            if s:
+                section = s.group(1).lower()
+            elif section.startswith("variable"):
+                m = _VARIABLE.match(ligne)
+                if m:
+                    variables.setdefault(m.group(1), rel)
+    return {"variables": [{"nom": n, "fichier": f} for n, f in sorted(variables.items())],
+            "keywords": sorted(({"nom": k["nom"], "fichier": k["fichier"], "ligne": k["ligne"], "documentation": k["doc"],
                                  "appels": appels.get(kid, 0)} for kid, k in inv["keywords"].items()),
                                key=lambda x: (-x["appels"], x["nom"])),
             "locators": sorted(({"id": lid, "ecran": l["ecran"], "cle": l["cle"], "plateforme": l["plateforme"],

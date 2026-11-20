@@ -727,3 +727,14 @@ body.sans-lanceur .df-lanceur { display: none; }
 #e-panneaux { margin-left: auto; }
 #e-panneaux + .bascule-mode { margin-left: 0; }
 #e-txt.ctrl { cursor: pointer; }
+/* éditeur : liste de suggestions sous le curseur */
+.completion { position: absolute; z-index: 6; width: 340px; max-height: 220px; overflow: auto; background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: var(--shadow); padding: 3px; font-size: 12px; }
+.completion [role="option"] { display: flex; flex-direction: column; gap: 1px; padding: 4px 8px; border-radius: 5px; cursor: pointer; }
+.completion [role="option"] b { font-family: ui-monospace, Menlo, monospace; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.completion [role="option"] .lib { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+.completion [role="option"][aria-selected="true"], .completion [role="option"]:hover { background: var(--accent-soft); }
+/* éditeur : la barre au-dessus du code passe à la ligne plutôt que de couper ses boutons */
+.g-ed .fil { flex-wrap: wrap; row-gap: 6px; }
+.g-ed .fil .bascule-mode { flex: none; }
+.g-ed .fil .bascule-mode button { white-space: nowrap; }
+.statut-ed span { white-space: nowrap; }

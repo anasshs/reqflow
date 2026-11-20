@@ -154,3 +154,14 @@ def test_aller_a_la_definition(depot):
     assert ou("x.robot", tampon, "Sleep    ${attente}", 11)["ligne"] == 14                # argument du keyword
     d = ou("x.robot", tampon.replace("${DELAI}\n", "&{JDD_CLIENT}\n"), "&{JDD_CLIENT}", 2)
     assert not d["trouve"] and "jeu de données" in d["message"]
+
+
+def test_l_auto_completion_recoit_les_variables_du_depot(depot):
+    """Ce que l'éditeur propose en tapant vient du dépôt : keywords, locators, ressources et variables déclarées."""
+    from atelier.generation import editeur
+
+    r = editeur.reutilisation()
+    assert {"nom": "LOC_CONNEXION_WEB", "fichier": "resources/locators/connexion.resource"} in r["variables"]
+    assert "Saisir L'Identifiant" in [k["nom"] for k in r["keywords"]]
+    assert ("connexion", "champ_identifiant", "web") in [(l["ecran"], l["cle"], l["plateforme"]) for l in r["locators"]]
+    assert "resources/keywords/connexion.resource" in r["resources"]

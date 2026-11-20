@@ -43,7 +43,7 @@
             <div class="bascule-mode"><button aria-pressed="true">Mode source</button><button id="e-visuel" title="Ouvrir le scénario BDD du test">Mode visuel</button></div></div>
           <div class="code editeur" id="e-ed"><div class="numeros" id="e-num"></div><div class="surface"><pre id="e-pre" aria-hidden="true"></pre>
             <textarea id="e-txt" spellcheck="false" aria-label="Contenu du fichier" wrap="off"></textarea></div></div>
-          <div class="statut-ed"><span id="e-pos">Ligne 1, Col 1</span><span title="Ouvrir la définition d'un keyword, d'une variable ou d'un fichier importé">Ctrl + clic ou F12 : définition</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
+          <div class="statut-ed"><span id="e-pos">Ligne 1, Col 1</span><span tabindex="0" style="text-decoration:underline dotted;cursor:help" title="Ctrl + clic (ou F12) : ouvrir la définition d'un keyword, d'une variable ou d'un fichier importé.&#10;Ctrl + Espace : suggestions de keywords, variables, clés de locators et ressources ; elles s'ouvrent aussi en tapant (flèches, Entrée ou Tab, Échap).">Raccourcis</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
             <span style="margin-left:auto" id="e-robocop-statut"></span><span id="e-lint-statut"></span></div>
         </section>
         <section class="carte"><h2 class="titre-carte">Propriétés du test<span class="actions-titre"><button class="icone" id="e-props-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2><div class="corps-carte" id="e-props"></div></section>
@@ -59,9 +59,12 @@
           <section class="carte"><h2 class="titre-carte">Captures récentes</h2><div class="corps-carte" id="e-captures"></div></section>
         </div>`;
       const t = $("#e-txt");
-      t.oninput = () => { modifie(); surligner(); clearTimeout(lintT); lintT = setTimeout(() => linter(true), 900); };
-      t.onscroll = () => { $("#e-pre").scrollTop = t.scrollTop; $("#e-pre").scrollLeft = t.scrollLeft; $("#e-num").scrollTop = t.scrollTop; };
+      t.oninput = () => { modifie(); surligner(); clearTimeout(lintT); lintT = setTimeout(() => linter(true), 900); completer(false); };
+      t.onscroll = () => { if (COMP) completer(COMP.force);  // la liste suit le curseur quand le texte défile
+        $("#e-pre").scrollTop = t.scrollTop; $("#e-pre").scrollLeft = t.scrollLeft; $("#e-num").scrollTop = t.scrollTop; };
       t.onkeydown = e => {
+        if (toucheCompletion(e)) return;  // liste de suggestions ouverte : flèches, Entrée / Tab, Échap
+        if ((e.ctrlKey || e.metaKey) && e.key === " ") { e.preventDefault(); return completer(true); }
         if (e.key === "Tab") { e.preventDefault(); inserer("    "); }
         if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); enregistrer(); }
       };
@@ -70,7 +73,7 @@
       t.onclick = e => { position(); if (e.ctrlKey || e.metaKey) definition(); };
       t.addEventListener("keydown", e => { if (e.key === "F12") { e.preventDefault(); definition(); } if (e.key === "Control" || e.key === "Meta") t.classList.add("ctrl"); });
       t.addEventListener("keyup", e => { if (e.key === "Control" || e.key === "Meta") t.classList.remove("ctrl"); });
-      t.addEventListener("blur", () => t.classList.remove("ctrl"));
+      t.addEventListener("blur", () => { t.classList.remove("ctrl"); setTimeout(fermerCompletion, 150); });
       panneaux();
       $$("#e-panneaux [data-panneau]").forEach(b => b.onclick = () => { PANNEAUX[b.dataset.panneau] = !PANNEAUX[b.dataset.panneau]; panneaux(true); });
       $("#e-concentre").onclick = () => { const tout = !Object.values(PANNEAUX).some(Boolean); Object.keys(PANNEAUX).forEach(k => { PANNEAUX[k] = tout; }); panneaux(true); };
@@ -246,6 +249,105 @@
     const pos = lignes.slice(0, n - 1).reduce((a, l) => a + l.length + 1, 0);
     t.focus(); t.setSelectionRange(pos, pos + (lignes[n - 1] || "").length);
     t.scrollTop = Math.max(0, (n - 5) * 20);
+  }
+
+  /* ------------------------------------------------------------------ auto-complétion
+     Suggestions sous le curseur, en tapant ou sur Ctrl + Espace : keywords du dépôt et du fichier ouvert, variables,
+     clés d'un dictionnaire de locators, fichiers resource, réglages ([Tags], [Arguments]…). Rien n'est inventé : tout
+     vient du dépôt (Réutilisation) ou du contenu affiché. Flèches pour choisir, Entrée ou Tab pour insérer, Échap pour fermer. */
+  const REGLAGES = ["[Tags]", "[Documentation]", "[Arguments]", "[Setup]", "[Teardown]", "[Template]", "[Timeout]", "[Return]"];
+  const SECTIONS = ["*** Settings ***", "*** Variables ***", "*** Test Cases ***", "*** Keywords ***"];
+  const IMPORTS = ["Resource", "Library", "Variables", "Documentation", "Suite Setup", "Suite Teardown", "Test Setup", "Test Teardown", "Test Tags"];
+  const INTEGREES = ["EMPTY", "SPACE", "TRUE", "FALSE", "NONE", "CURDIR", "TEST NAME", "SUITE NAME"];
+  const BDD = /^(given|when|then|and|but|étant donné que|étant donné|quand|alors|et|mais)\s+/i;
+  let COMP = null;  // {debut, items, choix, el}
+  function fermerCompletion() { if (COMP) { COMP.el.remove(); COMP = null; } }
+  function suggestions(avant, force) {
+    /* avant : texte de la ligne jusqu'au curseur. Rend {debut (colonne où commence ce qui sera remplacé), items: [{texte, detail}]}. */
+    const r = S.reutil || {keywords: [], locators: [], resources: [], variables: []};
+    const tampon = $("#e-txt").value;
+    const filtrer = (noms, saisi, detail) => { const q = saisi.toLowerCase();
+      const l = noms.filter(n => n.texte.toLowerCase().includes(q) && n.texte.toLowerCase() !== q);
+      return l.sort((a, b) => (b.texte.toLowerCase().startsWith(q) - a.texte.toLowerCase().startsWith(q)) || a.texte.localeCompare(b.texte)).slice(0, 40); };
+    // 1. clé d'un dictionnaire de locators : ${LOC_ECRAN_WEB}[cl…
+    let m = avant.match(/[$&]\{LOC_([A-Z0-9_]+?)_(ANDROID|IOS|WEB)\}\[([^\]\s]*)$/i);
+    if (m) {
+      const cles = r.locators.filter(l => l.ecran === m[1].toLowerCase() && l.plateforme === m[2].toLowerCase()).map(l => ({texte: l.cle, detail: l.valeur}));
+      return {debut: avant.length - m[3].length, items: filtrer(cles, m[3]), suffixe: "]"};
+    }
+    // 2. variable : ${…, &{…, @{…
+    m = avant.match(/([$@&])\{?([^\s{}\[\]]*)$/);
+    if (m && (avant.endsWith(m[0]))) {
+      const noms = new Map();
+      INTEGREES.forEach(n => noms.set(n, "variable intégrée de Robot Framework"));
+      (r.variables || []).forEach(v => noms.set(v.nom, v.fichier));
+      [...new Set(r.locators.map(l => `LOC_${l.ecran.toUpperCase()}_${l.plateforme.toUpperCase()}`))].forEach(n => noms.has(n) || noms.set(n, "dictionnaire de locators"));
+      for (const x of tampon.matchAll(/[$@&]\{([^{}]+)\}/g)) if (!noms.has(x[1])) noms.set(x[1], "dans ce fichier");
+      const items = filtrer([...noms].map(([n, d]) => ({texte: n, detail: d})), m[2]).map(i => ({texte: `${m[1]}{${i.texte}}`, detail: i.detail}));
+      return {debut: avant.length - m[0].length, items};
+    }
+    // 3. la cellule en cours (séparée par deux espaces ou une tabulation)
+    const cellule = avant.split(/\s{2,}|\t/).pop(), debutCellule = avant.length - cellule.length, indente = /^\s/.test(avant);
+    if (cellule.startsWith("[")) return {debut: debutCellule, items: filtrer(REGLAGES.map(x => ({texte: x, detail: "réglage du test ou du keyword"})), cellule)};
+    if (cellule.startsWith("*") && !indente) return {debut: debutCellule, items: filtrer(SECTIONS.map(x => ({texte: x, detail: "section"})), cellule)};
+    const imp = avant.match(/^(Resource)(\s{2,}|\t)(\S*)$/i);
+    if (imp) {  // chemin d'une ressource, relatif au fichier ouvert
+      const ici = S.courant.split("/").slice(0, -1);
+      const rel = f => { const p = f.split("/"); let i = 0; while (i < ici.length && i < p.length - 1 && ici[i] === p[i]) i++; return [...Array(ici.length - i).fill(".."), ...p.slice(i)].join("/"); };
+      return {debut: avant.length - imp[3].length, items: filtrer(r.resources.filter(f => f !== S.courant).map(f => ({texte: rel(f), detail: f})), imp[3])};
+    }
+    if (!indente) return {debut: debutCellule, items: cellule.length >= 2 || force ? filtrer(IMPORTS.map(x => ({texte: x, detail: "réglage de la suite"})), cellule) : []};
+    // 4. keyword : après un préfixe BDD, seul le reste est complété
+    const prefixe = (cellule.match(BDD) || [""])[0], saisi = cellule.slice(prefixe.length);
+    if (saisi.length < 2 && !force) return {debut: debutCellule + prefixe.length, items: []};
+    const noms = new Map(r.keywords.map(k => [k.nom, (k.documentation ? k.documentation.split("\n")[0] + " · " : "") + k.fichier]));
+    let section = "";
+    for (const ligne of tampon.split("\n")) {  // keywords du fichier ouvert, même non enregistré
+      const s = ligne.match(/^\*+\s*([A-Za-zé ]+?)\s*\**\s*$/);
+      if (s) section = s[1].toLowerCase();
+      else if (section.startsWith("keyword") && ligne.trim() && !/^\s|^#/.test(ligne) && !noms.has(ligne.trim())) noms.set(ligne.trim(), "dans ce fichier");
+    }
+    return {debut: debutCellule + prefixe.length, items: filtrer([...noms].map(([n, d]) => ({texte: n, detail: d})), saisi)};
+  }
+  function completer(force) {
+    const t = $("#e-txt");
+    if (!S.courant || !/\.(robot|resource)$/.test(S.courant) || t.selectionStart !== t.selectionEnd) return fermerCompletion();
+    const lignes = t.value.slice(0, t.selectionStart).split("\n"), avant = lignes[lignes.length - 1];
+    const s = suggestions(avant, force);
+    if (!s.items.length) { fermerCompletion(); if (force) toast("Aucune suggestion ici."); return; }
+    fermerCompletion();
+    const el = document.createElement("div");
+    el.className = "completion"; el.id = "e-completion"; el.setAttribute("role", "listbox"); el.setAttribute("aria-label", "Suggestions");
+    // position : sous le curseur (police à chasse fixe : largeur d'un caractère mesurée une fois)
+    const style = getComputedStyle(t), lh = parseFloat(style.lineHeight), pad = parseFloat(style.paddingLeft);
+    if (!completer.chasse) { const c = document.createElement("canvas").getContext("2d"); c.font = `${style.fontSize} ${style.fontFamily}`; completer.chasse = c.measureText("M".repeat(20)).width / 20; }
+    const surface = t.parentElement;
+    el.style.left = `${Math.max(0, Math.min(pad + s.debut * completer.chasse - t.scrollLeft, surface.clientWidth - 340))}px`;
+    const haut = parseFloat(style.paddingTop) + lignes.length * lh - t.scrollTop;
+    if (haut + 220 > surface.clientHeight && haut - lh > 220) el.style.bottom = `${surface.clientHeight - haut + lh}px`; else el.style.top = `${haut}px`;
+    surface.appendChild(el);
+    COMP = {debut: t.selectionStart - (avant.length - s.debut), items: s.items, choix: 0, el, suffixe: s.suffixe || "", force: !!force};
+    rendreCompletion();
+  }
+  function rendreCompletion() {
+    COMP.el.innerHTML = COMP.items.map((x, n) => `<div role="option" id="e-comp-${n}" data-n="${n}" aria-selected="${n === COMP.choix}"><b>${esc(x.texte)}</b><span class="lib">${esc(x.detail || "")}</span></div>`).join("");
+    $$("[data-n]", COMP.el).forEach(d => d.onmousedown = e => { e.preventDefault(); COMP.choix = +d.dataset.n; accepterCompletion(); });
+    $(`#e-comp-${COMP.choix}`)?.scrollIntoView({block: "nearest"});
+    $("#e-txt").setAttribute("aria-activedescendant", `e-comp-${COMP.choix}`);
+  }
+  function accepterCompletion() {
+    const t = $("#e-txt"), x = COMP.items[COMP.choix], suffixe = COMP.suffixe && t.value[t.selectionStart] !== COMP.suffixe ? COMP.suffixe : "";
+    t.setRangeText(x.texte + suffixe, COMP.debut, t.selectionStart, "end");
+    fermerCompletion(); t.removeAttribute("aria-activedescendant");
+    modifie(); surligner(); position();
+  }
+  function toucheCompletion(e) {
+    if (!COMP) return false;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); COMP.choix = (COMP.choix + (e.key === "ArrowDown" ? 1 : COMP.items.length - 1)) % COMP.items.length; rendreCompletion(); return true; }
+    if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); accepterCompletion(); return true; }
+    if (e.key === "Escape") { e.preventDefault(); fermerCompletion(); return true; }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") fermerCompletion();
+    return false;
   }
 
   /* Aller à la définition de ce qui est sous le curseur. Le contenu affiché est envoyé tel quel : la recherche vaut aussi
