@@ -184,10 +184,11 @@ def test_correlation_ecran_jira_xray_depot(app, tmp_path):
     c = correlation.ecran(e["id"])
     assert [t["cle"] for t in c["tests_xray"]] == ["DEMO-11"] and c["tests_robot"]
     assert [x["cle"] for x in c["exigences"]] == ["DEMO-2"] and "tests/virement.robot" in c["fichiers"]
-    assert [x["cle"] for x in c["exigences_proposees"]] == ["DEMO-3"]  # « virement » en commun ; DEMO-4 non
+    assert [x["cle"] for x in c["candidats"]] == ["DEMO-3"]  # « virement » en commun ; DEMO-4 non : présélection pour l'IA
+    assert c["exigences_proposees"] == []                    # jamais une proposition sans jugement d'une IA
     correlation.confirmer(e["id"], "DEMO-3")
     c = correlation.ecran(e["id"])
-    assert {x["cle"] for x in c["exigences"]} == {"DEMO-2", "DEMO-3"} and not c["exigences_proposees"]
+    assert {x["cle"] for x in c["exigences"]} == {"DEMO-2", "DEMO-3"} and not c["candidats"]
     syn = correlation.synthese()
     assert syn["ecrans"][0]["exigences"] == 2 and syn["sans_test"] == 0
     assert correlation.commits_gitlab(c["fichiers"]) == {"configure": False, "fichiers": {}}

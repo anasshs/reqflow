@@ -149,7 +149,7 @@ def test_un_ecran_renomme_garde_ses_liens(banque):
     g = _graphe()
     assert "user_story:DEMO-3|impacte|ecran:saisie_du_virement" in g.relations and "ecran:virement_saisie" not in {r.vers for r in g.relations.values() if r.type == "impacte"}
     lien = correlation.ecran(banque)["realisees"][0]
-    assert (lien["cle"], lien["origine"]) == ("DEMO-3", "mots")  # la décision, liée à l'identifiant stable de la carte, suit aussi
+    assert (lien["cle"], lien["origine"]) == ("DEMO-3", "manuel")  # la décision, liée à l'identifiant stable de la carte, suit aussi
 
 
 def test_une_preuve_perdue_est_consignee(banque, tmp_path):
@@ -206,37 +206,48 @@ def esim(tmp_path, monkeypatch):
     return a["id"], b["id"]
 
 
-def test_un_mot_commun_a_trop_d_exigences_ne_propose_rien(esim):
-    """« esim » est partout : il ne distingue aucune exigence. Seul « catalogue » fonde une ressemblance."""
+def test_un_mot_commun_a_trop_d_exigences_ne_preselectionne_rien(esim):
+    """« esim » est partout : il ne distingue aucune exigence. Seul « catalogue » fonde une présélection pour l'IA."""
     from atelier.discovery import correlation
 
     c = correlation.ecran(esim[0])
     assert c["mots_ignores"] == ["esim"]
-    assert [(p["cle"], p["mots"]) for p in c["exigences_proposees"]] == [("DEMO-21", ["catalogue"])]
+    assert [(p["cle"], p["mots"]) for p in c["candidats"]] == [("DEMO-21", ["catalogue"])]
     assert correlation._mots_communs([{"esim"}, {"esim"}, {"esim"}]) == set()            # trop peu d'exigences pour parler de proportion
     assert correlation._mots_communs([{"a", "b"}, {"a"}, {"a", "b"}, {"c"}]) == {"a"}    # la moitié exactement ne suffit pas
-    # la présélection transmise à une IA suit la même règle ; elle peut toujours citer n'importe quelle exigence de la liste
+    # l'IA reçoit cette présélection et peut toujours citer n'importe quelle exigence de la liste
     vue = correlation.correlations_a_juger(esim[0])
     assert [x["cle"] for x in vue["ecrans"][0]["candidats"]] == ["DEMO-21"] and len(vue["exigences"]) == 5
 
 
-def test_les_propositions_fondees_passent_avant_les_ressemblances(esim):
-    """Jugée par une IA (même « ne concerne pas ») ou venue d'un parcours : à trancher en priorité. Les mots seuls : après."""
+def test_seule_l_ia_propose(esim):
+    """Sans jugement d'une IA, aucune proposition : la ressemblance des mots n'est qu'une présélection. « concerne » et
+    « incertain » sont des propositions ; « ne concerne pas » est écarté, visible à part. La décision reste humaine."""
     from atelier.discovery import correlation
+
+    avant = correlation.ecran(esim[1])                                                    # « aide » en commun avec DEMO-25
+    assert avant["exigences_proposees"] == [] and [p["cle"] for p in avant["candidats"]] == ["DEMO-25"]
+    s = {x["nom"]: x for x in correlation.synthese()["ecrans"]}
+    assert (s["aide_accueil"]["proposees"], s["aide_accueil"]["a_juger"], s["aide_accueil"]["etat"]) == (0, 1, "à corréler")
 
     correlation.deposer_correlations([
         {"ecran": "esim_catalogue", "exigence": "DEMO-23", "verdict": "incertain", "justification": "le paiement peut commencer ici"},
+        {"ecran": "esim_catalogue", "exigence": "DEMO-24", "verdict": "concerne", "justification": "bouton « Choisir ce forfait »"},
         {"ecran": "esim_catalogue", "exigence": "DEMO-21", "verdict": "ne_concerne_pas", "justification": "liste gérée ailleurs"}])
     c = correlation.ecran(esim[0])
-    assert [(p["cle"], p["prioritaire"]) for p in c["exigences_proposees"]] == [("DEMO-23", True), ("DEMO-21", True)]
-    assert c["prioritaires"] == 2
-    autre = correlation.ecran(esim[1])                                                    # « aide » : ressemblance des mots seule
-    assert [(p["cle"], p["prioritaire"]) for p in autre["exigences_proposees"]] == [("DEMO-25", False)] and autre["prioritaires"] == 0
+    assert [p["cle"] for p in c["exigences_proposees"]] == ["DEMO-24", "DEMO-23"]          # concerne, puis incertain
+    assert [p["cle"] for p in c["ecartees_ia"]] == ["DEMO-21"] and c["candidats"] == []
     s = {x["nom"]: x for x in correlation.synthese()["ecrans"]}
-    assert (s["esim_catalogue"]["proposees"], s["esim_catalogue"]["prioritaires"]) == (2, 2)
-    assert (s["aide_accueil"]["proposees"], s["aide_accueil"]["prioritaires"]) == (1, 0)
-    correlation.confirmer(esim[1], "DEMO-25")                                             # une ressemblance reste confirmable
-    assert correlation.ecran(esim[1])["realisees"][0]["origine"] == "mots"
+    assert (s["esim_catalogue"]["proposees"], s["esim_catalogue"]["ecartees_ia"], s["esim_catalogue"]["etat"]) == (2, 1, "propositions à trancher")
+    # l'IA revoit ses jugements en relisant l'écran : présélection et verdicts déjà déposés
+    vus = {x["cle"]: (x["jugement"] or {}).get("verdict") for x in correlation.correlations_a_juger(esim[0])["ecrans"][0]["candidats"]}
+    assert vus == {"DEMO-24": "concerne", "DEMO-23": "incertain", "DEMO-21": "ne_concerne_pas"}
+
+    correlation.confirmer(esim[0], "DEMO-24")
+    correlation.confirmer(esim[0], "DEMO-21")                                             # l'humain peut contredire l'IA
+    correlation.confirmer(esim[1], "DEMO-25")                                             # ou relier sans elle : lien manuel
+    origines = {x["cle"]: x["origine"] for e in esim for x in correlation.ecran(e)["realisees"]}
+    assert origines == {"DEMO-24": "ia", "DEMO-21": "manuel", "DEMO-25": "manuel"}
 
 
 def test_perimetre_de_la_correlation(esim):

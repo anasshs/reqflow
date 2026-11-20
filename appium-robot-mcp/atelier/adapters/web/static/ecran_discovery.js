@@ -279,21 +279,22 @@
     }
     if (!s.ecrans.some(e => e.id === ECRAN)) ECRAN = s.ecrans[0].id;
     const somme = k => s.ecrans.reduce((a, x) => a + x[k], 0);
-    const autres = somme("proposees") - somme("prioritaires");
+    const avecIA = AvecIA(ia), nomIA = ia?.fournisseur === "cursor" ? "Cursor" : "l'IA";
     z.innerHTML = `${entete("Corrélation exigences Jira ↔ écrans", `<span class="btns">${menuPerimetre("co-perimetre", s.perimetres, s.perimetre, "Borne la liste des écrans à un module ou à un parcours validé")}${BoutonIA(ia, "co")}
         <button class="btn petit" id="co-relier">${ico("lien")}Relier manuellement</button><button class="btn petit" id="co-actu">${ico("rejouer")}Actualiser</button>
         <button class="btn petit" id="co-histo">${ico("historique")}Historique</button></span>`)}<div class="corps-carte">
       <p class="lib"><b>Vérifiée sur</b> : preuve issue des tests, créée seule (un test automatisé de l'exigence passe par l'écran) ; elle ne dit pas que l'écran réalise l'exigence.
-        <b>Réalisé par</b> : association fonctionnelle, active seulement après votre confirmation. Une proposition non confirmée reste ici et n'entre dans aucun calcul.
+        <b>Réalisé par</b> : association fonctionnelle, active seulement après votre confirmation. Seule l'IA configurée propose un lien, avec sa justification ; une proposition non confirmée reste ici et n'entre dans aucun calcul.
+        ${avecIA ? "" : '<b class="warn-t">Aucune IA configurée (Paramètres › Cursor / Claude) : aucune proposition ne sera faite ; le lien manuel reste possible.</b>'}
         ${s.copie_jira ? "" : '<b class="warn-t">Aucune copie locale Jira : synchroniser d\'abord (Rapports › Patrimoine).</b>'}</p>
       ${kpis([[s.ecrans.length, "écrans découverts"], [somme("realisees"), "liens « réalisé par »"], [somme("verifiees"), "liens « vérifiée sur »"],
-        [somme("prioritaires"), "propositions à trancher en priorité", somme("prioritaires") ? "warn-t" : ""], [autres, "autres ressemblances de mots"], [s.sans_exigence, "écrans sans exigence", s.sans_exigence ? "warn-t" : ""]])}
+        [somme("proposees"), "propositions de l'IA à trancher", somme("proposees") ? "warn-t" : ""], [s.ecrans.filter(e => e.a_juger).length, "écrans avec des exigences à faire juger"], [s.sans_exigence, "écrans sans exigence", s.sans_exigence ? "warn-t" : ""]])}
       <div class="co-grille">
         <div class="co-liste"><input type="search" class="in" id="co-q" placeholder="Rechercher un écran…" aria-label="Rechercher un écran">
           <div id="co-ecrans">${s.ecrans.map(e => `<button class="co-ecran" data-c="${esc(e.id)}" aria-pressed="${e.id === ECRAN}">
             <b>${esc(e.nom)}</b><span class="lib">${esc([e.module, e.plateformes.join(" · ")].filter(Boolean).join(" · ") || "—")}</span>
             <span><span class="pill ${ETATS_CO[e.etat] || ""}">${esc(e.etat)}</span>
-              <span class="lib" title="réalisé par · vérifiée sur · propositions à trancher en priorité (parcours, IA) + autres ressemblances de mots">${e.realisees} · ${e.verifiees} · ${e.prioritaires}${e.proposees - e.prioritaires ? " + " + (e.proposees - e.prioritaires) : ""}</span></span></button>`).join("")}</div></div>
+              <span class="lib" title="réalisé par · vérifiée sur · propositions de l'IA">${e.realisees} · ${e.verifiees} · ${e.proposees}</span></span></button>`).join("")}</div></div>
         <div id="co-centre"></div><div id="co-droite"></div></div></div>`;
     $$("[data-c]", z).forEach(b => b.onclick = () => { $$("[data-c]", z).forEach(x => x.setAttribute("aria-pressed", x === b)); detailCorrelation(b.dataset.c); });
     $("#co-q", z).oninput = e => { const q = e.target.value.toLowerCase(); $$("[data-c]", z).forEach(b => { b.hidden = !!q && !b.textContent.toLowerCase().includes(q); }); };
@@ -346,10 +347,9 @@
       ${c.tests_cartographies.length ? `<p class="lib">Passé par cet écran pendant les runs cartographiés : ${esc(c.tests_cartographies.join(", "))}</p>` : ""}</section>`;
     const proposition = x => `<li><span class="co-ligne">${cle(x.cle)}<span class="item">${esc(x.resume)}</span>
           <button class="btn petit primaire" data-conf="${esc(x.cle)}">Confirmer</button><button class="btn petit" data-rej="${esc(x.cle)}">Rejeter</button></span>
-        ${x.jugement ? jugementCo(x.jugement) : (x.parcours || []).length ? "" : `<span class="pill warn" title="Mots communs entre le nom de l'écran et le résumé de l'exigence : sans compréhension du texte, jamais une conclusion">ressemblance des mots</span>`}
-        ${(x.parcours || []).length ? `<span class="lib co-just"><span class="pill info">Parcours</span> exigence du parcours « ${esc(x.parcours.join(" », « "))} », qui traverse cet écran</span>` : ""}
-        ${x.mots.length ? `<span class="lib co-just">Mots communs : ${esc(x.mots.join(", "))}</span>` : ""}</li>`;
-    const prioritaires = c.exigences_proposees.filter(x => x.prioritaire), autresProps = c.exigences_proposees.filter(x => !x.prioritaire);
+        ${jugementCo(x.jugement)}
+        ${(x.parcours || []).length ? `<span class="lib co-just"><span class="pill info">Parcours</span> exigence du parcours « ${esc(x.parcours.join(" », « "))} », qui traverse cet écran</span>` : ""}</li>`;
+    const ia = await EtatIA(), nomIA = ia?.fournisseur === "cursor" ? "Cursor" : "l'IA";
     droite.innerHTML = `<section class="bloc-strat"><h3>Exigences Jira</h3>
       <h3 class="lib">RÉALISÉ PAR · validé (${c.realisees.length})</h3>
       <ul class="liste co-liens">${c.realisees.map(x => `<li><span class="co-ligne">${cle(x.cle)}<span class="item">${esc(x.resume)}</span><span class="pill ok">${esc(x.origine_libelle)}</span>
@@ -360,11 +360,11 @@
       <ul class="liste co-liens">${c.verifiees.map(x => `<li><span class="co-ligne">${cle(x.cle)}<span class="item">${esc(x.resume)}</span><span class="pill info">via ${esc(x.via)}</span>
           <button class="btn petit" data-conf="${esc(x.cle)}" title="L'écran réalise bien cette exigence : créer le lien « réalisé par »">Confirmer « réalisé par »</button></span>
         ${jugementCo(x.jugement)}${preuvesCo(x.preuves)}</li>`).join("") || "<li class='lib'>Aucun test automatisé d'une exigence ne passe par cet écran.</li>"}</ul>
-      <h3 class="lib" title="Exigence d'un parcours qui traverse cet écran, ou proposition jugée par une IA">À TRANCHER EN PRIORITÉ · parcours et IA (${prioritaires.length})</h3>
-      <ul class="liste co-liens">${prioritaires.map(proposition).join("") || "<li class='lib'>Aucune proposition fondée sur un parcours ou jugée par une IA.</li>"}</ul>
-      ${autresProps.length ? `<details class="co-preuves"><summary title="Mots communs entre le nom de l'écran et le résumé de l'exigence : une présélection, jamais une conclusion">Autres ressemblances de mots (${autresProps.length})</summary>
-        <ul class="liste co-liens">${autresProps.map(proposition).join("")}</ul></details>` : ""}
-      ${(c.mots_ignores || []).length ? `<p class="lib">Mot(s) ignoré(s), car présent(s) dans plus de la moitié des exigences : ${esc(c.mots_ignores.join(", "))}.</p>` : ""}
+      <h3 class="lib" title="Exigences que l'IA configurée juge « concerne » ou « incertain » pour cet écran, avec sa justification">PROPOSITIONS DE L'IA · à trancher (${c.exigences_proposees.length})</h3>
+      <ul class="liste co-liens">${c.exigences_proposees.map(proposition).join("") || `<li class='lib'>${AvecIA(ia) ? `Aucune proposition en attente${c.candidats.length ? "" : ` : rien n'est présélectionné pour cet écran, ${esc(nomIA)} peut tout de même citer n'importe quelle exigence`}.` : "Aucune IA configurée : aucune proposition."}</li>`}</ul>
+      ${c.candidats.length ? `<p class="lib"><span class="pill">à faire juger</span> ${c.candidats.length} exigence(s) présélectionnée(s) pour ${esc(nomIA)} (parcours qui traverse l'écran, mots communs), pas encore jugée(s) : ${esc(c.candidats.map(x => x.cle).join(", "))}. Ce ne sont pas des propositions.</p>` : ""}
+      ${c.ecartees_ia.length ? `<details class="co-preuves"><summary title="Jugées « ne concerne pas » : vous pouvez tout de même confirmer, ou rejeter pour ne plus les revoir">Écartées par l'IA (${c.ecartees_ia.length})</summary>
+        <ul class="liste co-liens">${c.ecartees_ia.map(proposition).join("")}</ul></details>` : ""}
       ${c.rejetees.length ? `<details class="co-preuves"><summary>${c.rejetees.length} proposition(s) rejetée(s)</summary>${c.rejetees.map(x => `<p class="lib"><b class="mono">${esc(x.cle)}</b> ${esc(x.resume)}
         <br>Rejetée par ${esc(x.par)} le ${dateCo(x.date)}${x.motif ? ` : ${esc(x.motif)}` : ""}</p>`).join("")}</details>` : ""}</section>`;
     const recharger = () => correlation($(".corps-strat"));

@@ -8,11 +8,12 @@ Deux relations, jamais confondues (décision du 2026-11-18, docs/CORRELATION_EXI
 - **« réalisé par »** (exigence → écran) : association FONCTIONNELLE, active seulement après une décision humaine
   (proposition d'une IA confirmée, preuve de test promue, ou lien manuel). Relation déclarée « impacte ».
 
-Les propositions (jugées par une IA : Cursor via le MCP, ou LLM interne / Claude ; à défaut, simple ressemblance des mots)
-restent dans cet espace : elles n'entrent dans le graphe qu'une fois confirmées, et un rejet est mémorisé (jamais
-reproposé). Un mot présent dans plus de la moitié des exigences ne distingue rien : il ne déclenche aucune proposition.
-Les propositions fondées (exigence d'un parcours qui traverse l'écran, jugement d'une IA) passent avant les simples
-ressemblances de mots. Un périmètre (module de la carte ou parcours validé, reste.py) borne la liste des écrans. Prérequis : l'écran existe dans la carte (session Discovery) ; sinon, aucun lien n'est créé.
+Seule l'IA configurée (Cursor via le MCP, ou LLM interne / Claude) propose un lien (décision de l'utilisateur du
+2026-11-20) : une proposition est un jugement « concerne » ou « incertain », justifié. La ressemblance des mots et les
+exigences des parcours ne sont plus des propositions : elles forment la PRÉSÉLECTION transmise à l'IA (« candidats »),
+jamais affichée comme une proposition. Un mot présent dans plus de la moitié des exigences ne présélectionne rien.
+Les propositions restent dans cet espace : elles n'entrent dans le graphe qu'une fois confirmées, et un rejet est
+mémorisé (jamais reproposé). Un périmètre (module de la carte ou parcours validé, reste.py) borne la liste des écrans. Prérequis : l'écran existe dans la carte (session Discovery) ; sinon, aucun lien n'est créé.
 Aucun appel Jira / Xray en direct : la copie locale (synchronisation) fait foi.
 """
 from __future__ import annotations
@@ -195,10 +196,11 @@ def ecran(eid: str, ctx=None) -> dict:
                   for k, noms in du_parcours.items() if k not in vues and k not in ecartees and k in ex_par_cle]
     proposees.sort(key=lambda p: (not p.get("parcours"), -p["score"], p["cle"]))
     proposees = _avec_jugements(jug, proposees, ecartees, pat)
-    for p in proposees:  # fondée sur un parcours ou jugée par une IA : à trancher avant les simples ressemblances de mots
-        p["prioritaire"] = bool(p.get("parcours") or p.get("jugement"))
-    proposees.sort(key=lambda p: not p["prioritaire"])  # tri stable : l'ordre de chaque groupe est gardé
-    proposees = proposees[:12]
+    # seule l'IA propose : « concerne » ou « incertain ». Le reste est la présélection qui lui est transmise, ou ce qu'elle écarte.
+    verdict = lambda p: (p.get("jugement") or {}).get("verdict")  # noqa: E731
+    candidats = [p for p in proposees if not p.get("jugement")][:12]
+    ecartees_ia = [p for p in proposees if verdict(p) == "ne_concerne_pas"]
+    proposees = [p for p in proposees if verdict(p) in ("concerne", "incertain")]
     fichiers = sorted({t["fichier"] for t in imp["tests_robot"] if t.get("fichier")}
                       | {n.proprietes.get("fichier") for n in g.noeuds.values()
                          if n.type == "locator" and n.proprietes.get("ecran") == (e.get("nom") or "").lower() and n.proprietes.get("fichier")})
@@ -209,7 +211,7 @@ def ecran(eid: str, ctx=None) -> dict:
             "exigences": sorted(exigences.values(), key=lambda x: x["cle"]),
             "realisees": sorted(realisees.values(), key=lambda x: x["cle"]),
             "verifiees": sorted((v for k, v in verifiees.items() if k not in realisees), key=lambda x: x["cle"]),
-            "exigences_proposees": proposees, "prioritaires": sum(p["prioritaire"] for p in proposees),
+            "exigences_proposees": proposees, "ecartees_ia": ecartees_ia, "candidats": candidats,
             "mots_ignores": sorted(ignores), "rejetees": rejetees,
             "fichiers": sorted(f for f in fichiers if f), "tests_cartographies": sorted(e.get("utilise_par") or [])}
 
@@ -255,7 +257,7 @@ def synthese(perimetre: str = "") -> dict:
                     "tests_robot": len(c["tests_robot"]), "tests_xray": len(c["tests_xray"]), "exigences": len(c["exigences"]),
                     "realisees": len(c["realisees"]), "verifiees": len(c["verifiees"]),
                     "cles_realisees": [x["cle"] for x in c["realisees"]], "cles_verifiees": [x["cle"] for x in c["verifiees"]],
-                    "proposees": len(c["exigences_proposees"]), "prioritaires": c["prioritaires"], "fichiers": len(c["fichiers"]), "etat": etat})
+                    "proposees": len(c["exigences_proposees"]), "ecartees_ia": len(c["ecartees_ia"]), "a_juger": len(c["candidats"]), "fichiers": len(c["fichiers"]), "etat": etat})
     try:
         suivre_preuves(ctx)
     except Exception:  # noqa: BLE001 — le suivi des preuves ne bloque jamais l'affichage
@@ -281,7 +283,7 @@ def _exigence(cle: str) -> dict:
 def confirmer(eid: str, cle: str, origine: str = "") -> dict:
     """Décision humaine : l'exigence est « réalisée par » l'écran. Relation déclarée « impacte » (exigence → écran),
     validée. L'écran doit exister dans la carte. origine : « manuel » pour un lien créé à la main ; sinon déduite
-    (proposition d'une IA, preuve de test promue, ressemblance des mots)."""
+    (proposition d'une IA, preuve de test promue ; sinon lien manuel)."""
     from atelier.discovery import carte, connaissance
     from atelier.domain import declarations
 
@@ -293,7 +295,7 @@ def confirmer(eid: str, cle: str, origine: str = "") -> dict:
     j = jugements().get(f"{e['id']}|{cle}")
     if origine not in ORIGINES:
         origine = ("ia" if j and j.get("verdict") != "ne_concerne_pas" else "tests" if any(v["cle"] == cle for v in c["verifiees"])
-                   else "mots" if any(p["cle"] == cle for p in c["exigences_proposees"]) else "manuel")
+                   else "manuel")
     source = "Discovery (" + ("lien manuel)" if origine == "manuel" else "corrélation confirmée"
                               + (f", proposée par {j['source']})" if origine == "ia" else ", preuve de test)" if origine == "tests" else ")"))
     r = declarations.ajouter_relation(f"{x['type']}:{cle}", f"ecran:{e.get('nom') or e['id']}", "impacte", source=source)
@@ -312,7 +314,7 @@ def rejeter(eid: str, cle: str, motif: str = "") -> dict:
     if any(r["cle"] == cle for r in c["realisees"]):
         raise PermissionError(f"{cle} est déjà reliée à l'écran {c['nom']} : retirer le lien, pas le rejeter.")
     j = jugements().get(f"{e['id']}|{cle}")
-    return {"ecran": e["id"], "cle": cle, **_decider(e["id"], cle, "rejetée", "ia" if j else "mots", motif, j)}
+    return {"ecran": e["id"], "cle": cle, **_decider(e["id"], cle, "rejetée", "ia" if j else "manuel", motif, j)}
 
 
 def retirer(eid: str, cle: str, motif: str = "") -> dict:
@@ -492,7 +494,7 @@ def correlations_a_juger(eid: str = "", limite: int = 15) -> dict:
                                       "parcours": p.get("parcours", []),
                                       "description": court((par_cle.get(p["cle"]) or {}).get("description"), 300),
                                       "criteres": [court(x, 160) for x in ((par_cle.get(p["cle"]) or {}).get("criteres") or [])[:6]],
-                                      "jugement": p.get("jugement")} for p in c["exigences_proposees"]]})
+                                      "jugement": p.get("jugement")} for p in c["exigences_proposees"] + c["candidats"] + c["ecartees_ia"]]})
     juges = {k.split("|", 1)[0] for k in jugements()}
     lignes.sort(key=lambda x: (bool(x["exigences_liees"]), x["ecran"] in juges, x["nom"]))  # écrans jamais jugés d'abord
     return {"consigne": CONSIGNE, "verdicts": list(VERDICTS), "confiance": list(ESTIMATIONS), "candidats_par": SECOURS,

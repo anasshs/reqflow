@@ -130,9 +130,10 @@ def test_deroule_puis_validation_des_ecrans(banque):
     rel = g.relations["parcours:faire_un_virement|contient|ecran:virement_saisie"]
     assert rel.statut == "à valider" and s["id"] in rel.source               # proposé, avec le déroulé pour origine
 
-    # Corrélation : l'exigence du parcours est proposée d'abord pour ses écrans, sans jamais devenir un lien
+    # Corrélation : l'exigence du parcours est présélectionnée d'abord pour ses écrans (à faire juger par l'IA), jamais un lien
     co = correlation.ecran(banque["virement_recap"])
-    assert co["exigences_proposees"][0]["cle"] == "DEMO-2" and co["exigences_proposees"][0]["parcours"] == ["Faire un virement"]
+    assert co["candidats"][0]["cle"] == "DEMO-2" and co["candidats"][0]["parcours"] == ["Faire un virement"]
+    assert co["exigences_proposees"] == []                                    # seule l'IA propose
     assert co["realisees"] == [] and not [r for r in g.relations.values() if r.type == "impacte"]
     cand = correlation.correlations_a_juger(banque["virement_recap"])["ecrans"][0]["candidats"][0]
     assert cand["cle"] == "DEMO-2" and cand["parcours"] == ["Faire un virement"]

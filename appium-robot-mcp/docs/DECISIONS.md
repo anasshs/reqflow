@@ -731,10 +731,11 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   du périmètre est une frontière (transition enregistrée, rien d'essayé depuis lui) ; un écran découvert pendant la
   session fait partie du périmètre. Les invariants de l'exploration (aucune saisie, aucune action sensible) sont inchangés.
 
-## 2026-11-20 — Corrélation : mots communs ignorés, propositions prioritaires, périmètre
+## 2026-11-20 — Corrélation : seule l'IA configurée propose, périmètre
 - Mesure sur une simulation (8 écrans, 5 exigences) : 37 propositions, dont 31 dues au seul mot « esim », présent partout.
-- Décision : un mot présent dans plus de la moitié des exigences ne déclenche plus de proposition (à partir de 4
-  exigences) ; les propositions fondées sur un parcours ou jugées par une IA sont « à trancher en priorité », les
-  autres ressemblances de mots sont repliées ; le périmètre de « Explorer le reste » (module ou parcours validé) borne
+- Décision de l'utilisateur (« pour la corrélation, je veux confier uniquement à Cursor, Claude ou l'IA configurée ») :
+  seule l'IA propose un lien (« concerne » ou « incertain », justifié). Les exigences des parcours et la ressemblance
+  des mots ne sont plus des propositions mais la présélection transmise à l'IA ; un mot présent dans plus de la moitié
+  des exigences ne présélectionne rien (à partir de 4 exigences). Sans IA configurée : aucune proposition. Le périmètre de « Explorer le reste » (module ou parcours validé) borne
   aussi la Corrélation, et un parcours validé l'ouvre sur ses écrans. Confirmer reste une décision humaine.
   Aucun outil MCP ajouté ni modifié. Détail : docs/CORRELATION_EXIGENCES_ECRANS.md.

@@ -31,8 +31,7 @@ pas une affirmation fonctionnelle. Elle se promeut en « réalisé par » d'un c
 1. **Preuve de test promue** : l'exigence est déjà « vérifiée sur » l'écran ; l'automaticien confirme qu'il la réalise.
 2. **Proposition d'une IA confirmée** : Cursor (via le MCP) ou le LLM interne juge chaque couple écran / exigence —
    `concerne`, `ne_concerne_pas` ou `incertain` — avec une justification, ses preuves et une estimation (faible, moyenne,
-   forte). L'automaticien confirme, rejette ou laisse en attente. Sans IA, une présélection par ressemblance des mots est
-   proposée, signalée comme telle.
+   forte). L'automaticien confirme, rejette ou laisse en attente. Sans IA configurée, aucune proposition n'est faite.
 3. **Lien manuel** : depuis Discovery › Corrélation (« Relier manuellement ») ou depuis le graphe (« Relier » sur un écran
    ou sur une exigence).
 
@@ -47,24 +46,28 @@ dans Xray. S'y ajoutent les tests passés par l'écran pendant un run cartograph
 - Les preuves sont relevées à chaque affichage de la Corrélation. Une preuve qui disparaît (script modifié, tag retiré)
   est consignée dans l'historique ; la relation reste tant qu'il lui reste une preuve.
 
-## Propositions : le bruit, la priorité, le périmètre
+## Propositions : seule l'IA propose, dans un périmètre
 
 Mesure du 2026-11-20 sur une simulation (8 écrans, 5 exigences) : 37 propositions, dont 31 dues à un seul mot présent
-dans le nom de chaque écran et dans le titre de chaque exigence. Trois règles en découlent.
+dans le nom de chaque écran et dans le titre de chaque exigence. Décision de l'utilisateur le même jour : la
+corrélation est confiée uniquement à l'IA configurée (Cursor, Claude ou le LLM interne).
 
-- **Mots communs ignorés** : un mot présent dans plus de la moitié des exigences de la copie locale ne distingue aucune
-  exigence ; il ne déclenche aucune proposition par ressemblance. La règle ne s'applique qu'à partir de 4 exigences.
-  Les mots ignorés pour un écran sont affichés. La présélection transmise à une IA suit la même règle ; l'IA peut
-  toujours citer n'importe quelle exigence de la liste.
-- **Deux groupes** : « À trancher en priorité » réunit les exigences d'un parcours qui traverse l'écran et les
-  propositions jugées par une IA (y compris « ne concerne pas », à rejeter ou non) ; « Autres ressemblances de mots »
-  est replié. Les deux se confirment et se rejettent de la même façon : aucun lien n'est créé sans décision humaine.
+- **Seule l'IA propose** : une proposition est un jugement « concerne » ou « incertain » de l'IA, avec sa
+  justification. Un jugement « ne concerne pas » est rangé à part (« Écartées par l'IA »), où l'automaticien peut
+  encore confirmer ou rejeter. Sans IA configurée, l'écran le dit et ne propose rien ; le lien manuel reste possible.
+- **Présélection, pas proposition** : les exigences d'un parcours qui traverse l'écran et la ressemblance des mots ne
+  sont plus affichées comme des propositions. Elles forment les « candidats » transmis à l'IA, et l'écran indique
+  combien attendent son jugement. L'IA peut toujours citer n'importe quelle exigence de la liste.
+- **Mots communs ignorés** : un mot présent dans plus de la moitié des exigences de la copie locale (à partir de 4
+  exigences) ne présélectionne rien.
+- **Origine d'un lien** : « proposition d'une IA confirmée », « preuve de test promue » ou « lien manuel ». L'origine
+  « ressemblance des mots » n'est plus attribuée ; les décisions passées qui la portent la gardent.
 - **Périmètre** : le menu « Périmètre » (module de la carte ou parcours validé, le même que dans « Explorer le reste »,
   `atelier/discovery/reste.py`) borne la liste des écrans, les compteurs et la demande faite à Cursor. Le choix est
   partagé entre les deux écrans. Le bouton « Corrélation des écrans » d'un parcours validé ouvre la Corrélation sur ses
   écrans. Un périmètre inconnu est refusé ; l'écran revient alors à toute l'application et le signale.
 
-Limite : au plus 12 propositions par écran sont affichées, les prioritaires d'abord.
+Limite : au plus 12 candidats par écran sont transmis à l'IA, ceux des parcours d'abord.
 
 ## Ce qui n'entre dans aucun calcul
 
