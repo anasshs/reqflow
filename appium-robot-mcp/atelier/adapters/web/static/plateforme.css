@@ -368,7 +368,7 @@ a.kpi { transition: border-color .12s, box-shadow .12s; } a.kpi:hover { border-c
 .panneau-ia { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 0; flex: 1; min-height: 0; }
 
 /* ------------------------------------------------------------------ Éditeur */
-.g-ed { grid-template-columns: 236px minmax(0, 1fr) 230px 300px; grid-template-rows: auto minmax(0, 1fr) 236px; }
+.g-ed { grid-template-columns: var(--ed-cols, 236px minmax(0, 1fr) 230px 300px); grid-template-rows: var(--ed-rows, auto minmax(0, 1fr) 236px); }
 .barre-ed { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; flex-wrap: wrap; }
 .barre-ed .in { width: auto; }
 .bas-ed { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 300px; gap: 12px; min-height: 0; }
@@ -722,3 +722,7 @@ body.sans-lanceur .df-lanceur { display: none; }
 .menu-deroulant button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: none; border: 0; border-radius: 6px; cursor: pointer; color: inherit; font: inherit; text-align: left; }
 .menu-deroulant button:hover, .menu-deroulant button:focus-visible { background: var(--surface-2); }
 .menu-deroulant button .i { color: var(--accent-ink); }
+/* éditeur : un panneau replié ne garde ni colonne ni ligne ; boutons de panneaux à côté du mode */
+.g-ed > [hidden] { display: none !important; }
+#e-panneaux { margin-left: auto; }
+#e-panneaux + .bascule-mode { margin-left: 0; }

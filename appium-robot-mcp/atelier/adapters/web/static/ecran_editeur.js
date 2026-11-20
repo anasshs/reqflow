@@ -36,7 +36,11 @@
         </div>
         <section class="carte">
           <div class="tabs-fichiers" id="e-tabs" role="tablist"></div>
-          <div class="fil"><span class="lib" id="e-fil"></span><div class="bascule-mode"><button aria-pressed="true">Mode source</button><button id="e-visuel" title="Ouvrir le scénario BDD du test">Mode visuel</button></div></div>
+          <div class="fil"><span class="lib" id="e-fil"></span><div class="bascule-mode" id="e-panneaux" role="group" aria-label="Panneaux affichés autour du code">
+              <button data-panneau="gauche" title="Explorateur et réutilisation (à gauche)">Explorateur</button><button data-panneau="props" title="Propriétés du test">Propriétés</button>
+              <button data-panneau="mobile" title="Aperçu mobile (live)">Aperçu</button><button data-panneau="bas" title="Sortie, problèmes, dépendances et captures (en bas)">Bas</button>
+              <button id="e-concentre" title="Ne garder que le code, ou tout réafficher">Code seul</button></div>
+            <div class="bascule-mode"><button aria-pressed="true">Mode source</button><button id="e-visuel" title="Ouvrir le scénario BDD du test">Mode visuel</button></div></div>
           <div class="code editeur" id="e-ed"><div class="numeros" id="e-num"></div><div class="surface"><pre id="e-pre" aria-hidden="true"></pre>
             <textarea id="e-txt" spellcheck="false" aria-label="Contenu du fichier" wrap="off"></textarea></div></div>
           <div class="statut-ed"><span id="e-pos">Ligne 1, Col 1</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
@@ -62,6 +66,9 @@
         if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); enregistrer(); }
       };
       t.onkeyup = t.onclick = position;
+      panneaux();
+      $$("#e-panneaux [data-panneau]").forEach(b => b.onclick = () => { PANNEAUX[b.dataset.panneau] = !PANNEAUX[b.dataset.panneau]; panneaux(true); });
+      $("#e-concentre").onclick = () => { const tout = !Object.values(PANNEAUX).some(Boolean); Object.keys(PANNEAUX).forEach(k => { PANNEAUX[k] = tout; }); panneaux(true); };
       $("#e-enr").onclick = enregistrer;
       $("#e-lint").onclick = () => linter(false);
       $("#e-robocop").onclick = robocop;
@@ -109,6 +116,26 @@
     quitter() { desabo.forEach(f => f()); desabo = []; clearInterval(minuterie); },
   };
   Atelier.enregistrer("editeur", E);
+
+  /* ------------------------------------------------------------------ panneaux repliables
+     Les quatre panneaux autour du code se replient un par un, ou tous d'un coup (« Code seul »), pour laisser la place à
+     l'éditeur. Le choix est gardé sur ce poste (préférence d'affichage). La grille est recalculée : pas de colonne vide. */
+  const PANNEAUX = {gauche: true, props: true, mobile: true, bas: true};
+  try { Object.assign(PANNEAUX, JSON.parse(localStorage.getItem("ed-panneaux") || "{}")); } catch (e) { /* préférence facultative */ }
+  function panneaux(garder) {
+    const zone = $("#e-ed")?.closest(".g-ed");
+    if (!zone) return;
+    const el = {gauche: $("#e-arbre").closest("section").parentElement, props: $("#e-props").closest("section"),
+      mobile: $("#e-mobile").closest("section"), bas: $(".bas-ed", zone)};
+    Object.entries(el).forEach(([k, e]) => { e.hidden = !PANNEAUX[k]; });
+    zone.style.setProperty("--ed-cols", [PANNEAUX.gauche && "236px", "minmax(0, 1fr)", PANNEAUX.props && "230px", PANNEAUX.mobile && "300px"].filter(Boolean).join(" "));
+    zone.style.setProperty("--ed-rows", ["auto", "minmax(0, 1fr)", PANNEAUX.bas && "236px"].filter(Boolean).join(" "));
+    $$("#e-panneaux [data-panneau]").forEach(b => b.setAttribute("aria-pressed", !!PANNEAUX[b.dataset.panneau]));
+    const aucun = !Object.values(PANNEAUX).some(Boolean);
+    $("#e-concentre").setAttribute("aria-pressed", aucun);
+    $("#e-concentre").textContent = aucun ? "Tout afficher" : "Code seul";
+    if (garder) { try { localStorage.setItem("ed-panneaux", JSON.stringify(PANNEAUX)); } catch (e) { /* préférence facultative */ } }
+  }
 
   /* ------------------------------------------------------------------ explorateur */
   async function arbre() {
@@ -456,7 +483,7 @@
 
   function frame() {
     const z = $("#e-mobile");
-    if (!z) return;
+    if (!z || z.closest("section").hidden) return;  // aperçu replié : aucune image demandée
     const img = new Image();
     img.alt = "Écran du device ou du navigateur";
     img.onload = () => { z.replaceChildren(img); };
