@@ -237,7 +237,7 @@
         : `<p class="lib">Les écrans apparaîtront ici à la fin du premier déroulé.</p>`}
       ${P.id ? `<h3 class="lib" style="margin-top:14px">ENSUITE</h3><div class="btns">
         <button class="btn" id="cad-graphe" title="Le parcours, ses exigences et ses écrans dans le Knowledge Graph">${ico("graphe")}Voir dans le graphe</button>
-        <a class="btn" href="#discovery/correlation" title="Confirmer, écran par écran, les exigences du parcours proposées en priorité">Corrélation des écrans</a>
+        <a class="btn" id="cad-corr" href="#discovery/correlation" title="Confirmer, écran par écran, les exigences du parcours proposées en priorité. La Corrélation s'ouvre sur les écrans de ce parcours une fois validé">Corrélation des écrans</a>
         ${P.ecrans.length ? `<button class="btn" id="cad-bdd" title="Brouillon de scénario BDD dans Test Design, à partir des écrans du parcours">${ico("bdd")}Créer le scénario BDD</button>` : ""}
         <button class="btn" id="cad-encore">${ico("play")}Dérouler à nouveau</button></div>` : ""}
       <details style="margin-top:14px"><summary class="lib">Journal du parcours (${P.historique.length})</summary>
@@ -251,6 +251,7 @@
       try { P = await api(`/api/discovery/cadrage/${encodeURIComponent(P.id)}/valider`, {method: "POST", body: {ecrans: gardes}}); toast("Écrans du parcours validés.", "ok"); rendre(); }
       catch (e) { toast(e.message, "ko"); }
     };
+    if ($("#cad-corr")) $("#cad-corr").onclick = () => { try { P.valide ? sessionStorage.setItem("di-perimetre", JSON.stringify({noeud: P.noeud, libelle: P.nom})) : sessionStorage.removeItem("di-perimetre"); } catch (e) { /* facultatif */ } };
     if ($("#cad-graphe")) $("#cad-graphe").onclick = () => { try { sessionStorage.setItem("kg-perimetre", P.noeud); } catch (e) { /* facultatif */ } location.hash = "graphe/connaissance/parcours"; };
     if ($("#cad-encore")) $("#cad-encore").onclick = () => { etape = "cible"; rendre(); };
     if ($("#cad-bdd")) $("#cad-bdd").onclick = async () => {

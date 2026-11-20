@@ -104,14 +104,24 @@
   /* ------------------------------------------------------------------ 3 studio : la session se pilote dans la fenêtre flottante */
   /* Reste à explorer : ce que les parcours validés et les actions déjà essayées ne couvrent pas (mesure de l'utilité d'une exploration) */
   let PERIMETRE = null;  // périmètre choisi pour l'exploration : {noeud, libelle}, gardé d'un écran à l'autre
-  try { PERIMETRE = JSON.parse(sessionStorage.getItem("di-perimetre") || "null"); } catch (e) { /* facultatif */ }
+  /* Le même périmètre sert à « Explorer le reste » et à « Corrélation » ; un parcours peut le poser avant d'ouvrir Corrélation. */
+  const lirePerimetre = () => { try { PERIMETRE = JSON.parse(sessionStorage.getItem("di-perimetre") || "null"); } catch (e) { PERIMETRE = null; } };
+  const poserPerimetre = p => { PERIMETRE = p ? {noeud: p.noeud, libelle: p.libelle} : null;
+    try { PERIMETRE ? sessionStorage.setItem("di-perimetre", JSON.stringify(PERIMETRE)) : sessionStorage.removeItem("di-perimetre"); } catch (x) { /* facultatif */ } };
+  const TYPES_PERIMETRE = {module: "Modules", parcours: "Parcours validés"};
+  const menuPerimetre = (id, perimetres, courant, titre) => `<span class="lien" style="display:flex;gap:8px;align-items:center"><label class="lib" for="${id}">Périmètre</label>
+      <select class="in" id="${id}" style="width:auto;max-width:320px" title="${esc(titre)}"><option value="">Toute l'application</option>
+        ${Object.entries(TYPES_PERIMETRE).map(([t, lib]) => { const l = perimetres.filter(p => p.type === t); return l.length ? `<optgroup label="${lib}">${l.map(p =>
+          `<option value="${esc(p.noeud)}" ${p.noeud === courant?.noeud ? "selected" : ""}>${esc(p.libelle)} · ${p.ecrans} écran(s)</option>`).join("")}</optgroup>` : ""; }).join("")}</select></span>`;
+  lirePerimetre();
   async function reste() {
     const z = $("#st-reste");
     if (!z) return;
+    lirePerimetre();
     let r;
     try { r = await apiDelai("/api/discovery/reste?perimetre=" + encodeURIComponent(PERIMETRE?.noeud || ""), 60000); }
     catch (e) {
-      if (PERIMETRE && /inconnu/i.test(e.message)) { PERIMETRE = null; try { sessionStorage.removeItem("di-perimetre"); } catch (x) { /* facultatif */ } return reste(); }  // module ou parcours disparu
+      if (PERIMETRE && /inconnu/i.test(e.message)) { poserPerimetre(null); return reste(); }  // module ou parcours disparu
       if ($("#st-reste")) z.innerHTML = `<h3>Reste à explorer</h3><p class="warn-t">Indisponible : ${esc(e.message)}</p>`;
       return;
     }
@@ -123,17 +133,8 @@
       <td>${x.a_essayer ? `<b>${x.a_essayer}</b> <span class="lib">${esc(x.a_essayer_exemples.map(a => a.libelle || a.cle).join(", "))}${x.a_essayer > x.a_essayer_exemples.length ? "…" : ""}</span>` : '<span class="lib">tout essayé</span>'}</td>
       <td>${x.non_sures || '<span class="lib">—</span>'}</td>
       <td>${[x.impasse ? '<span class="pill warn">impasse</span>' : "", x.isole ? '<span class="pill warn">sans entrée connue</span>' : ""].join(" ").trim() || '<span class="lib">—</span>'}</td></tr>`;
-    const TP = {module: "Modules", parcours: "Parcours validés"};
-    const choix = `<span class="lien" style="display:flex;gap:8px;align-items:center"><label class="lib" for="st-perimetre">Périmètre</label>
-      <select class="in" id="st-perimetre" style="width:auto;max-width:320px" title="Borne ce tableau ET l'exploration lancée depuis cet écran"><option value="">Toute l'application</option>
-        ${Object.entries(TP).map(([t, lib]) => { const l = r.perimetres.filter(p => p.type === t); return l.length ? `<optgroup label="${lib}">${l.map(p =>
-          `<option value="${esc(p.noeud)}" ${p.noeud === r.perimetre?.noeud ? "selected" : ""}>${esc(p.libelle)} · ${p.ecrans} écran(s)</option>`).join("")}</optgroup>` : ""; }).join("")}</select></span>`;
-    const brancher = () => { $("#st-perimetre").onchange = e => {
-      const p = r.perimetres.find(x => x.noeud === e.target.value);
-      PERIMETRE = p ? {noeud: p.noeud, libelle: p.libelle} : null;
-      try { PERIMETRE ? sessionStorage.setItem("di-perimetre", JSON.stringify(PERIMETRE)) : sessionStorage.removeItem("di-perimetre"); } catch (x) { /* facultatif */ }
-      reste();
-    }; };
+    const choix = menuPerimetre("st-perimetre", r.perimetres, r.perimetre, "Borne ce tableau ET l'exploration lancée depuis cet écran");
+    const brancher = () => { $("#st-perimetre").onchange = e => { poserPerimetre(r.perimetres.find(x => x.noeud === e.target.value)); reste(); }; };
     z.innerHTML = `<h3>Reste à explorer${r.perimetre ? ` · ${esc(r.perimetre.libelle)}` : ""}${choix}</h3>
       ${r.perimetre ? `<p class="lib" style="margin:-4px 0 8px"><span class="pill info">Périmètre</span> L'exploration lancée d'ici ne repart d'aucun écran déjà connu hors de « ${esc(r.perimetre.libelle)} ».
         Les écrans qu'elle découvre en font partie : c'est le delta.${s.sans_module && r.perimetre.type === "module" ? ` ${s.sans_module} écran(s) de l'application n'ont pas de module : les ranger pour qu'ils entrent dans un périmètre.` : ""}</p>` : ""}
@@ -259,7 +260,16 @@
   const ETATS_CO = {"réalisé": "ok", "vérifié par les tests": "info", "propositions à trancher": "warn", "à corréler": ""};
   const dateCo = d => esc(String(d || "").slice(0, 16).replace("T", " "));
   async function correlation(z) {
-    const [s, ia] = await Promise.all([api("/api/discovery/correlation"), EtatIA()]);
+    lirePerimetre();
+    let s, ia;
+    try { [s, ia] = await Promise.all([api("/api/discovery/correlation?perimetre=" + encodeURIComponent(PERIMETRE?.noeud || "")), EtatIA()]); }
+    catch (e) {
+      if (PERIMETRE && /inconnu/i.test(e.message)) {  // module disparu, ou parcours pas encore validé
+        toast(`Périmètre « ${PERIMETRE.libelle} » indisponible (seul un parcours validé borne la Corrélation) : toute l'application est affichée.`, "ko");
+        poserPerimetre(null); return correlation(z);
+      }
+      throw e;
+    }
     if (s.carte_vide) {
       z.innerHTML = `${entete("Corrélation exigences Jira ↔ écrans")}<div class="corps-carte">${vide("La carte de l'application est encore vide",
         "Un écran doit avoir été vu pendant une session Discovery (téléphone, émulateur ou navigateur) avant d'être relié à une exigence. Aucun lien ne peut être créé pour l'instant.")}
@@ -269,23 +279,25 @@
     }
     if (!s.ecrans.some(e => e.id === ECRAN)) ECRAN = s.ecrans[0].id;
     const somme = k => s.ecrans.reduce((a, x) => a + x[k], 0);
-    z.innerHTML = `${entete("Corrélation exigences Jira ↔ écrans", `<span class="btns">${BoutonIA(ia, "co")}
+    const autres = somme("proposees") - somme("prioritaires");
+    z.innerHTML = `${entete("Corrélation exigences Jira ↔ écrans", `<span class="btns">${menuPerimetre("co-perimetre", s.perimetres, s.perimetre, "Borne la liste des écrans à un module ou à un parcours validé")}${BoutonIA(ia, "co")}
         <button class="btn petit" id="co-relier">${ico("lien")}Relier manuellement</button><button class="btn petit" id="co-actu">${ico("rejouer")}Actualiser</button>
         <button class="btn petit" id="co-histo">${ico("historique")}Historique</button></span>`)}<div class="corps-carte">
       <p class="lib"><b>Vérifiée sur</b> : preuve issue des tests, créée seule (un test automatisé de l'exigence passe par l'écran) ; elle ne dit pas que l'écran réalise l'exigence.
         <b>Réalisé par</b> : association fonctionnelle, active seulement après votre confirmation. Une proposition non confirmée reste ici et n'entre dans aucun calcul.
         ${s.copie_jira ? "" : '<b class="warn-t">Aucune copie locale Jira : synchroniser d\'abord (Rapports › Patrimoine).</b>'}</p>
       ${kpis([[s.ecrans.length, "écrans découverts"], [somme("realisees"), "liens « réalisé par »"], [somme("verifiees"), "liens « vérifiée sur »"],
-        [somme("proposees"), "propositions à trancher", somme("proposees") ? "warn-t" : ""], [s.sans_exigence, "écrans sans exigence", s.sans_exigence ? "warn-t" : ""]])}
+        [somme("prioritaires"), "propositions à trancher en priorité", somme("prioritaires") ? "warn-t" : ""], [autres, "autres ressemblances de mots"], [s.sans_exigence, "écrans sans exigence", s.sans_exigence ? "warn-t" : ""]])}
       <div class="co-grille">
         <div class="co-liste"><input type="search" class="in" id="co-q" placeholder="Rechercher un écran…" aria-label="Rechercher un écran">
           <div id="co-ecrans">${s.ecrans.map(e => `<button class="co-ecran" data-c="${esc(e.id)}" aria-pressed="${e.id === ECRAN}">
             <b>${esc(e.nom)}</b><span class="lib">${esc([e.module, e.plateformes.join(" · ")].filter(Boolean).join(" · ") || "—")}</span>
             <span><span class="pill ${ETATS_CO[e.etat] || ""}">${esc(e.etat)}</span>
-              <span class="lib" title="réalisé par · vérifiée sur · propositions">${e.realisees} · ${e.verifiees} · ${e.proposees}</span></span></button>`).join("")}</div></div>
+              <span class="lib" title="réalisé par · vérifiée sur · propositions à trancher en priorité (parcours, IA) + autres ressemblances de mots">${e.realisees} · ${e.verifiees} · ${e.prioritaires}${e.proposees - e.prioritaires ? " + " + (e.proposees - e.prioritaires) : ""}</span></span></button>`).join("")}</div></div>
         <div id="co-centre"></div><div id="co-droite"></div></div></div>`;
     $$("[data-c]", z).forEach(b => b.onclick = () => { $$("[data-c]", z).forEach(x => x.setAttribute("aria-pressed", x === b)); detailCorrelation(b.dataset.c); });
     $("#co-q", z).oninput = e => { const q = e.target.value.toLowerCase(); $$("[data-c]", z).forEach(b => { b.hidden = !!q && !b.textContent.toLowerCase().includes(q); }); };
+    $("#co-perimetre", z).onchange = e => { poserPerimetre(s.perimetres.find(x => x.noeud === e.target.value)); correlation(z); };
     $("#co-relier", z).onclick = () => relierManuellement();
     $("#co-actu", z).onclick = async () => { try { const r = await api("/api/discovery/correlation/actualiser", {method: "POST", body: {}});
       toast(`Corrélations actualisées : ${r.apparus} lien(s) vérifié(s) apparu(s), ${r.preuves_perdues + r.perdus} preuve(s) perdue(s).`, "ok"); correlation(z); } catch (e) { toast(e.message, "ko"); } };
@@ -293,6 +305,7 @@
     if ($("#co-ia", z)) $("#co-ia", z).onclick = async () => { try { const r = await api("/api/discovery/correlation/ia", {method: "POST", body: {ecran: ECRAN || ""}});
       if (r.disponible === false) return toast(r.raison, "ko"); toast(`IA : ${r.concerne} exigence(s) concernent les écrans, ${r.incertain || 0} incertaine(s), ${r.ne_concerne_pas} non (à confirmer).`, "ok"); correlation(z); } catch (e) { toast(e.message, "ko"); } };
     if ($("#co-cursor", z)) $("#co-cursor", z).onclick = () => DemanderCursor("Corrélation écran ↔ exigence : demander à Cursor", "Relie les écrans de la carte de l'application active aux exigences Jira. "
+      + (s.perimetre ? `Limite-toi au périmètre « ${s.perimetre.libelle} », c'est-à-dire aux écrans : ${s.ecrans.map(e => e.nom).join(", ")}. ` : "")
       + "Lis les écrans (éléments observés, écrans voisins du parcours), les exigences et les candidates (description, critères d'acceptation) avec discovery_correlations_a_juger "
       + "(d'abord les écrans sans exigence), puis dépose tes verdicts avec discovery_juger_correlations : concerne (l'exigence décrit un comportement visible ou déclenché sur cet écran), "
       + "ne_concerne_pas (un mot commun ne suffit pas, un test qui traverse l'écran non plus) ou incertain, avec une justification, les preuves (éléments de l'écran, phrases de l'exigence) "
@@ -331,6 +344,12 @@
       <h3 class="lib">FICHIERS D'AUTOMATISATION (${c.fichiers.length})</h3><ul class="liste">${c.fichiers.map(f => `<li><span class="item mono">${esc(f)}</span></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul>
       ${c.fichiers.length ? `<button class="btn petit" id="co-git">Derniers commits GitLab</button><div id="co-git-res"></div>` : ""}
       ${c.tests_cartographies.length ? `<p class="lib">Passé par cet écran pendant les runs cartographiés : ${esc(c.tests_cartographies.join(", "))}</p>` : ""}</section>`;
+    const proposition = x => `<li><span class="co-ligne">${cle(x.cle)}<span class="item">${esc(x.resume)}</span>
+          <button class="btn petit primaire" data-conf="${esc(x.cle)}">Confirmer</button><button class="btn petit" data-rej="${esc(x.cle)}">Rejeter</button></span>
+        ${x.jugement ? jugementCo(x.jugement) : (x.parcours || []).length ? "" : `<span class="pill warn" title="Mots communs entre le nom de l'écran et le résumé de l'exigence : sans compréhension du texte, jamais une conclusion">ressemblance des mots</span>`}
+        ${(x.parcours || []).length ? `<span class="lib co-just"><span class="pill info">Parcours</span> exigence du parcours « ${esc(x.parcours.join(" », « "))} », qui traverse cet écran</span>` : ""}
+        ${x.mots.length ? `<span class="lib co-just">Mots communs : ${esc(x.mots.join(", "))}</span>` : ""}</li>`;
+    const prioritaires = c.exigences_proposees.filter(x => x.prioritaire), autresProps = c.exigences_proposees.filter(x => !x.prioritaire);
     droite.innerHTML = `<section class="bloc-strat"><h3>Exigences Jira</h3>
       <h3 class="lib">RÉALISÉ PAR · validé (${c.realisees.length})</h3>
       <ul class="liste co-liens">${c.realisees.map(x => `<li><span class="co-ligne">${cle(x.cle)}<span class="item">${esc(x.resume)}</span><span class="pill ok">${esc(x.origine_libelle)}</span>
@@ -341,12 +360,11 @@
       <ul class="liste co-liens">${c.verifiees.map(x => `<li><span class="co-ligne">${cle(x.cle)}<span class="item">${esc(x.resume)}</span><span class="pill info">via ${esc(x.via)}</span>
           <button class="btn petit" data-conf="${esc(x.cle)}" title="L'écran réalise bien cette exigence : créer le lien « réalisé par »">Confirmer « réalisé par »</button></span>
         ${jugementCo(x.jugement)}${preuvesCo(x.preuves)}</li>`).join("") || "<li class='lib'>Aucun test automatisé d'une exigence ne passe par cet écran.</li>"}</ul>
-      <h3 class="lib">PROPOSITIONS · à trancher (${c.exigences_proposees.length})</h3>
-      <ul class="liste co-liens">${c.exigences_proposees.map(x => `<li><span class="co-ligne">${cle(x.cle)}<span class="item">${esc(x.resume)}</span>
-          <button class="btn petit primaire" data-conf="${esc(x.cle)}">Confirmer</button><button class="btn petit" data-rej="${esc(x.cle)}">Rejeter</button></span>
-        ${x.jugement ? jugementCo(x.jugement) : `<span class="pill warn" title="Mots communs entre le nom de l'écran et le résumé de l'exigence : sans compréhension du texte, jamais une conclusion">ressemblance des mots</span>`}
-        ${(x.parcours || []).length ? `<span class="lib co-just"><span class="pill info">Parcours</span> exigence du parcours « ${esc(x.parcours.join(" », « "))} », qui traverse cet écran</span>` : ""}
-        ${x.mots.length ? `<span class="lib co-just">Mots communs : ${esc(x.mots.join(", "))}</span>` : ""}</li>`).join("") || "<li class='lib'>Aucune proposition en attente.</li>"}</ul>
+      <h3 class="lib" title="Exigence d'un parcours qui traverse cet écran, ou proposition jugée par une IA">À TRANCHER EN PRIORITÉ · parcours et IA (${prioritaires.length})</h3>
+      <ul class="liste co-liens">${prioritaires.map(proposition).join("") || "<li class='lib'>Aucune proposition fondée sur un parcours ou jugée par une IA.</li>"}</ul>
+      ${autresProps.length ? `<details class="co-preuves"><summary title="Mots communs entre le nom de l'écran et le résumé de l'exigence : une présélection, jamais une conclusion">Autres ressemblances de mots (${autresProps.length})</summary>
+        <ul class="liste co-liens">${autresProps.map(proposition).join("")}</ul></details>` : ""}
+      ${(c.mots_ignores || []).length ? `<p class="lib">Mot(s) ignoré(s), car présent(s) dans plus de la moitié des exigences : ${esc(c.mots_ignores.join(", "))}.</p>` : ""}
       ${c.rejetees.length ? `<details class="co-preuves"><summary>${c.rejetees.length} proposition(s) rejetée(s)</summary>${c.rejetees.map(x => `<p class="lib"><b class="mono">${esc(x.cle)}</b> ${esc(x.resume)}
         <br>Rejetée par ${esc(x.par)} le ${dateCo(x.date)}${x.motif ? ` : ${esc(x.motif)}` : ""}</p>`).join("")}</details>` : ""}</section>`;
     const recharger = () => correlation($(".corps-strat"));

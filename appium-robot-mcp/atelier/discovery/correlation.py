@@ -10,7 +10,9 @@ Deux relations, jamais confondues (décision du 2026-11-18, docs/CORRELATION_EXI
 
 Les propositions (jugées par une IA : Cursor via le MCP, ou LLM interne / Claude ; à défaut, simple ressemblance des mots)
 restent dans cet espace : elles n'entrent dans le graphe qu'une fois confirmées, et un rejet est mémorisé (jamais
-reproposé). Prérequis : l'écran existe dans la carte (session Discovery) ; sinon, aucun lien n'est créé.
+reproposé). Un mot présent dans plus de la moitié des exigences ne distingue rien : il ne déclenche aucune proposition.
+Les propositions fondées (exigence d'un parcours qui traverse l'écran, jugement d'une IA) passent avant les simples
+ressemblances de mots. Un périmètre (module de la carte ou parcours validé, reste.py) borne la liste des écrans. Prérequis : l'écran existe dans la carte (session Discovery) ; sinon, aucun lien n'est créé.
 Aucun appel Jira / Xray en direct : la copie locale (synchronisation) fait foi.
 """
 from __future__ import annotations
@@ -24,11 +26,27 @@ MOTS_VIDES = {"ecran", "page", "de", "du", "des", "la", "le", "les", "et", "en",
 TYPES_EXIGENCE = ("epic", "user_story", "bug")
 ORIGINES = {"ia": "proposition d'une IA confirmée", "tests": "preuve de test promue", "manuel": "lien manuel",
             "mots": "ressemblance des mots"}
+# Un mot commun à plus de la moitié des exigences (le nom du produit, du module…) ne distingue aucune exigence : il est
+# ignoré dans la ressemblance des mots. Sous MIN_EXIGENCES_MOTS_COMMUNS exigences, la proportion ne veut rien dire.
+PART_MOT_COMMUN = 0.5
+MIN_EXIGENCES_MOTS_COMMUNS = 4
 
 
 def _mots(*textes: str) -> set[str]:
     t = unicodedata.normalize("NFKD", " ".join(x or "" for x in textes)).encode("ascii", "ignore").decode().lower()
     return {m.rstrip("s") for m in re.split(r"[^a-z0-9]+", t) if len(m) >= 4 and m not in MOTS_VIDES}
+
+
+def _mots_communs(mots_par_exigence: list[set[str]]) -> set[str]:
+    """Mots présents dans plus de la moitié des exigences : ils ne distinguent rien."""
+    n = len(mots_par_exigence)
+    if n < MIN_EXIGENCES_MOTS_COMMUNS:
+        return set()
+    compte: dict = {}
+    for mots in mots_par_exigence:
+        for m in mots:
+            compte[m] = compte.get(m, 0) + 1
+    return {m for m, c in compte.items() if c > n * PART_MOT_COMMUN}
 
 
 def _contexte():
@@ -153,16 +171,19 @@ def ecran(eid: str, ctx=None) -> dict:
                        for k, d in dec.items() if d.get("etat") == "rejetée" and k not in realisees), key=lambda x: x["cle"])
     # propositions par les mots (secours), puis jugements d'une IA
     mots = _mots(e.get("nom", ""), e.get("titre", ""), e.get("module", ""))
+    mots_exigences = [(x, _mots(x.get("resume", ""), x.get("module") or "")) for x in pat.get("exigences", [])] if mots else []
+    ignores = mots & _mots_communs([m for _, m in mots_exigences])  # communs à trop d'exigences : aucune proposition
+    mots -= ignores
     proposees = []
     ecartees = set(exigences) | {x["cle"] for x in rejetees}
     from atelier.discovery import parcours_utilisateur
 
     du_parcours = parcours_utilisateur.exigences_des_ecrans().get(e["id"], {})  # exigences des parcours qui traversent l'écran
     if mots:
-        for x in pat.get("exigences", []):
+        for x, mots_x in mots_exigences:
             if x["cle"] in ecartees:
                 continue
-            communs = mots & _mots(x.get("resume", ""), x.get("module") or "")
+            communs = mots & mots_x
             if communs:
                 proposees.append({"cle": x["cle"], "resume": x.get("resume", ""), "type": x["type"], "mots": sorted(communs),
                                   "score": len(communs)})
@@ -174,6 +195,10 @@ def ecran(eid: str, ctx=None) -> dict:
                   for k, noms in du_parcours.items() if k not in vues and k not in ecartees and k in ex_par_cle]
     proposees.sort(key=lambda p: (not p.get("parcours"), -p["score"], p["cle"]))
     proposees = _avec_jugements(jug, proposees, ecartees, pat)
+    for p in proposees:  # fondée sur un parcours ou jugée par une IA : à trancher avant les simples ressemblances de mots
+        p["prioritaire"] = bool(p.get("parcours") or p.get("jugement"))
+    proposees.sort(key=lambda p: not p["prioritaire"])  # tri stable : l'ordre de chaque groupe est gardé
+    proposees = proposees[:12]
     fichiers = sorted({t["fichier"] for t in imp["tests_robot"] if t.get("fichier")}
                       | {n.proprietes.get("fichier") for n in g.noeuds.values()
                          if n.type == "locator" and n.proprietes.get("ecran") == (e.get("nom") or "").lower() and n.proprietes.get("fichier")})
@@ -184,7 +209,8 @@ def ecran(eid: str, ctx=None) -> dict:
             "exigences": sorted(exigences.values(), key=lambda x: x["cle"]),
             "realisees": sorted(realisees.values(), key=lambda x: x["cle"]),
             "verifiees": sorted((v for k, v in verifiees.items() if k not in realisees), key=lambda x: x["cle"]),
-            "exigences_proposees": proposees[:12], "rejetees": rejetees,
+            "exigences_proposees": proposees, "prioritaires": sum(p["prioritaire"] for p in proposees),
+            "mots_ignores": sorted(ignores), "rejetees": rejetees,
             "fichiers": sorted(f for f in fichiers if f), "tests_cartographies": sorted(e.get("utilise_par") or [])}
 
 
@@ -205,15 +231,23 @@ def detail(eid: str) -> dict:
                          "vers": [{"ecran": noms.get(t["vers"], t["vers"]), "action": action(t)} for t in ts if t["de"] == e["id"]]}}
 
 
-def synthese() -> dict:
-    """Tous les écrans de l'application active : liens par écran, état de corrélation. « carte_vide » : aucune
-    Discovery n'a encore été faite, rien ne peut être relié."""
+def synthese(perimetre: str = "") -> dict:
+    """Les écrans de l'application active, ou d'un périmètre (« module:… », « parcours:… » : reste.py) : liens par écran,
+    état de corrélation. « carte_vide » : aucune Discovery n'a encore été faite, rien ne peut être relié."""
+    from atelier.discovery import reste
+
     ctx = _contexte()
     carte = ctx[0]
     if not carte.app_courante():
-        return {"ecrans": [], "sans_test": 0, "sans_exigence": 0, "copie_jira": False, "carte_vide": True, "application": ""}
+        return {"ecrans": [], "sans_test": 0, "sans_exigence": 0, "copie_jira": False, "carte_vide": True, "application": "",
+                "perimetre": None, "perimetres": []}
+    choix = reste.perimetre(perimetre)  # périmètre inconnu : erreur, jamais une liste silencieusement non bornée
+    tous = carte.ecrans()
+    dans = set(choix["ecrans"]) if choix else None
     out = []
-    for e in carte.ecrans():
+    for e in tous:
+        if dans is not None and e["id"] not in dans:
+            continue
         c = ecran(e["id"], ctx)
         etat = ("réalisé" if c["realisees"] else "vérifié par les tests" if c["verifiees"]
                 else "propositions à trancher" if c["exigences_proposees"] else "à corréler")
@@ -221,14 +255,16 @@ def synthese() -> dict:
                     "tests_robot": len(c["tests_robot"]), "tests_xray": len(c["tests_xray"]), "exigences": len(c["exigences"]),
                     "realisees": len(c["realisees"]), "verifiees": len(c["verifiees"]),
                     "cles_realisees": [x["cle"] for x in c["realisees"]], "cles_verifiees": [x["cle"] for x in c["verifiees"]],
-                    "proposees": len(c["exigences_proposees"]), "fichiers": len(c["fichiers"]), "etat": etat})
+                    "proposees": len(c["exigences_proposees"]), "prioritaires": c["prioritaires"], "fichiers": len(c["fichiers"]), "etat": etat})
     try:
         suivre_preuves(ctx)
     except Exception:  # noqa: BLE001 — le suivi des preuves ne bloque jamais l'affichage
         pass
     return {"ecrans": out, "sans_test": sum(1 for x in out if not x["tests_robot"] and not x["tests_xray"]),
             "sans_exigence": sum(1 for x in out if not x["exigences"]), "copie_jira": bool(ctx[3].get("exigences")),
-            "carte_vide": not out, "application": carte.app_courante() or ""}
+            "carte_vide": not tous, "application": carte.app_courante() or "",
+            "perimetre": {k: choix[k] for k in ("noeud", "type", "libelle")} | {"ecrans": len(choix["ecrans"])} if choix else None,
+            "perimetres": [{k: p[k] for k in ("noeud", "type", "libelle")} | {"ecrans": len(p["ecrans"])} for p in reste.perimetres()]}
 
 
 # --------------------------------------------------------------------------- décisions : confirmer, rejeter, retirer

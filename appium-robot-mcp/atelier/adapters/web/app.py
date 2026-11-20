@@ -1789,10 +1789,11 @@ def discovery_reseau():
 
 
 @app.get("/api/discovery/correlation")
-async def discovery_correlation():
+async def discovery_correlation(perimetre: str = ""):
+    """Corrélation de toute l'application, ou d'un périmètre (« module:… », « parcours:… »)."""
     from atelier.discovery import correlation
 
-    return await asyncio.to_thread(_call, correlation.synthese)
+    return await asyncio.to_thread(_call, correlation.synthese, perimetre)
 
 
 @app.get("/api/discovery/correlation/historique")

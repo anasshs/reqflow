@@ -179,3 +179,83 @@ def test_tableau_de_bord_avec_un_ecran_relie_a_une_exigence(banque):
     pilotage.vider_memo()
     assert "exigences_sans_ecran" in {i["id"] for i in pilotage.conception()["discovery"]["indicateurs"]}   # le calcul aboutit
     assert pilotage.decision()                                                                            # et l'aide à la décision aussi
+
+
+ESIM = [{"cle": "DEMO-21", "type": "user_story", "resume": "Catalogue des forfaits eSIM"},
+        {"cle": "DEMO-22", "type": "user_story", "resume": "Choisir le pays de son eSIM"},
+        {"cle": "DEMO-23", "type": "user_story", "resume": "Payer une eSIM"},
+        {"cle": "DEMO-24", "type": "user_story", "resume": "Installer son eSIM"},
+        {"cle": "DEMO-25", "type": "user_story", "resume": "Consulter l'aide"}]
+
+
+@pytest.fixture
+def esim(tmp_path, monkeypatch):
+    """Deux écrans de deux modules ; « esim » est dans le nom d'un écran et dans quatre exigences sur cinq."""
+    from atelier.discovery import carte, connaissance
+    from atelier.domain import projet
+    from atelier.intelligence import patrimoine_xray
+
+    monkeypatch.setattr(projet, "PROJECT_DIR", tmp_path)
+    carte.creer_app("Voyage Web", ["web"], web={"url": "https://recette.exemple.fr"}, type_="web")
+    a = carte.observer([_el("bouton_forfait", "Choisir ce forfait")], "web", "https://recette.exemple.fr/esim")
+    carte.renommer(a["id"], "esim_catalogue", "eSim")
+    b = carte.observer([_el("lien_faq", "Questions fréquentes", "lien")], "web", "https://recette.exemple.fr/aide")
+    carte.renommer(b["id"], "aide_accueil", "Aide")
+    patrimoine_xray.enregistrer({"projet": "DEMO", "exigences": ESIM, "tests": []}, "test")
+    connaissance.vider_cache()
+    return a["id"], b["id"]
+
+
+def test_un_mot_commun_a_trop_d_exigences_ne_propose_rien(esim):
+    """« esim » est partout : il ne distingue aucune exigence. Seul « catalogue » fonde une ressemblance."""
+    from atelier.discovery import correlation
+
+    c = correlation.ecran(esim[0])
+    assert c["mots_ignores"] == ["esim"]
+    assert [(p["cle"], p["mots"]) for p in c["exigences_proposees"]] == [("DEMO-21", ["catalogue"])]
+    assert correlation._mots_communs([{"esim"}, {"esim"}, {"esim"}]) == set()            # trop peu d'exigences pour parler de proportion
+    assert correlation._mots_communs([{"a", "b"}, {"a"}, {"a", "b"}, {"c"}]) == {"a"}    # la moitié exactement ne suffit pas
+    # la présélection transmise à une IA suit la même règle ; elle peut toujours citer n'importe quelle exigence de la liste
+    vue = correlation.correlations_a_juger(esim[0])
+    assert [x["cle"] for x in vue["ecrans"][0]["candidats"]] == ["DEMO-21"] and len(vue["exigences"]) == 5
+
+
+def test_les_propositions_fondees_passent_avant_les_ressemblances(esim):
+    """Jugée par une IA (même « ne concerne pas ») ou venue d'un parcours : à trancher en priorité. Les mots seuls : après."""
+    from atelier.discovery import correlation
+
+    correlation.deposer_correlations([
+        {"ecran": "esim_catalogue", "exigence": "DEMO-23", "verdict": "incertain", "justification": "le paiement peut commencer ici"},
+        {"ecran": "esim_catalogue", "exigence": "DEMO-21", "verdict": "ne_concerne_pas", "justification": "liste gérée ailleurs"}])
+    c = correlation.ecran(esim[0])
+    assert [(p["cle"], p["prioritaire"]) for p in c["exigences_proposees"]] == [("DEMO-23", True), ("DEMO-21", True)]
+    assert c["prioritaires"] == 2
+    autre = correlation.ecran(esim[1])                                                    # « aide » : ressemblance des mots seule
+    assert [(p["cle"], p["prioritaire"]) for p in autre["exigences_proposees"]] == [("DEMO-25", False)] and autre["prioritaires"] == 0
+    s = {x["nom"]: x for x in correlation.synthese()["ecrans"]}
+    assert (s["esim_catalogue"]["proposees"], s["esim_catalogue"]["prioritaires"]) == (2, 2)
+    assert (s["aide_accueil"]["proposees"], s["aide_accueil"]["prioritaires"]) == (1, 0)
+    correlation.confirmer(esim[1], "DEMO-25")                                             # une ressemblance reste confirmable
+    assert correlation.ecran(esim[1])["realisees"][0]["origine"] == "mots"
+
+
+def test_perimetre_de_la_correlation(esim):
+    """Un module (ou un parcours validé) borne la liste des écrans ; un périmètre inconnu est refusé."""
+    from fastapi.testclient import TestClient
+
+    from atelier.discovery import correlation
+    from web_app_loader import charger_app_web
+
+    s = correlation.synthese()
+    assert len(s["ecrans"]) == 2 and s["perimetre"] is None
+    assert [(p["noeud"], p["ecrans"]) for p in s["perimetres"]] == [("module:Aide", 1), ("module:eSim", 1)]
+    s = correlation.synthese("module:eSim")
+    assert [x["nom"] for x in s["ecrans"]] == ["esim_catalogue"] and s["perimetre"]["libelle"] == "eSim" and not s["carte_vide"]
+    assert s["sans_exigence"] == 1                                                        # les compteurs suivent le périmètre
+    with pytest.raises(KeyError):
+        correlation.synthese("module:Inconnu")
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200
+    assert [x["nom"] for x in c.get("/api/discovery/correlation", params={"perimetre": "module:Aide"}).json()["ecrans"]] == ["aide_accueil"]
+    r = c.get("/api/discovery/correlation", params={"perimetre": "parcours:inconnu"})
+    assert r.status_code == 400 and "inconnu" in r.json()["detail"].lower()
