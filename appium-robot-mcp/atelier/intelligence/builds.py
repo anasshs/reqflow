@@ -246,6 +246,22 @@ def vue(rid: str, bid: str) -> dict:
             "resultats": _resultats(lignes), "anomalies": _anomalies_du_build(b, lignes), "types": R.TYPES, "categories": CATEGORIES}
 
 
+# =========================================================================== résultats relus dans Xray
+def actualiser_xray(rid: str, bid: str, xray=None) -> dict:
+    """Relit dans Xray les Test Executions créées depuis la réception du build (statuts PASSED / FAILED posés dans Xray),
+    met à jour la copie locale, puis rend la vue du build recalculée. Une erreur Xray est remontée, rien n'est modifié."""
+    from atelier.intelligence import patrimoine_xray
+
+    r = R._lire(rid)
+    b = R._build(r, bid)
+    lu = patrimoine_xray.importer_executions("", xray, b["date_reception"], "")
+    _pilotage().vider_memo()
+    b["lecture_xray"] = {"date": R._maintenant(), "par": R._auteur(), "executions": lu.get("lues", lu.get("nombre", 0))}
+    R._journal(r, "résultats relus dans Xray", build=b["numero"], executions=b["lecture_xray"]["executions"])
+    R._ecrire(r)
+    return vue(rid, bid)
+
+
 # =========================================================================== décisions du QA sur un build
 def operer(rid: str, bid: str, op: str, **p) -> dict:
     """Décisions sur un build, toutes tracées : décider d'un test (acceptée, rejetée justifiée, ajoutée, « » pour annuler),

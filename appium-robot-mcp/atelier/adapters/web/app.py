@@ -2697,6 +2697,14 @@ async def releases_build(rid: str, bid: str):
     return await asyncio.to_thread(_call, builds.vue, rid, bid)
 
 
+@app.post("/api/releases/{rid}/builds/{bid}/actualiser-xray")
+async def releases_build_actualiser_xray(rid: str, bid: str):
+    """Relit dans Xray les résultats des exécutions du build (depuis sa réception)."""
+    from atelier.intelligence import builds
+
+    return await asyncio.to_thread(_call, builds.actualiser_xray, rid, bid)
+
+
 @app.post("/api/releases/{rid}/builds/{bid}/operation")
 async def releases_build_operation(rid: str, bid: str, req: Request):
     """Décisions du QA sur un build (tests, validation, campagne, verdict) ou corrections de ses évolutions."""

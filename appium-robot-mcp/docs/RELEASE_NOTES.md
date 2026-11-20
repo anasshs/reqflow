@@ -52,7 +52,9 @@ non-régression → Test Executions → résultats de qualification. Moteur : `a
    figé pour ce build.
 5. **Exécution** : « Envoyer à Execution Center » crée une campagne avec les tests automatisés retenus (rien n'est
    lancé) ; les tests manuels s'exécutent dans Xray. Un test compte comme exécuté pour le build si son dernier résultat
-   Xray est postérieur à la réception du build.
+   Xray est postérieur à la réception du build. « Actualiser depuis Xray », dans la vue du build, relit les Test Executions créées
+   depuis la réception du build (statuts posés dans Xray) et recalcule les résultats ; la date de la dernière lecture
+   est affichée.
 6. **Verdict du build** : Passed ou Failed, déclaré par le QA ; Passed avec des échecs ou des tests non exécutés demande
    une justification.
 7. **Anomalies du build** : corrigées (confirmé dans Jira), déclarées corrigées mais encore ouvertes, nouvelles,

@@ -282,3 +282,30 @@ def test_un_seul_environnement_pas_de_duplication(rel, b, plan, monkeypatch):  #
     assert not e["multi_environnements"] and e["executions"][0]["envs_libres"] == []
     with pytest.raises(ValueError, match="plusieurs environnements"):
         plan.dupliquer(r["id"], e["executions"][0]["id"], "RECETTE", xray=x)
+
+
+def test_actualiser_depuis_xray_dans_la_vue_du_build(rel, b, monkeypatch):  # noqa: F811
+    """Les PASSED / FAILED posés dans Xray sont relus depuis la vue du build : lecture des exécutions depuis la réception
+    du build, puis vue recalculée. Une erreur Xray ne modifie rien."""
+    from atelier.intelligence import patrimoine_xray
+
+    r = rel.creer(NOTE, nom="Release 3.2")
+    v = b.recevoir(r["id"], "b1", AUJ, "", BUILD1)
+    appels = []
+
+    def lecture(projet, xray, depuis, jusqu):  # Xray simulé : DEMO-304 passé dans Xray
+        appels.append((depuis, jusqu))
+        _resultat({"DEMO-304"}, "PASSED")
+        return {"lues": 3, "nombre": 12}
+    monkeypatch.setattr(patrimoine_xray, "importer_executions", lecture)
+    vu = b.actualiser_xray(r["id"], v["id"])
+    assert appels == [(AUJ, "")]
+    assert vu["lecture_xray"]["executions"] == 3
+    assert next(x for x in vu["perimetre"] if x["test"] == "DEMO-304")["resultat"] == "reussi"
+
+    def panne(*a):
+        raise RuntimeError("Xray injoignable")
+    monkeypatch.setattr(patrimoine_xray, "importer_executions", panne)
+    with pytest.raises(RuntimeError):
+        b.actualiser_xray(r["id"], v["id"])
+    assert b.vue(r["id"], v["id"])["lecture_xray"]["executions"] == 3

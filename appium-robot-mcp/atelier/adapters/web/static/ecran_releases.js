@@ -319,9 +319,10 @@
           : ouvert ? `<button class="btn petit" data-dec="${esc(x.test)}" data-v="acceptée">Accepter</button> <button class="btn petit" data-dec="${esc(x.test)}" data-v="rejetée">Écarter</button>` : ""}</td></tr>`;
     const anomalies = (titre, l, cls = "") => l.length ? `<p style="margin:6px 0 2px"><b>${titre}</b> (${l.length})</p><ul class="rel-puces">${l.map(x => `<li><b class="${cls}">${esc(x.cle)}</b> ${esc(x.resume || "")} <span class="lib">${esc([x.statut, x.priorite].filter(Boolean).join(" · "))}${(x.tests || []).length ? " · tests " + esc(x.tests.join(", ")) : ""}</span></li>`).join("")}</ul>` : "";
     z.innerHTML = `<section class="bloc-strat" style="margin-top:12px"><h3>Build ${esc(B.numero)} ${pill(B.statut, STATUT[B.statut])} <span class="lib">reçu le ${esc(B.date_reception)} par ${esc(B.recu_par || "")}${c.precedent ? ` · comparé au build ${esc(c.precedent)}` : " · premier build, comparé au périmètre initial"}</span>
-        <span class="lien btns">${actions}${verdict}${!ouvert ? `<button class="btn petit" data-bo="rouvrir" title="Le périmètre redevient modifiable ; le verdict est effacé">Rouvrir</button>` : ""}
+        <span class="lien btns"><button class="btn petit" id="rb-actu" title="Relit dans Xray les Test Executions créées depuis la réception du build : les PASSED / FAILED posés dans Xray comptent pour ce build">${ico("rejouer")}Actualiser depuis Xray</button>${actions}${verdict}${!ouvert ? `<button class="btn petit" data-bo="rouvrir" title="Le périmètre redevient modifiable ; le verdict est effacé">Rouvrir</button>` : ""}
           <button class="btn petit danger" data-bo="supprimer">Supprimer</button></span></h3>
       ${B.description || B.changements ? `<p class="lib" style="margin:0 0 8px">${esc(B.description || "")}${B.changements ? ` · changements : ${esc(B.changements)}` : ""}</p>` : ""}
+      <p class="lib" style="margin:0 0 8px">${B.lecture_xray ? `Résultats relus dans Xray le ${date(B.lecture_xray.date)} par ${esc(B.lecture_xray.par)} (${esc(B.lecture_xray.executions)} exécution(s) lue(s)).` : "Résultats Xray pas encore relus pour ce build : « Actualiser depuis Xray » après les passages dans Xray."}</p>
       <div id="rb-verdict"></div>
       ${B.verdict ? `<p class="lib">Déclaré ${esc(B.statut)} par ${esc(B.verdict.par)} le ${date(B.verdict.date)}${B.verdict.motif ? ` · ${esc(B.verdict.motif)}` : ""}.</p>` : ""}
       ${(B.campagnes || []).length ? `<p class="lib">Campagne(s) : ${B.campagnes.map(x => `<a href="#centre/campagnes">${esc(x.nom)}</a> (${x.tests} tests)`).join(", ")}.</p>` : ""}
@@ -356,6 +357,9 @@
         await corps(); liste(); }
       catch (e) { toast(e.message, "ko"); } };
     brancherEvolutions(z, c_ => opBuild(c_));
+    $("#rb-actu", z).onclick = async () => { const b = $("#rb-actu", z); b.disabled = true; b.textContent = "Lecture de Xray…";
+      try { await api(`/api/releases/${ID}/builds/${BID}/actualiser-xray`, {method: "POST", body: {}}); toast("Résultats relus dans Xray.", "ok"); await vueBuild(); liste(); }
+      catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Actualiser depuis Xray"; } };
     $$("[data-bo]", z).forEach(b => b.onclick = () => {
       const op = b.dataset.bo;
       if (op === "supprimer" && !confirm(`Supprimer le build ${B.numero} et son historique ?`)) return;
