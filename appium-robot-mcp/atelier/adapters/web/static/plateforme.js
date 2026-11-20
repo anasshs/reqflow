@@ -183,13 +183,13 @@ const vide = (titre, texte = "") => `<div class="vide"><b>${esc(titre)}</b>${tex
 const Atelier = {
   ctx: {}, ecrans: {}, ecranCourant: null, ws: null, abonnes: new Map(), plateforme: "", env: "",
   ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"], ["parcours", "Parcours", "historique"],
-    ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["centre", "Execution Center", "execution"],
+    ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]],
   /* barre latérale : [adresse, libellé, icône], par groupe. Seules des destinations qui existent ; « parametres » couvre
      les rubriques de Paramètres qui n'ont pas leur propre entrée */
   NAV: [["", [["dashboard", "Accueil", "maison"]]],
     ["Plateforme", [["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "cible"], ["parcours", "Parcours", "historique"],
-      ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["centre", "Execution Center", "execution"],
+      ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
       ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]]],
     ["Ressources", [["graphe", "Knowledge Graph", "graphe"], ["bdd", "Scénarios BDD", "bdd"], ["editeur", "Éditeur de code", "fichier"],
       ["discovery/donnees", "Jeux de données", "donnee"]]],

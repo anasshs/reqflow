@@ -868,3 +868,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Mise en œuvre : `atelier/intelligence/releases.py`. Lecture par des règles, sans IA. Clé Jira citée et connue :
   rattachement certain ; sinon proposition par les mots, à trancher. Une release validée alimente `pilotage.evolutions`.
   Détail et suite : docs/RELEASE_NOTES.md. Aucun outil MCP ajouté.
+
+## 2026-11-20 — Qualification d'une release par builds successifs
+- Demande de l'utilisateur : une release reçoit plusieurs builds ; chacun est analysé par rapport au précédent et au
+  périmètre initial ; périmètre en trois catégories (retest, non-régression ciblée, qualification) ; historique par build ;
+  un build Passed ne qualifie pas la release ; deux niveaux de pilotage (release, build).
+- Décision : écran Releases dédié (barre latérale), moteur `atelier/intelligence/builds.py` ; la Release Note de la
+  release reste le périmètre initial (`releases.py`). Le verdict de build et la qualification de la release sont des
+  décisions du QA ; les critères de sortie sont évalués et affichés, un critère bloquant non satisfait impose une
+  dérogation justifiée. Le résumé du Dashboard mène à l'écran. Aucun outil MCP ajouté, aucune dépendance.

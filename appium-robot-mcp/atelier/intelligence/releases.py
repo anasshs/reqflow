@@ -196,9 +196,11 @@ def _resume(r: dict) -> dict:
     ev = r.get("evolutions") or []
     rattachees = sum(any(l["etat"] == "confirmé" for l in e.get("liens") or []) for e in ev)
     a_trancher = sum(any(l["etat"] == "proposé" for l in e.get("liens") or []) and not any(l["etat"] == "confirmé" for l in e.get("liens") or []) for e in ev)
-    return {**{k: r.get(k, "") for k in ("id", "nom", "version", "date", "statut", "source", "cree", "modifie", "auteur")},
+    builds = r.get("builds") or []
+    return {**{k: r.get(k, "") for k in ("id", "nom", "version", "date", "date_prevue", "perimetre", "statut", "source", "cree", "modifie", "auteur")},
             "evolutions": len(ev), "rattachees": rattachees, "a_trancher": a_trancher, "non_rattachees": len(ev) - rattachees - a_trancher,
-            "cles_jira": len(r.get("cles_jira") or [])}
+            "cles_jira": len(r.get("cles_jira") or []), "builds": len(builds), "builds_passed": sum(b.get("statut") == "Passed" for b in builds),
+            "dernier_build": builds[-1]["numero"] if builds else "", "qualification": (r.get("qualification") or {}).get("etat", "En cours")}
 
 
 def lister() -> list[dict]:
@@ -212,35 +214,61 @@ def lister() -> list[dict]:
     return sorted(out, key=lambda x: x["cree"], reverse=True)
 
 
-def creer(texte: str, nom: str = "") -> dict:
-    """Enregistre une Release Note collée : texte d'origine conservé, évolutions extraites et rattachées. Un texte
-    identique à une release déjà enregistrée est refusé (doublon)."""
+def _date(texte: str) -> str:
+    """Date saisie (AAAA-MM-JJ ou JJ/MM/AAAA) au format AAAA-MM-JJ ; vide si absente ; erreur si illisible."""
+    t = str(texte or "").strip()
+    if not t:
+        return ""
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(t[:10], fmt).date().isoformat()
+        except ValueError:
+            continue
+    raise ValueError(f"Date illisible : {t} (attendu AAAA-MM-JJ ou JJ/MM/AAAA).")
+
+
+def lire_note(texte: str) -> tuple[str, dict]:
+    """Texte d'une Release Note (ou d'une livraison) contrôlé, puis découpé et rattaché au Knowledge Graph."""
+    texte = (texte or "").strip()
+    if len(texte) > 200_000:
+        raise ValueError("Texte trop long (200 000 caractères au plus) : coller la Release Note, pas tout un document.")
+    a = analyser_texte(texte) if texte else {"version": "", "date": "", "cles_jira": [], "evolutions": []}
+    if texte and not a["evolutions"]:
+        raise ValueError("Aucune évolution reconnue dans ce texte : une évolution par ligne ou par puce est attendue.")
+    if a["evolutions"]:
+        g = _graphe()
+        for e in a["evolutions"]:
+            _rattacher(g, e)
+    return texte, a
+
+
+def creer(texte: str = "", nom: str = "", version: str = "", date_prevue: str = "", perimetre: str = "") -> dict:
+    """Crée une release : nom, version, date prévisionnelle, description du périmètre, et sa Release Note (collée,
+    facultative à la création). Les évolutions de la note forment le périmètre initial. Une note identique à celle d'une
+    release déjà enregistrée est refusée (doublon)."""
     import hashlib
 
     texte = (texte or "").strip()
-    if len(texte) < 20:
+    if texte and len(texte) < 20:
         raise ValueError("Coller le texte de la Release Note (20 caractères au moins).")
-    if len(texte) > 200_000:
-        raise ValueError("Texte trop long (200 000 caractères au plus) : coller la Release Note, pas tout un document.")
-    empreinte = hashlib.sha256(re.sub(r"\s+", " ", texte).encode("utf-8")).hexdigest()
+    if not texte and not (nom or "").strip():
+        raise ValueError("Nommer la release, ou coller sa Release Note.")
+    empreinte = hashlib.sha256(re.sub(r"\s+", " ", texte).encode("utf-8")).hexdigest() if texte else ""
     d = _dossier()
-    for f in d.glob("REL-*.json") if d.exists() else []:
+    for f in d.glob("REL-*.json") if d.exists() and empreinte else []:
         try:
             autre = json.loads(f.read_text("utf-8"))
         except (OSError, ValueError):
             continue
         if autre.get("empreinte") == empreinte:
             raise FileExistsError(f"Cette Release Note est déjà enregistrée ({autre['id']} · {autre.get('nom', '')}).")
-    a = analyser_texte(texte)
-    if not a["evolutions"]:
-        raise ValueError("Aucune évolution reconnue dans ce texte : une évolution par ligne ou par puce est attendue.")
-    g = _graphe()
-    for e in a["evolutions"]:
-        _rattacher(g, e)
+    texte, a = lire_note(texte)
+    version = (version or "").strip()[:40] or a["version"]
     rid = f"REL-{datetime.now():%Y%m%d}-{secrets.token_hex(3)}"
-    r = {"id": rid, "nom": (nom or "").strip()[:120] or (f"Release {a['version']}" if a["version"] else f"Release du {datetime.now():%d/%m/%Y}"),
-         "version": a["version"], "date": a["date"], "statut": "Analysée", "source": "texte collé", "auteur": _auteur(), "cree": _maintenant(),
-         "texte": texte, "empreinte": empreinte, "cles_jira": a["cles_jira"], "evolutions": a["evolutions"], "historique": []}
+    r = {"id": rid, "nom": (nom or "").strip()[:120] or (f"Release {version}" if version else f"Release du {datetime.now():%d/%m/%Y}"),
+         "version": version, "date": a["date"], "date_prevue": _date(date_prevue) or _date(a["date"]), "perimetre": (perimetre or "").strip()[:4000],
+         "statut": "Analysée", "source": "texte collé" if texte else "saisie", "auteur": _auteur(), "cree": _maintenant(),
+         "texte": texte, "empreinte": empreinte, "cles_jira": a["cles_jira"], "evolutions": a["evolutions"], "builds": [], "historique": []}
     _journal(r, "création", evolutions=len(a["evolutions"]))
     _ecrire(r)
     return obtenir(rid)
@@ -290,6 +318,13 @@ def chercher_noeuds(q: str, limite: int = 12) -> list[dict]:
     return out
 
 
+def _build(r: dict, bid: str) -> dict:
+    b = next((b for b in r.get("builds") or [] if b["id"] == bid), None)
+    if b is None:
+        raise KeyError(f"Build inconnu : {bid}")
+    return b
+
+
 def _evolution(r: dict, eid: str) -> dict:
     e = next((e for e in r["evolutions"] if e["id"] == eid), None)
     if e is None:
@@ -299,9 +334,12 @@ def _evolution(r: dict, eid: str) -> dict:
 
 def operer(rid: str, op: str, **p) -> dict:
     """Corrections du QA, toutes tracées : modifier / ajouter / supprimer une évolution, confirmer / rejeter / relier /
-    délier un élément du graphe, renommer, valider (la release alimente alors le TNR) ou rouvrir, supprimer la release."""
+    délier un élément du graphe, renommer, valider (la release alimente alors le TNR) ou rouvrir, supprimer la release.
+    build : les opérations sur les évolutions portent alors sur ce build (son périmètre validé est à revalider)."""
     r = _lire(rid)
     g = _graphe()
+    if p.get("build"):
+        return _operer_build(r, g, _build(r, str(p["build"])), op, p)
     if op == "supprimer_release":
         (_dossier() / f"{rid}.json").unlink()
         try:
@@ -319,58 +357,92 @@ def operer(rid: str, op: str, **p) -> dict:
     elif op == "renommer":
         r["nom"] = str(p.get("nom") or "").strip()[:120] or r["nom"]
         r["version"] = str(p.get("version") or r.get("version") or "").strip()[:40]
-        _journal(r, "renommage", nom=r["nom"])
-    elif op == "ajouter_evolution":
-        texte = str(p.get("texte") or "").strip()
-        if len(texte) < 5:
-            raise ValueError("Décrire l'évolution.")
-        n = max([int(e["id"][1:]) for e in r["evolutions"]] or [0]) + 1
-        e = {"id": f"E{n}", "texte": texte[:1000], "type": p.get("type") if p.get("type") in TYPES else (_type(texte) or "modification"), "rubrique": "",
-             "ligne": 0, "ligne_fin": 0, "cles_jira": sorted(set(_CLE_JIRA.findall(texte))), "origine": "ajoutée par le QA"}
-        _rattacher(g, e)
-        r["evolutions"].append(e)
-        _journal(r, "évolution ajoutée", evolution=e["id"])
+        if p.get("date_prevue") is not None:
+            r["date_prevue"] = _date(p["date_prevue"])
+        if p.get("perimetre") is not None:
+            r["perimetre"] = str(p["perimetre"]).strip()[:4000]
+        _journal(r, "release modifiée", nom=r["nom"])
+    elif op == "note":  # Release Note collée après la création : elle devient le périmètre initial
+        if r["evolutions"]:
+            raise ValueError("La release a déjà sa Release Note : corriger ses évolutions, ou enregistrer un build.")
+        texte, a = lire_note(str(p.get("texte") or ""))
+        if not texte:
+            raise ValueError("Coller le texte de la Release Note.")
+        r.update(texte=texte, cles_jira=a["cles_jira"], evolutions=a["evolutions"], source="texte collé", version=r.get("version") or a["version"])
+        _journal(r, "Release Note ajoutée", evolutions=len(a["evolutions"]))
     else:
-        e = _evolution(r, str(p.get("evolution") or ""))
-        if op == "supprimer_evolution":
-            r["evolutions"].remove(e)
-            _journal(r, "évolution supprimée", evolution=e["id"], texte=e["texte"][:120])
-        elif op == "modifier_evolution":
-            if p.get("type"):
-                if p["type"] not in TYPES:
-                    raise ValueError(f"Type inconnu : {p['type']}")
-                e["type"] = p["type"]
-            if p.get("texte") is not None and str(p["texte"]).strip() and str(p["texte"]).strip() != e["texte"]:
-                e["texte"] = str(p["texte"]).strip()[:1000]
-                e["cles_jira"] = sorted(set(_CLE_JIRA.findall(e["texte"])))
-                e["corrigee"] = True
-                _rattacher(g, e)
-            _journal(r, "évolution corrigée", evolution=e["id"])
-        elif op in ("confirmer", "rejeter", "relier", "delier"):
-            nid = str(p.get("noeud") or "")
-            lien = next((l for l in e.get("liens") or [] if l["noeud"] == nid), None)
-            if op == "relier":
-                if nid not in g.noeuds:
-                    raise KeyError(f"Élément inconnu du Knowledge Graph : {nid}")
-                if lien is None:
-                    lien = {**_fiche(g, nid), "origine": "relié par le QA"}
-                    e.setdefault("liens", []).append(lien)
-                lien.update(etat="confirmé", par=_auteur(), date=_maintenant())
-            elif lien is None:
-                raise KeyError(f"{nid} n'est pas proposé pour cette évolution.")
-            elif op == "delier":
-                e["liens"].remove(lien)
-            else:
-                lien.update(etat="confirmé" if op == "confirmer" else "rejeté", par=_auteur(), date=_maintenant())
-            _journal(r, {"confirmer": "rattachement confirmé", "rejeter": "proposition rejetée", "relier": "relié à la main", "delier": "rattachement retiré"}[op],
-                     evolution=e["id"], noeud=nid)
-        else:
-            raise ValueError(f"Opération inconnue : {op}")
-    if op not in ("valider", "rouvrir", "renommer") and r["statut"] == "Validée":
+        _modifier_evolutions(r, g, r["evolutions"], op, p)
+    if op not in ("valider", "rouvrir", "renommer", "note") and r["statut"] == "Validée":
         r["statut"] = "Analysée"  # une release modifiée après validation est à revalider : le TNR ne lit que du validé
         _journal(r, "à revalider (modifiée après validation)")
     _ecrire(r)
     return obtenir(rid)
+
+
+def _modifier_evolutions(r: dict, g, evolutions: list, op: str, p: dict, prefixe: str = "") -> str:
+    """Opérations sur une liste d'évolutions (celle de la release ou d'un build) ; rend l'action à journaliser."""
+    if op == "ajouter_evolution":
+        texte = str(p.get("texte") or "").strip()
+        if len(texte) < 5:
+            raise ValueError("Décrire l'évolution.")
+        n = max([int(e["id"][1:]) for e in evolutions] or [0]) + 1
+        e = {"id": f"E{n}", "texte": texte[:1000], "type": p.get("type") if p.get("type") in TYPES else (_type(texte) or "modification"), "rubrique": "",
+             "ligne": 0, "ligne_fin": 0, "cles_jira": sorted(set(_CLE_JIRA.findall(texte))), "origine": "ajoutée par le QA"}
+        _rattacher(g, e)
+        evolutions.append(e)
+        _journal(r, "évolution ajoutée", evolution=prefixe + e["id"])
+        return e["id"]
+    e = next((x for x in evolutions if x["id"] == str(p.get("evolution") or "")), None)
+    if e is None:
+        raise KeyError(f"Évolution inconnue : {p.get('evolution')}")
+    if op == "supprimer_evolution":
+        evolutions.remove(e)
+        _journal(r, "évolution supprimée", evolution=prefixe + e["id"], texte=e["texte"][:120])
+    elif op == "modifier_evolution":
+        if p.get("type"):
+            if p["type"] not in TYPES:
+                raise ValueError(f"Type inconnu : {p['type']}")
+            e["type"] = p["type"]
+        if p.get("texte") is not None and str(p["texte"]).strip() and str(p["texte"]).strip() != e["texte"]:
+            e["texte"] = str(p["texte"]).strip()[:1000]
+            e["cles_jira"] = sorted(set(_CLE_JIRA.findall(e["texte"])))
+            e["corrigee"] = True
+            _rattacher(g, e)
+        _journal(r, "évolution corrigée", evolution=prefixe + e["id"])
+    elif op in ("confirmer", "rejeter", "relier", "delier"):
+        nid = str(p.get("noeud") or "")
+        lien = next((l for l in e.get("liens") or [] if l["noeud"] == nid), None)
+        if op == "relier":
+            if nid not in g.noeuds:
+                raise KeyError(f"Élément inconnu du Knowledge Graph : {nid}")
+            if lien is None:
+                lien = {**_fiche(g, nid), "origine": "relié par le QA"}
+                e.setdefault("liens", []).append(lien)
+            lien.update(etat="confirmé", par=_auteur(), date=_maintenant())
+        elif lien is None:
+            raise KeyError(f"{nid} n'est pas proposé pour cette évolution.")
+        elif op == "delier":
+            e["liens"].remove(lien)
+        else:
+            lien.update(etat="confirmé" if op == "confirmer" else "rejeté", par=_auteur(), date=_maintenant())
+        _journal(r, {"confirmer": "rattachement confirmé", "rejeter": "proposition rejetée", "relier": "relié à la main", "delier": "rattachement retiré"}[op],
+                 evolution=prefixe + e["id"], noeud=nid)
+    else:
+        raise ValueError(f"Opération inconnue : {op}")
+    return e["id"]
+
+
+def _operer_build(r: dict, g, b: dict, op: str, p: dict) -> dict:
+    """Corrections des évolutions d'un build ; un périmètre déjà validé redevient à valider (il a pu changer)."""
+    _modifier_evolutions(r, g, b["evolutions"], op, p, prefixe=f"{b['numero']} · ")
+    if b.get("statut") == "Périmètre validé":
+        b["statut"] = "Reçu"
+        b.pop("perimetre_valide", None)
+        _journal(r, "périmètre du build à revalider (évolutions modifiées)", build=b["numero"])
+    _ecrire(r)
+    from atelier.intelligence import builds
+
+    return builds.vue(r["id"], b["id"])
 
 
 # =========================================================================== alimentation du TNR

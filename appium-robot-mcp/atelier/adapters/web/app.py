@@ -2602,7 +2602,8 @@ async def releases_creer(req: Request):
     from atelier.intelligence import releases
 
     b = await req.json()
-    return await asyncio.to_thread(_call, releases.creer, b.get("texte", ""), b.get("nom", ""))
+    return await asyncio.to_thread(_call, releases.creer, b.get("texte", ""), b.get("nom", ""), b.get("version", ""), b.get("date_prevue", ""),
+                                   b.get("perimetre", ""))
 
 
 @app.get("/api/releases/noeuds")
@@ -2626,7 +2627,54 @@ async def releases_operation(rid: str, req: Request):
 
     b = await req.json()
     op = str(b.pop("op", ""))
-    return await asyncio.to_thread(lambda: _call(releases.operer, rid, op, **{k: v for k, v in b.items() if k in ("evolution", "noeud", "texte", "type", "nom", "version")}))
+    return await asyncio.to_thread(lambda: _call(releases.operer, rid, op, **{k: v for k, v in b.items()
+                                                                       if k in ("evolution", "noeud", "texte", "type", "nom", "version", "date_prevue", "perimetre")}))
+
+
+@app.get("/api/releases/{rid}/tableau")
+async def releases_tableau(rid: str):
+    """Vue release : builds, anomalies cumulées, couverture, critères de sortie, qualification."""
+    from atelier.intelligence import builds
+
+    return await asyncio.to_thread(_call, builds.tableau, rid)
+
+
+@app.post("/api/releases/{rid}/qualifier")
+async def releases_qualifier(rid: str, req: Request):
+    from atelier.intelligence import builds
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, builds.qualifier, rid, b.get("motif", ""), bool(b.get("annuler")))
+
+
+@app.post("/api/releases/{rid}/builds")
+async def releases_build_recevoir(rid: str, req: Request):
+    """Un build reçu pour la release : contenu collé, anomalies corrigées ; analysé et comparé au build précédent."""
+    from atelier.intelligence import builds
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, builds.recevoir, rid, b.get("numero", ""), b.get("date_reception", ""), b.get("description", ""),
+                                   b.get("texte", ""), b.get("anomalies", ""), b.get("changements", ""))
+
+
+@app.get("/api/releases/{rid}/builds/{bid}")
+async def releases_build(rid: str, bid: str):
+    from atelier.intelligence import builds
+
+    return await asyncio.to_thread(_call, builds.vue, rid, bid)
+
+
+@app.post("/api/releases/{rid}/builds/{bid}/operation")
+async def releases_build_operation(rid: str, bid: str, req: Request):
+    """Décisions du QA sur un build (tests, validation, campagne, verdict) ou corrections de ses évolutions."""
+    from atelier.intelligence import builds, releases
+
+    b = await req.json()
+    op = str(b.pop("op", ""))
+    if op in ("ajouter_evolution", "supprimer_evolution", "modifier_evolution", "confirmer", "rejeter", "relier", "delier"):
+        return await asyncio.to_thread(lambda: _call(releases.operer, rid, op, build=bid, **{k: v for k, v in b.items() if k in ("evolution", "noeud", "texte", "type")}))
+    return await asyncio.to_thread(lambda: _call(builds.operer, rid, bid, op, **{k: v for k, v in b.items()
+                                                                              if k in ("test", "decision", "motif", "nom", "plateformes", "environnement")}))
 
 
 @app.get("/api/studio/structure")
