@@ -132,3 +132,64 @@ def test_la_suite_existante_du_parcours_est_retrouvee_par_ses_tests(banque):
     g = bdd.generer_robot(m)
     assert g["ajout"] and g["chemin"] == "tests/virements/parcours_virement.robot" and "porte déjà des tests du parcours" in g["raison_suite"]
     assert "Virement simple" in g["contenu"] and "Virement au plafond" in g["contenu"]
+
+
+def test_sans_relation_test_exigence_on_rattache_a_la_main(banque):
+    """Aucun lien entre le test et une US : le test garde sa suite, sauf si l'automaticien choisit son parcours métier
+    ou une suite existante du dépôt. Le choix passe avant la déduction par les US."""
+    from fastapi.testclient import TestClient
+
+    from atelier.adapters import facade
+    from atelier.discovery import parcours_utilisateur as pu
+    from atelier.domain import projet as pj
+    from atelier.generation import bdd, suites_parcours as sp
+    from web_app_loader import charger_app_web
+
+    for cle, titre in (("LIBRE-1", "Ajouter un bénéficiaire"), ("LIBRE-2", "Supprimer un bénéficiaire"), ("LIBRE-3", "Exporter un relevé")):
+        bdd.creer(cle, titre, depuis_xray={"gherkin": GHERKIN, "resume": titre})          # tests inconnus de la copie Xray : aucune US
+    g = facade.studio_generer_depuis_bdd("LIBRE-1")
+    assert (g["parcours"], g["ajout"]) == ("", False) and "choisir son parcours métier ou une suite existante" in g["raison_suite"]
+
+    # parcours choisi à la main : il n'a même pas besoin d'exigences rattachées
+    p = pu.enregistrer("", {"nom": "Gérer ses bénéficiaires", "plateforme": "web"})
+    o = sp.options("LIBRE-1")
+    assert o["deduit"] == "" and {"Faire un virement", "Gérer ses bénéficiaires"} <= {x["nom"] for x in o["parcours"]} and o["suites"] == []
+    assert sp.rattacher("LIBRE-1", parcours="Gérer ses bénéficiaires")["parcours"] == p["id"]
+    g = facade.studio_generer_depuis_bdd("LIBRE-1", ecrire=True)
+    assert g["chemin"] == "tests/banque_web/sans_module/gerer_ses_beneficiaires.robot" and "choisi à la main" in g["raison_suite"]
+    sp.rattacher("LIBRE-2", parcours=p["id"])
+    g = facade.studio_generer_depuis_bdd("LIBRE-2", ecrire=True)
+    assert g["ajout"] and g["chemin"] == "tests/banque_web/sans_module/gerer_ses_beneficiaires.robot"
+    suite = pj.lire_fichier(g["chemin"])
+    assert "[Tags]    LIBRE-1" in suite and "[Tags]    LIBRE-2" in suite
+
+    # suite existante choisie directement, sans parcours
+    sp.rattacher("LIBRE-3", suite=g["chemin"])
+    g3 = facade.studio_generer_depuis_bdd("LIBRE-3")
+    assert g3["ajout"] and g3["chemin"] == g["chemin"] and "Suite choisie à la main" in g3["raison_suite"] and g3["parcours"] == ""
+    assert sp.options("LIBRE-3")["choix"] == {"parcours": "", "suite": g["chemin"]}
+    assert [x["fichier"] for x in sp.options("LIBRE-3")["suites"]] == [g["chemin"]]
+
+    # contrôles, et retour à la déduction quand le choix est effacé
+    with pytest.raises(ValueError, match="pas les deux"):
+        sp.rattacher("LIBRE-3", parcours=p["id"], suite=g["chemin"])
+    with pytest.raises(KeyError, match="Parcours inconnu"):
+        sp.rattacher("LIBRE-3", parcours="Inconnu")
+    with pytest.raises(KeyError, match="Suite inconnue"):
+        sp.rattacher("LIBRE-3", suite="tests/absente.robot")
+    sp.rattacher("LIBRE-3")
+    assert facade.studio_generer_depuis_bdd("LIBRE-3")["ajout"] is False and "parcours" not in bdd.charger("LIBRE-3")
+
+    # le choix passe avant la déduction : DEMO-11 couvre l'US du parcours « Faire un virement »
+    bdd.creer("DEMO-11", "Virement simple", depuis_xray={"gherkin": GHERKIN, "resume": "Virement simple"})
+    assert sp.options("DEMO-11")["deduit"] == "Faire un virement"
+    sp.rattacher("DEMO-11", parcours=p["id"])
+    assert facade.studio_generer_depuis_bdd("DEMO-11")["parcours"] == "Gérer ses bénéficiaires"
+
+    # routes de l'atelier
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200
+    assert c.get("/api/bdd/LIBRE-3/rangement").json()["choix"] == {"parcours": "", "suite": ""}
+    assert c.post("/api/bdd/LIBRE-3/operation", json={"op": "rangement", "suite": g["chemin"]}).status_code == 200
+    assert c.post("/api/bdd/LIBRE-3/generer", json={"ecrire": False}).json()["chemin"] == g["chemin"]
+    assert c.post("/api/bdd/LIBRE-3/operation", json={"op": "rangement", "suite": "tests/absente.robot"}).status_code == 400

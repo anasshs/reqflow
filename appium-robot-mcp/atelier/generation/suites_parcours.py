@@ -6,6 +6,10 @@ Règle de l'équipe (décision de l'utilisateur du 2026-11-20). Le parcours mét
 2. sinon, une nouvelle suite nommée d'après le parcours, rangée selon le motif de Test Design › Réglages.
 Un test sans parcours métier garde sa propre suite, comme avant.
 
+Sans relation test ↔ exigence, l'automaticien rattache le test à la main (scénario BDD, `rattacher`) : il choisit le
+parcours métier, ou directement une suite existante du dépôt. Ordre de priorité : suite choisie, parcours choisi,
+parcours déduit des US, suite propre.
+
 Ajouter n'est jamais réécrire : le contenu existant de la suite est conservé ligne pour ligne (contrôlé), seuls
 s'ajoutent les imports manquants, le ou les cas de test en fin de section et les keywords à implémenter. Un test déjà
 présent (même nom ou même clé Xray) est refusé. La suite complétée repasse en revue technique.
@@ -51,14 +55,15 @@ def parcours_du_test(cle: str, m: dict | None = None) -> dict | None:
     from atelier.discovery import parcours_utilisateur
 
     try:
-        tous = [p for p in parcours_utilisateur.lister() if p.get("exigences")]
+        connus = parcours_utilisateur.lister()
     except Exception:  # noqa: BLE001 — aucune application active
         return None
     voulu = (m or {}).get("parcours")
-    if voulu:
-        p = next((p for p in tous if voulu in (p["id"], p["nom"])), None)
+    if voulu:  # choisi à la main : vaut même pour un parcours sans exigence rattachée
+        p = next((p for p in connus if voulu in (p["id"], p["nom"])), None)
         if p:
-            return {"id": p["id"], "nom": p["nom"], "exigences": list(p["exigences"]), "autres": []}
+            return {"id": p["id"], "nom": p["nom"], "exigences": list(p.get("exigences") or []), "autres": [], "choisi": True}
+    tous = [p for p in connus if p.get("exigences")]
     us = _us_du_test(cle)
     candidats = sorted(((len(us & set(p["exigences"])), n, p) for n, p in enumerate(tous) if us & set(p["exigences"])), key=lambda x: (-x[0], x[1]))
     if not candidats:
@@ -69,7 +74,13 @@ def parcours_du_test(cle: str, m: dict | None = None) -> dict | None:
 
 def suite_du_parcours(p: dict, inv: dict, sauf_cle: str = "") -> str:
     """Suite existante du parcours : le fichier .robot qui porte le plus de tests du parcours (hors le test lui-même)."""
-    cles = _tests_des_us(set(p["exigences"])) - {sauf_cle}
+    from atelier.generation import bdd
+
+    cles = _tests_des_us(set(p["exigences"]))
+    for b in bdd.lister():  # scénarios rattachés à la main au même parcours
+        if (bdd.charger(b["cle"]) or {}).get("parcours") in (p["id"], p["nom"]):
+            cles.add(b["cle"])
+    cles -= {sauf_cle}
     compte: dict = {}
     for t in inv["tests"].values():
         if cles & set(t.get("cles_xray") or []):
@@ -82,19 +93,69 @@ def cible(m: dict, inv: dict) -> dict:
     from atelier.domain import projet
     from atelier.generation import rangement
 
+    suite = str(m.get("suite") or "").strip().replace("\\", "/")
+    if suite and (inv["fichiers"].get(suite) or {}).get("type") == "robot":
+        return {"chemin": suite, "ajout": True, "parcours": "", "raison": f"Suite choisie à la main : le test est ajouté à {suite}."}
+    perdue = f"La suite choisie ({suite}) n'existe plus dans le dépôt. " if suite else ""
     p = parcours_du_test(m["cle"], m)
     if not p:
         return {"chemin": rangement.chemin_robot(m), "ajout": False, "parcours": "",
-                "raison": "Aucun parcours métier ne couvre ce test (aucun parcours utilisateur ne porte ses US) : il garde sa propre suite."}
+                "raison": perdue + "Aucun parcours métier pour ce test (ni choisi, ni déduit de ses US) : il garde sa propre suite. "
+                                   "Pour le regrouper, choisir son parcours métier ou une suite existante."}
+    origine = "choisi à la main" if p.get("choisi") else "déduit des US du test"
     existante = suite_du_parcours(p, inv, m["cle"])
     if existante:
         return {"chemin": existante, "ajout": True, "parcours": p["nom"],
-                "raison": f"Parcours métier « {p['nom']} » : ajouté à sa suite existante, qui porte déjà des tests du parcours."}
+                "raison": perdue + f"Parcours métier « {p['nom']} » ({origine}) : ajouté à sa suite existante, qui porte déjà des tests du parcours."}
     chemin = rangement.chemin_robot({**m, "titre": p["nom"]})  # la suite porte le nom du parcours
     if projet.safe_path(chemin).exists():
-        return {"chemin": chemin, "ajout": True, "parcours": p["nom"], "raison": f"Parcours métier « {p['nom']} » : ajouté à la suite du parcours."}
+        return {"chemin": chemin, "ajout": True, "parcours": p["nom"], "raison": perdue + f"Parcours métier « {p['nom']} » ({origine}) : ajouté à la suite du parcours."}
     return {"chemin": chemin, "ajout": False, "parcours": p["nom"],
-            "raison": f"Parcours métier « {p['nom']} » : première suite du parcours ; les prochains tests du parcours y seront ajoutés."}
+            "raison": perdue + f"Parcours métier « {p['nom']} » ({origine}) : première suite du parcours ; les prochains tests du parcours y seront ajoutés."}
+
+
+def options(cle: str) -> dict:
+    """Pour l'écran : parcours métier et suites existantes où ranger le test, choix enregistré et parcours déduit des US."""
+    from atelier.discovery import parcours_utilisateur
+    from atelier.execution.depot_robot import lire_depot
+    from atelier.generation import bdd
+
+    m = bdd._exiger(cle)
+    try:
+        parcours = [{"id": p["id"], "nom": p["nom"], "exigences": len(p.get("exigences") or [])} for p in parcours_utilisateur.lister()]
+    except Exception:  # noqa: BLE001 — aucune application active
+        parcours = []
+    inv = lire_depot()
+    suites = [{"fichier": f, "tests": len(i["tests"])} for f, i in sorted(inv["fichiers"].items()) if i["type"] == "robot"]
+    deduit = parcours_du_test(cle, {})
+    return {"parcours": parcours, "suites": suites, "choix": {"parcours": m.get("parcours", ""), "suite": m.get("suite", "")},
+            "deduit": (deduit or {}).get("nom", "")}
+
+
+def rattacher(cle: str, parcours: str = "", suite: str = "") -> dict:
+    """Choix de l'automaticien sur le scénario BDD : son parcours métier, ou une suite existante du dépôt (l'un ou l'autre ;
+    les deux vides : retour à la déduction par les US). Contrôlé : parcours connu, suite .robot présente dans le dépôt."""
+    from atelier.discovery import parcours_utilisateur
+    from atelier.execution.depot_robot import lire_depot
+    from atelier.generation import bdd
+
+    m = bdd._exiger(cle)
+    parcours, suite = str(parcours or "").strip(), str(suite or "").strip().replace("\\", "/")
+    if parcours and suite:
+        raise ValueError("Choisir un parcours métier OU une suite existante, pas les deux.")
+    if parcours:
+        p = next((p for p in parcours_utilisateur.lister() if parcours in (p["id"], p["nom"])), None)
+        if not p:
+            raise KeyError(f"Parcours inconnu : {parcours}.")
+        parcours = p["id"]
+    if suite and (lire_depot()["fichiers"].get(suite) or {}).get("type") != "robot":
+        raise KeyError(f"Suite inconnue dans le dépôt : {suite}.")
+    for champ, valeur in (("parcours", parcours), ("suite", suite)):
+        if valeur:
+            m[champ] = valeur
+        else:
+            m.pop(champ, None)
+    return bdd.sauver(m)
 
 
 def _sections(texte: str) -> list[tuple[str, list[str]]]:

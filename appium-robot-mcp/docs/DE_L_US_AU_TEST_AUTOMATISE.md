@@ -73,6 +73,11 @@ Règle de l'équipe : les tests d'un même parcours métier sont dans la même s
   keywords à implémenter. Chaque ligne de la suite d'origine est conservée, dans l'ordre (contrôlé avant d'écrire).
   Un test déjà présent (même nom ou même clé Xray) est refusé. La suite complétée repasse en revue technique.
 - **Sans parcours** : le test garde sa propre suite, comme avant. Un chemin imposé par l'appelant n'est jamais un ajout.
+- **Sans relation test ↔ exigence** : le parcours ne peut pas être déduit. L'automaticien rattache le test à la main,
+  dans l'aperçu du script (BDD → Robot › Générer le script Robot) : il choisit son **parcours métier** (même un
+  parcours sans exigence rattachée), ou directement une **suite existante** du dépôt. Le choix est enregistré sur le
+  scénario BDD (`parcours`, `suite`) et l'aperçu est recalculé. Priorité : suite choisie, parcours choisi, parcours
+  déduit des US, suite propre. Effacer le choix revient à la déduction.
 - L'aperçu du script dit ce qui va se passer : « Ajout à une suite existante », « Nouvelle suite du parcours » ou
   « Suite propre », avec la raison.
 
@@ -95,7 +100,7 @@ Limites : l'ajout se fait par `studio_generer_depuis_bdd` et par l'aperçu de l'
 | Routes | `GET /api/studio/candidats?perimetre=`, `POST /api/studio/candidats/construction` |
 | Écran et guide | `candidats` et `guide` dans `atelier/adapters/web/static/ecran_studio.js` |
 | Structure du dépôt | `atelier/generation/structure_depot.py` ; route `GET /api/studio/structure` |
-| Suite par parcours métier | `atelier/generation/suites_parcours.py` (`cible`, `ajouter`), appelé par `bdd.generer_robot` |
+| Suite par parcours métier | `atelier/generation/suites_parcours.py` (`cible`, `ajouter`, `rattacher`, `options`), appelé par `bdd.generer_robot` ; `GET /api/bdd/{cle}/rangement`, opération `rangement` de `POST /api/bdd/{cle}/operation` |
 | Tests | `tests/test_strategie.py`, `tests/test_routes_strategie.py`, `tests/test_structure_depot.py` |
 
 ## Limites connues

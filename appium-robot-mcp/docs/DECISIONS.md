@@ -798,3 +798,11 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   conservée dans l'ordre (contrôle avant écriture, sinon abandon), un test déjà présent est refusé, la suite repasse en
   revue technique. `write_project_file` refuse toujours d'écraser sans `overwrite=True`.
 - Détail : docs/DE_L_US_AU_TEST_AUTOMATISE.md. Signatures des outils MCP inchangées.
+
+## 2026-11-20 — Rattacher un test à la main, sans relation test ↔ exigence
+- Question de l'utilisateur : sans relation test ↔ exigence, que se passe-t-il si on veut ajouter des tests ?
+- Constat : le parcours métier ne se déduisait que par la chaîne test → US → parcours ; sans elle, le test restait
+  dans sa propre suite et aucun écran ne permettait de le regrouper.
+- Décision : dans l'aperçu du script, l'automaticien choisit le parcours métier du test, ou directement une suite
+  existante du dépôt. Le choix passe avant la déduction ; l'ajout suit les mêmes garanties (rien n'est réécrit, test
+  déjà présent refusé, retour en revue technique). Aucun outil MCP ajouté.

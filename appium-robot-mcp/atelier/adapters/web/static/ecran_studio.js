@@ -370,7 +370,7 @@
       <ul><li>Le lien entre une US et ses tests vient de la copie locale Xray et des tests liés suivis par Test Design. Un test publié depuis une US apparaît ici après la synchronisation Xray suivante (Rapports › Patrimoine).</li>
         <li>Une US qui n'apparaît pas n'est ni dans la copie locale ni suivie par Test Design : l'ajouter par la politique des espaces Jira (Test Design › À concevoir).</li>
         <li>Un test sans US liée est listé à part, en bas du fil.</li>
-        <li><b>Une suite par parcours métier.</b> Les tests d'un même parcours (Discovery › Préparer un parcours, exigences rattachées) vont dans la même suite Robot : le premier crée la suite du parcours, les suivants y sont ajoutés en fin de suite, sans rien réécrire, et la suite repasse en revue technique. Un test sans parcours garde sa propre suite.</li>
+        <li><b>Une suite par parcours métier.</b> Les tests d'un même parcours (Discovery › Préparer un parcours, exigences rattachées) vont dans la même suite Robot : le premier crée la suite du parcours, les suivants y sont ajoutés en fin de suite, sans rien réécrire, et la suite repasse en revue technique. Un test sans parcours garde sa propre suite. Sans relation entre le test et une US, vous le rattachez à la main dans l'aperçu du script (BDD → Robot › Générer le script Robot) : choisir son parcours métier, ou directement une suite existante du dépôt.</li>
         <li>Cursor part du dépôt existant et suit sa structure : il reçoit les dossiers où l'équipe range déjà ses tests, ses keywords / page objects et ses locators, et un fichier rangé ailleurs est signalé dans la revue technique. La structure lue est visible dans ${ou("studio/parametres", "Environnement › Réglages")}.</li></ul></div>`;
   }
 
@@ -429,9 +429,10 @@
     $("#mp-cursor").onclick = () => demandeCursor(`Construis le test Robot du scénario BDD ${cle} avec le MCP de l'atelier : studio_socle, studio_scenario_bdd("${cle}"), `
       + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants dans le socle sans wrapper 1:1, vérifie en dry_run, `
       + `écris la suite puis studio_soumettre_revue. Range chaque fichier dans la structure existante du dépôt (studio_socle › structure). Je valide dans Automation Studio › Revue et publication.`, cle);
-    $("#mp-gen").onclick = async () => {
-      let g;
-      try { g = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: false}}); } catch (e) { return toast(e.message, "ko"); }
+    const apercu = async () => {
+      let g, rg;
+      try { [g, rg] = await Promise.all([api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: false}}),
+        api(`/api/bdd/${encodeURIComponent(cle)}/rangement`).catch(() => ({parcours: [], suites: [], choix: {}, deduit: ""}))]); } catch (e) { return toast(e.message, "ko"); }
       const bloquants = (g.keywords_proches || []).filter(x => !x.confirme);
       // aperçu dans la page, à droite du mapping : on compare les étapes et le script sans rien recouvrir
       const corps = $(".corps-carte", z);
@@ -453,12 +454,22 @@
           « Faire construire par Cursor » les crée dans le socle et vérifie le test avant de le soumettre.</p>` : ""}
         <p class="lib" style="margin:0 0 8px"><span class="pill ${g.ajout ? "info" : g.parcours ? "ok" : ""}">${g.ajout ? "Ajout à une suite existante" : g.parcours ? "Nouvelle suite du parcours" : "Suite propre"}</span> ${esc(g.raison_suite || "")}
           ${g.ajout ? ` Test(s) ajouté(s) : ${esc((g.tests_ajoutes || []).join(", "))}. L'aperçu montre la suite complète après l'ajout.` : ""}</p>
+        <div class="grille-2" style="margin-bottom:8px"><div class="champ"><label for="g-parcours">Parcours métier</label>
+            <select class="in" id="g-parcours" title="Les tests d'un même parcours métier vont dans la même suite. Sans choix : déduit des US du test"><option value="">${rg.deduit ? `Déduit des US : ${esc(rg.deduit)}` : "Aucun (non déduit des US)"}</option>
+              ${rg.parcours.map(p => `<option value="${esc(p.id)}" ${p.id === rg.choix.parcours ? "selected" : ""}>${esc(p.nom)}</option>`).join("")}</select></div>
+          <div class="champ"><label for="g-suite">ou suite existante</label>
+            <select class="in" id="g-suite" title="Ajouter le test à une suite du dépôt, sans passer par un parcours"><option value="">Aucune</option>
+              ${rg.suites.map(x => `<option value="${esc(x.fichier)}" ${x.fichier === rg.choix.suite ? "selected" : ""}>${esc(x.fichier)} · ${x.tests} test(s)</option>`).join("")}</select></div></div>
         ${g.ajout_refuse ? `<p class="lib"><span class="pill ko">Ajout impossible</span> ${esc(g.ajout_refuse)}</p>` : ""}
         <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}" title="Modifier le chemin range le test dans une suite à part"></div>
         ${g.structure && !g.structure.conforme ? `<p class="lib"><span class="pill warn">Hors structure</span> ${esc(g.structure.message)} Corriger le chemin ci-dessus, ou le motif de rangement dans <a href="#conception/parametres">Test Design › Réglages</a>.</p>` : ""}
         <label class="lib" style="display:flex;gap:6px;align-items:center;margin-bottom:8px" ${g.ajout ? "hidden" : ""}><input type="checkbox" id="g-ecr"> Remplacer s'il existe</label>
         <pre class="code-bloc">${esc(g.contenu)}</pre>`;
       $("#g-x", ap).onclick = () => zones.classList.remove("ouvert");
+      // choix à la main (sans relation test ↔ exigence) : enregistré sur le scénario, l'aperçu est recalculé
+      const rattacher = async corps => { try { await api(`/api/bdd/${encodeURIComponent(cle)}/operation`, {method: "POST", body: {op: "rangement", ...corps}}); apercu(); } catch (e) { toast(e.message, "ko"); } };
+      $("#g-parcours", ap).onchange = e => rattacher({parcours: e.target.value, suite: ""});
+      $("#g-suite", ap).onchange = e => rattacher({parcours: "", suite: e.target.value});
       $("#g-ok", ap).onclick = async () => {
         try {
           const r = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: true, chemin: $("#g-ch", ap).value, ecraser: $("#g-ecr", ap).checked}});
@@ -468,6 +479,7 @@
         } catch (e) { toast(e.message, "ko"); }
       };
     };
+    $("#mp-gen").onclick = apercu;
   }
 
   let ETAPES = [];

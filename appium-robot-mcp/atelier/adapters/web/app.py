@@ -2221,6 +2221,7 @@ async def bdd_operation(cle: str, req: Request):
            "texte": lambda: bdd.depuis_texte(cle, b["gherkin"]),
            "jdd": lambda: bdd.associer_jdd(cle, b.get("jdd", "")),
            "module": lambda: bdd.associer_module(cle, b.get("module", "")),
+           "rangement": lambda: _suites_parcours().rattacher(cle, b.get("parcours", ""), b.get("suite", "")),
            "valider": lambda: bdd.valider(cle)}
     if op not in ops:
         raise HTTPException(400, f"Opération inconnue : {op}")
@@ -2566,6 +2567,18 @@ async def strategie_importer_perimetre():
 @app.get("/api/strategie/plan-automatisation")
 async def strategie_plan():
     return await asyncio.to_thread(_call, strategie.plan_automatisation)
+
+
+def _suites_parcours():
+    from atelier.generation import suites_parcours
+
+    return suites_parcours
+
+
+@app.get("/api/bdd/{cle}/rangement")
+async def bdd_rangement(cle: str):
+    """Où ranger le test du scénario : parcours métier et suites existantes possibles, choix enregistré, parcours déduit."""
+    return await asyncio.to_thread(_call, _suites_parcours().options, cle)
 
 
 @app.get("/api/studio/structure")
