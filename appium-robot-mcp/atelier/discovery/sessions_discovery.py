@@ -98,6 +98,15 @@ def creer(config: dict) -> dict:
 
         cadre = parcours_utilisateur.cadre_session(str(config["parcours"]), app)
     plateforme = config.get("plateforme") or cadre.get("plateforme") or (cfg_app.get("plateformes") or ["web"])[0]
+    # périmètre d'exploration : désigné explicitement (inconnu = refus), ou reconnu dans le texte libre « périmètre »
+    from atelier.discovery import reste
+
+    borne = reste.perimetre(config.get("perimetre_noeud", ""))
+    if not borne and config.get("perimetre") and not cadre:
+        try:
+            borne = reste.perimetre(config["perimetre"])
+        except KeyError:
+            borne = None  # texte libre qui ne désigne ni module ni parcours : simple libellé, exploration non bornée
     if plateforme not in (cfg_app.get("plateformes") or []):
         raise ValueError(f"Plateforme {plateforme} non déclarée pour {cfg_app.get('nom')}.")
     mode = config.get("mode") or "guidee"
@@ -113,7 +122,9 @@ def creer(config: dict) -> dict:
                     "device": config.get("device", ""), "langue": config.get("langue") or cfg_app.get("langue", "fr"),
                     "mode": mode, "point_depart": config.get("point_depart") or cadre.get("point_depart", ""),
                     "profondeur": entier("profondeur", 3),
-                    "max_ecrans": entier("max_ecrans", 30), "perimetre": config.get("perimetre") or cadre.get("perimetre", ""),
+                    "max_ecrans": entier("max_ecrans", 30),
+                    "perimetre": (borne["libelle"] if borne else config.get("perimetre")) or cadre.get("perimetre", ""),
+                    "perimetre_noeud": borne["noeud"] if borne else "",
                     "profil_donnees": _profil_donnees(config.get("profil_donnees") or cadre.get("profil_donnees", "")),
                     "parcours": cadre.get("parcours", ""), "parcours_nom": cadre.get("parcours_nom", ""),
                     "actions_interdites": [a.strip() for a in config.get("actions_interdites") or [] if str(a).strip()]},
@@ -123,6 +134,27 @@ def creer(config: dict) -> dict:
     if cadre:
         parcours_utilisateur.rattacher_session(cadre["parcours"], sid)
     return s
+
+
+def perimetre_actif() -> dict | None:
+    """Périmètre de la session en cours : ses écrans, et ceux qui étaient déjà connus au démarrage. Un écran découvert
+    pendant la session n'est jamais « hors périmètre » : c'est le delta recherché."""
+    from atelier.discovery import reste
+
+    s = active()
+    noeud = ((s or {}).get("config") or {}).get("perimetre_noeud") or ""
+    if not noeud:
+        return None
+    try:
+        p = reste.perimetre(noeud)
+    except KeyError:
+        return None  # module ou parcours disparu depuis : la session n'est plus bornée, plutôt que bloquée
+    return {"noeud": p["noeud"], "libelle": p["libelle"], "ecrans": set(p["ecrans"]),
+            "connus_au_debut": set(((s.get("photo_debut") or {}).get("ecrans") or {}).keys())}
+
+
+def hors_perimetre(eid: str, p: dict | None) -> bool:
+    return bool(p and eid and eid in p["connus_au_debut"] and eid not in p["ecrans"])
 
 
 def active() -> dict | None:

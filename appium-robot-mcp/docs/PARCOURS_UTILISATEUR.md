@@ -22,7 +22,31 @@ Le parcours est enregistré dès l'étape 1 (`<projet>/discovery/parcours/PU-<no
 duplique (variante) et s'archive ; rien n'est supprimé. Chaque modification est journalisée (champ, avant, après, par qui).
 Statuts calculés : Brouillon → Prêt → En cours → Exploré → Validé ; Archivé.
 
-Une exploration libre, sans parcours, reste possible et inchangée (Discovery › Explorer).
+Une exploration libre, sans parcours, reste possible (Discovery › Explorer le reste).
+
+## Explorer le reste
+Une exploration ne rejoue pas les parcours : elle travaille sur la carte et n'essaie que ce qui n'a jamais été essayé. Pour
+mesurer son utilité quand des parcours existent, l'écran affiche le « reste à explorer » (`atelier/discovery/reste.py`) :
+écrans hors de tout parcours validé, actions sûres jamais essayées par écran, actions à faire à la main (saisies, actions
+sensibles ou interdites : jamais faites en autonome), impasses et écrans sans entrée connue. Un écran seulement proposé à un
+parcours reste « hors parcours ». Zéro partout : il n'y a plus rien à explorer. Rien n'est estimé.
+
+### Périmètre d'exploration
+Le reste à explorer et l'exploration elle-même se bornent à un périmètre : un module de la carte (« module:eSim ») ou un
+parcours validé (« parcours:… »). Cas visé : des parcours eSIM viennent d'être ajoutés, on explore le delta dans eSIM
+seulement.
+
+| Écran rencontré | Ce que fait l'exploration |
+|---|---|
+| Dans le périmètre | essaie ses actions sûres jamais essayées |
+| Découvert pendant la session | fait partie du périmètre (c'est le delta) : exploré, dans la limite de profondeur |
+| Déjà connu, hors du périmètre | frontière : la transition qui y mène est enregistrée, rien n'est essayé depuis cet écran |
+
+- La session porte le périmètre (`perimetre_noeud`) ; un périmètre inconnu est refusé, jamais ignoré.
+- Exploration automatique, suggestions de la fenêtre Discovery et `discovery_ecran_courant` (pour Cursor) l'appliquent.
+- Cursor le reçoit par `discovery_demarrer(perimetre="module:…")` : aucun outil ni paramètre ajouté.
+- Un écran sans module n'entre dans aucun périmètre « module » : il faut le ranger (le nommer avec son module).
+- En navigation à la main, rien n'est interdit : la fenêtre signale seulement « hors périmètre ».
 
 ## Le déroulé
 - « Je navigue » : la fenêtre Discovery s'ouvre sur la plateforme du cadrage ; la session créée porte le parcours.

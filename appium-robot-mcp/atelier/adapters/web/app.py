@@ -1924,6 +1924,15 @@ def discovery_parcours():
             for n in g.noeuds.values() if n.type == "parcours"]
 
 
+@app.get("/api/discovery/reste")
+async def discovery_reste(perimetre: str = ""):
+    """Reste à explorer : écrans hors de tout parcours validé, actions jamais essayées, impasses ; dans toute
+    l'application, ou dans un périmètre (« module:… », « parcours:… »)."""
+    from atelier.discovery import reste
+
+    return await asyncio.to_thread(_call, reste.a_explorer, perimetre)
+
+
 @app.get("/api/discovery/cadrage")
 def discovery_cadrage(archives: bool = False):
     """Parcours utilisateur préparés (initiation de Discovery) et ce que l'écran de cadrage propose."""

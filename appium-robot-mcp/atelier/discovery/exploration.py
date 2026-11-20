@@ -106,8 +106,22 @@ def explorer(max_ecrans: int = 25, profondeur: int = 3, duree_max_s: int = 900) 
     t0 = time.time()
     depart = observer(attendre_stable())
     hote = urlparse(session.webb().info()["url"]).netloc if session.is_web() else ""
+    # périmètre de la session Discovery en cours : un écran déjà connu hors du périmètre est une frontière (on y arrive,
+    # la transition est enregistrée, on n'en repart pas) ; un écran découvert pendant la session est le delta recherché
+    from atelier.discovery import sessions_discovery
+
+    perimetre = sessions_discovery.perimetre_actif()
+    hors = lambda i: sessions_discovery.hors_perimetre(i, perimetre)  # noqa: E731
+    if hors(depart["id"]):
+        cible = next((i for i in sorted(perimetre["ecrans"]) if aller(i)["arrive"]), None)
+        if not cible:
+            EXPLO["en_cours"] = False
+            raise RuntimeError(f"L'écran courant est hors du périmètre « {perimetre['libelle']} » et aucun de ses écrans n'est atteignable : "
+                               "aller d'abord sur un écran du périmètre.")
+        depart = observer(attendre_stable())
     file, vus = [(depart["id"], 0)], {depart["id"]}
-    bilan = {"ecrans_visites": 1, "nouveaux": 0, "transitions": 0, "ignores_liste_rouge": 0, "ignores_non_surs": 0, "journal": []}
+    bilan = {"ecrans_visites": 1, "nouveaux": 0, "transitions": 0, "ignores_liste_rouge": 0, "ignores_non_surs": 0, "journal": [],
+             "perimetre": perimetre["libelle"] if perimetre else "", "hors_perimetre": 0}
     regles = classement.regles()
     try:
         while file and not EXPLO["stop"].is_set() and time.time() - t0 < duree_max_s and len(vus) <= max_ecrans:
@@ -115,7 +129,7 @@ def explorer(max_ecrans: int = 25, profondeur: int = 3, duree_max_s: int = 900) 
             if prof >= profondeur or not aller(eid)["arrive"]:
                 continue
             for t in m.transitions():  # poursuit aussi vers les écrans déjà connus depuis celui-ci
-                if t["de"] == eid and t["plateforme"] == plat and not t.get("interdite") and t["vers"] not in vus:
+                if t["de"] == eid and t["plateforme"] == plat and not t.get("interdite") and t["vers"] not in vus and not hors(t["vers"]):
                     vus.add(t["vers"])
                     file.append((t["vers"], prof + 1))
             deja = m.actions_depuis(eid, plat)
@@ -156,10 +170,13 @@ def explorer(max_ecrans: int = 25, profondeur: int = 3, duree_max_s: int = 900) 
                                                                 "libelle": el.get("libelle", "")}, source="exploration")
                 bilan["transitions"] += 1
                 bilan["nouveaux"] += 1 if obs["nouveau"] else 0
-                if obs["id"] not in vus:
+                sorti = hors(obs["id"])
+                if sorti:
+                    bilan["hors_perimetre"] += 1
+                elif obs["id"] not in vus:
                     vus.add(obs["id"])
                     file.append((obs["id"], prof + 1))
-                msg = f"{el.get('libelle') or el['key']} → {obs.get('nom') or obs.get('titre') or obs['id']}"
+                msg = f"{el.get('libelle') or el['key']} → {obs.get('nom') or obs.get('titre') or obs['id']}" + (" (hors périmètre : non exploré)" if sorti else "")
                 bilan["journal"].append(msg)
                 evenements.publier({"type": "exploration", "message": msg, "nb_ecrans": len(vus), "nouveau": obs["nouveau"]})
     finally:

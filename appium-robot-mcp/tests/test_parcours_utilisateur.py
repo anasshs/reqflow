@@ -213,3 +213,97 @@ def test_routes_web(banque):
     assert c.post(f"/api/discovery/cadrage/{p['id']}/archiver", json={"motif": "doublon"}).json()["statut"] == "Archivé"
     assert c.get("/api/discovery/cadrage").json()["parcours"] == [] and len(c.get("/api/discovery/cadrage?archives=true").json()["parcours"]) == 1
     assert c.post(f"/api/discovery/cadrage/{p['id']}/supprimer", json={}).status_code == 404
+
+
+def test_reste_a_explorer(banque):
+    """Ce que les parcours validés et les actions déjà essayées ne couvrent pas : la mesure de l'utilité d'une exploration."""
+    from atelier.discovery import carte, parcours_utilisateur as pu, reste
+
+    r = reste.a_explorer()
+    s = r["synthese"]
+    assert (s["ecrans"], s["hors_parcours"], s["dans_un_parcours"], s["parcours_valides"], s["rien"]) == (3, 3, 0, 0, False)
+    assert s["a_essayer"] + s["non_sures"] == 3                               # un élément interactif par écran, aucun essayé
+    accueil = next(x for x in r["ecrans"] if x["nom"] == "accueil")
+    assert accueil["a_essayer"] == 1 and accueil["a_essayer_exemples"][0]["libelle"] == "Virements"       # un lien de navigation est sûr
+    assert next(x for x in r["ecrans"] if x["nom"] == "virement_recap")["non_sures"] == 1                # « Confirmer » : jamais en autonome
+
+    # un parcours déroulé ne suffit pas : ses écrans ne sont que proposés tant qu'il n'est pas validé
+    p = pu.enregistrer("", {"nom": "Faire un virement", "plateforme": "web"})
+    _derouler(p["id"], [banque["accueil"], banque["virement_saisie"]])
+    r = reste.a_explorer()
+    assert r["synthese"]["hors_parcours"] == 3
+    assert next(x for x in r["ecrans"] if x["nom"] == "accueil")["parcours_proposes"] == ["Faire un virement"]
+    pu.valider(p["id"], [banque["virement_saisie"]])
+    r = reste.a_explorer()
+    par_nom = {x["nom"]: x for x in r["ecrans"]}
+    assert (r["synthese"]["hors_parcours"], r["synthese"]["parcours_valides"]) == (2, 1)
+    assert par_nom["virement_saisie"]["parcours"] == ["Faire un virement"] and not par_nom["virement_saisie"]["hors_parcours"]
+    assert par_nom["accueil"]["hors_parcours"] and par_nom["accueil"]["parcours_proposes"] == []          # retiré à la validation
+    assert [x["hors_parcours"] for x in r["ecrans"]] == [True, True, False]                              # le reste d'abord
+
+    # une action essayée ne reste plus à explorer
+    carte.marquer_essaye(banque["accueil"], "web", "lien_virements")
+    assert next(x for x in reste.a_explorer()["ecrans"] if x["nom"] == "accueil")["a_essayer"] == 0
+
+
+def test_reste_a_explorer_carte_vide_et_route(projet):
+    from fastapi.testclient import TestClient
+
+    from atelier.discovery import carte, reste
+    from web_app_loader import charger_app_web
+
+    r = reste.a_explorer()
+    assert (r["application"], r["carte_vide"], r["ecrans"], r["perimetres"], r["perimetre"]) == ("", True, [], [], None)   # aucune application
+    carte.creer_app("Banque Web", ["web"], web={"url": "https://recette.exemple.fr"}, type_="web")
+    r = reste.a_explorer()
+    assert r["carte_vide"] and r["synthese"]["ecrans"] == 0 and r["synthese"]["rien"] is False            # carte vide : tout reste à explorer
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200
+    assert c.get("/api/discovery/reste").json()["carte_vide"] is True
+
+
+def test_perimetre_d_exploration(banque):
+    """Un module ou un parcours validé borne le reste à explorer, la session et les suggestions. Un écran découvert
+    pendant la session fait partie du périmètre : c'est le delta."""
+    from atelier.discovery import assistance, carte, parcours_utilisateur as pu, reste, sessions_discovery
+    from atelier.domain import evenements
+
+    carte.renommer(banque["accueil"], "accueil", "Accueil")                   # deux modules : Accueil (1 écran), Virements (2)
+    assert [(x["noeud"], len(x["ecrans"])) for x in reste.perimetres()] == [("module:Accueil", 1), ("module:Virements", 2)]
+    r = reste.a_explorer("module:Virements")
+    assert sorted(x["nom"] for x in r["ecrans"]) == ["virement_recap", "virement_saisie"] and r["synthese"]["ecrans"] == 2
+    assert r["perimetre"] == {"noeud": "module:Virements", "type": "module", "libelle": "Virements", "ecrans": 2}
+    assert reste.a_explorer("virements")["perimetre"]["noeud"] == "module:Virements"       # libellé sans ambiguïté accepté
+    with pytest.raises(KeyError, match="Périmètre inconnu"):
+        reste.a_explorer("module:Inconnu")
+
+    p = pu.enregistrer("", {"nom": "Saisir un virement", "plateforme": "web"})             # un parcours validé est aussi un périmètre
+    _derouler(p["id"], [banque["virement_saisie"]])
+    assert "parcours:saisir_un_virement" not in [x["noeud"] for x in reste.perimetres()]   # seulement proposé : pas encore un périmètre
+    pu.valider(p["id"])
+    assert reste.perimetre("parcours:saisir_un_virement")["ecrans"] == [banque["virement_saisie"]]
+
+    # la session porte le périmètre ; un texte libre qui ne désigne rien reste un simple libellé
+    with pytest.raises(KeyError, match="Périmètre inconnu"):
+        sessions_discovery.creer({"plateforme": "web", "perimetre_noeud": "module:Inconnu"})
+    libre = sessions_discovery.creer({"plateforme": "web", "perimetre": "les écrans de paiement"})
+    assert (libre["config"]["perimetre"], libre["config"]["perimetre_noeud"]) == ("les écrans de paiement", "")
+    par_libelle = sessions_discovery.creer({"plateforme": "web", "perimetre": "module:Virements"})   # ce que Cursor passe à discovery_demarrer
+    assert par_libelle["config"]["perimetre_noeud"] == "module:Virements"
+    s = sessions_discovery.creer({"plateforme": "web", "perimetre_noeud": "module:Virements"})
+    assert (s["config"]["perimetre"], s["config"]["perimetre_noeud"]) == ("Virements", "module:Virements")
+    assert sessions_discovery.perimetre_actif() is None                       # tant que la session n'est pas démarrée
+    sessions_discovery.demarrer(s["id"])
+    actif = sessions_discovery.perimetre_actif()
+    assert actif["ecrans"] == {banque["virement_saisie"], banque["virement_recap"]} and len(actif["connus_au_debut"]) == 3
+    assert sessions_discovery.hors_perimetre(banque["accueil"], actif) and not sessions_discovery.hors_perimetre(banque["virement_saisie"], actif)
+
+    # suggestions : rien hors du périmètre ; un écran découvert pendant la session en fait partie
+    hors = assistance.suggerer([_el("lien_virements", "Virements", "lien")], {"id": banque["accueil"]}, "web", ia=False)
+    assert hors["suggestions"] == [] and hors["perimetre"] == {"noeud": "module:Virements", "libelle": "Virements", "dans_le_perimetre": False}
+    nouveau = carte.observer([_el("lien_plafonds", "Voir mes plafonds", "lien")], "web", "https://recette.exemple.fr/plafonds")
+    evenements.publier({"type": "carte_change", "ecran": {"id": nouveau["id"], "nouveau": True}})
+    dedans = assistance.suggerer([_el("lien_plafonds", "Voir mes plafonds", "lien")], {"id": nouveau["id"]}, "web", ia=False)
+    assert dedans["perimetre"]["dans_le_perimetre"] and [x["cle"] for x in dedans["suggestions"]] == ["lien_plafonds"]
+    sessions_discovery.arreter(s["id"])
+    assert assistance.suggerer([], {"id": banque["accueil"]}, "web", ia=False)["perimetre"] is None       # hors session : rien n'est borné

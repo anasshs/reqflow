@@ -718,3 +718,15 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Dashboard (demande du même jour) : une icône par indicateur et par bloc, au trait, sur quatre teintes (indigo pour les
   volumes, vert pour l'acquis, orange et rouge pour les défauts). Un indicateur de défaut reste gris tant que sa valeur
   est nulle : la couleur signale quelque chose à traiter, jamais une alerte à vide.
+
+## 2026-11-20 — « Explorer » devient « Explorer le reste » et dit ce qui reste hors des parcours
+- Question de l'utilisateur : à quoi sert « Explorer » quand des parcours existent, et rejoue-t-il les parcours ?
+- Constat dans le code : l'exploration ne connaît pas les parcours ; elle travaille sur la carte et n'essaie que les
+  actions jamais essayées. Mais rien n'affichait ce qui restait hors des parcours : son utilité ne se mesurait pas.
+- Décision : l'entrée est renommée « Explorer le reste » et s'ouvre sur un bloc « Reste à explorer » (écrans hors de
+  tout parcours validé, actions sûres jamais essayées, actions à faire à la main, impasses), calculé sur des données
+  déjà présentes. Aucun mécanisme d'exploration n'est modifié. Détail : docs/PARCOURS_UTILISATEUR.md.
+- Périmètre d'exploration (demande du même jour : « j'ai ajouté les parcours eSIM, j'explore le delta dans eSIM
+  uniquement ») : un module ou un parcours validé borne le reste à explorer et l'exploration. Un écran déjà connu hors
+  du périmètre est une frontière (transition enregistrée, rien d'essayé depuis lui) ; un écran découvert pendant la
+  session fait partie du périmètre. Les invariants de l'exploration (aucune saisie, aucune action sensible) sont inchangés.

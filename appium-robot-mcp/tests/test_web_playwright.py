@@ -62,6 +62,36 @@ def test_actions_et_carte_passive(session_web, site):
     assert s.goto_screen(arrivee["id"])["arrive"]
 
 
+def test_exploration_bornee_par_un_perimetre(session_web, site):
+    """Pendant une session bornée au module « Accueil » : l'exploration découvre « comptes » (le delta) et l'explore,
+    arrive sur « aide » (déjà connu, hors périmètre), enregistre la transition, mais n'essaie rien depuis cet écran."""
+    import app_map
+    from atelier.discovery import sessions_discovery
+
+    s = session_web
+    s.map_create_app("Site périmètre", ["web"], url=f"{site}/accueil.html")
+    accueil = s.where_am_i()["id"]
+    s.open_url(f"{site}/aide.html")
+    aide = s.where_am_i()["id"]
+    app_map.renommer(accueil, "accueil", "Accueil")
+    app_map.renommer(aide, "aide", "Aide")
+    s.open_url(f"{site}/accueil.html")
+    session = sessions_discovery.creer({"plateforme": "web", "perimetre_noeud": "module:Accueil"})
+    sessions_discovery.demarrer(session["id"])
+    try:
+        bilan = s.explore(max_ecrans=6, profondeur=3, duree_max_s=120)
+    finally:
+        sessions_discovery.arreter(session["id"])
+    assert bilan["arret"] == "terminé" and bilan["perimetre"] == "Accueil"
+    assert bilan["nouveaux"] >= 1 and bilan["hors_perimetre"] >= 1            # « comptes » découvert ; arrivée sur « aide » comptée
+    touches = [t for t in app_map.transitions() if t["action"].get("type") == "tap"]
+    assert any(t["vers"] == aide for t in touches)                            # la sortie du périmètre est une connaissance : enregistrée
+    assert not [t for t in touches if t["de"] == aide]                        # mais rien n'a été essayé depuis l'écran hors périmètre
+    assert not (app_map.ecran(aide).get("essayes") or {}).get("web")
+    comptes = next(e["id"] for e in app_map.ecrans() if e["id"] not in (accueil, aide))
+    assert [t for t in touches if t["de"] == comptes]                         # l'écran découvert, lui, a été exploré
+
+
 def test_exploration_respecte_les_invariants(session_web, site):
     s = session_web
     s.map_create_app("Site explo", ["web"], url=f"{site}/accueil.html")

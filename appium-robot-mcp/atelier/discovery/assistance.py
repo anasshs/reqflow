@@ -40,17 +40,19 @@ def candidates(elements: list[dict], ecran_id: str, plateforme: str) -> dict:
     return {"candidates": out, "ecartees": ecartees}
 
 
-def pistes() -> list[dict]:
-    """Pistes globales de la carte : impasses, écrans isolés, écrans à nommer, transitions instables."""
+def pistes(perimetre: dict | None = None) -> list[dict]:
+    """Pistes globales de la carte : impasses, écrans isolés, écrans à nommer, transitions instables. Avec un
+    périmètre, seules les impasses et les écrans isolés du périmètre sont proposés."""
     from atelier.discovery import sessions_discovery
 
     if not carte.app_courante():
         return []
     n = sessions_discovery.navigation()
+    dedans = lambda x: not perimetre or x["id"] in perimetre["ecrans"]  # noqa: E731
     p = [{"type": "impasse", "ecran": x["id"], "texte": f"« {x['nom']} » n'a aucune sortie connue : y retourner et essayer ses actions."}
-         for x in n["impasses"][:5]]
+         for x in [x for x in n["impasses"] if dedans(x)][:5]]
     p += [{"type": "isole", "ecran": x["id"], "texte": f"« {x['nom']} » n'a aucune entrée connue : retrouver comment on y arrive."}
-          for x in n["isoles"][:5]]
+          for x in [x for x in n["isoles"] if dedans(x)][:5]]
     p += [{"type": "instable", "transition": t, "texte": f"Transition {t} instable : la rejouer pour confirmer."} for t in n["instables"][:5]]
     a_nommer = sum(1 for e in carte.ecrans() if not e.get("nom"))
     if a_nommer:
@@ -61,10 +63,16 @@ def pistes() -> list[dict]:
 def suggerer(elements: list[dict], ecran: dict | None, plateforme: str, ia: bool = True) -> dict:
     from atelier.intelligence import fournisseur_ia
 
+    from atelier.discovery import sessions_discovery
+
     eid = (ecran or {}).get("id", "")
-    c = candidates(elements, eid, plateforme) if ecran else {"candidates": [], "ecartees": {}}
-    res = {"ecran": ecran, "suggestions": c["candidates"][:10], "ecartees": c["ecartees"], "pistes": pistes(),
-           "ia": fournisseur_ia.etat()}
+    perimetre = sessions_discovery.perimetre_actif()
+    sorti = sessions_discovery.hors_perimetre(eid, perimetre)
+    # hors du périmètre de la session : rien à essayer ici, on revient (les actions de cet écran restent « jamais essayées »)
+    c = candidates(elements, eid, plateforme) if ecran and not sorti else {"candidates": [], "ecartees": {}}
+    res = {"ecran": ecran, "suggestions": c["candidates"][:10], "ecartees": c["ecartees"], "pistes": pistes(perimetre),
+           "ia": fournisseur_ia.etat(),
+           "perimetre": {"noeud": perimetre["noeud"], "libelle": perimetre["libelle"], "dans_le_perimetre": not sorti} if perimetre else None}
     if not (ia and c["candidates"] and fournisseur_ia.configure()):
         return res
     from atelier.execution.echecs import masquer_texte

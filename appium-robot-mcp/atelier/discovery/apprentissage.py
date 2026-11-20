@@ -167,7 +167,8 @@ def ecran_courant(ia_suggestions: bool = False) -> dict:
     from atelier.discovery import carte
 
     e = carte.ecran(obs["id"]) if obs else {}
-    return {"session": {"id": s["id"], "statut": s["statut"], "environnement": env, "mode": s["config"]["mode"]} if s else None,
+    return {"session": {"id": s["id"], "statut": s["statut"], "environnement": env, "mode": s["config"]["mode"],
+                        "perimetre": sug.get("perimetre")} if s else None,
             "ecran": {"id": obs.get("id"), "nom": obs.get("nom") or "", "titre": obs.get("titre") or "", "nouveau": obs.get("nouveau", False),
                       "module": e.get("module", ""), "propositions_nom": e.get("propositions_nom", [])} if obs else None,
             "elements": elements, "textes": [t for t in comportements.messages(comportements.etat_ecran())][:20],

@@ -9,7 +9,7 @@
   const GROUPES = [
     ["vue", "Vue d'ensemble", [["vue", "Vue d'ensemble"]], "Ce que la Discovery connaît de l'application et quoi explorer ensuite"],
     ["cadrage", "Préparer un parcours", [["cadrage", "Parcours utilisateur"]], "Avant de dérouler l'application : nom du parcours, exigences Jira, données, cible ; les parcours sont enregistrés et se rouvrent"],
-    ["studio", "Explorer", [["studio", "Explorer"], ["sessions", "Sessions"]], "Lancer ou reprendre une exploration (device, émulateur, navigateur), guidée, assistée ou par Cursor"],
+    ["studio", "Explorer le reste", [["studio", "Explorer le reste"], ["sessions", "Sessions"]], "Ce qui reste hors des parcours, et l'exploration libre pour le découvrir : elle n'essaie que ce qui n'a jamais été essayé"],
     ["resultats", "Résultats", [["resultats", "Synthèse"], ["navigation", "Navigation"], ["comportements", "Comportements"], ["api", "API observées"]],
       "Ce qui a été observé : parcours, transitions, comportements, appels réseau"],
     ["donnees", "Données", [["donnees", "Catalogue"], ["donnees-groupes", "Groupes et jeux de données"], ["donnees-profils", "Profils utilisateurs"],
@@ -102,25 +102,79 @@
   }
 
   /* ------------------------------------------------------------------ 3 studio : la session se pilote dans la fenêtre flottante */
+  /* Reste à explorer : ce que les parcours validés et les actions déjà essayées ne couvrent pas (mesure de l'utilité d'une exploration) */
+  let PERIMETRE = null;  // périmètre choisi pour l'exploration : {noeud, libelle}, gardé d'un écran à l'autre
+  try { PERIMETRE = JSON.parse(sessionStorage.getItem("di-perimetre") || "null"); } catch (e) { /* facultatif */ }
+  async function reste() {
+    const z = $("#st-reste");
+    if (!z) return;
+    let r;
+    try { r = await apiDelai("/api/discovery/reste?perimetre=" + encodeURIComponent(PERIMETRE?.noeud || ""), 60000); }
+    catch (e) {
+      if (PERIMETRE && /inconnu/i.test(e.message)) { PERIMETRE = null; try { sessionStorage.removeItem("di-perimetre"); } catch (x) { /* facultatif */ } return reste(); }  // module ou parcours disparu
+      if ($("#st-reste")) z.innerHTML = `<h3>Reste à explorer</h3><p class="warn-t">Indisponible : ${esc(e.message)}</p>`;
+      return;
+    }
+    if (!$("#st-reste")) return;
+    if (r.carte_vide) { z.innerHTML = `<h3>Reste à explorer</h3><p class="lib">La carte de l'application est vide : tout reste à explorer. Une première exploration, libre ou par un parcours préparé, la construit.</p>`; return; }
+    const s = r.synthese, restants = r.ecrans.filter(x => x.hors_parcours || x.a_essayer || x.impasse || x.isole), complets = r.ecrans.length - restants.length;
+    const ligne = x => `<tr><td><b>${esc(x.nom)}</b>${x.nomme ? "" : ' <span class="lib">à nommer</span>'}${x.module ? `<div class="lib">${esc(x.module)}</div>` : ""}</td>
+      <td>${x.parcours.map(p => `<span class="pill ok">${esc(p)}</span>`).join(" ") || '<span class="pill warn">aucun parcours validé</span>'}${x.parcours_proposes.length ? ` <span class="lib">proposé : ${esc(x.parcours_proposes.join(", "))}</span>` : ""}</td>
+      <td>${x.a_essayer ? `<b>${x.a_essayer}</b> <span class="lib">${esc(x.a_essayer_exemples.map(a => a.libelle || a.cle).join(", "))}${x.a_essayer > x.a_essayer_exemples.length ? "…" : ""}</span>` : '<span class="lib">tout essayé</span>'}</td>
+      <td>${x.non_sures || '<span class="lib">—</span>'}</td>
+      <td>${[x.impasse ? '<span class="pill warn">impasse</span>' : "", x.isole ? '<span class="pill warn">sans entrée connue</span>' : ""].join(" ").trim() || '<span class="lib">—</span>'}</td></tr>`;
+    const TP = {module: "Modules", parcours: "Parcours validés"};
+    const choix = `<span class="lien" style="display:flex;gap:8px;align-items:center"><label class="lib" for="st-perimetre">Périmètre</label>
+      <select class="in" id="st-perimetre" style="width:auto;max-width:320px" title="Borne ce tableau ET l'exploration lancée depuis cet écran"><option value="">Toute l'application</option>
+        ${Object.entries(TP).map(([t, lib]) => { const l = r.perimetres.filter(p => p.type === t); return l.length ? `<optgroup label="${lib}">${l.map(p =>
+          `<option value="${esc(p.noeud)}" ${p.noeud === r.perimetre?.noeud ? "selected" : ""}>${esc(p.libelle)} · ${p.ecrans} écran(s)</option>`).join("")}</optgroup>` : ""; }).join("")}</select></span>`;
+    const brancher = () => { $("#st-perimetre").onchange = e => {
+      const p = r.perimetres.find(x => x.noeud === e.target.value);
+      PERIMETRE = p ? {noeud: p.noeud, libelle: p.libelle} : null;
+      try { PERIMETRE ? sessionStorage.setItem("di-perimetre", JSON.stringify(PERIMETRE)) : sessionStorage.removeItem("di-perimetre"); } catch (x) { /* facultatif */ }
+      reste();
+    }; };
+    z.innerHTML = `<h3>Reste à explorer${r.perimetre ? ` · ${esc(r.perimetre.libelle)}` : ""}${choix}</h3>
+      ${r.perimetre ? `<p class="lib" style="margin:-4px 0 8px"><span class="pill info">Périmètre</span> L'exploration lancée d'ici ne repart d'aucun écran déjà connu hors de « ${esc(r.perimetre.libelle)} ».
+        Les écrans qu'elle découvre en font partie : c'est le delta.${s.sans_module && r.perimetre.type === "module" ? ` ${s.sans_module} écran(s) de l'application n'ont pas de module : les ranger pour qu'ils entrent dans un périmètre.` : ""}</p>` : ""}
+      ${kpis([[s.hors_parcours, "écrans hors de tout parcours validé", s.hors_parcours ? "warn-t" : "ok"], [s.a_essayer, "actions sûres jamais essayées", s.a_essayer ? "" : "ok"],
+        [s.non_sures, "actions à faire à la main ou dans un parcours"], [s.impasses + s.isoles, "impasses et écrans sans entrée", s.impasses + s.isoles ? "warn-t" : "ok"]])}
+      ${s.rien ? `<p><span class="pill ok">Rien à explorer</span> Les ${s.ecrans} écrans sont dans un parcours validé, toutes les actions sûres ont été essayées et la navigation n'a pas d'impasse.</p>` : `
+        <table class="table-strat"><tr><th>Écran</th><th>Parcours validés</th><th>Actions sûres jamais essayées</th><th title="Saisies, actions sensibles ou interdites : l'exploration autonome ne les fait jamais">À faire à la main</th><th>Navigation</th></tr>${restants.slice(0, 40).map(ligne).join("")}</table>
+        ${restants.length > 40 ? `<p class="lib">${restants.length - 40} autre(s) écran(s) non affiché(s).</p>` : ""}`}
+      <p class="lib" style="margin-top:8px">${complets ? `${complets} écran(s) sans rien à explorer ne sont pas listés. ` : ""}Une exploration ne rejoue pas les parcours : elle travaille sur la carte et n'essaie que ce qui n'a jamais été essayé.
+        Seul compte un parcours validé ; un écran seulement proposé à un parcours reste « hors parcours ». Aucune valeur n'est estimée.</p>`;
+    brancher();
+  }
+
   async function studio(z) {
     const l = await api("/api/discovery/sessions");
     const s0 = l.find(s => s.id === SESSION) || l.find(s => ["En cours", "En pause"].includes(s.statut)) || l[0];
     const ouvrir = `<button class="btn primaire" id="st-ouvrir">${ico("recherche")}${s0 && ["En cours", "En pause"].includes(s0.statut) ? "Reprendre dans la fenêtre Discovery" : "Démarrer une Discovery"}</button>`;
     const avecCursor = `<a class="btn" href="#discovery/cadrage" title="Cadrer le parcours avant de l'explorer : nom, exigences, données, cible. Cursor reçoit alors une demande précise">Préparer un parcours</a> <button class="btn" id="st-cursor" title="Ouvre le chat de Cursor avec une demande d'exploration libre : il parcourt l'application, vous validez">${ico("ia")}Explorer avec Cursor</button> `;
     const explorerCursor = () => DemanderCursor("Explorer avec Cursor", "Explore l'application avec moi (Discovery). Commence par cerveau_application() pour voir ce qui est déjà connu, "
-      + "puis demande-moi la plateforme, l'environnement, le périmètre et le profil de données avant start_session et discovery_demarrer. "
+      + (PERIMETRE ? `puis demande-moi la plateforme, l'environnement et le profil de données avant start_session et discovery_demarrer(perimetre="${PERIMETRE.noeud}"). `
+        + `Reste dans le périmètre « ${PERIMETRE.libelle} » : n'essaie que ce qui n'a jamais été essayé, et quand discovery_ecran_courant indique que tu en es sorti, reviens en arrière sans rien essayer. `
+        : "puis demande-moi la plateforme, l'environnement, le périmètre et le profil de données avant start_session et discovery_demarrer. ")
       + "Avance écran par écran, propose ce que tu comprends, et laisse-moi les actions sensibles.", undefined, ["discovery_proposer"], {chat: true});
-    if (!s0) { z.innerHTML = entete("Explorer", avecCursor + ouvrir) + pas("Aucune session", "La fenêtre Discovery propose l'émulateur, l'appareil branché ou le navigateur, puis démarre en un clic."); $("#st-ouvrir").onclick = () => DiscoveryFlottant.ouvrir(); $("#st-cursor").onclick = explorerCursor; return; }
+    const ouvrirFenetre = () => DiscoveryFlottant.ouvrir(PERIMETRE ? {perimetre: PERIMETRE} : undefined);
+    const blocReste = `<section class="bloc-strat" id="st-reste" style="margin-bottom:14px"><h3>Reste à explorer</h3><p class="lib">Calcul…</p></section>`;
+    if (!s0) {
+      z.innerHTML = `${entete("Explorer le reste", avecCursor + ouvrir)}<div class="corps-carte">${blocReste}${vide("Aucune session", "La fenêtre Discovery propose l'émulateur, l'appareil branché ou le navigateur, puis démarre en un clic.")}</div>`;
+      $("#st-ouvrir").onclick = ouvrirFenetre; $("#st-cursor").onclick = explorerCursor; reste(); return;
+    }
     SESSION = s0.id;
     const s = await api("/api/discovery/sessions/" + SESSION), c = s.config;
-    z.innerHTML = `${entete(`Discovery Studio · ${s.id}`, avecCursor + ouvrir)}<div class="corps-carte">
-      <p><b>${esc(c.app_nom)}</b> ${esc(c.build || "")} · ${esc(c.plateforme)} · ${esc(c.environnement || "environnement non précisé")} · ${esc(MODES[c.mode])}${c.device ? " · " + esc(c.device) : ""} · <span class="pill ${ST[s.statut]}">${esc(s.statut)}</span></p>
+    z.innerHTML = `${entete("Explorer le reste", avecCursor + ouvrir)}<div class="corps-carte">${blocReste}
+      <h3 class="lib">DERNIÈRE SESSION · ${esc(s.id)}${c.parcours_nom ? ` · PARCOURS « ${esc(c.parcours_nom)} »` : ""}</h3>
+      <p><b>${esc(c.app_nom)}</b> ${esc(c.build || "")} · ${esc(c.plateforme)} · ${esc(c.environnement || "environnement non précisé")} · ${esc(MODES[c.mode])}${c.device ? " · " + esc(c.device) : ""}${c.perimetre_noeud ? ` · périmètre « ${esc(c.perimetre)} »` : ""} · <span class="pill ${ST[s.statut]}">${esc(s.statut)}</span></p>
       <p class="lib">La fenêtre Discovery reste ouverte quand on change d'écran : on y voit le device ou le navigateur en direct, on touche l'image pour naviguer (actions classées et autorisées selon l'environnement), avec les suggestions et les derniers événements.</p>
       ${c.mode === "tests" && s.statut === "En cours" ? `<div class="btns"><select class="in" id="st-suite" style="max-width:320px"></select><button class="btn primaire" id="st-tnr">Lancer des tests avec cartographie</button></div>` : ""}
       ${s.resultats ? kpis([[s.resultats.ecrans_visites, "écrans visités"], [s.resultats.nouveaux_ecrans, "nouveaux écrans"], [s.resultats.nouvelles_transitions, "nouvelles transitions"], [s.resultats.comportements ?? 0, "comportements"], [s.resultats.refus ?? 0, "actions refusées"]]) : ""}
       <h3 class="lib" style="margin-top:12px">TIMELINE</h3>${timelineHtml(s.timeline)}</div>`;
-    $("#st-ouvrir").onclick = () => DiscoveryFlottant.ouvrir();
+    $("#st-ouvrir").onclick = ouvrirFenetre;
     $("#st-cursor").onclick = explorerCursor;
+    reste();
     if ($("#st-suite")) {
       api("/api/projet/fichiers?pattern=" + encodeURIComponent("**/*.robot")).catch(() => []).then(f => {
         const dirs = [...new Set(f.map(x => x.split("/").slice(0, -1).join("/")).filter(Boolean))];

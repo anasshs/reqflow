@@ -398,6 +398,8 @@ def goto_screen(ecran: str) -> dict:
 def explore(max_ecrans: int = 25, profondeur: int = 3, duree_max_s: int = 900) -> dict:
     """Explore automatiquement l'application depuis l'écran courant (hors liste rouge, sans saisie).
     Long : préférer le lancement depuis l'interface web, qui montre la progression."""
+    # description figée (outil historique, tests/test_retrocompatibilite.py). Pendant une session Discovery bornée à un
+    # périmètre, l'exploration ne repart jamais d'un écran déjà connu hors de ce périmètre (exploration.py).
     return exploration.explorer(max_ecrans, profondeur, duree_max_s)
 
 
@@ -535,6 +537,9 @@ def discovery_demarrer(environnement: str = "", mode: str = "assistee", perimetr
     (start_session d'abord). Pendant la session, tap et type_text sont classés (Safe / Controlled / Sensitive /
     Forbidden) : les actions interdites et sensibles sont refusées, la saisie dépend de l'environnement.
     profil_donnees : profil du référentiel de données (Discovery › Données) dont la session tire ses valeurs.
+    perimetre : texte libre, ou un périmètre d'exploration reconnu — module de la carte (« module:eSim ») ou parcours
+    validé (« parcours:… »). La session est alors bornée : discovery_ecran_courant dit dans « session.perimetre » si
+    l'écran courant en est sorti (ne rien y essayer, revenir) ; un écran découvert pendant la session en fait partie.
     parcours : identifiant d'un parcours utilisateur préparé dans l'atelier (« PU-… », voir discovery_parcours_cadre) ;
     la session le déroule : environnement, périmètre et profil viennent du cadrage s'ils ne sont pas précisés, et les
     écrans traversés sont proposés au parcours à la fin."""

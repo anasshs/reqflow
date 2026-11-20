@@ -37,7 +37,7 @@
           <td>${esc(p.plateforme || "—")}${p.environnement ? ` · ${esc(p.environnement)}` : ""}</td><td>${esc(O.pilotes[p.pilote] || p.pilote)}</td><td>${pillStatut(p.statut)}</td>
           <td>${p.sessions}</td><td>${p.ecrans}</td><td class="mono">${date(p.modifie)}</td></tr>`).join("")}</table>`
         : vide("Aucun parcours préparé", "« Préparer un parcours » demande un nom, les exigences, les données et la cible, puis lance le déroulé.")}
-      <p class="lib" style="margin-top:10px">Une exploration libre, sans parcours, reste possible dans <a href="#discovery/studio">Explorer</a>.</p></div>`;
+      <p class="lib" style="margin-top:10px">Ce que les parcours ne traversent pas se voit et s'explore dans <a href="#discovery/studio">Explorer le reste</a>.</p></div>`;
     $("#cad-new").onclick = () => { location.hash = "discovery/cadrage/nouveau"; };
     $("#cad-arch").onchange = e => liste(e.target.checked);
     $$("[data-p]", Z).forEach(tr => tr.onclick = () => { location.hash = "discovery/cadrage/" + encodeURIComponent(tr.dataset.p); });
