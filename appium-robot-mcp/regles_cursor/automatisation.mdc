@@ -27,7 +27,9 @@ Conventions du projet :
   puis SCÉNARIO Gherkin sans donnée littérale. Ne jamais inventer de données : list_jdd,
   get_jdd, check_jdd ; si aucun jeu ne convient, proposer la structure du jeu à créer.
 - Tags : clé Xray du test + tags fonctionnels (smoke, e2e, negatif, consomme_donnee).
-- Un seul scénario end-to-end par suite.
+- Une suite par parcours métier : les tests d'un même parcours vont dans la même suite. studio_generer_depuis_bdd
+  choisit la suite (« chemin », « parcours », « ajout ») : ne pas imposer un autre chemin, ne jamais réécrire une
+  suite existante à la main ; l'ajout se fait en fin de suite par l'outil. Un test sans parcours garde sa suite.
 - Structure du dépôt : studio_socle renvoie « structure » (racine et dossiers où l'équipe range déjà ses tests, ses
   keywords / page objects et ses locators). Écrire chaque fichier dans le dossier de son genre ; ne jamais créer de
   nouveau dossier racine ni mélanger des genres que le dépôt sépare. output_dir des locators : le dossier existant.

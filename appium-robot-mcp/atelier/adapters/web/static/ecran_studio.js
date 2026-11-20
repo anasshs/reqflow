@@ -370,6 +370,7 @@
       <ul><li>Le lien entre une US et ses tests vient de la copie locale Xray et des tests liés suivis par Test Design. Un test publié depuis une US apparaît ici après la synchronisation Xray suivante (Rapports › Patrimoine).</li>
         <li>Une US qui n'apparaît pas n'est ni dans la copie locale ni suivie par Test Design : l'ajouter par la politique des espaces Jira (Test Design › À concevoir).</li>
         <li>Un test sans US liée est listé à part, en bas du fil.</li>
+        <li><b>Une suite par parcours métier.</b> Les tests d'un même parcours (Discovery › Préparer un parcours, exigences rattachées) vont dans la même suite Robot : le premier crée la suite du parcours, les suivants y sont ajoutés en fin de suite, sans rien réécrire, et la suite repasse en revue technique. Un test sans parcours garde sa propre suite.</li>
         <li>Cursor part du dépôt existant et suit sa structure : il reçoit les dossiers où l'équipe range déjà ses tests, ses keywords / page objects et ses locators, et un fichier rangé ailleurs est signalé dans la revue technique. La structure lue est visible dans ${ou("studio/parametres", "Environnement › Réglages")}.</li></ul></div>`;
   }
 
@@ -443,22 +444,25 @@
       }
       const ap = $("#mp-apercu", z);
       zones.classList.add("ouvert");
-      ap.innerHTML = `<h3>Script Robot · ${esc(cle)}<span class="lien btns"><button class="btn petit primaire" id="g-ok" title="Le script entre en revue « Généré » : vous décidez dans Revue et publication">${ico("disque")}Écrire dans le projet</button>
+      ap.innerHTML = `<h3>Script Robot · ${esc(cle)}<span class="lien btns"><button class="btn petit primaire" id="g-ok" title="${g.ajout ? "Le test est ajouté en fin de suite, sans rien réécrire ; la suite repasse en revue technique" : "Le script entre en revue « Généré » : vous décidez dans Revue et publication"}">${ico("disque")}${g.ajout ? "Ajouter à la suite" : "Écrire dans le projet"}</button>
           <button class="icone" id="g-x" aria-label="Fermer l'aperçu">${ico("x")}</button></span></h3>
         <div class="btns" style="margin-bottom:8px"><span class="pill ok">${g.keywords_reutilises.length} keyword(s) du socle réutilisé(s)</span>
           <span class="pill ${g.keywords_a_creer.length ? "warn" : "ok"}">${g.keywords_a_creer.length} keyword(s) à implémenter</span></div>
         ${bloquants.length ? `<p class="lib"><span class="pill ko">Écriture bloquée</span> Étapes proches d'un keyword existant, à trancher dans <a href="#bdd/${encodeURIComponent(cle)}">Construction BDD</a> (reprendre le keyword ou confirmer un nouveau keyword) : ${bloquants.map(x => `« ${esc(x.etape)} » ≈ « ${esc(x.keyword)} »`).join(", ")}</p>` : ""}
         ${g.keywords_a_creer.length ? `<p class="lib">À implémenter : ${esc(g.keywords_a_creer.join(", "))}. Écrits ici, ils échouent explicitement tant qu'ils ne sont pas implémentés ;
           « Faire construire par Cursor » les crée dans le socle et vérifie le test avant de le soumettre.</p>` : ""}
-        <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}"></div>
+        <p class="lib" style="margin:0 0 8px"><span class="pill ${g.ajout ? "info" : g.parcours ? "ok" : ""}">${g.ajout ? "Ajout à une suite existante" : g.parcours ? "Nouvelle suite du parcours" : "Suite propre"}</span> ${esc(g.raison_suite || "")}
+          ${g.ajout ? ` Test(s) ajouté(s) : ${esc((g.tests_ajoutes || []).join(", "))}. L'aperçu montre la suite complète après l'ajout.` : ""}</p>
+        ${g.ajout_refuse ? `<p class="lib"><span class="pill ko">Ajout impossible</span> ${esc(g.ajout_refuse)}</p>` : ""}
+        <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}" title="Modifier le chemin range le test dans une suite à part"></div>
         ${g.structure && !g.structure.conforme ? `<p class="lib"><span class="pill warn">Hors structure</span> ${esc(g.structure.message)} Corriger le chemin ci-dessus, ou le motif de rangement dans <a href="#conception/parametres">Test Design › Réglages</a>.</p>` : ""}
-        <label class="lib" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><input type="checkbox" id="g-ecr"> Remplacer s'il existe</label>
+        <label class="lib" style="display:flex;gap:6px;align-items:center;margin-bottom:8px" ${g.ajout ? "hidden" : ""}><input type="checkbox" id="g-ecr"> Remplacer s'il existe</label>
         <pre class="code-bloc">${esc(g.contenu)}</pre>`;
       $("#g-x", ap).onclick = () => zones.classList.remove("ouvert");
       $("#g-ok", ap).onclick = async () => {
         try {
           const r = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: true, chemin: $("#g-ch", ap).value, ecraser: $("#g-ecr", ap).checked}});
-          toast(`Écrit : ${r.ecrit}. Le script est en revue.`, "ok");
+          toast(r.ajout ? `Test ajouté à ${r.ecrit}. La suite repasse en revue.` : `Écrit : ${r.ecrit}. Le script est en revue.`, "ok");
           try { sessionStorage.setItem("studio-revue", r.ecrit); } catch (e) { /* facultatif */ }
           location.hash = "studio/revue";
         } catch (e) { toast(e.message, "ko"); }

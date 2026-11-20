@@ -702,6 +702,7 @@ def studio_socle(module: str = "", env: str = "") -> dict:
                             "Gherkin français + Page Object Model : locators / keywords / scénarios séparés",
                             "INITIALISATION : Initialiser Le Test    &{JDD_<NOM>} ; aucune donnée littérale dans le scénario",
                             "réutiliser les keywords du socle ; jamais de wrapper 1:1 par élément",
+                            "une suite par parcours métier : studio_generer_depuis_bdd choisit la suite du parcours et y ajoute le test (« ajout ») ; ne pas imposer un autre chemin",
                             "tags : clé Xray + tags fonctionnels (smoke, e2e, negatif, consomme_donnee)",
                             "tout script écrit entre en revue technique : l'automaticien l'approuve dans l'atelier"]}
 
@@ -740,11 +741,16 @@ def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "") 
 
     m = bdd._exiger(cle)
     g = bdd.generer_robot(m)
-    g["structure"] = structure_depot.controler(chemin or g["chemin"], g["contenu"])  # rangé comme le reste du dépôt ?
+    if chemin and chemin.replace("\\", "/") != g["chemin"]:  # chemin imposé : suite à part, jamais un ajout
+        g = bdd.generer_robot(m, cible=chemin)
+    g["structure"] = structure_depot.controler(g["chemin"], g["contenu"])  # rangé comme le reste du dépôt ?
     if ecrire:
         bdd.refuser_doublons(m)
-        cible = chemin or g["chemin"]
-        projet.ecrire_fichier(cible, g["contenu"], False)
+        cible = g["chemin"]
+        if g.get("ajout_refuse"):
+            raise FileExistsError(g["ajout_refuse"])
+        # une suite par parcours métier : « ajout » complète la suite existante du parcours, sans rien y réécrire
+        projet.ecrire_fichier(cible, g["contenu"], bool(g.get("ajout")))
         studio.entrer_en_revue(cible, "cursor")
         g["ecrit"] = cible
     return g

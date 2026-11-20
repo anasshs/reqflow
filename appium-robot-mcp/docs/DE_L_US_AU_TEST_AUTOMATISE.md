@@ -61,6 +61,24 @@ Limites : un fichier écrit par `write_project_file` n'est contrôlé qu'en revu
 jeux de données ne sont pas un genre contrôlé ; un projet qui a déjà ses règles Cursor versionnées garde sa règle
 `automatisation` active tant qu'elle n'est pas mise à jour (Paramètres › Cursor / Claude).
 
+## Une suite par parcours métier
+
+Règle de l'équipe : les tests d'un même parcours métier sont dans la même suite Robot (`atelier/generation/suites_parcours.py`).
+
+- **Parcours métier d'un test** : le parcours utilisateur (Discovery › Préparer un parcours) dont une exigence rattachée
+  est couverte par le test. Plusieurs parcours possibles : celui qui partage le plus d'exigences avec le test.
+- **Suite du parcours** : la suite du dépôt qui porte déjà des tests du parcours (reconnue à leurs clés Xray en tag,
+  quel que soit son nom) ; sinon une nouvelle suite au nom du parcours, rangée selon le motif de Test Design › Réglages.
+- **Ajout, jamais réécriture** : le test est ajouté en fin de section de tests, avec les imports manquants et les
+  keywords à implémenter. Chaque ligne de la suite d'origine est conservée, dans l'ordre (contrôlé avant d'écrire).
+  Un test déjà présent (même nom ou même clé Xray) est refusé. La suite complétée repasse en revue technique.
+- **Sans parcours** : le test garde sa propre suite, comme avant. Un chemin imposé par l'appelant n'est jamais un ajout.
+- L'aperçu du script dit ce qui va se passer : « Ajout à une suite existante », « Nouvelle suite du parcours » ou
+  « Suite propre », avec la raison.
+
+Limites : l'ajout se fait par `studio_generer_depuis_bdd` et par l'aperçu de l'atelier ; `studio_construire_test`
+(assemblage par palette) écrit toujours une suite à part. Un test rattaché à un parcours après coup n'est pas déplacé.
+
 ## Trois statuts distincts
 
 | Statut | Porte sur | Valeurs | Qui le change |
@@ -77,6 +95,7 @@ jeux de données ne sont pas un genre contrôlé ; un projet qui a déjà ses r�
 | Routes | `GET /api/studio/candidats?perimetre=`, `POST /api/studio/candidats/construction` |
 | Écran et guide | `candidats` et `guide` dans `atelier/adapters/web/static/ecran_studio.js` |
 | Structure du dépôt | `atelier/generation/structure_depot.py` ; route `GET /api/studio/structure` |
+| Suite par parcours métier | `atelier/generation/suites_parcours.py` (`cible`, `ajouter`), appelé par `bdd.generer_robot` |
 | Tests | `tests/test_strategie.py`, `tests/test_routes_strategie.py`, `tests/test_structure_depot.py` |
 
 ## Limites connues

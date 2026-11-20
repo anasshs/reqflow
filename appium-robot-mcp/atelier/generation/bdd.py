@@ -489,10 +489,13 @@ def statistiques(m: dict) -> dict:
 
 
 # =========================================================================== génération Robot
-def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
+def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> dict:
     """Suite Robot qui suit les conventions : INITIALISATION (Initialiser Le Test + &{JDD_<NOM>}) puis
     les étapes BDD. Chaque étape est rapprochée d'un keyword existant du dépôt (réutilisation) ;
-    sinon un keyword à implémenter est déclaré (il échoue explicitement, jamais en silence)."""
+    sinon un keyword à implémenter est déclaré (il échoue explicitement, jamais en silence).
+    Une suite par parcours métier (suites_parcours.py) : si le test appartient à un parcours qui a déjà sa suite,
+    « ajout » est vrai et « contenu » est la suite existante complétée (rien n'y est réécrit) ; « ajoute » porte la
+    partie nouvelle. cible : chemin imposé par l'appelant (aucun ajout : le fichier ne doit pas exister)."""
     from atelier.execution import depot_robot
 
     inv = inventaire if inventaire is not None else depot_robot.lire_depot()
@@ -523,9 +526,12 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
             resources.add(kws["initialiserletest"]["fichier"])
         else:
             a_creer.insert(0, "Initialiser Le Test")
-    from atelier.generation import rangement
+    from atelier.generation import suites_parcours
 
-    cible = rangement.chemin_robot(m)  # tests/{application}/{module}/{scenario}.robot (réglable)
+    # la suite du parcours métier du test (existante : ajout), sinon tests/{application}/{module}/{scenario}.robot (réglable)
+    choix = ({"chemin": cible.replace("\\", "/"), "ajout": False, "parcours": "", "raison": "Chemin choisi par l'appelant."} if cible
+             else suites_parcours.cible(m, inv))
+    cible = choix["chemin"]
     imports = [f"Resource    {Path(os.path.relpath(projet.PROJECT_DIR / r, (projet.PROJECT_DIR / cible).parent)).as_posix()}"
                for r in sorted(resources) if r.endswith(".resource")]
     texte = ["*** Settings ***",
@@ -540,10 +546,18 @@ def generer_robot(m: dict, inventaire: dict | None = None) -> dict:
                 doc = (f"À implémenter (nouveau keyword confirmé ; proche de « {proches[k][0]['keyword']} »)." if k in confirmes
                        else f"Doublon probable de « {proches[k][0]['keyword']} » ({proches[k][0]['fichier']}) : le réutiliser.")
             texte += [k, f"    [Documentation]    {doc}", *args, f"    Fail    Keyword à implémenter : {k}", ""]
-    return {"chemin": cible, "contenu": "\n".join(texte).rstrip() + "\n", "keywords_reutilises": sorted(set(reutilises)),
-            "keywords_a_creer": a_creer,
-            "keywords_proches": [{"etape": k, "keyword": p[0]["keyword"], "fichier": p[0]["fichier"], "confirme": k in confirmes}
-                                 for k, p in proches.items()]}
+    out = {"chemin": cible, "contenu": "\n".join(texte).rstrip() + "\n", "keywords_reutilises": sorted(set(reutilises)),
+           "keywords_a_creer": a_creer,
+           "keywords_proches": [{"etape": k, "keyword": p[0]["keyword"], "fichier": p[0]["fichier"], "confirme": k in confirmes}
+                                for k, p in proches.items()],
+           "parcours": choix["parcours"], "ajout": False, "raison_suite": choix["raison"]}
+    if choix["ajout"]:  # la suite du parcours existe : on y ajoute le test, sans rien réécrire
+        try:
+            a = suites_parcours.ajouter(projet.lire_fichier(cible), out["contenu"])
+            out.update(ajout=True, ajoute=out["contenu"], contenu=a["contenu"], tests_ajoutes=a["tests"])
+        except (FileExistsError, ValueError, RuntimeError) as e:
+            out["ajout_refuse"] = str(e)
+    return out
 
 
 def associer_module(cle: str, module: str) -> dict:

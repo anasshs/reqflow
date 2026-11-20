@@ -84,7 +84,9 @@ métier ; l'état de session (driver Appium, page Playwright) vit dans `discover
 - Chaque test : bloc INITIALISATION (« Initialiser Le Test » avec un dictionnaire &{JDD_<NOM>})
   puis SCÉNARIO Gherkin sans donnée littérale.
 - Tags : clé Xray + tags fonctionnels (smoke, e2e, negatif, consomme_donnee).
-- Un scénario end-to-end par suite ; mêmes clés métier de locators sur Android et iOS.
+- Une suite par parcours métier : les tests d'un même parcours vont dans la même suite (décision de l'utilisateur du
+  2026-11-20, `atelier/generation/suites_parcours.py`) ; un test sans parcours garde sa suite. Mêmes clés métier de
+  locators sur Android et iOS.
 
 ## Points d'API à vérifier sur la documentation officielle (ne pas supposer)
 Les appels GraphQL Xray Cloud ont été écrits de mémoire. Avant de les industrialiser, vérifier

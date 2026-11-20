@@ -2,6 +2,7 @@
  "description": "Empreintes SHA-256 des règles livrées par les versions précédentes de l'atelier (avant la V2) : un fichier installé identique est « à mettre à jour », pas « modifié localement ».",
  "empreintes": {
   "automation": [
+   "3b6d635ea091bfd8934f5469056b760d29cb1ea69308ddb24634b3e6120c4ca0",
    "4509a4202c100997df343d7aa3a9c1320f62f0f96b15e347a2ed527c369eee67",
    "4b24ca63548bc72a4f850f6fd01e3f91b0f8125fc2414c5a77aeafacbc578224",
    "6d131a977df24ee4f6655b2a85d799fc9bff9248a212d21eb62013288037d159",

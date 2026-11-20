@@ -2242,13 +2242,18 @@ async def bdd_generer(cle: str, req: Request):
     b = await req.json()
     m = _call(bdd._exiger, cle)
     g = await asyncio.to_thread(_call, bdd.generer_robot, m)
+    if b.get("chemin") and b["chemin"].replace("\\", "/") != g["chemin"]:  # chemin imposé : suite à part, jamais un ajout
+        g = await asyncio.to_thread(_call, bdd.generer_robot, m, None, b["chemin"])
     from atelier.generation import structure_depot
 
-    g["structure"] = await asyncio.to_thread(_call, structure_depot.controler, b.get("chemin") or g["chemin"], g["contenu"])
+    g["structure"] = await asyncio.to_thread(_call, structure_depot.controler, g["chemin"], g["contenu"])
     if b.get("ecrire"):
         _call(bdd.refuser_doublons, m)  # étape proche d'un keyword existant : à trancher avant d'écrire
-        chemin = b.get("chemin") or g["chemin"]
-        _call(outils.write_project_file, chemin, g["contenu"], bool(b.get("ecraser")))
+        chemin = g["chemin"]
+        if g.get("ajout_refuse"):
+            raise HTTPException(400, g["ajout_refuse"])
+        # une suite par parcours métier : « ajout » complète la suite existante du parcours, sans rien y réécrire
+        _call(outils.write_project_file, chemin, g["contenu"], bool(b.get("ecraser")) or bool(g.get("ajout")))
         _call(studio.entrer_en_revue, chemin, "bdd")  # validation humaine avant exécution
         g["ecrit"] = chemin
     return g

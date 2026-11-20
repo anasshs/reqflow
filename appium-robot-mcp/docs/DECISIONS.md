@@ -787,3 +787,14 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   demande, règle `automatisation`), et contrôlée à l'aperçu, à l'écriture et dans la revue technique (contrôle
   « structure », non bloquant). Détail : docs/DE_L_US_AU_TEST_AUTOMATISE.md. Signatures des outils MCP inchangées
   (deux outils rendent une clé de plus) ; aucun outil ajouté.
+
+## 2026-11-20 — Une suite Robot par parcours métier
+- Décision de l'utilisateur : « des tests du même parcours métier en une seule suite ». Elle remplace, pour les tests
+  rattachés à un parcours, la convention « un scénario end-to-end par suite ».
+- Mise en œuvre : le parcours métier d'un test est le parcours utilisateur dont une exigence est couverte par le test.
+  Le premier test crée la suite du parcours ; les suivants y sont ajoutés en fin de suite. La suite existante d'un
+  dépôt est reconnue aux clés Xray qu'elle porte.
+- Invariant « pas d'écrasement implicite » : conservé. Un ajout n'est pas une réécriture : chaque ligne d'origine est
+  conservée dans l'ordre (contrôle avant écriture, sinon abandon), un test déjà présent est refusé, la suite repasse en
+  revue technique. `write_project_file` refuse toujours d'écraser sans `overwrite=True`.
+- Détail : docs/DE_L_US_AU_TEST_AUTOMATISE.md. Signatures des outils MCP inchangées.
