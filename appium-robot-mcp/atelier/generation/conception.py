@@ -6,7 +6,7 @@ scénarios BDD et le dépôt Robot, et ne conserve que des MÉTADONNÉES de conc
   conception/baselines/<nom>.json   baselines immuables (création exclusive)
   conception/mapping_xray.yaml      correspondances objets / champs / statuts plateforme ↔ Jira / Xray
   conception/journal.jsonl          journal d'audit
-Seule écriture vers Xray : publier_bdd (test Cucumber créé ou Gherkin mis à jour), sur action explicite, avec détection
+Seule écriture vers Xray : publier_bdd (test Gherkin créé ou Gherkin mis à jour), sur action explicite, avec détection
 de conflit et historique (conception/sync_xray.jsonl). createTest / updateGherkinTestDefinition : voir docs/XRAY_API.md.
 """
 from __future__ import annotations
@@ -95,10 +95,12 @@ def cas_de_test() -> list[dict]:
     s = _sources()
     rev = _revues()
     out = []
+    gherkin = noms_gherkin()
     for t in s["pat"]["tests"]:
         n = s["g"].noeuds.get(f"test:{t['cle']}")
         p = n.proprietes if n else {}
         typ = str(t.get("type") or "").lower()
+        typ = "cucumber" if typ in gherkin else typ  # le type Gherkin du projet, quel que soit son nom dans Xray
         out.append({"cle": t["cle"], "resume": t.get("resume", ""), "type": t.get("type", ""), "module": t.get("module", ""),
                     "priorite": t.get("criticite", ""), "exigences": t.get("exigences", []), "plans": t.get("plans", []),
                     "statut_xray": t.get("statut", ""), "automatise": bool(p.get("automatise")),
@@ -163,9 +165,9 @@ def controles_revue(cle: str) -> list[dict]:
     ko = lambda code, g, msg: out.append({"code": code, "gravite": g, "message": msg})  # noqa: E731
     (ok if t.get("exigences") else lambda c, m: ko(c, "haute", m))("exigence", "Exigence associée." if t.get("exigences") else "Aucune exigence associée.")
     m = bdd.charger(cle)
-    if str(t.get("type", "")).lower() == "cucumber" or m:
+    if str(t.get("type", "")).lower() in noms_gherkin() or m:
         if not m:
-            ko("bdd", "haute", "Test Cucumber sans scénario BDD.")
+            ko("bdd", "haute", "Test Gherkin sans scénario BDD.")
         else:
             hautes = [c["message"] for c in bdd.controles(m) if c["gravite"] == "haute"]
             if hautes:
@@ -292,6 +294,18 @@ def comparer_baselines(a: str, b: str = "courant") -> dict:
 CHAMPS_APPLICATION = {"composant": "Composant Jira", "libelle": "Libellé Jira", "personnalise": "Champ personnalisé Jira"}
 
 
+def type_gherkin() -> str:
+    """Nom, dans le Xray du projet, du type de test dont la définition est du Gherkin : celui que le mapping associe à
+    l'éditeur BDD (Test Design › Réglages). « Cucumber » par défaut, comme dans Xray Cloud."""
+    return next((str(t.get("xray") or "").strip() for t in mapping().get("types", [])
+                 if t.get("editeur") == "bdd" and str(t.get("xray") or "").strip()), "Cucumber")
+
+
+def noms_gherkin() -> set[str]:
+    """Noms de type (en minuscules) reconnus comme « test Gherkin » : le nom réglé, et les deux noms usuels."""
+    return {type_gherkin().lower(), "cucumber", "gherkin"}
+
+
 def _defaut_mapping() -> dict:
     return {"objets": [{"interne": i, "externe": e, "confirme": False} for i, e in OBJETS_DEFAUT],
             "champs": [{"interne": i, "externe": e, "sens": s, "actif": True, "obligatoire": i in ("test_key", "summary", "test_type"),
@@ -308,13 +322,17 @@ def mapping() -> dict:
     m = yaml.safe_load(f.read_text("utf-8")) if f.exists() else _defaut_mapping()
     m.setdefault("application", {"champ": "composant", "champ_jira": ""})
     return {**m, "champs_application": CHAMPS_APPLICATION, "modes": {"A (import)": "disponible : instantané JSON ou synchronisation Jira (description et critères inclus)",
-                           "B (bidirectionnel)": "disponible pour les tests Cucumber : mise à jour du Gherkin, conflits détectés (jamais d'écrasement silencieux)",
-                           "C (publication)": "disponible : scénario BDD publié comme test Cucumber, clé Xray conservée"},
+                           "B (bidirectionnel)": "disponible pour les tests Gherkin : mise à jour du Gherkin, conflits détectés (jamais d'écrasement silencieux)",
+                           "C (publication)": "disponible : scénario BDD publié comme test Gherkin, clé Xray conservée"},
             "sens_possibles": SENS, "statuts_internes": STATUTS_REVUE, "libelles_revue": LIBELLES_REVUE}
 
 
 def enregistrer_mapping(m: dict) -> dict:
     propre = {k: m[k] for k in ("objets", "champs", "statuts", "types", "projet_jira", "dossier_repository", "mode", "application", "cycle_vie") if k in m}
+    for t in propre.get("types") or []:
+        t["xray"] = str(t.get("xray") or "").strip()
+        if not re.fullmatch(r"[\w .\-/()]{1,60}", t["xray"]):
+            raise ValueError("Nom d'un type de test Xray : 1 à 60 caractères (lettres, chiffres, espaces, . - / ( )).")
     cc = ((propre.get("cycle_vie") or {}).get("champ_candidat") or "").strip()
     if cc and not re.fullmatch(r"customfield_\d+", cc):
         raise ValueError("Champ « candidat auto » : identifiant customfield_<numéro> attendu (ex. customfield_10070).")
@@ -469,9 +487,9 @@ def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None) 
 def _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision) -> dict:
     existant = xray.lire_gherkin(cible) if cible else None
     if existant:
-        if (existant.get("type") or "").lower() not in ("", "cucumber"):
+        if (existant.get("type") or "").lower() not in {"", *noms_gherkin()}:
             _historiser_sync(cible, "Local → Xray", "Refusé", f"test de type {existant['type']} : aucune conversion automatique")
-            raise ValueError(f"{cible} est un test {existant['type']} : pas de conversion automatique en Cucumber.")
+            raise ValueError(f"{cible} est un test {existant['type']} : pas de conversion automatique en test Gherkin.")
         e_xray, e_local = _empreinte(existant["gherkin"]), _empreinte(local)
         modifie_xray = existant["gherkin"].strip() and e_xray != (st or {}).get("empreinte") and e_xray != e_local
         if modifie_xray and decision not in ("local", "xray"):
@@ -493,10 +511,11 @@ def _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision) -> dic
     else:
         if not projet_xray:
             raise ValueError("Projet Xray requis pour créer le test (mode C).")
-        r = xray.creer_test_cucumber(projet_xray, m.get("titre") or cle, local)
+        tg = type_gherkin()  # nom du type Gherkin dans le Xray du projet ; passé seulement s'il diffère du défaut
+        r = xray.creer_test_cucumber(projet_xray, m.get("titre") or cle, local, **({"type_test": tg} if tg != "Cucumber" else {}))
         cible = r["cle"]
         sync[cle] = {"xray": cible, "issueId": r["issueId"], "empreinte": _empreinte(local), "date": _maintenant()}
-        resultat, statut, mode = f"test Cucumber créé ({cible})", "Succès", "C (publication)"
+        resultat, statut, mode = f"test Gherkin créé ({cible}, type Xray « {tg} »)", "Succès", "C (publication)"
         from atelier.generation import rangement
 
         dossier = rangement.dossier_xray(m)

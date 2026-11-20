@@ -117,7 +117,7 @@
         <datalist id="n-cles">${cand.map(c => `<option value="${esc(c.cle)}">${esc(c.resume || "")}</option>`).join("")}</datalist>
         <div class="champ"><label for="n-titre">Titre</label><input class="in" id="n-titre"></div>
         <label class="ligne-champ"><span>Depuis Xray</span><input type="checkbox" class="bascule" id="n-xray" ${Atelier.ctx.xray?.configure ? "checked" : ""}></label>
-        <p class="lib">Reprend le Gherkin du test (Cucumber) ou ses étapes manuelles (action → Quand, résultat attendu → Alors).</p>
+        <p class="lib">Reprend le Gherkin du test ou ses étapes manuelles (action → Quand, résultat attendu → Alors).</p>
         <button class="btn primaire" id="n-ok">${ico("plus")}Créer le scénario</button></div></section>
       <section class="carte s12"><h2 class="titre-carte">Tests Xray de l'instantané</h2><div class="corps-carte" style="max-height:360px">
         ${cand.length ? `<table><tr><th>Clé</th><th>Test</th><th>Module</th><th>Type</th><th>Automatisé</th><th></th></tr>${cand.map(c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume)}</td>

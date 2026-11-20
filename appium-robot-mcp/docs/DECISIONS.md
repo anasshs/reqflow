@@ -813,3 +813,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   avant comme après la publication ; le test n'était alors pas reconnu comme lié à Xray.
 - Décision : la génération écrit en tag la clé du test Xray dès qu'elle existe ; la publication remplace le tag local
   dans les scripts déjà écrits (un seul mot de la ligne [Tags]) et renvoie la suite en revue technique.
+
+## 2026-11-20 — « Gherkin », pas « Cucumber »
+- Remarque de l'utilisateur : le test publié est un test Gherkin, pas « Cucumber ». Il ne sait pas comment le type de
+  test est nommé dans son Xray.
+- Constat : le nom « Cucumber » (nom par défaut du type Gherkin dans Xray Cloud) était fixé dans le code à la création
+  du test, et affiché dans les écrans.
+- Décision : les écrans et les messages disent « test Gherkin ». Le nom du type dans Xray devient réglable (Test
+  Design › Réglages › Mapping, défaut « Cucumber ») et sert à créer le test ; « Cucumber » et « Gherkin » sont tous deux
+  reconnus à la lecture. À vérifier dans Xray par l'utilisateur : Réglages du projet › Test Types.

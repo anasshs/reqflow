@@ -100,7 +100,7 @@
         ${kpi(k.exigences, "exigences importées")}${kpi(k.cas_xray, "cas de test Xray")}${kpi(k.scenarios_bdd, "scénarios BDD")}${kpi(k.a_revoir, "à revoir", "warn-t")}
         ${kpi(k.approuves, "approuvés", "violet")}${kpi(k.prets_automatisation, "prêts pour l'automatisation", "info")}${kpi(k.automatises, "automatisés", "ok")}
         ${kpi(k.couverture_exigences === null ? null : String(k.couverture_exigences).replace(".", ",") + " %", "couverture des exigences")}</div>
-        <p class="lib">Synchronisation Xray : ${v.xray.present ? `instantané du ${esc(String(v.xray.date).replace("T", " ").slice(0, 16))} · ${esc(v.xray.source || "")} · ${v.xray.nb_tests} tests` : "aucun instantané"} — import (mode A) ; publication du Gherkin des tests Cucumber (modes B / C) depuis Cas de test, historique dans Mapping.</p>
+        <p class="lib">Synchronisation Xray : ${v.xray.present ? `instantané du ${esc(String(v.xray.date).replace("T", " ").slice(0, 16))} · ${esc(v.xray.source || "")} · ${v.xray.nb_tests} tests` : "aucun instantané"} — import (mode A) ; publication des tests Gherkin (modes B / C) depuis Cas de test, historique dans Mapping.</p>
         <div class="grille-strat">${barres("Cas de test par statut Xray", v.par_statut_xray)}${barres("Par type", v.par_type)}${barres("Par priorité", v.par_priorite)}
           ${barres("Revue interne", Object.fromEntries(Object.entries(v.par_revue).map(([s, n]) => [LIB_REVUE[s], n])))}
           <section class="bloc-strat"><h3>Couverture des exigences par module</h3><table>${Object.entries(v.couverture_modules).map(([m, x]) => `<tr><td>${esc(m)}</td><td>${x.couvertes}/${x.exigences}</td>
@@ -130,7 +130,7 @@
           <td>${c.automatise ? `<span class="pill ok">automatisé</span>${c.dernier_resultat ? ` <span class="pill ${c.dernier_resultat === "PASS" ? "ok" : "ko"}">${esc(c.dernier_resultat)}</span>` : ""}` : '<span class="pill">manuel</span>'}</td>
           <td>${pillRevue(c.revue)}</td><td class="lib" title="${esc(c.synchronisation)}">${esc(c.synchronisation.split(" (")[0])}</td></tr>`).join("")}</table>`
         : vide("Aucun cas de test", `<a href="#rapports/patrimoine">Importer le repository Xray.</a>`)}
-        <p class="lib" style="margin-top:10px">Publication dans Xray : tests Cucumber depuis le panneau d'un cas (« Publier dans Xray »), tests issus des US depuis « À concevoir ». Aucun test n'est converti d'un type à un autre sans validation.</p></div>`;
+        <p class="lib" style="margin-top:10px">Publication dans Xray : tests Gherkin depuis le panneau d'un cas (« Publier dans Xray »), tests issus des US depuis « À concevoir ». Aucun test n'est converti d'un type à un autre sans validation.</p></div>`;
     $$("[data-f]", z).forEach(s => s.onchange = () => { F[s.dataset.f] = s.value; cas(z); });
     $$("[data-wf]", z).forEach(li => li.onclick = () => { F.revue = F.revue === li.dataset.wf ? "" : li.dataset.wf; cas(z); });
     $$("tr[data-cle]", z).forEach(tr => tr.onclick = () => panneauCas(l.find(c => c.cle === tr.dataset.cle)));
@@ -340,7 +340,7 @@
     const casHtml = c => `<div class="bloc-strat pu-cas" data-statut="${esc(c.statut)}"><div class="btns">${selectionnable(c) ? `<input type="checkbox" data-pu-sel="${c.id}" title="Choisir ce cas (Je prends, Je ne prends pas, regrouper)" aria-label="Choisir ${esc(c.titre)}">` : ""}<b class="item">${esc(c.titre)}</b><span class="pill ${ST_CAS[c.statut] || "info"}">${esc(c.statut)}</span>
         <span class="lib">${esc(c.source)}</span>${c.cle_xray ? `<span class="cle-xray">${esc(c.cle_xray)}</span>` : ""}
         ${selectionnable(c) ? (c.format_publication === "Cucumber" && c.verification.bdd.length ? `<span class="pill warn" title="${esc(c.verification.bdd.join(" "))}">BDD à compléter</span>`
-          : `<span class="pill ${c.format_publication === "Cucumber" ? "ok" : "info"}" title="Format du test créé dans Xray">${c.format_publication === "Cucumber" ? "BDD (Cucumber)" : "Manuel (secours : Gherkin non prêt)"}</span>`)
+          : `<span class="pill ${c.format_publication === "Cucumber" ? "ok" : "info"}" title="Format du test créé dans Xray">${c.format_publication === "Cucumber" ? "BDD (Gherkin)" : "Manuel (secours : Gherkin non prêt)"}</span>`)
           : c.format_publie ? `<span class="pill">${c.format_publie === "Cucumber" ? "BDD" : "Manuel"}</span>` : ""}</div>
       ${c.statut === "Regroupé" ? `<p class="lib">Regroupé dans « ${esc(titreDe(c.regroupe_dans))} ».</p>` : ""}
       ${(c.regroupe || []).length ? `<p class="lib"><span class="pill violet">regroupe ${c.regroupe.length} cas</span> ${esc(c.justification || "")}
@@ -416,7 +416,7 @@
         ${cas.some(selectionnable) ? `<div class="btns pu-choix"><label class="lib"><input type="checkbox" id="pu-tout"> Tout choisir</label>
           <button class="btn petit succes" id="pu-prendre" disabled title="Valide les cas choisis et les crée dans Xray (BDD en priorité), liés à l'US, en une seule action">Je prends</button>
           <button class="btn petit danger" id="pu-laisser" disabled title="Écarte les cas choisis (un motif, historisé)">Je ne prends pas</button>
-          <span class="lib" id="pu-nb">Cocher les cas, puis décider. Test créé en BDD (Cucumber) quand le Gherkin est prêt, sinon en étapes manuelles.</span></div>` : ""}
+          <span class="lib" id="pu-nb">Cocher les cas, puis décider. Test créé en BDD (Gherkin) quand le Gherkin est prêt, sinon en étapes manuelles.</span></div>` : ""}
         <div class="pu-cas-grille">${cas.filter(c => FILTRE_CAS ? c.statut === FILTRE_CAS : c.statut !== "Regroupé").map(casHtml).join("") || `<p class='lib'>${cas.length ? "Aucun cas pour ce filtre." : "Aucun cas : « Demander à Cursor » ou « Analyse IA » (comprennent le texte), sinon « Proposer par catégories » (règles, secours)."}</p>`}</div>
         ${cas.some(c => c.statut === "Validé") ? `<div class="btns" style="margin-top:8px"><button class="btn" id="pu-pub" title="Cas validés avant « Je prends »">${ico("xray")}Publier les cas déjà validés (${nb("Validé")})</button></div>` : ""}`)}
       ${section("historique", `<ul class="liste">${(u.historique || []).slice().reverse().map(h => `<li class="lib">${esc(h.date.replace("T", " ").slice(0, 16))} · ${esc(h.auteur)} · ${esc(h.de || "—")} → ${esc(h.vers)} ${esc(h.detail || "")}</li>`).join("")}</ul>`)}
@@ -812,7 +812,10 @@
         <div class="champ"><label for="cv-val">Valeur « vrai »</label><input class="in mono" id="cv-val" value="${esc(cv.valeur_candidat)}" placeholder="true">
           <span class="lib">true (case à cocher), option:Oui (liste), options:Oui (liste multiple) ou texte</span></div></div>` : ""}
       <input type="hidden" id="mp-apc" value="${esc(ap.champ)}"><input type="hidden" id="mp-apj" value="${esc(ap.champ_jira || "")}">
-      <h3 class="lib" style="margin-top:14px">TYPES DE TEST → ÉDITEUR</h3><ul class="liste">${m.types.map(x => `<li><b>${esc(x.xray)}</b><span class="item lib">${esc(EDITEUR[x.editeur] || x.editeur)}</span></li>`).join("")}</ul>
+      <h3 class="lib" style="margin-top:14px">TYPES DE TEST → ÉDITEUR</h3><ul class="liste">${m.types.map(x => x.editeur === "bdd"
+        ? `<li><label class="lib" for="mp-type-bdd">Nom du type de test Gherkin dans votre Xray</label><input class="in" id="mp-type-bdd" style="width:auto;max-width:200px" value="${esc(x.xray)}" placeholder="Cucumber"
+            title="Nom exact du type de test Xray dont la définition est du Gherkin. « Cucumber » par défaut dans Xray Cloud ; certains projets le nomment « Gherkin ». Utilisé pour créer les tests à la publication"><span class="item lib">${esc(EDITEUR[x.editeur])} · à vérifier dans Xray : Réglages du projet › Test Types</span></li>`
+        : `<li><b>${esc(x.xray)}</b><span class="item lib">${esc(EDITEUR[x.editeur] || x.editeur)}</span></li>`).join("")}</ul>
       <h3 class="lib" style="margin-top:14px">HISTORIQUE DES SYNCHRONISATIONS</h3>${hist.length ? `<table class="table-strat"><tr><th>Date</th><th>Objet</th><th>Direction</th><th>Statut</th><th>Résultat</th><th>Auteur</th></tr>${hist.map(h => `<tr><td class="mono">${esc(h.date.replace("T", " "))}</td>
         <td class="cle-xray">${esc(h.objet)}</td><td>${esc(h.direction)}</td><td><span class="pill ${h.statut === "Conflit" ? "warn" : ["Refusé", "Erreur"].includes(h.statut) ? "ko" : "ok"}">${esc(h.statut)}</span></td><td class="lib">${esc(h.resultat)}</td><td>${esc(h.auteur)}</td></tr>`).join("")}</table>`
         : "<p class='lib'>Aucune publication. Cas de test (Cucumber) › « Publier dans Xray ».</p>"}</div>`;
@@ -834,7 +837,7 @@
       m.objets.forEach((o, i) => { o.externe = $(`[data-obj="${i}"]`).value; o.confirme = $(`[data-objc="${i}"]`).checked; });
       m.champs.forEach((c, i) => $$(`[data-ch="${i}"]`).forEach(e => { c[e.dataset.k] = e.type === "checkbox" ? e.checked : e.value; }));
       m.statuts.forEach((s, i) => { s.externe = $(`[data-st="${i}"]`).value.trim(); });
-      return {objets: m.objets, champs: m.champs, statuts: m.statuts, types: m.types, projet_jira: $("#mp-proj").value.trim(), dossier_repository: $("#mp-dos").value.trim(), mode: "A (import)",
+      return {objets: m.objets, champs: m.champs, statuts: m.statuts, types: m.types.map(t => t.editeur === "bdd" ? {...t, xray: ($("#mp-type-bdd")?.value || "").trim() || "Cucumber"} : t), projet_jira: $("#mp-proj").value.trim(), dossier_repository: $("#mp-dos").value.trim(), mode: "A (import)",
         application: {champ: $("#mp-apc").value, champ_jira: $("#mp-apj").value.trim()}};
     };
     const sauver = async corps => { try { await api("/api/conception/mapping", {method: "POST", body: corps}); toast("Mapping enregistré (journalisé).", "ok"); mapping(z); } catch (e) { toast(e.message, "ko"); } };

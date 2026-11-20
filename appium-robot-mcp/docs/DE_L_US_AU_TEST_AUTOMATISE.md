@@ -91,11 +91,15 @@ d'un parcours, résultats d'exécution).
 
 - **Scénario créé depuis un test Xray** : sa clé est déjà celle du test ; elle est écrite en tag.
 - **Scénario créé dans l'atelier** (Discovery, saisie) : il est publié en BDD dans Xray (Scénarios BDD › Publier), ce
-  qui crée le test Cucumber. `conception.cle_xray_du_scenario` rend la clé créée ; la génération l'écrit en tag.
+  qui crée le test Gherkin. `conception.cle_xray_du_scenario` rend la clé créée ; la génération l'écrit en tag.
 - **Script écrit avant la publication** : il porte la clé locale du scénario. À la publication,
   `conception.reporter_cle_xray` remplace ce mot dans la ligne `[Tags]` du test, rien d'autre, et renvoie la suite en
   revue technique. Un échec de ce report n'annule pas la publication : il est signalé dans son résultat.
 - L'aperçu du script indique le tag qui sera écrit, et signale un scénario pas encore dans Xray.
+- **Type du test dans Xray** : le test créé est un test dont la définition est du Gherkin. Xray Cloud nomme ce type
+  « Cucumber » par défaut ; un projet peut le nommer autrement (« Gherkin »). Le nom utilisé à la création se règle dans
+  Test Design › Réglages › Mapping et synchronisation Xray (`conception.type_gherkin`) ; les deux noms sont reconnus à
+  la lecture. Les écrans parlent de « test Gherkin ».
 
 ## Trois statuts distincts
 

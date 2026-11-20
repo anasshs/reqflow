@@ -910,7 +910,10 @@ def publier_cas(cle: str, xray=None, jira=None, ids: list[str] | None = None) ->
                 raise ValueError(" ".join(pb))
             if fmt == "Cucumber":
                 c["gherkin"] = gherkin_du_cas(c)
-                r = xray.creer_test_cucumber(e["projet_xray"], c["titre"], c["gherkin"])
+                from atelier.generation import conception
+
+                tg = conception.type_gherkin()  # nom du type Gherkin dans le Xray du projet (Test Design › Réglages)
+                r = xray.creer_test_cucumber(e["projet_xray"], c["titre"], c["gherkin"], **({"type_test": tg} if tg != "Cucumber" else {}))
             else:
                 if not c["etapes"]:
                     raise ValueError("Aucune étape.")

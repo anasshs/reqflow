@@ -432,11 +432,13 @@ class XrayClient:
         return self.gql(q, {"e": exec_id, "t": test_ids})
 
     # ------------------------------------------------------------ tests Cucumber (Test Design, mode C / B)
-    def creer_test_cucumber(self, projet: str, resume: str, gherkin: str) -> dict:
-        """Crée un Test Xray de type Cucumber (mutation createTest, vérifiée par xray-verifier)."""
+    def creer_test_cucumber(self, projet: str, resume: str, gherkin: str, type_test: str = "Cucumber") -> dict:
+        """Crée un Test Xray dont la définition est du Gherkin (mutation createTest, vérifiée par xray-verifier).
+        type_test : nom de ce type de test dans le Xray du projet (« Cucumber » par défaut dans Xray Cloud ; certains
+        projets le nomment « Gherkin ») — réglable dans Test Design › Réglages."""
         q = ('mutation($tt: UpdateTestTypeInput, $g: String, $j: JSON!) { createTest(testType: $tt, gherkin: $g, jira: $j) '
              '{ test { issueId jira(fields: ["key"]) } warnings } }')
-        r = self.gql(q, {"tt": {"name": "Cucumber"}, "g": gherkin, "j": {"fields": {"summary": resume, "project": {"key": projet}}}})
+        r = self.gql(q, {"tt": {"name": type_test or "Cucumber"}, "g": gherkin, "j": {"fields": {"summary": resume, "project": {"key": projet}}}})
         t = r["createTest"]["test"]
         return {"cle": t["jira"]["key"], "issueId": t["issueId"], "avertissements": r["createTest"].get("warnings") or []}
 

@@ -241,3 +241,30 @@ def test_la_cle_du_test_xray_arrive_dans_le_code_robot(banque):
     # 3. scénario créé depuis un test Xray : sa clé est déjà celle du test
     bdd.creer("DEMO-15", "Liste des comptes", depuis_xray={"gherkin": GHERKIN, "resume": "Liste des comptes"})
     assert facade.studio_generer_depuis_bdd("DEMO-15")["cle_xray"] == "DEMO-15"
+
+
+def test_le_nom_du_type_gherkin_dans_xray_est_reglable(banque):
+    """« Cucumber » est le nom par défaut du type de test Gherkin dans Xray Cloud ; un projet peut le nommer « Gherkin ».
+    Le nom réglé sert à créer le test à la publication, et les deux noms usuels restent reconnus à la lecture."""
+    from atelier.generation import bdd, conception
+
+    class Xray(_XrayQuiCree):
+        def creer_test_cucumber(self, projet_xray, resume, gherkin, **options):
+            self.options = options
+            return super().creer_test_cucumber(projet_xray, resume, gherkin)
+
+    assert conception.type_gherkin() == "Cucumber" and conception.noms_gherkin() == {"cucumber", "gherkin"}
+    bdd.creer("parcours_a", "A", depuis_xray={"gherkin": GHERKIN, "resume": "A"})
+    x = Xray()
+    r = conception.publier_bdd("parcours_a", "DEMO", xray=x)
+    assert x.options == {} and "test Gherkin créé (DEMO-501, type Xray « Cucumber »)" in r["resultat"]   # défaut : appel inchangé
+
+    m = conception.mapping()
+    conception.enregistrer_mapping({"types": [{**t, "xray": "Gherkin"} if t["editeur"] == "bdd" else t for t in m["types"]]})
+    assert conception.type_gherkin() == "Gherkin"
+    bdd.creer("parcours_b", "B", depuis_xray={"gherkin": GHERKIN, "resume": "B"})
+    x = Xray()
+    r = conception.publier_bdd("parcours_b", "DEMO", xray=x)
+    assert x.options == {"type_test": "Gherkin"} and "type Xray « Gherkin »" in r["resultat"]
+    with pytest.raises(ValueError, match="Nom d'un type de test Xray"):
+        conception.enregistrer_mapping({"types": [{"xray": "", "editeur": "bdd"}]})

@@ -71,7 +71,7 @@ def test_baseline_immuable_et_comparaison(td):
 def test_mapping_sans_supposition(td):
     m = td.mapping()
     assert all(s["externe"] == "" for s in m["statuts"])  # aucun équivalent Jira supposé
-    assert "Cucumber" in m["modes"]["B (bidirectionnel)"]  # disponible depuis la vérification du schéma Xray
+    assert "Gherkin" in m["modes"]["B (bidirectionnel)"]  # disponible depuis la vérification du schéma Xray
     t = td.tester_mapping()
     assert set(t["statuts_sans_equivalent"]) == set(td.STATUTS_REVUE)
     champs = {c["interne"]: c for c in t["champs"]}
