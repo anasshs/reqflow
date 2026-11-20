@@ -2588,6 +2588,47 @@ async def bdd_rangement(cle: str):
     return await asyncio.to_thread(_call, _suites_parcours().options, cle)
 
 
+# --------------------------------------------------------------------------- Release Notes (texte collé -> TNR)
+@app.get("/api/releases")
+async def releases_liste():
+    from atelier.intelligence import releases
+
+    return await asyncio.to_thread(_call, releases.lister)
+
+
+@app.post("/api/releases")
+async def releases_creer(req: Request):
+    """Enregistre une Release Note collée : évolutions extraites par des règles et rattachées au Knowledge Graph."""
+    from atelier.intelligence import releases
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, releases.creer, b.get("texte", ""), b.get("nom", ""))
+
+
+@app.get("/api/releases/noeuds")
+async def releases_noeuds(q: str = ""):
+    from atelier.intelligence import releases
+
+    return await asyncio.to_thread(_call, releases.chercher_noeuds, q)
+
+
+@app.get("/api/releases/{rid}")
+async def releases_detail(rid: str):
+    from atelier.intelligence import releases
+
+    return await asyncio.to_thread(_call, releases.obtenir, rid)
+
+
+@app.post("/api/releases/{rid}/operation")
+async def releases_operation(rid: str, req: Request):
+    """Corrections du QA sur une release (évolutions, rattachements, validation) : toutes tracées."""
+    from atelier.intelligence import releases
+
+    b = await req.json()
+    op = str(b.pop("op", ""))
+    return await asyncio.to_thread(lambda: _call(releases.operer, rid, op, **{k: v for k, v in b.items() if k in ("evolution", "noeud", "texte", "type", "nom", "version")}))
+
+
 @app.get("/api/studio/structure")
 async def studio_structure():
     """Structure lue dans le dépôt de tests : où sont rangés les tests, les keywords / page objects et les locators."""

@@ -858,3 +858,13 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   temporaire (le fichier du projet n'est pas enregistré), rend un problème par ligne, et ignore NAME18 et DOC02 tant
   que le projet n'a pas sa configuration Robocop ; avec une configuration du projet, celle-ci fait foi.
 - Conséquence assumée : sans configuration du projet, un vrai keyword mal casé n'est plus signalé par Robocop.
+
+## 2026-11-20 — Release Notes : première étape de « Release Intelligence & Impact Analysis »
+- Cahier de l'utilisateur : un module qui passe d'une Release Note (Teams, fichiers, Jira) à un périmètre de
+  non-régression. Avis rendu : la moitié existe déjà (analyse d'impact, sélection TNR, validation, campagne) ; étendre
+  le TNR plutôt que construire un second moteur ; les notifications de changement de Microsoft Graph sont incompatibles
+  avec l'écoute sur 127.0.0.1 ; sept « agents » ne correspondent pas à l'architecture (moteurs + jugements délégués).
+- Décision de l'utilisateur : commencer par le texte collé ; il peut contenir les US, mais pas toujours.
+- Mise en œuvre : `atelier/intelligence/releases.py`. Lecture par des règles, sans IA. Clé Jira citée et connue :
+  rattachement certain ; sinon proposition par les mots, à trancher. Une release validée alimente `pilotage.evolutions`.
+  Détail et suite : docs/RELEASE_NOTES.md. Aucun outil MCP ajouté.

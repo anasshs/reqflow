@@ -743,3 +743,11 @@ body.sans-lanceur .df-lanceur { display: none; }
 /* éditeur : bandeau du brouillon automatique */
 #e-brouillon { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: 12.5px; flex: none; }
 #e-brouillon[hidden] { display: none; }
+/* Release Notes : une évolution, ses rattachements, sa recherche */
+.rel-evolutions .rel-evo { display: block; padding: 10px 4px; }
+.rel-ligne { display: flex; gap: 10px; align-items: center; }
+.rel-ligne .item { flex: 1; min-width: 0; font-weight: 600; }
+.rel-liens { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.rel-relier { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rel-relier input { width: 300px; max-width: 100%; }
+.rel-evo .pill .lien { background: none; border: 0; cursor: pointer; color: inherit; padding: 0 0 0 4px; font: inherit; }

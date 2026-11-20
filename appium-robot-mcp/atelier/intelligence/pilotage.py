@@ -628,6 +628,12 @@ def evolutions(f: dict | None = None) -> list[dict]:
         if _etat_bug(b) in ("resolu", "ferme") and _jour(b.get("resolu")) >= depuis:
             out.append({"id": f"bug:{b['cle']}", "nature": "Bug corrigé", "element": b["cle"], "detail": b.get("resume", ""), "date": _jour(b.get("resolu")),
                         "source": "Jira (bugs des exécutions)", "noeud": trouver_us(b["cle"]), "tests_directs": list(b["tests"])})
+    from atelier.intelligence import releases
+
+    # Release Notes validées par le QA : leurs évolutions entrent dans la même analyse d'impact (un élément disparu du
+    # graphe depuis le rattachement redevient « hors graphe », jamais un impact inventé)
+    for e in _sur(lambda: releases.evolutions_tnr(depuis), [])[0] or []:
+        out.append({**e, "noeud": e["noeud"] if e["noeud"] in g.noeuds else ""})
     vus, propres = set(), []
     for e in out:
         if e["id"] not in vus:

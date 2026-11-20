@@ -184,6 +184,93 @@
     };
   }
 
+  /* ------------------------------------------------------------------ Release Notes : du texte collé au TNR
+     Le QA colle une Release Note ; l'atelier la découpe en évolutions et les rattache au Knowledge Graph (clé d'US citée :
+     certain ; sinon proposé, à trancher). Une release validée alimente le TNR ci-dessous. Tout se fait dans la page. */
+  const TYPE_EVO = {nouvelle: "ok", modification: "info", correction: "warn", technique: "", suppression: "ko"};
+  const ETAT_EVO = {"rattachée": "ok", "à trancher": "warn", "non rattachée": ""};
+  let REL = {ouverte: "", saisie: false, detail: null};
+  async function releases() {
+    if (!zone || !zone.isConnected) return;
+    let liste;
+    try { liste = await api("/api/releases"); } catch (e) { return poser("pz-releases", `${titre("Release Notes")}<div class="corps-carte">${vide("Indisponible", esc(e.message))}</div>`); }
+    if (REL.ouverte && !liste.some(r => r.id === REL.ouverte)) REL.ouverte = "";
+    if (REL.ouverte) { try { REL.detail = await api("/api/releases/" + REL.ouverte); } catch (e) { REL.ouverte = ""; REL.detail = null; } } else REL.detail = null;
+    const d = REL.detail, date = x => esc(String(x || "").slice(0, 16).replace("T", " "));
+    const lien = (e, l) => l.etat === "confirmé"
+      ? `<span class="pill ok" title="${esc(l.origine || "")}${l.par ? " · " + esc(l.par) : ""}">${esc(l.libelle)} <span class="lib">${esc(l.type)}</span> <button class="lien" data-rel-op="delier" data-e="${e.id}" data-n="${esc(l.noeud)}" aria-label="Retirer ce rattachement">×</button></span>`
+      : `<span class="pill warn" title="Proposé par les mots communs : ${esc((l.mots || []).join(", "))}. Une proposition n'est pas un rattachement.">${esc(l.libelle)} <span class="lib">${esc(l.type)}</span></span>
+         <button class="btn petit" data-rel-op="confirmer" data-e="${e.id}" data-n="${esc(l.noeud)}">Confirmer</button><button class="btn petit" data-rel-op="rejeter" data-e="${e.id}" data-n="${esc(l.noeud)}">Rejeter</button>`;
+    const evolution = e => { const visibles = (e.liens || []).filter(l => l.etat !== "rejeté"), rejetes = (e.liens || []).length - visibles.length;
+      return `<li class="rel-evo"><div class="rel-ligne"><select class="in" data-rel-type="${e.id}" style="width:auto" aria-label="Type de l'évolution ${e.id}">${Object.entries(d.types).map(([k, v]) => `<option value="${k}" ${k === e.type ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+          <span class="item">${esc(e.texte)}</span><span class="pill ${ETAT_EVO[e.etat] || ""}">${esc(e.etat)}</span>
+          <button class="btn petit" data-rel-corriger="${e.id}" title="Corriger le texte de l'évolution (une clé d'US ajoutée la rattache)">Corriger</button>
+          <button class="icone" data-rel-op="supprimer_evolution" data-e="${e.id}" aria-label="Supprimer l'évolution ${e.id}">${ico("x")}</button></div>
+        <div class="lib">${e.ligne ? `Ligne ${e.ligne} de la Release Note` : esc(e.origine || "")}${e.rubrique ? ` · rubrique « ${esc(e.rubrique)} »` : ""}${e.corrigee ? " · corrigée par le QA" : ""}
+          · ${e.tests.length ? `<b>${e.tests.length}</b> test(s) : ${esc(e.tests.slice(0, 8).join(", "))}${e.tests.length > 8 ? "…" : ""}` : e.sans_test ? '<span class="pill warn" title="L\'évolution est rattachée au graphe, mais aucun test ne la couvre">aucun test : à créer</span>' : "aucun test trouvé tant qu'elle n'est pas rattachée"}</div>
+        ${(e.cles_inconnues || []).length ? `<div class="lib"><span class="pill warn">clé inconnue</span> ${esc(e.cles_inconnues.join(", "))} : citée dans la Release Note, absente du Knowledge Graph (synchroniser Jira, ou relier à la main).</div>` : ""}
+        <div class="rel-liens">${visibles.map(l => lien(e, l)).join(" ")}${rejetes ? ` <span class="lib">${rejetes} proposition(s) rejetée(s)</span>` : ""}
+          <span class="rel-relier"><input class="in" data-rel-q="${e.id}" placeholder="Relier à un élément (US, module, parcours, écran…)" aria-label="Chercher un élément à relier à l'évolution ${e.id}"><span data-rel-res="${e.id}"></span></span></div></li>`; };
+    poser("pz-releases", `${titre("Release Notes", `<button class="btn primaire" id="rel-coller">${ico("plus")}Coller une Release Note</button>`)}<div class="corps-carte">
+      <p class="lib" style="margin-top:0">Coller le texte d'une Release Note : l'atelier en extrait les évolutions (par des règles, sans IA) et les rattache au Knowledge Graph. Une clé d'US citée rattache d'office ;
+        sans clé, un élément est seulement proposé et c'est vous qui tranchez. Une release <b>validée</b> alimente le TNR ci-dessous.</p>
+      ${REL.saisie ? `<section class="bloc-strat" style="margin-bottom:12px"><h3>Nouvelle Release Note</h3>
+        <div class="champ"><label for="rel-nom">Nom (facultatif)</label><input class="in" id="rel-nom" placeholder="ex. Release 2.4.0, livraison du 25 novembre"></div>
+        <div class="champ"><label for="rel-texte">Texte de la Release Note</label><textarea class="in" id="rel-texte" rows="9" placeholder="Coller ici le texte : une évolution par ligne ou par puce. Les clés Jira citées (ex. ABC-123) sont reconnues."></textarea></div>
+        <div class="btns"><button class="btn primaire" id="rel-analyser">Analyser</button><button class="btn" id="rel-annuler">Annuler</button></div></section>` : ""}
+      ${liste.length ? `<table class="table-strat"><tr><th>Release</th><th>Version</th><th>Reçue le</th><th>Évolutions</th><th>Rattachement</th><th>Statut</th><th></th></tr>${liste.map(r => `<tr class="${r.id === REL.ouverte ? "sel" : ""}">
+          <td><b>${esc(r.nom)}</b> <span class="lib">${esc(r.source)}</span></td><td class="mono">${esc(r.version || "—")}</td><td class="mono">${date(r.cree)}</td><td>${r.evolutions}</td>
+          <td><span class="pill ok">${r.rattachees} rattachée(s)</span> ${r.a_trancher ? `<span class="pill warn">${r.a_trancher} à trancher</span>` : ""} ${r.non_rattachees ? `<span class="pill">${r.non_rattachees} non rattachée(s)</span>` : ""}</td>
+          <td><span class="pill ${r.statut === "Validée" ? "ok" : "info"}">${esc(r.statut)}</span></td>
+          <td><button class="btn petit" data-rel-ouvrir="${esc(r.id)}">${r.id === REL.ouverte ? "Fermer" : "Ouvrir"}</button></td></tr>`).join("")}</table>`
+        : REL.saisie ? "" : vide("Aucune Release Note", "« Coller une Release Note » pour en analyser une.")}
+      ${d ? `<section class="bloc-strat" style="margin-top:12px"><h3>${esc(d.nom)}${d.version ? ` · ${esc(d.version)}` : ""} <span class="pill ${d.statut === "Validée" ? "ok" : "info"}">${esc(d.statut)}</span>
+          <span class="lien btns">${d.statut === "Validée" ? `<button class="btn petit" data-rel-op="rouvrir">Rouvrir</button>`
+            : `<button class="btn petit primaire" data-rel-op="valider" title="Les évolutions rattachées entrent dans l'analyse d'impact du TNR ; celles qui ne le sont pas y figurent « hors graphe »">Valider et envoyer au TNR</button>`}
+            <button class="btn petit danger" data-rel-op="supprimer_release">Supprimer</button></span></h3>
+        <p class="lib" style="margin:0 0 8px">${d.evolutions.length} évolution(s) : ${d.rattachees} rattachée(s), ${d.a_trancher} à trancher, ${d.non_rattachees} non rattachée(s) · ${d.tests.length} test(s) trouvé(s) par l'analyse d'impact
+          ${d.sans_test ? ` · <span class="pill warn">${d.sans_test} évolution(s) sans test : à créer</span>` : ""}${d.statut === "Validée" ? ` · validée par ${esc(d.validation?.par || "")} le ${date(d.validation?.date)}` : ""}</p>
+        <ul class="liste rel-evolutions">${d.evolutions.map(evolution).join("") || "<li class='lib'>Aucune évolution.</li>"}</ul>
+        <div class="btns" style="margin-top:8px"><input class="in" id="rel-ajout" placeholder="Ajouter une évolution oubliée par la lecture automatique" style="flex:1;min-width:260px"><button class="btn" id="rel-ajouter">Ajouter</button></div>
+        <details style="margin-top:10px"><summary class="lib">Texte d'origine (conservé tel quel)</summary><pre class="code-bloc" style="white-space:pre-wrap">${esc(d.texte)}</pre></details>
+        <details style="margin-top:6px"><summary class="lib">Journal (${d.historique.length})</summary><table class="table-strat">${d.historique.slice().reverse().map(h => `<tr><td class="mono">${date(h.date)}</td><td>${esc(h.par || "")}</td><td>${esc(h.action)}</td>
+          <td class="lib">${esc([h.evolution, h.noeud, h.texte].filter(Boolean).join(" · "))}</td></tr>`).join("")}</table></details></section>` : ""}</div>`);
+    const z = $("#pz-releases", zone);
+    const operer = async corps => { try { const etaitValidee = d?.statut === "Validée"; const r = await api(`/api/releases/${REL.ouverte}/operation`, {method: "POST", body: corps});
+        if (r.supprimee) REL.ouverte = "";
+        await releases();
+        if (corps.op === "valider" || corps.op === "rouvrir" || corps.op === "supprimer_release" || etaitValidee) charger(["tnr", "synthese", "decision"]);  // le TNR lit les releases validées
+      } catch (e) { toast(e.message, "ko"); } };
+    $("#rel-coller", z).onclick = () => { REL.saisie = !REL.saisie; releases().then(() => $("#rel-texte", zone)?.focus()); };
+    if ($("#rel-annuler", z)) $("#rel-annuler", z).onclick = () => { REL.saisie = false; releases(); };
+    if ($("#rel-analyser", z)) $("#rel-analyser", z).onclick = async () => {
+      try { const r = await api("/api/releases", {method: "POST", body: {texte: $("#rel-texte", z).value, nom: $("#rel-nom", z).value}});
+        REL.saisie = false; REL.ouverte = r.id; toast(`${r.evolutions.length} évolution(s) extraite(s) : ${r.rattachees} rattachée(s), ${r.a_trancher} à trancher.`, "ok"); releases(); }
+      catch (e) { toast(e.message, "ko"); } };
+    $$("[data-rel-ouvrir]", z).forEach(b => b.onclick = () => { REL.ouverte = REL.ouverte === b.dataset.relOuvrir ? "" : b.dataset.relOuvrir; releases(); });
+    $$("[data-rel-op]", z).forEach(b => b.onclick = () => {
+      const op = b.dataset.relOp;
+      if (op === "supprimer_release" && !confirm(`Supprimer la release « ${d.nom} » et ses rattachements ?`)) return;
+      operer({op, evolution: b.dataset.e, noeud: b.dataset.n}); });
+    $$("[data-rel-type]", z).forEach(sel => sel.onchange = () => operer({op: "modifier_evolution", evolution: sel.dataset.relType, type: sel.value}));
+    $$("[data-rel-corriger]", z).forEach(b => b.onclick = () => {
+      const e = d.evolutions.find(x => x.id === b.dataset.relCorriger), cible = b.closest(".rel-ligne").querySelector(".item");
+      cible.innerHTML = `<input class="in" value="${esc(e.texte)}" aria-label="Texte de l'évolution ${e.id}" style="width:100%">`;
+      const i = cible.querySelector("input"); i.focus();
+      const finir = ok => { if (ok && i.value.trim() && i.value.trim() !== e.texte) operer({op: "modifier_evolution", evolution: e.id, texte: i.value}); else releases(); };
+      i.onkeydown = ev => { if (ev.key === "Enter") finir(true); if (ev.key === "Escape") finir(false); };
+      b.textContent = "Enregistrer"; b.onclick = () => finir(true); });
+    let rechercheT = null;
+    $$("[data-rel-q]", z).forEach(i => i.oninput = () => { clearTimeout(rechercheT); rechercheT = setTimeout(async () => {
+      const res = $(`[data-rel-res="${i.dataset.relQ}"]`, z), q = i.value.trim();
+      if (q.length < 2) { res.innerHTML = ""; return; }
+      const l = await api("/api/releases/noeuds?q=" + encodeURIComponent(q)).catch(() => []);
+      res.innerHTML = l.length ? l.map(n => `<button class="btn petit" data-rel-lier="${esc(n.noeud)}" title="${esc(n.noeud)}">${esc(n.libelle)} <span class="lib">${esc(n.type)}</span></button>`).join(" ") : '<span class="lib">Aucun élément du Knowledge Graph.</span>';
+      $$("[data-rel-lier]", res).forEach(b => b.onclick = () => operer({op: "relier", evolution: i.dataset.relQ, noeud: b.dataset.relLier}));
+    }, 300); });
+    if ($("#rel-ajouter", z)) $("#rel-ajouter", z).onclick = () => { const t = $("#rel-ajout", z).value.trim(); if (t) operer({op: "ajouter_evolution", texte: t}); };
+  }
+
   /* ------------------------------------------------------------------ chargement progressif */
   const RENDU = {synthese: rendreSynthese, decision: rendreDecision, conception: rendreConception, execution: rendreExecution, tnr: rendreTnr};
   const CIBLES = {synthese: ["pz-synthese"], decision: ["pz-preparation", "pz-alertes", "pz-recos"], conception: ["pz-couverture", "pz-discovery", "pz-qualite", "pz-sprints"],
@@ -214,6 +301,7 @@
         <section class="carte s7" id="pz-activite">${titre("Résultats des campagnes")}${attente()}</section>
         <section class="carte s5" id="pz-anomalies">${titre("Bugs et anomalies")}${attente()}</section>
         <section class="carte s12" id="pz-responsables">${titre("Responsabilités et charge de travail")}${attente()}</section>
+        <section class="carte s12" id="pz-releases">${titre("Release Notes")}${attente("Lecture des releases…")}</section>
         <section class="carte s12" id="pz-tnr">${titre("Intelligence de non-régression (TNR)")}${attente("Analyse d'impact…")}</section>
         <section class="carte s12" id="pz-recos">${titre("Aide à la décision : que faire maintenant ?")}${attente()}</section>`;
       try { CTX = await api("/api/pilotage/contexte"); } catch (e) { CTX = {sprints: [], modules: [], versions: [], plateformes: [], responsables: [], periode_jours: 14, sources: {}}; }
@@ -225,7 +313,8 @@
       };
       poserFiltres();
       charger();
-      const ancre = {tnr: "pz-tnr", execution: "pz-activite", decision: "pz-recos", conception: "pz-couverture"}[sous];
+      releases();
+      const ancre = {releases: "pz-releases", tnr: "pz-tnr", execution: "pz-activite", decision: "pz-recos", conception: "pz-couverture"}[sous];
       if (ancre) setTimeout(() => $("#" + ancre, zone)?.scrollIntoView({behavior: "smooth"}), 600);
     },
   });
