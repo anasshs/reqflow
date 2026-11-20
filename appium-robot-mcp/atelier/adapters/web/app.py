@@ -2566,6 +2566,13 @@ async def studio_candidats(perimetre: str = ""):
     return await asyncio.to_thread(_call, strategie.candidats_perimetre, perimetre)
 
 
+@app.post("/api/studio/candidats/construction")
+async def studio_candidat_construction(req: Request):
+    """L'automaticien lance la construction d'un test : sa décision « Approuvé » passe à « En construction »."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.marquer_en_construction, str(b.get("cle") or ""), "Automation Studio")
+
+
 @app.post("/api/strategie/plan-automatisation")
 async def strategie_decider(req: Request):
     b = await req.json()

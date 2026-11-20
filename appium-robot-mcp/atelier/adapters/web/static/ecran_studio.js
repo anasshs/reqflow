@@ -132,16 +132,20 @@
             <div id="dr-demande"></div>
             ${parCursor.length ? `<p style="margin-top:10px"><span class="pill warn">${parCursor.length}</span> test(s) écrit(s) par Cursor en attente de votre décision : <a href="#studio/direct/suivi">les revoir</a>.</p>` : ""}
             <ol class="lib dr-aide"><li>Vous demandez (bouton « Demander à Cursor »).</li><li>Cursor pilote l'écran et écrit le test : vous le suivez ici.</li><li>Il le soumet en revue.</li><li>Vous approuvez, demandez des modifications ou refusez.</li></ol></aside></div></div>`;
-    api("/api/studio/modeles").then(m => { $("#dr-mod").innerHTML = Object.entries(m).map(([k, x]) => `<option value="${esc(k)}" ${k === (Atelier.plateforme === "web" ? "web" : "mobile") ? "selected" : ""}>${esc(x.titre)}</option>`).join(""); }).catch(() => {});
+    const modelesPrets = api("/api/studio/modeles").then(m => { $("#dr-mod").innerHTML = Object.entries(m).map(([k, x]) => `<option value="${esc(k)}" ${k === (Atelier.plateforme === "web" ? "web" : "mobile") ? "selected" : ""}>${esc(x.titre)}</option>`).join(""); }).catch(() => {});
     $("#dr-dem").onclick = async () => { const cle = $("#dr-cle").value, b = bdds.find(x => x.cle === cle) || {};
       if ($("#dr-mod").value) {
         try { const r = await api("/api/studio/modeles/rendre", {method: "POST", body: {cle: $("#dr-mod").value, scenario: cle, titre: b.titre || "", plateforme: Atelier.plateforme || "web"}});
-          return demandeCursor(r.texte + " Je suis l'écran et tes actions dans Automation Studio › Construire et je valide la revue."); } catch (e) { toast(e.message, "ko"); }
+          return demandeCursor(r.texte + " Je suis l'écran et tes actions dans Automation Studio › Construire et je valide la revue.", cle); } catch (e) { toast(e.message, "ko"); }
       }
       demandeCursor(cle ? `Construis le test Robot du scénario BDD ${cle} avec le MCP de l'atelier : studio_socle, studio_scenario_bdd("${cle}"), ouvre la session (start_session) et vérifie chaque étape à l'écran, `
         + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants sans wrapper 1:1, corrige les locators fragiles (studio_corrections_locators, studio_corriger_locator), `
         + `vérifie en dry_run, écris la suite puis studio_soumettre_revue. Je suis l'écran et tes actions dans Automation Studio › Construire et je valide la revue.`
-        : "Construis un test Robot avec le MCP de l'atelier (studio_socle d'abord), puis soumets-le en revue avec studio_soumettre_revue."); };
+        : "Construis un test Robot avec le MCP de l'atelier (studio_socle d'abord), puis soumets-le en revue avec studio_soumettre_revue.", cle); };
+    // arrivée depuis « À automatiser › Construire » : le scénario est choisi et la demande préparée (une seule fois)
+    let aLancer = "";
+    try { aLancer = sessionStorage.getItem("as-construire") || ""; sessionStorage.setItem("as-construire", ""); } catch (e) { /* facultatif */ }
+    if (aLancer && bdds.some(b => b.cle === aLancer)) { $("#dr-cle").value = aLancer; modelesPrets.finally(() => { if (document.body.contains(z) && $("#dr-dem")) $("#dr-dem").click(); }); }
     $$("[data-revue]", z).forEach(a => a.onclick = () => { try { sessionStorage.setItem("studio-revue", a.dataset.revue); } catch (e) { /* facultatif */ } });
     let vus = 0, imageT = 0;
     const ligne = e => `<li style="border-left:3px solid ${COUL[e.famille] || COUL.lecture};padding-left:8px;margin:4px 0" title="${esc(JSON.stringify(e.args || {}))}">
@@ -151,9 +155,10 @@
       ${e.etat === "debut" && e.args && Object.keys(e.args).length ? `<div class="lib mono" style="font-size:11px">${esc(Object.entries(e.args).map(([k, v]) => k + "=" + v).join("  "))}</div>` : ""}</li>`;
     let attenteVue = "";
     const rafraichir = async () => {
-      if (!document.body.contains(z)) return clearInterval(minuteur);
+      // la vue en direct a disparu (autre écran, ou vue « À revoir et sessions » dans la même zone) : on arrête
+      if (!document.body.contains(z) || !$("#dr-etat")) return clearInterval(minuteur);
       const a = await api("/api/mcp/activite").catch(() => null);
-      if (!a) return;
+      if (!a || !$("#dr-etat")) return;
       $$("[data-pilote]", z).forEach(b => { b.disabled = b.dataset.pilote === a.controle; });
       const at = a.attente;
       if ((at?.id || "") !== attenteVue) {  // étape proposée par Cursor (propose_step) : réponse ici
@@ -210,7 +215,9 @@
   }
 
   /* demande prête à coller dans Cursor (chat de l'agent) : Cursor construit, l'automaticien valide ici */
-  function demandeCursor(texte) {
+  function demandeCursor(texte, cle = "") {
+    // la construction est lancée : un test « Approuvé » passe à « En construction » (sans effet sur toute autre décision)
+    if (cle) api("/api/studio/candidats/construction", {method: "POST", body: {cle}}).catch(() => {});
     DemanderCursor("Faire construire par Cursor", texte, `Cursor lit le socle et le scénario, écrit le test (qui entre en revue « Généré »), le vérifie en dry run puis le soumet.
       Il ne peut ni approuver ni publier : vous décidez dans <a href="#studio/revue">Revue et publication</a>.`,
       ["studio_soumettre_revue"], {zone: $("#dr-demande") || $("#mp-demande")});
@@ -290,13 +297,15 @@
             ${c.automatise ? "" : `<button class="btn petit ${decide(c) || c.statut_plan === "Rejeté" ? "" : "primaire"}" data-decider="${esc(c.cle)}" title="1. Trancher : on automatise ce test ou non (Approuvé, En construction, Rejeté avec justification…) ; journalisé">Décider</button>`}
             <button class="btn petit ${!c.automatise && decide(c) && !aBdd.has(c.cle) ? "primaire" : ""}" data-bdd="${esc(c.cle)}" data-titre="${esc(c.resume || "")}"
               title="2. ${aBdd.has(c.cle) ? "Ouvrir le scénario BDD (Gherkin) de ce test dans Construction BDD" : "Aucun scénario BDD : le créer depuis le test Xray (Gherkin ou étapes manuelles), puis l'ouvrir"}">${aBdd.has(c.cle) ? "BDD" : "Créer le BDD"}</button>
-            <button class="btn petit ${!c.automatise && decide(c) && aBdd.has(c.cle) ? "primaire" : ""}" data-map="${esc(c.cle)}" data-titre="${esc(c.resume || "")}" title="3. ${aBdd.has(c.cle) ? "Correspondance étape BDD → keyword du socle, locators et données ; aperçu du script Robot, puis construction" : "Mapping BDD → Robot : nécessite le scénario BDD (proposé à la création)"}">Mapping</button>
+            ${!c.automatise && decide(c) && aBdd.has(c.cle) ? `<button class="btn petit primaire" data-construire="${esc(c.cle)}" title="3. Lancer la construction avec Cursor : ouvre « Construire en direct » avec la demande prête pour ce scénario. Le test passe à « En construction »">${ico("ia")}Construire</button>` : ""}
+            <button class="btn petit" data-map="${esc(c.cle)}" data-titre="${esc(c.resume || "")}" title="3. ${aBdd.has(c.cle) ? "Correspondance étape BDD → keyword du socle, locators et données ; aperçu du script Robot, puis construction" : "Mapping BDD → Robot : nécessite le scénario BDD (proposé à la création)"}">Mapping</button>
             <button class="icone" data-kg="${esc(c.cle)}" aria-label="Voir ${esc(c.cle)} dans le Knowledge Graph" title="Knowledge Graph centré sur ce test : exigences, écrans, scripts Robot et exécutions liés">${ico("graphe")}</button></span></td></tr>`).join("")}</table>`
         : d.perimetre ? vide("Aucun test dans ce périmètre", d.perimetre.type === "module" ? "" : ` Concevoir d'abord les cas de test, puis les publier dans Xray : <a href="#conception/us">Test Design › À concevoir</a>.`)
           : vide("Aucun candidat", "Importer l'instantané Xray (Rapports › Patrimoine) : les candidats sont calculés automatiquement.")}</div>`;
     const borner = v => { garder(v); if (location.hash === "#studio/candidats") candidats(z); else location.hash = "studio/candidats"; };
     $("#ca-perimetre").onchange = e => borner(e.target.value);
     $$("[data-per]", z).forEach(b => b.onclick = () => borner(b.dataset.per));
+    $$("[data-construire]", z).forEach(b => b.onclick = () => { try { sessionStorage.setItem("as-construire", b.dataset.construire); } catch (e) { /* facultatif */ } location.hash = "studio/direct"; });
     $$("[data-decider]", z).forEach(b => b.onclick = () => window.Pilotage.decider(plan.find(c => c.cle === b.dataset.decider), () => candidats(z)));
     $$("[data-bdd]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.bdd, b.dataset.titre));
     $$("[data-map]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.map, b.dataset.titre, "mapping"));
@@ -357,7 +366,7 @@
     $("#mp-cle").onchange = e => { location.hash = "studio/mapping/" + encodeURIComponent(e.target.value); };
     $("#mp-cursor").onclick = () => demandeCursor(`Construis le test Robot du scénario BDD ${cle} avec le MCP de l'atelier : studio_socle, studio_scenario_bdd("${cle}"), `
       + `puis studio_generer_depuis_bdd("${cle}") en aperçu ; crée les keywords manquants dans le socle sans wrapper 1:1, vérifie en dry_run, `
-      + `écris la suite puis studio_soumettre_revue. Je valide dans Automation Studio › Revue et publication.`);
+      + `écris la suite puis studio_soumettre_revue. Je valide dans Automation Studio › Revue et publication.`, cle);
     $("#mp-gen").onclick = async () => {
       let g;
       try { g = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: false}}); } catch (e) { return toast(e.message, "ko"); }

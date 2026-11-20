@@ -664,6 +664,21 @@ def plan_automatisation() -> list[dict]:
     return out
 
 
+def marquer_en_construction(cle: str, source: str = "") -> dict:
+    """La construction du test est lancée par l'automaticien : sa décision « Approuvé » passe à « En construction »
+    (journalisé). Toute autre décision est laissée telle quelle : un test rejeté, à analyser ou sans décision ne change
+    pas de statut parce qu'on a demandé sa construction."""
+    s = charger()
+    d = ((s or {}).get("plan_automatisation") or {}).get(cle)
+    if not d or d.get("statut") != "Approuvé":
+        return {"cle": cle, "change": False, "statut": (d or {}).get("statut", "")}
+    _avant_modification(s, f"plan d'automatisation {cle}")
+    s["plan_automatisation"][cle] = {**d, "statut": "En construction", "par": _auteur(), "date": _maintenant()}
+    _sauver(s)
+    _journaliser("decision_plan", s, cle=cle, statut="En construction", source=source or "construction lancée")
+    return {"cle": cle, "change": True, "statut": "En construction"}
+
+
 ORDRE_REVUE = {"Ready for Automation": 0, "Approved": 1, "In Review": 2, "Changes Requested": 3, "Draft": 4}
 TYPES_PERIMETRE_AUTO = {"sprint": "Sprint", "us": "User Story", "module": "Module"}
 

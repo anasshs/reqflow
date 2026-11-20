@@ -761,3 +761,11 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   et un sprint de « À concevoir » ouvrent « À automatiser » borné (`#studio/candidats/us:<clé>`, `sprint:<espace>|<id>`).
   Moteur : `strategie.candidats_perimetre` ; route `GET /api/studio/candidats`. Périmètre inconnu : refusé.
   `plan_automatisation` et sa route sont inchangés. Aucun outil MCP ajouté.
+
+## 2026-11-20 — La construction se lance depuis « À automatiser »
+- Question de l'utilisateur : quand lance-t-on le développement des scripts ?
+- Constat : le développement ne se lançait que depuis Mapping ou Construire ; la décision ne suivait pas.
+- Décision : un test approuvé qui a son scénario BDD porte un bouton « Construire », qui ouvre « Construire en direct »
+  avec la demande à Cursor prête. Lancer la construction fait passer « Approuvé » à « En construction » (journalisé) ;
+  aucune autre décision n'est modifiée, et construire un test non approuvé reste possible depuis Mapping (la décision
+  reste humaine, elle n'est pas un verrou). Moteur : `strategie.marquer_en_construction`.

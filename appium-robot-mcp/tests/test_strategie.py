@@ -266,3 +266,18 @@ def test_candidats_dans_un_perimetre(st):
     t._sauver_us(us)
     d = st.candidats_perimetre("sprint:SQ1|12")
     assert d["perimetre"]["fige"] and d["perimetre"]["us"] == 2 and [c["cle"] for c in d["candidats"]] == ["DEMO-308"]   # la photo figée fait foi
+
+
+def test_construction_lancee_fait_avancer_une_decision_approuvee(st):
+    """Lancer la construction ne change que « Approuvé » → « En construction » : toute autre décision reste humaine."""
+    _remplir(st)
+    assert st.marquer_en_construction("DEMO-308") == {"cle": "DEMO-308", "change": False, "statut": ""}          # aucune décision
+    st.decider_candidat("DEMO-308", "Approuvé", "Robot + Playwright", "2 j", "prioritaire")
+    st.decider_candidat("DEMO-309", "Rejeté", commentaire="hors périmètre")
+    assert st.marquer_en_construction("DEMO-308", "Automation Studio")["change"] is True
+    plan = {c["cle"]: c for c in st.plan_automatisation()}
+    assert plan["DEMO-308"]["statut_plan"] == "En construction"
+    assert (plan["DEMO-308"]["decision"]["framework"], plan["DEMO-308"]["decision"]["effort"], plan["DEMO-308"]["decision"]["commentaire"]) == ("Robot + Playwright", "2 j", "prioritaire")
+    assert st.marquer_en_construction("DEMO-308")["change"] is False                                              # déjà en construction
+    assert st.marquer_en_construction("DEMO-309") == {"cle": "DEMO-309", "change": False, "statut": "Rejeté"}     # un rejet ne bouge pas
+    assert {c["cle"]: c for c in st.plan_automatisation()}["DEMO-309"]["statut_plan"] == "Rejeté"
