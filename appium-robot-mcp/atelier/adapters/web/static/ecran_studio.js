@@ -19,10 +19,14 @@
     Generated: "", "Technical Review": "info", "Changes Requested": "warn", Approved: "violet", Published: "ok", Rejected: "ko"};
   const LIB = {Generated: "Généré / non revu", "Technical Review": "Revue technique", "Changes Requested": "Modifs demandées", Approved: "Approuvé", Published: "Publié", Rejected: "Refusé"};
   let R = "vue", F = {};
+  /* Construire en direct : le lanceur flottant de Discovery recouvrirait la zone « À vous » ; il y est masqué (plateforme.css) */
+  const majLanceur = () => document.body.classList.toggle("sans-lanceur", /^#studio\/direct(\/|$)/.test(location.hash));
+  window.addEventListener("hashchange", majLanceur);
+  majLanceur();
 
   Atelier.enregistrer("studio", {
     async afficher(zone, sous) {
-      const [r, arg] = (sous || "").split("/");
+      const [r, ...reste] = (sous || "").split("/"), arg = reste.join("/");
       if (r === "code") { location.hash = "editeur"; return; }
       if (r === "knowledge") { location.hash = "graphe"; return; }  // pas de second graphe : Knowledge Graph central
       R = MENU.some(m => m[0] === r) ? r : "vue";
@@ -82,29 +86,18 @@
      d'outil au moment où il a lieu. Les décisions (revue, publication) restent ici, à l'automaticien. */
   const COUL = {ecran: "var(--info, #2563eb)", ecriture: "var(--violet, #7c3aed)", revue: "var(--warn)", execution: "var(--ok)", lecture: "var(--muted)"};
   const FAM = {ecran: "écran", ecriture: "écrit", revue: "revue", execution: "exécute", lecture: "lit"};
-  async function direct(z) {
+  /* Construire avec Cursor. Rien ne recouvre l'écran piloté : trois zones fixes (écran, actions de Cursor, « À vous »), la
+     demande à envoyer s'affiche dans « À vous », et ce qui se relit après coup (tests en attente, sessions) a sa propre vue. */
+  async function direct(z, arg = "") {
+    if (arg.startsWith("session/")) return sessionRejouee(z, arg.slice(8));
     const [bdds, rev] = await Promise.all([api("/api/bdd").catch(() => []), api("/api/studio/revues").catch(() => ({}))]);
     const parCursor = Object.entries(rev).filter(([, r]) => (r.historique || []).some(h => /\(cursor\)/.test(h.commentaire || "")) && r.statut !== "Published");
-    z.innerHTML = `${entete("Construire avec Cursor", `<select class="in" id="dr-cle" style="width:auto" title="Scénario BDD à faire construire">${bdds.map(b => `<option value="${esc(b.cle)}">${esc(b.cle)} ${esc(b.titre || "")}</option>`).join("") || "<option value=''>aucun scénario BDD</option>"}</select>
-        <select class="in" id="dr-mod" style="width:auto" title="Modèle de demande (réglables dans Environnement › Réglages)"></select>
-        <button class="btn primaire" id="dr-dem" title="Demande prête à coller dans Cursor, selon le modèle et le scénario choisis">${ico("ia")}Demander à Cursor</button>`)}
-      <div class="corps-carte">
-        <ol class="workflow" style="margin-bottom:10px"><li>Vous demandez (bouton ci-dessus)</li><li>Cursor pilote l'écran et écrit le test : vous le voyez ici</li><li>Il le soumet en revue</li><li>Vous approuvez, demandez des modifications ou refusez</li></ol>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span id="dr-etat" class="lib"></span>
-          <span style="margin-left:auto" class="btns"><button class="btn petit" data-pilote="pause" title="Cursor attend avant son prochain outil (jusqu'à la reprise)">⏸ Pause</button>
-            <button class="btn petit" data-pilote="actif" title="Cursor reprend">▶ Reprendre</button>
-            <button class="btn petit danger" data-pilote="arret" title="Le prochain outil de Cursor échoue avec « arrêté par l'automaticien » ; il attend vos instructions dans le chat">■ Arrêter</button></span></div>
-        <div id="dr-attente"></div>
-        <div style="display:grid;grid-template-columns:minmax(260px,420px) minmax(0,1fr);gap:12px;align-items:start">
-          <section class="bloc-strat"><h3>Écran piloté <span class="lib" id="dr-cible" style="font-weight:normal"></span></h3>
-            <div style="position:relative"><div id="dr-ecran" style="min-height:260px;display:flex;align-items:center;justify-content:center;background:var(--fond-2, #0001);border-radius:8px;overflow:hidden">
-              <span class="lib" style="padding:16px">En attente d'une session (device, émulateur ou navigateur) ouverte par Cursor.</span></div>
-              <div id="dr-cadre" hidden style="position:absolute;border:3px solid var(--ko, #dc2626);border-radius:4px;box-shadow:0 0 0 9999px #0002;pointer-events:none;transition:all .2s">
-                <span id="dr-cadre-l" style="position:absolute;top:-22px;left:-3px;background:var(--ko, #dc2626);color:#fff;font-size:11px;padding:1px 6px;border-radius:3px;white-space:nowrap"></span></div></div>
-            <p class="lib" style="margin-top:6px">Mobile : écran lu en direct sur le device / l'émulateur. Navigateur : image envoyée par le MCP après chaque action.</p></section>
-          <section class="bloc-strat"><h3>Ce que fait Cursor <label class="lib" style="font-weight:normal;margin-left:8px" title="Masquer les simples lectures (socle, carte, fichiers)"><input type="checkbox" id="dr-lect"> masquer les lectures</label></h3>
-            <ol id="dr-tl" class="liste" style="max-height:440px;overflow:auto;margin:0"></ol></section></div>
-        <section class="bloc-strat" style="margin-top:12px"><h3>Écrit par Cursor, en attente de vous (${parCursor.length})</h3>
+    const suivi = arg === "suivi";
+    const vues = `<span class="btns dr-vues" role="tablist"><a class="btn petit" role="tab" aria-selected="${!suivi}" href="#studio/direct">En direct</a>
+      <a class="btn petit" role="tab" aria-selected="${suivi}" href="#studio/direct/suivi" title="Tests écrits par Cursor en attente de votre décision, et sessions passées à revoir">À revoir (${parCursor.length}) et sessions</a></span>`;
+    if (suivi) {
+      z.innerHTML = `${entete("Construire avec Cursor", vues)}<div class="corps-carte">
+        <section class="bloc-strat"><h3>Écrit par Cursor, en attente de vous (${parCursor.length})</h3>
           ${parCursor.length ? `<table><tr><th>Suite</th><th>Statut</th><th>Dernière étape</th><th></th></tr>${parCursor.map(([f, r]) => { const h = (r.historique || []).slice(-1)[0] || {};
             return `<tr><td class="mono">${esc(f)}</td><td>${pill(r.statut)}</td><td class="lib">${esc((h.date || "").slice(0, 16).replace("T", " "))} · ${esc(h.commentaire || "")}</td>
               <td><a class="btn petit primaire" href="#studio/revue" data-revue="${esc(f)}" title="Ouvrir les contrôles et décider">Revoir</a></td></tr>`; }).join("")}</table>`
@@ -114,7 +107,31 @@
         <td class="mono">${esc(x.debut.slice(0, 16).replace("T", " "))} → ${esc(x.fin.slice(11, 16))}</td><td>${x.appels}</td><td class="${x.erreurs ? "ko-t" : ""}">${x.erreurs}</td><td>${x.images}</td>
         <td class="mono lib">${esc(x.ecrits.join(", ") || "—")}</td><td><button class="btn petit" data-rejouer-s="${esc(x.id)}" title="Revoir chaque appel et l'écran après chaque action">Revoir</button></td></tr>`).join("")}</table>`
         : "Aucune session enregistrée.";
-      $$("[data-rejouer-s]", z).forEach(b => b.onclick = () => rejouerSession(b.dataset.rejouerS)); }).catch(e => { $("#dr-sess").textContent = e.message; });
+        $$("[data-rejouer-s]", z).forEach(b => b.onclick = () => location.hash = "studio/direct/session/" + encodeURIComponent(b.dataset.rejouerS)); }).catch(e => { $("#dr-sess").textContent = e.message; });
+      $$("[data-revue]", z).forEach(a => a.onclick = () => { try { sessionStorage.setItem("studio-revue", a.dataset.revue); } catch (e) { /* facultatif */ } });
+      return;
+    }
+    z.innerHTML = `${entete("Construire avec Cursor", `${vues}<select class="in" id="dr-cle" style="width:auto" title="Scénario BDD à faire construire">${bdds.map(b => `<option value="${esc(b.cle)}">${esc(b.cle)} ${esc(b.titre || "")}</option>`).join("") || "<option value=''>aucun scénario BDD</option>"}</select>
+        <select class="in" id="dr-mod" style="width:auto" title="Modèle de demande (réglables dans Environnement › Réglages)"></select>
+        <button class="btn primaire" id="dr-dem" title="Demande prête à coller dans Cursor, selon le modèle et le scénario choisis">${ico("ia")}Demander à Cursor</button>`)}
+      <div class="corps-carte"><div class="dr-zones">
+          <section class="bloc-strat dr-ecran-z"><h3>Écran piloté <span class="lib" id="dr-cible" style="font-weight:normal"></span></h3>
+            <div class="dr-cadre-z" style="position:relative"><div id="dr-ecran" style="display:flex;align-items:center;justify-content:center;background:var(--fond-2, #0001);border-radius:8px;overflow:hidden">
+              <span class="lib" style="padding:16px">En attente d'une session (device, émulateur ou navigateur) ouverte par Cursor.</span></div>
+              <div id="dr-cadre" hidden style="position:absolute;border:3px solid var(--ko, #dc2626);border-radius:4px;box-shadow:0 0 0 9999px #0002;pointer-events:none;transition:all .2s">
+                <span id="dr-cadre-l" style="position:absolute;top:-22px;left:-3px;background:var(--ko, #dc2626);color:#fff;font-size:11px;padding:1px 6px;border-radius:3px;white-space:nowrap"></span></div></div>
+            <p class="lib" style="margin-top:6px">Mobile : écran lu en direct sur le device / l'émulateur. Navigateur : image envoyée par le MCP après chaque action.</p></section>
+          <section class="bloc-strat"><h3>Ce que fait Cursor <label class="lib" style="font-weight:normal;margin-left:8px" title="Masquer les simples lectures (socle, carte, fichiers)"><input type="checkbox" id="dr-lect"> masquer les lectures</label></h3>
+            <ol id="dr-tl" class="liste" style="margin:0"></ol></section>
+          <aside class="bloc-strat dr-vous" aria-label="À vous"><h3>À vous</h3>
+            <p id="dr-etat" class="lib" style="margin:0 0 8px"></p>
+          <span class="btns"><button class="btn petit" data-pilote="pause" title="Cursor attend avant son prochain outil (jusqu'à la reprise)">⏸ Pause</button>
+            <button class="btn petit" data-pilote="actif" title="Cursor reprend">▶ Reprendre</button>
+            <button class="btn petit danger" data-pilote="arret" title="Le prochain outil de Cursor échoue avec « arrêté par l'automaticien » ; il attend vos instructions dans le chat">■ Arrêter</button></span>
+            <div id="dr-attente" style="margin-top:10px"></div>
+            <div id="dr-demande"></div>
+            ${parCursor.length ? `<p style="margin-top:10px"><span class="pill warn">${parCursor.length}</span> test(s) écrit(s) par Cursor en attente de votre décision : <a href="#studio/direct/suivi">les revoir</a>.</p>` : ""}
+            <ol class="lib dr-aide"><li>Vous demandez (bouton « Demander à Cursor »).</li><li>Cursor pilote l'écran et écrit le test : vous le suivez ici.</li><li>Il le soumet en revue.</li><li>Vous approuvez, demandez des modifications ou refusez.</li></ol></aside></div></div>`;
     api("/api/studio/modeles").then(m => { $("#dr-mod").innerHTML = Object.entries(m).map(([k, x]) => `<option value="${esc(k)}" ${k === (Atelier.plateforme === "web" ? "web" : "mobile") ? "selected" : ""}>${esc(x.titre)}</option>`).join(""); }).catch(() => {});
     $("#dr-dem").onclick = async () => { const cle = $("#dr-cle").value, b = bdds.find(x => x.cle === cle) || {};
       if ($("#dr-mod").value) {
@@ -141,7 +158,7 @@
       const at = a.attente;
       if ((at?.id || "") !== attenteVue) {  // étape proposée par Cursor (propose_step) : réponse ici
         attenteVue = at?.id || "";
-        $("#dr-attente").innerHTML = at && at.step ? `<section class="bloc-strat" style="border:2px solid var(--warn);margin-bottom:10px"><h3>Cursor attend votre réponse</h3>
+        $("#dr-attente").innerHTML = at && at.step ? `<section class="bloc-strat" style="border:2px solid var(--warn);margin-bottom:10px;background:var(--surface)"><h3>Cursor attend votre réponse</h3>
           <p><b class="mono">${esc(at.step.gherkin || "")}</b>${at.step.keyword ? ` · keyword <span class="mono">${esc(at.step.keyword)}</span>` : ""}${(at.step.locators || []).length ? ` · locators ${esc(at.step.locators.join(", "))}` : ""}</p>
           ${at.step.commentaire ? `<p class="lib">${esc(at.step.commentaire)}</p>` : ""}
           <div class="champ"><label for="dr-cor">Correction (pour « Corriger »)</label><input class="in" id="dr-cor" value="${esc(at.step.gherkin || "")}"></div>
@@ -196,7 +213,7 @@
   function demandeCursor(texte) {
     DemanderCursor("Faire construire par Cursor", texte, `Cursor lit le socle et le scénario, écrit le test (qui entre en revue « Généré »), le vérifie en dry run puis le soumet.
       Il ne peut ni approuver ni publier : vous décidez dans <a href="#studio/revue">Revue et publication</a>.`,
-      ["studio_soumettre_revue"]);
+      ["studio_soumettre_revue"], {zone: $("#dr-demande") || $("#mp-demande")});
   }
 
   async function productivite() {
@@ -294,7 +311,7 @@
     z.innerHTML = `${entete("BDD to Automation", `<select class="in" id="mp-cle" style="width:auto">${l.map(b => `<option ${b.cle === cle ? "selected" : ""}>${esc(b.cle)}</option>`).join("")}</select>
         <button class="btn primaire" id="mp-cursor" title="Copie la demande à coller dans Cursor : il construit le test avec les outils du MCP, l'écrit et le soumet en revue ; vous l'approuvez ici">${ico("ia")}Faire construire par Cursor</button>
         <a class="btn" href="#bdd/${encodeURIComponent(cle)}" title="Ouvre le scénario dans Construction BDD pour corriger les étapes ou le mapping (propositions IA par étape)">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn" id="mp-gen" title="Aperçu du test Robot généré depuis le mapping, puis écriture dans le projet (jamais d'écrasement implicite) ; le script entre en revue">${ico("editeur")}Générer le script Robot</button>`)}
-      <div class="corps-carte"><p><b>${esc(m.cle)}</b> · ${esc(m.titre)} · JDD <span class="mono">${esc(m.jdd || "—")}</span> · BDD ${esc(m.statut_bdd)} ·
+      <div class="corps-carte"><div id="mp-demande"></div><p><b>${esc(m.cle)}</b> · ${esc(m.titre)} · JDD <span class="mono">${esc(m.jdd || "—")}</span> · BDD ${esc(m.statut_bdd)} ·
         <span class="pill ok">${m.existants} étape(s) reliée(s) au socle</span> <span class="pill ${m.a_creer ? "warn" : ""}">${m.a_creer} keyword(s) à créer</span></p>
       ${m.scenarios.map(s => `<h3 class="lib" style="margin:12px 0 6px">${esc(s.type === "principal" ? "SCÉNARIO" : "BRANCHE " + s.type.toUpperCase())} · ${esc(s.nom)}</h3>
         <table class="table-strat"><tr><th style="width:34%">Étape BDD</th><th>Keyword du socle</th><th>Locators (état)</th><th>Données</th><th>Assertion</th></tr>
@@ -311,20 +328,32 @@
       let g;
       try { g = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: false}}); } catch (e) { return toast(e.message, "ko"); }
       const bloquants = (g.keywords_proches || []).filter(x => !x.confirme);
-      const fen = modale(`Générer le script Robot · ${cle}`, `
+      // aperçu dans la page, à droite du mapping : on compare les étapes et le script sans rien recouvrir
+      const corps = $(".corps-carte", z);
+      let zones = $(".mp-zones", z);
+      if (!zones) {
+        zones = document.createElement("div"); zones.className = "mp-zones";
+        const gauche = document.createElement("div"); gauche.append(...corps.childNodes);
+        const ap = document.createElement("aside"); ap.id = "mp-apercu"; ap.className = "bloc-strat"; ap.setAttribute("aria-label", "Aperçu du script Robot");
+        zones.append(gauche, ap); corps.append(zones);
+      }
+      const ap = $("#mp-apercu", z);
+      zones.classList.add("ouvert");
+      ap.innerHTML = `<h3>Script Robot · ${esc(cle)}<span class="lien btns"><button class="btn petit primaire" id="g-ok" title="Le script entre en revue « Généré » : vous décidez dans Revue et publication">${ico("disque")}Écrire dans le projet</button>
+          <button class="icone" id="g-x" aria-label="Fermer l'aperçu">${ico("x")}</button></span></h3>
         <div class="btns" style="margin-bottom:8px"><span class="pill ok">${g.keywords_reutilises.length} keyword(s) du socle réutilisé(s)</span>
           <span class="pill ${g.keywords_a_creer.length ? "warn" : "ok"}">${g.keywords_a_creer.length} keyword(s) à implémenter</span></div>
         ${bloquants.length ? `<p class="lib"><span class="pill ko">Écriture bloquée</span> Étapes proches d'un keyword existant, à trancher dans <a href="#bdd/${encodeURIComponent(cle)}">Construction BDD</a> (reprendre le keyword ou confirmer un nouveau keyword) : ${bloquants.map(x => `« ${esc(x.etape)} » ≈ « ${esc(x.keyword)} »`).join(", ")}</p>` : ""}
         ${g.keywords_a_creer.length ? `<p class="lib">À implémenter : ${esc(g.keywords_a_creer.join(", "))}. Écrits ici, ils échouent explicitement tant qu'ils ne sont pas implémentés ;
           « Faire construire par Cursor » les crée dans le socle et vérifie le test avant de le soumettre.</p>` : ""}
         <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}"></div>
-        <pre class="code-bloc" style="max-height:42vh;overflow:auto">${esc(g.contenu)}</pre>`,
-        `<label class="lib" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="g-ecr"> Remplacer s'il existe</label>
-         <button class="btn primaire" id="g-ok" title="Le script entre en revue « Généré » : vous décidez dans Revue et publication">${ico("disque")}Écrire dans le projet</button>`);
-      $("#g-ok", fen.el).onclick = async () => {
+        <label class="lib" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><input type="checkbox" id="g-ecr"> Remplacer s'il existe</label>
+        <pre class="code-bloc">${esc(g.contenu)}</pre>`;
+      $("#g-x", ap).onclick = () => zones.classList.remove("ouvert");
+      $("#g-ok", ap).onclick = async () => {
         try {
-          const r = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: true, chemin: $("#g-ch", fen.el).value, ecraser: $("#g-ecr", fen.el).checked}});
-          fen.fermer(); toast(`Écrit : ${r.ecrit}. Le script est en revue.`, "ok");
+          const r = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: true, chemin: $("#g-ch", ap).value, ecraser: $("#g-ecr", ap).checked}});
+          toast(`Écrit : ${r.ecrit}. Le script est en revue.`, "ok");
           try { sessionStorage.setItem("studio-revue", r.ecrit); } catch (e) { /* facultatif */ }
           location.hash = "studio/revue";
         } catch (e) { toast(e.message, "ko"); }
@@ -674,7 +703,7 @@
       try { const x = await api("/api/run", {method: "POST", body: {target: f, dry_run: true, priorite: "High"}}); toast(`${x.run_id} : dry run ${x.etat === "Queued" ? "en file" : "lancé"} ; rouvrir la revue à la fin.`, "ok"); }
       catch (e) { toast(e.message, "ko"); }
     };
-    if ($("#rv-sess", p)) $("#rv-sess", p).onclick = () => rejouerSession(r.session_agent);
+    if ($("#rv-sess", p)) $("#rv-sess", p).onclick = () => { location.hash = "studio/direct/session/" + encodeURIComponent(r.session_agent); };
     if (["Approved", "Published"].includes(r.statut)) {
       const q = document.createElement("div");
       $(".corps-carte", p).prepend(q);
@@ -699,18 +728,34 @@
     }
   }
 
-  /* rejoue une session de l'agent : appels dans l'ordre, avec l'écran après chaque action */
-  async function rejouerSession(sid) {
+  /* rejoue une session de l'agent en pleine page : les appels à gauche, l'écran après l'appel choisi à droite */
+  async function sessionRejouee(z, sid) {
+    const retour = `<a class="btn petit" href="#studio/direct/suivi">← Sessions passées</a>`;
     const s = await api("/api/agent/sessions/" + encodeURIComponent(sid)).catch(e => ({erreur: e.message}));
-    if (s.erreur) return toast(s.erreur, "ko");
+    if (s.erreur) { z.innerHTML = `${entete("Session de Cursor", retour)}<div class="corps-carte">${vide("Session introuvable", esc(s.erreur))}</div>`; return; }
     const img = n => `/api/agent/sessions/${encodeURIComponent(sid)}/${encodeURIComponent(n)}`;
-    const m = modale(`Session de Cursor ${sid}`, `<p class="lib">${s.etapes.length} appel(s) · ${s.etapes.filter(e => e.image).length} écran(s). Cliquer une image pour l'agrandir.</p>
-      <ol class="liste" style="max-height:60vh;overflow:auto">${s.etapes.map(e => `<li style="border-left:3px solid ${COUL[e.famille] || COUL.lecture};padding-left:8px;margin:6px 0;display:flex;gap:10px;align-items:flex-start">
-        <div style="flex:1"><span class="mono lib">${esc((e.date || "").slice(11, 19))}</span> <span class="pill">${esc(FAM[e.famille] || e.famille || "")}</span> <b class="mono">${esc(e.nom || "")}</b>
-          ${e.etat === "erreur" ? `<span class="pill ko">erreur</span> <span class="ko-t">${esc(e.message || "")}</span>` : e.etat === "pause" ? '<span class="pill warn">en pause</span>' : `<span class="lib">${esc(e.duree ?? "")} s · ${esc(e.resultat || "")}</span>`}
-          ${e.args && Object.keys(e.args).length ? `<div class="lib mono" style="font-size:11px">${esc(Object.entries(e.args).map(([k, v]) => k + "=" + v).join("  "))}</div>` : ""}</div>
-        ${e.image ? `<img src="${img(e.image)}" alt="Écran après ${esc(e.nom || "")}" data-grand="${esc(e.image)}" style="width:120px;border:1px solid var(--line);border-radius:4px;cursor:zoom-in">` : ""}</li>`).join("")}</ol>`);
-    $$("[data-grand]", m.el).forEach(i => i.onclick = () => modale("Écran", `<img src="${img(i.dataset.grand)}" alt="Écran" style="max-width:100%">`));
+    const images = s.etapes.filter(e => e.image).length;
+    z.innerHTML = `${entete(`Session de Cursor ${sid}`, retour)}<div class="corps-carte">
+      <p class="lib" style="margin:0 0 8px">${s.etapes.length} appel(s) · ${images} écran(s). Choisir un appel pour voir l'écran après lui ; cliquer l'image pour l'agrandir sur place.</p>
+      <div class="se-zones"><ol class="liste se-liste" aria-label="Appels de la session">${s.etapes.map((e, n) => `<li><button class="se-pas" data-n="${n}" style="border-left-color:${COUL[e.famille] || COUL.lecture}">
+          <span><span class="mono lib">${esc((e.date || "").slice(11, 19))}</span> <span class="pill">${esc(FAM[e.famille] || e.famille || "")}</span> <b class="mono">${esc(e.nom || "")}</b>
+            ${e.image ? '<span class="pill info">écran</span>' : ""}
+            ${e.etat === "erreur" ? `<span class="pill ko">erreur</span> <span class="ko-t">${esc(e.message || "")}</span>` : e.etat === "pause" ? '<span class="pill warn">en pause</span>' : `<span class="lib">${esc(e.duree ?? "")} s · ${esc(e.resultat || "")}</span>`}</span>
+          ${e.args && Object.keys(e.args).length ? `<span class="lib mono" style="font-size:11px">${esc(Object.entries(e.args).map(([k, v]) => k + "=" + v).join("  "))}</span>` : ""}</button></li>`).join("") || "<li class='lib'>Aucun appel enregistré.</li>"}</ol>
+        <section class="bloc-strat se-ecran"><h3 id="se-titre">Écran</h3><div id="se-img" class="se-img"></div></section></div></div>`;
+    const choisir = n => {
+      $$(".se-pas", z).forEach(b => b.setAttribute("aria-pressed", +b.dataset.n === n));
+      let k = n;
+      while (k >= 0 && !s.etapes[k].image) k--;  // l'écran visible à cet appel : le dernier reçu
+      $("#se-titre").textContent = k < 0 ? "Écran" : `Écran après ${s.etapes[k].nom || "l'appel"}${k === n ? "" : " (inchangé depuis)"}`;
+      $("#se-img").classList.remove("grand");
+      $("#se-img").innerHTML = k < 0 ? `<p class="lib">Aucun écran reçu à ce stade de la session.</p>`
+        : `<img src="${img(s.etapes[k].image)}" alt="Écran après ${esc(s.etapes[k].nom || "")}" title="Cliquer pour agrandir ou réduire">`;
+      const i = $("#se-img img");
+      if (i) i.onclick = () => $("#se-img").classList.toggle("grand");
+    };
+    $$(".se-pas", z).forEach(b => b.onclick = () => choisir(+b.dataset.n));
+    if (s.etapes.length) choisir(Math.max(0, s.etapes.findIndex(e => e.image)));
   }
 
   async function historique(z) {

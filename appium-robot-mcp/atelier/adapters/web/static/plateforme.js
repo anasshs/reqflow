@@ -104,6 +104,7 @@ const lienCursor = texte => {
      boite / cli  la demande part d'un clic, sans fenêtre (boîte de demandes, ou agent lancé en ligne de commande) ;
      lien         fenêtre courte : la demande, « Copier » et « Ouvrir dans Cursor ».
    options.chat (exploration, mise au point) : toujours par le chat, quel que soit le réglage.
+   options.zone (élément de la page) : la demande s'y affiche au lieu d'ouvrir une fenêtre, pour ne rien recouvrir.
    attendus : outils MCP dont la fin signifie « résultat déposé » (suivi de la demande : suivi_cursor.js).
    Le troisième paramètre (ancienne explication) n'est plus affiché : la fenêtre ne garde que l'essentiel. */
 const PHRASE_BOITE = "Traite les demandes de l'atelier.";
@@ -113,15 +114,25 @@ window.DemanderCursor = async (titre, texte, _explication, attendus = [], option
     try {
       const dep = await api("/api/cursor/boite", {method: "POST", body: {titre, texte, attendus, ecran: location.hash}});
       window.SuiviCursor?.ajouter(titre, attendus, {id: dep.id, mode: dep.mode});  // le suivi affiche l'état réel de la demande déposée
+      if (options.zone && document.body.contains(options.zone)) options.zone.innerHTML = "";
       return toast(e.envoi === "cli" ? "Cursor est lancé : le suivi s'affiche en bas à droite."
         : e.ecoute.active ? "Demande envoyée à Cursor : le suivi s'affiche en bas à droite."
           : `Demande déposée. Cursor n'écoute pas : dire une fois dans son chat « ${PHRASE_BOITE} »`, e.envoi === "cli" || e.ecoute.active ? "ok" : "");
     } catch (err) { toast(`Envoi direct impossible (${err.message}) : passage par le chat.`, "ko"); }
   }
   const lien = lienCursor(texte);
-  const m = modale(titre, `<textarea class="in mono" rows="5" readonly style="width:100%">${esc(texte)}</textarea>
-    <p class="lib" style="margin:6px 0 0">${lien ? "Cursor s'ouvre avec cette demande : la relire, puis l'envoyer." : "Demande trop longue pour un lien : la copier, puis la coller dans le chat de Cursor."}</p>`,
-    `<button class="btn" data-copier>Copier</button>${lien ? `<a class="btn primaire" data-ouvrir href="${esc(lien)}">Ouvrir dans Cursor</a>` : ""}`);
+  const corps = rangs => `<textarea class="in mono" rows="${rangs}" readonly style="width:100%">${esc(texte)}</textarea>
+    <p class="lib" style="margin:6px 0 0">${lien ? "Cursor s'ouvre avec cette demande : la relire, puis l'envoyer." : "Demande trop longue pour un lien : la copier, puis la coller dans le chat de Cursor."}</p>`;
+  const boutons = `<button class="btn" data-copier>Copier</button>${lien ? `<a class="btn primaire" data-ouvrir href="${esc(lien)}">Ouvrir dans Cursor</a>` : ""}`;
+  let m;
+  if (options.zone && document.body.contains(options.zone)) {  // dans la page : rien n'est recouvert
+    const zone = options.zone;
+    zone.innerHTML = `<section class="bloc-strat demande-cursor" aria-label="${esc(titre)}"><h3>${esc(titre)}<span class="lien"><button class="icone" data-fermer aria-label="Fermer la demande">${ico("x")}</button></span></h3>
+      ${corps(8)}<div class="btns" style="margin-top:8px">${boutons}</div></section>`;
+    m = {el: zone, fermer: () => { zone.innerHTML = ""; }};
+    $("[data-fermer]", zone).onclick = m.fermer;
+    zone.scrollIntoView({block: "nearest"});
+  } else m = modale(titre, corps(5), boutons);
   const copier = async (silencieux = false) => {
     try { await navigator.clipboard.writeText(texte); if (!silencieux) toast("Demande copiée : la coller dans Cursor.", "ok"); return true; }
     catch (err) { $("textarea", m.el).select(); if (!silencieux) toast("Sélectionnée : Ctrl + C pour copier.", "ok"); return false; }

@@ -739,3 +739,13 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   des exigences ne présélectionne rien (à partir de 4 exigences). Sans IA configurée : aucune proposition. Le périmètre de « Explorer le reste » (module ou parcours validé) borne
   aussi la Corrélation, et un parcours validé l'ouvre sur ses écrans. Confirmer reste une décision humaine.
   Aucun outil MCP ajouté ni modifié. Détail : docs/CORRELATION_EXIGENCES_ECRANS.md.
+
+## 2026-11-20 — Automation Studio : rien ne recouvre la zone de travail
+- Constat de l'utilisateur : les fenêtres modales rendent l'écran compliqué.
+- Décision : une modale ne sert plus qu'à une saisie courte (motif d'un refus). Dans Automation Studio :
+  « Construire avec Cursor » tient en trois zones fixes (écran piloté, actions de Cursor, « À vous ») ; la demande à
+  envoyer à Cursor et ses questions s'affichent dans « À vous » ; les tests en attente et les sessions passées ont leur
+  vue (« À revoir et sessions ») ; une session rejouée s'ouvre en pleine page (`#studio/direct/session/<id>`), l'image
+  s'agrandit sur place ; l'aperçu du script Robot s'ouvre à droite du tableau de mapping. Le lanceur flottant de
+  Discovery est masqué dans « Construire en direct ». `DemanderCursor` accepte `options.zone` pour s'afficher dans la
+  page ; ailleurs, son comportement est inchangé. Aucune route ni outil MCP modifié.
