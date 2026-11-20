@@ -76,7 +76,7 @@
     if (!ID) { z.innerHTML = vide("Aucune release", "Créer une release, puis lui rattacher ses builds au fil des livraisons."); return; }
     try { T = await api(`/api/releases/${ID}/tableau`); } catch (e) { z.innerHTML = vide("Release indisponible", esc(e.message)); return; }
     const i = T.indicateurs, q = T.qualification;
-    const onglet = BID === "initial" ? "initial" : BID === "journal" ? "journal" : "builds";
+    const onglet = ["initial", "journal", "plan"].includes(BID) ? BID : "builds";
     z.innerHTML = `<div class="rel-tete"><div><h2 style="margin:0">${esc(T.nom)} ${T.version ? `<span class="lib">${esc(T.version)}</span>` : ""}</h2>
         <p class="lib" style="margin:4px 0 0">${T.date_prevue ? `Livraison prévue le ${esc(T.date_prevue)} · ` : ""}${T.perimetre ? esc(T.perimetre) : "Périmètre non décrit"}</p></div>
         <div class="btns">${pill(q.etat, QUALIF[q.etat])}<button class="btn petit" id="rl-modifier">Modifier</button>
@@ -90,6 +90,7 @@
         <table class="table-strat"><tr><th>Critère</th><th>Valeur</th><th>État</th><th></th></tr>${T.criteres_sortie.map(c => `<tr><td>${esc(c.libelle)}${c.bloquant ? ' <span class="pill">bloquant</span>' : ""}</td>
           <td class="mono">${esc(String(c.valeur))}</td><td>${pill(c.etat, {satisfait: "ok", "non satisfait": c.bloquant ? "ko" : "warn"}[c.etat] || "")}</td><td class="lib">${esc(c.detail || "")}</td></tr>`).join("")}</table></details>
       <div class="sous-onglets" role="tablist" style="margin-top:12px"><button role="tab" aria-selected="${onglet === "builds"}" data-o="">Builds (${T.builds.length})</button>
+        <button role="tab" aria-selected="${onglet === "plan"}" data-o="plan">Plan Xray et exécutions</button>
         <button role="tab" aria-selected="${onglet === "initial"}" data-o="initial">Périmètre initial · Release Note</button><button role="tab" aria-selected="${onglet === "journal"}" data-o="journal">Journal</button></div>
       <div id="rl-onglet" style="padding-top:12px"></div>`;
     $$("[data-o]", z).forEach(b => b.onclick = () => aller(ID + (b.dataset.o ? "/" + b.dataset.o : "")));
@@ -97,6 +98,7 @@
     $("#rl-qualifier").onclick = () => qualification();
     if (onglet === "initial") return initial();
     if (onglet === "journal") return journal();
+    if (onglet === "plan") return planXray();
     return builds();
   }
 
@@ -141,6 +143,64 @@
     api(`/api/releases/${ID}`).then(r => { $("#rl-onglet").innerHTML = r.historique.length ? `<table class="table-strat"><tr><th>Date</th><th>Par</th><th>Action</th><th>Détail</th></tr>${r.historique.slice().reverse().map(h => `<tr>
         <td class="mono">${date(h.date)}</td><td>${esc(h.par || "")}</td><td>${esc(h.action)}</td><td class="lib">${esc(["build", "test", "evolution", "noeud", "motif", "campagne"].map(k => h[k] && `${k} ${h[k]}`).filter(Boolean).join(" · "))}</td></tr>`).join("")}</table>`
       : vide("Journal vide"); }).catch(e => { $("#rl-onglet").innerHTML = vide("Indisponible", esc(e.message)); });
+  }
+
+  /* ------------------------------------------------------------------ plan Xray de la release et ses exécutions */
+  const STAT = {"TO DO": "", EXECUTING: "info", PASSED: "ok", FAILED: "ko", BLOCKED: "warn"};
+  const lienJira = cle => { const base = Atelier.ctx?.jira_url; return base ? `<a href="${esc(base.replace(/\/$/, "") + "/browse/" + cle)}" target="_blank" rel="noopener">${esc(cle)}</a>` : `<span class="mono">${esc(cle)}</span>`; };
+  const opPlan = async (corps_, message = "") => {
+    try { const r = await api(`/api/releases/${ID}/plan`, {method: "POST", body: corps_}); if (message) toast(message, "ok"); return r; }
+    catch (e) { toast(e.message, "ko"); return null; } };
+  let OUVERTE = "";
+  async function planXray() {
+    const z = $("#rl-onglet");
+    let p;
+    try { p = await api(`/api/releases/${ID}/plan`); } catch (e) { z.innerHTML = vide("Indisponible", esc(e.message)); return; }
+    const parBuild = {};
+    p.executions.forEach(e => (parBuild[e.build_numero] = parBuild[e.build_numero] || []).push(e));
+    const resume = c => Object.entries(c).filter(([, n]) => n).map(([s_, n]) => pill(`${n} ${s_}`, STAT[s_])).join(" ");
+    z.innerHTML = `<p style="margin-top:0">${p.plan ? `Test Plan Xray ${lienJira(p.plan.cle)} <span class="lib">créé le ${date(p.plan.date)} par ${esc(p.plan.par)}</span>`
+        : `<span class="lib">Pas encore de Test Plan dans Xray.</span> <button class="btn petit primaire" id="px-plan">Créer le Test Plan de la release</button>`}
+      <span class="lib"> · Les exécutions se créent depuis un build (onglet Builds), avant ou après la validation de son périmètre.${p.environnements.length ? ` Environnements du projet : ${esc(p.environnements.join(", "))}.` : " Aucun environnement de test lu dans Xray."}</span></p>
+      ${p.executions.length ? Object.entries(parBuild).map(([num, l]) => `<h3 style="margin:12px 0 6px">Build ${esc(num)} <span class="lib">${l.length} exécution(s)</span></h3>
+        <table class="table-strat"><tr><th>Test Execution</th><th>Nom</th><th>Environnement</th><th>Tests</th><th>Statuts</th><th></th></tr>${l.map(e => `<tr class="${e.id === OUVERTE ? "sel" : ""}">
+          <td>${lienJira(e.xray.cle)}</td><td>${esc(e.nom)}${e.copie_de ? ' <span class="lib">copie</span>' : ""}${e.absents.length ? ` <span class="pill warn" title="${esc(e.absents.join(", "))}">${e.absents.length} absent(s) de Xray</span>` : ""}</td>
+          <td>${e.environnement ? pill(e.environnement, "info") : '<span class="lib">aucun</span>'}</td><td>${e.tests.length}</td><td>${resume(e.compte)}</td>
+          <td style="white-space:nowrap"><button class="btn petit" data-px-ouvrir="${e.id}">${e.id === OUVERTE ? "Fermer" : "Statuts"}</button>
+            ${e.envs_libres.length ? `<select class="in" data-px-env="${e.id}" style="width:auto" aria-label="Environnement de la copie">${e.envs_libres.map(x => `<option>${esc(x)}</option>`).join("")}</select><button class="btn petit" data-px-dup="${e.id}" title="Même exécution, mêmes tests, pour cet environnement">Dupliquer</button>` : ""}</td></tr>
+          ${e.id === OUVERTE ? `<tr><td colspan="6"><table class="table-strat">${e.tests.map(t => { const st = e.statuts[t]; return `<tr><td><b>${esc(t)}</b></td>
+            <td><select class="in" data-px-statut="${e.id}" data-t="${esc(t)}" style="width:auto" aria-label="Statut de ${esc(t)}">${p.statuts.map(s_ => `<option ${s_ === (st?.statut || "TO DO") ? "selected" : ""}>${s_}</option>`).join("")}</select></td>
+            <td class="lib">${st ? `posé par ${esc(st.par)} le ${date(st.date)}${st.commentaire ? " · " + esc(st.commentaire) : ""}` : "non mis à jour depuis l'atelier"}</td></tr>`; }).join("")}</table></td></tr>` : ""}`).join("")}</table>`).join("")
+        : vide("Aucune exécution", "Ouvrir un build : « Exécutions Xray » propose un découpage par type de test ou par module, avec un environnement par exécution.")}`;
+    if ($("#px-plan")) $("#px-plan").onclick = async () => { if (await opPlan({op: "plan"}, "Test Plan créé dans Xray.")) planXray(); };
+    $$("[data-px-ouvrir]", z).forEach(b => b.onclick = () => { OUVERTE = OUVERTE === b.dataset.pxOuvrir ? "" : b.dataset.pxOuvrir; planXray(); });
+    $$("[data-px-dup]", z).forEach(b => b.onclick = async () => { const env = $(`[data-px-env="${b.dataset.pxDup}"]`, z).value;
+      if (await opPlan({op: "dupliquer", execution: b.dataset.pxDup, environnement: env}, `Exécution dupliquée dans Xray pour ${env}.`)) planXray(); });
+    $$("[data-px-statut]", z).forEach(sel => sel.onchange = async () => {
+      if (await opPlan({op: "statut", execution: sel.dataset.pxStatut, test: sel.dataset.t, statut: sel.value}, `${sel.dataset.t} : ${sel.value} dans Xray.`)) planXray(); });
+  }
+
+  /* exécutions Xray d'un build : découpage proposé, nom et environnement par exécution, création dans Xray */
+  async function executionsBuild(zone_) {
+    const dec = zone_.dataset.decoupage || "type";
+    let g, p;
+    try { [g, p] = await Promise.all([api(`/api/releases/${ID}/builds/${BID}/executions?decoupage=${dec}`), api(`/api/releases/${ID}/plan`)]); }
+    catch (e) { zone_.innerHTML = `<p class="lib">${esc(e.message)}</p>`; return; }
+    const miennes = p.executions.filter(e => e.build === BID);
+    zone_.innerHTML = `<div class="btns" style="margin-bottom:6px"><label class="lib" for="xb-dec">Découper</label><select class="in" id="xb-dec" style="width:auto">${Object.entries(p.decoupages).map(([k, v]) => `<option value="${k}" ${k === dec ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+        <span class="lib">Possible avant la validation du périmètre. Chaque exécution est créée dans le Test Plan de la release${p.plan ? ` (${esc(p.plan.cle)})` : ", créé au besoin"}.</span></div>
+      ${g.length ? `<table class="table-strat"><tr><th></th><th>Exécution</th><th>Environnement</th><th>Tests</th></tr>${g.map((x, n) => `<tr><td><input type="checkbox" data-xb="${n}" ${x.deja.length === x.tests.length ? "" : "checked"} aria-label="Créer ${esc(x.nom)}"></td>
+          <td><input class="in" data-xb-nom="${n}" value="${esc(x.nom)}" aria-label="Nom de l'exécution"></td>
+          <td>${p.environnements.length ? `<select class="in" data-xb-env="${n}" style="width:auto" aria-label="Environnement">${p.environnements.map(e => `<option>${esc(e)}</option>`).join("")}</select>` : '<span class="lib">aucun</span>'}</td>
+          <td>${x.tests.length}${x.deja.length ? ` <span class="pill warn" title="${esc(x.deja.join(", "))}">${x.deja.length} déjà dans une exécution</span>` : ""}</td></tr>`).join("")}</table>
+        <div class="btns" style="margin-top:6px"><button class="btn primaire" id="xb-creer">Créer dans Xray</button></div>` : '<p class="lib">Aucun test dans le périmètre.</p>'}
+      ${miennes.length ? `<p class="lib" style="margin-top:6px">Déjà créées pour ce build : ${miennes.map(e => `${lienJira(e.xray.cle)} ${e.environnement ? `(${esc(e.environnement)})` : ""}`).join(", ")} · <a href="#releases/${ID}/plan">mettre à jour les statuts</a></p>` : ""}`;
+    $("#xb-dec", zone_).onchange = e => { zone_.dataset.decoupage = e.target.value; executionsBuild(zone_); };
+    if ($("#xb-creer", zone_)) $("#xb-creer", zone_).onclick = async () => {
+      const groupes = g.map((x, n) => ({...x, nom: $(`[data-xb-nom="${n}"]`, zone_).value, environnement: $(`[data-xb-env="${n}"]`, zone_)?.value || "", coche: $(`[data-xb="${n}"]`, zone_).checked})).filter(x => x.coche);
+      if (!groupes.length) return toast("Cocher au moins une exécution.", "ko");
+      const r = await opPlan({op: "executions", build: BID, groupes});
+      if (r) { toast(`Créé dans Xray : ${r.creees.join(", ")}${r.plan ? ` (Test Plan ${r.plan.cle})` : ""}.`, "ok"); executionsBuild(zone_); } };
   }
 
   /* ------------------------------------------------------------------ évolutions (Release Note ou contenu d'un build) */
@@ -280,6 +340,7 @@
         <table class="table-strat"><tr><th>Test</th><th>Module</th><th>Impact</th><th>Raison</th><th>Criticité</th><th>Résultat pour ce build</th><th>Décision</th></tr>${l.map(ligne).join("")}</table>` : ""; }).join("")
         || '<p class="lib">Aucun test : rattacher les évolutions au Knowledge Graph, ou ajouter des tests.</p>'}
       ${ouvert ? `<div class="btns" style="margin-top:8px"><input class="in" id="rb-ajout" placeholder="Ajouter un test (clé Xray)" style="width:200px"><input class="in" id="rb-ajout-motif" placeholder="Raison" style="flex:1;min-width:200px"><button class="btn" id="rb-ajouter">Ajouter au périmètre</button></div>` : ""}
+      <h3 class="lib" style="margin-top:14px">EXÉCUTIONS XRAY</h3><div id="rb-xray"><p class="lib">Chargement…</p></div>
       <h3 class="lib" style="margin-top:14px">ANOMALIES</h3>
       ${anomalies("Corrigées (confirmé dans Jira)", a.corrigees, "ok-t")}${anomalies("Déclarées corrigées, encore ouvertes dans Jira", a.corrigees_non_confirmees, "ko-t")}
       ${anomalies("Nouvelles sur ce build", a.nouvelles, "ko-t")}${anomalies("Résiduelles (ouvertes avant ce build)", a.residuelles, "warn-t")}
@@ -315,6 +376,7 @@
       $("#rv-motif").focus();
       $("#rv-non").onclick = () => { v.innerHTML = ""; };
       $("#rv-ok").onclick = () => opBuild({op, motif: $("#rv-motif").value}, `Build déclaré ${op === "passed" ? "Passed" : "Failed"} : la release reste à qualifier.`); });
+    executionsBuild($("#rb-xray", z));
     z.scrollIntoView({block: "nearest"});
   }
 })();

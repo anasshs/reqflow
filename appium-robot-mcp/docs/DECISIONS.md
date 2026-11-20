@@ -877,3 +877,13 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   release reste le périmètre initial (`releases.py`). Le verdict de build et la qualification de la release sont des
   décisions du QA ; les critères de sortie sont évalués et affichés, un critère bloquant non satisfait impose une
   dérogation justifiée. Le résumé du Dashboard mène à l'écran. Aucun outil MCP ajouté, aucune dépendance.
+
+## 2026-11-20 — Plan Xray par release, exécutions par environnement
+- Demande : un Test Plan par release ; des Test Executions par type de périmètre ou par module, créables avant la
+  validation du périmètre, chacune sur un environnement choisi ; duplication pour un autre environnement si le projet
+  en gère plusieurs ; dans Xray, plan, exécutions et tests ; statuts mis à jour depuis l'atelier.
+- Décision : moteur `atelier/intelligence/plan_release.py` (client `XrayClient` existant : `createTestPlan`,
+  `createTestExecution` avec `testEnvironments`, `addTestExecutionsToTestPlan`, `addTestsToTestPlan`,
+  `updateTestRunStatus`). Le plan et les exécutions sont stockés dans la release ; toute écriture Xray est une action
+  explicite du QA. Un statut posé depuis l'atelier compte dans le résultat du build tant qu'aucun résultat Xray plus
+  récent n'existe. Aucun outil MCP ajouté, aucune dépendance.

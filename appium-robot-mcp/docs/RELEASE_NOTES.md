@@ -66,6 +66,24 @@ non-régression → Test Executions → résultats de qualification. Moteur : `a
 Chaque build garde son analyse, son périmètre validé, sa campagne, son verdict et les anomalies ouvertes à sa
 réception : on ne repart jamais de zéro. Le Dashboard affiche un résumé des releases.
 
+## Plan Xray de la release et Test Executions
+
+- **Un Test Plan Xray par release**, créé à la demande (onglet « Plan Xray et exécutions ») ou à la première exécution.
+- **Exécutions depuis un build**, bloc « Exécutions Xray » : découpage proposé **par type de test** (retest,
+  non-régression ciblée, qualification), **par module fonctionnel** ou en une seule exécution. Possible **avant la
+  validation du périmètre** ; les tests écartés n'y sont pas, ceux déjà dans une exécution du build sont signalés.
+  Chaque exécution a un nom modifiable et **un environnement choisi** parmi ceux du projet Xray.
+- Dans Xray : la Test Execution est créée avec ses tests et son environnement, rattachée au Test Plan ; les tests sont
+  aussi ajoutés au plan. Les tests absents de Xray sont signalés et non envoyés ; une erreur Xray n'enregistre rien.
+- **Dupliquer** une exécution pour un autre environnement : proposé seulement si le projet gère plusieurs
+  environnements, et pas deux fois pour le même build, les mêmes tests et le même environnement.
+- **Statuts depuis l'atelier** : TO DO, EXECUTING, PASSED, FAILED, BLOCKED par test, envoyés au test run Xray
+  (noms de statuts du projet via `XRAY_STATUTS`) et gardés avec l'auteur et la date ; ils comptent dans les résultats du
+  build (« Résultat pour ce build ») sans attendre la synchronisation Xray, sauf résultat Xray plus récent.
+
+Moteur `atelier/intelligence/plan_release.py` ; routes `GET/POST /api/releases/{id}/plan`,
+`GET /api/releases/{id}/builds/{b}/executions?decoupage=`.
+
 ## Où c'est
 
 | Élément | Emplacement |
@@ -89,6 +107,5 @@ réception : on ne repart jamais de zéro. Le Dashboard affiche un résumé des 
 - **Import de fichiers** : texte seulement (.txt, .md, .csv, lu dans le navigateur) ; PDF, Word et Excel ne sont pas lus.
 - **Sources Jira** (release, sprint) comme point de départ.
 - **Critères de sortie configurables** par release : ils sont fixes pour l'instant.
-- **Test Plan et Test Executions Xray créés depuis le build** : la campagne passe par Execution Center.
-- **Score de risque**, catégorie « tests à créer » transmise à Test Design, Test Plan Xray depuis la release,
-  indicateurs dédiés.
+- **Score de risque**, catégorie « tests à créer » transmise à Test Design, indicateurs dédiés.
+- **Essai réel** du plan et des exécutions sur un projet Xray (les tests simulent Xray).

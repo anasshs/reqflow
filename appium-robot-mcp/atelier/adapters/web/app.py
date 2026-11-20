@@ -2647,6 +2647,39 @@ async def releases_qualifier(rid: str, req: Request):
     return await asyncio.to_thread(_call, builds.qualifier, rid, b.get("motif", ""), bool(b.get("annuler")))
 
 
+@app.get("/api/releases/{rid}/plan")
+async def releases_plan(rid: str):
+    """Test Plan Xray de la release et ses Test Executions (environnement, tests, statuts posés depuis l'atelier)."""
+    from atelier.intelligence import plan_release
+
+    return await asyncio.to_thread(_call, plan_release.etat, rid)
+
+
+@app.get("/api/releases/{rid}/builds/{bid}/executions")
+async def releases_executions_proposees(rid: str, bid: str, decoupage: str = "type"):
+    """Exécutions proposées pour le périmètre d'un build, par type de test, par module ou en une seule."""
+    from atelier.intelligence import plan_release
+
+    return await asyncio.to_thread(_call, plan_release.proposer, rid, bid, decoupage)
+
+
+@app.post("/api/releases/{rid}/plan")
+async def releases_plan_operation(rid: str, req: Request):
+    """Écritures vers Xray, toutes explicites : créer le Test Plan, créer des Test Executions (environnement par
+    exécution), dupliquer une exécution sur un autre environnement, mettre à jour le statut d'un test run."""
+    from atelier.intelligence import plan_release
+
+    b = await req.json()
+    op = b.get("op", "")
+    actions = {"plan": lambda: plan_release.creer_plan(rid),
+               "executions": lambda: plan_release.creer_executions(rid, b.get("build", ""), b.get("groupes") or []),
+               "dupliquer": lambda: plan_release.dupliquer(rid, b.get("execution", ""), b.get("environnement", "")),
+               "statut": lambda: plan_release.maj_statut(rid, b.get("execution", ""), b.get("test", ""), b.get("statut", ""), b.get("commentaire", ""))}
+    if op not in actions:
+        raise HTTPException(400, f"Opération inconnue : {op}")
+    return await asyncio.to_thread(_call, actions[op])
+
+
 @app.post("/api/releases/{rid}/builds")
 async def releases_build_recevoir(rid: str, req: Request):
     """Un build reçu pour la release : contenu collé, anomalies corrigées ; analysé et comparé au build précédent."""

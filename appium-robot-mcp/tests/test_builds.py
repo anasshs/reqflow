@@ -176,3 +176,109 @@ def test_corrections_des_evolutions_d_un_build_et_routes(rel, b, monkeypatch, tm
     assert c.get(f"/api/releases/{n['id']}/tableau").json()["indicateurs"]["builds"] == 1
     assert c.post(f"/api/releases/{n['id']}/qualifier", json={}).status_code == 400
     assert c.post(f"/api/releases/{n['id']}/builds/{x['id']}/operation", json={"op": "supprimer"}).json() == {"supprime": x["id"]}
+
+
+class XrayPlan:
+    """Faux Xray : Test Plan, Test Executions avec environnement, test runs et statuts. Trace chaque écriture."""
+    def __init__(self, absents=()):
+        self.plans, self.execs, self.statuts, self.absents, self.n = {}, {}, {}, set(absents), 100
+
+    def _id(self):
+        self.n += 1
+        return str(self.n)
+
+    def test_ids(self, cles):
+        return {c: "t" + c.split("-")[1] for c in cles if c not in self.absents}
+
+    def create_plan(self, projet, resume, tests):
+        i = self._id()
+        self.plans[i] = {"cle": f"{projet}-{i}", "resume": resume, "tests": set(tests), "execs": []}
+        return i, f"{projet}-{i}"
+
+    def create_execution(self, projet, resume, tests, envs):
+        i = self._id()
+        self.execs[i] = {"cle": f"{projet}-{i}", "resume": resume, "tests": list(tests), "envs": list(envs)}
+        return i, f"{projet}-{i}"
+
+    def add_execs_to_plan(self, plan, execs):
+        self.plans[plan]["execs"] += execs
+
+    def add_tests_to_plan(self, plan, tests):
+        self.plans[plan]["tests"] |= set(tests)
+
+    def test_runs(self, exec_id, tests):
+        return {t: f"run-{exec_id}-{t}" for t in tests if t in self.execs[exec_id]["tests"]}
+
+    def set_status(self, run, statut):
+        self.statuts[run] = statut
+
+    def update_run(self, run, comment=None, **_):
+        self.statuts[run + ":commentaire"] = comment
+
+
+@pytest.fixture
+def plan(b, monkeypatch):
+    from atelier.domain import projets
+    from atelier.integrations.xray import environnements
+    from atelier.intelligence import plan_release
+
+    monkeypatch.setattr(projets, "cle_xray", lambda: "DEMO")
+    monkeypatch.setattr(environnements, "liste", lambda: ["RECETTE", "PREPROD"])
+    return plan_release
+
+
+def test_plan_xray_de_la_release_et_executions_par_type(rel, b, plan):  # noqa: F811
+    r = rel.creer(NOTE, nom="Release 3.0", version="3.0.0")
+    v = b.recevoir(r["id"], "b1", AUJ, "", BUILD1)
+    x = XrayPlan(absents={"DEMO-309"})
+    # avant validation du périmètre : exécutions proposées par type, ou par module
+    g = plan.proposer(r["id"], v["id"], "type")
+    assert [y["groupe"] for y in g] == ["retest", "ciblee", "qualification"] and g[0]["tests"] == ["DEMO-304"]
+    assert {y["groupe"] for y in plan.proposer(r["id"], v["id"], "module")} == {"Connexion", "Accueil"}
+    assert len(plan.proposer(r["id"], v["id"], "unique")) == 1
+    e = plan.creer_executions(r["id"], v["id"], [{**g[0], "environnement": "RECETTE"}, {**g[1], "environnement": "RECETTE"}], xray=x)
+    assert e["plan"]["cle"].startswith("DEMO-") and len(e["executions"]) == 2 and len(e["creees"]) == 2
+    xp = next(iter(x.plans.values()))
+    assert xp["resume"] == "Release Release 3.0 (3.0.0)" and len(xp["execs"]) == 2                 # dans Xray : le plan, ses exécutions…
+    assert set(xp["tests"]) == {t for i in xp["execs"] for t in x.execs[i]["tests"]}                # … et leurs tests
+    assert all(x.execs[i]["envs"] == ["RECETTE"] for i in xp["execs"])
+    ciblee = next(y for y in e["executions"] if y["groupe"] == "ciblee")
+    assert ciblee["absents"] == ["DEMO-309"] and "DEMO-309" not in ciblee["tests"]                  # absent de Xray : signalé, pas envoyé
+    assert next(y for y in plan.proposer(r["id"], v["id"], "type") if y["groupe"] == "retest")["deja"] == ["DEMO-304"]
+    with pytest.raises(FileExistsError, match="déjà son Test Plan"):
+        plan.creer_plan(r["id"], xray=x)
+    with pytest.raises(ValueError, match="Environnement inconnu"):
+        plan.creer_executions(r["id"], v["id"], [{**g[2], "environnement": "PROD"}], xray=x)
+
+    # dupliquer pour un autre environnement du projet ; pas deux fois
+    retest = next(y for y in e["executions"] if y["groupe"] == "retest")
+    assert retest["envs_libres"] == ["PREPROD"]
+    e = plan.dupliquer(r["id"], retest["id"], "PREPROD", xray=x)
+    copie = next(y for y in e["executions"] if y["copie_de"] == retest["id"])
+    assert copie["environnement"] == "PREPROD" and copie["tests"] == retest["tests"] and copie["nom"].endswith("· PREPROD") and "RECETTE" not in copie["nom"]
+    with pytest.raises(FileExistsError):
+        plan.dupliquer(r["id"], retest["id"], "PREPROD", xray=x)
+
+    # statut mis à jour depuis l'atelier : envoyé à Xray, compté dans les résultats du build
+    e = plan.maj_statut(r["id"], retest["id"], "DEMO-304", "PASSED", "rejoué après correction", xray=x)
+    assert x.statuts[f"run-{retest['xray']['issueId']}-t304"] == "PASSED" and x.statuts[f"run-{retest['xray']['issueId']}-t304:commentaire"]
+    assert next(y for y in e["executions"] if y["id"] == retest["id"])["compte"]["PASSED"] == 1
+    l = {y["test"]: y for y in b.vue(r["id"], v["id"])["perimetre"]}
+    assert (l["DEMO-304"]["execute"], l["DEMO-304"]["resultat"]) == (True, "reussi")
+    with pytest.raises(ValueError, match="Statut"):
+        plan.maj_statut(r["id"], retest["id"], "DEMO-304", "OK", xray=x)
+    with pytest.raises(KeyError):
+        plan.maj_statut(r["id"], retest["id"], "DEMO-301", "PASSED", xray=x)
+
+
+def test_un_seul_environnement_pas_de_duplication(rel, b, plan, monkeypatch):  # noqa: F811
+    from atelier.integrations.xray import environnements
+
+    monkeypatch.setattr(environnements, "liste", lambda: ["RECETTE"])
+    r = rel.creer(NOTE, nom="Release 3.1")
+    v = b.recevoir(r["id"], "b1", AUJ, "", BUILD1)
+    x = XrayPlan()
+    e = plan.creer_executions(r["id"], v["id"], plan.proposer(r["id"], v["id"], "unique"), xray=x)
+    assert not e["multi_environnements"] and e["executions"][0]["envs_libres"] == []
+    with pytest.raises(ValueError, match="plusieurs environnements"):
+        plan.dupliquer(r["id"], e["executions"][0]["id"], "RECETTE", xray=x)

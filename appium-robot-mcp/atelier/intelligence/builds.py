@@ -175,12 +175,18 @@ def analyser(r: dict, b: dict, g=None) -> dict:
             ajouter(cle, "ciblee", f"ajouté par {d.get('par', '?')} : {d.get('motif', '')}".strip(" :"), "ajout")
 
     publies = p._publies()[0]
+    from atelier.intelligence import plan_release
+
+    locaux = plan_release.statuts_locaux(r, b["id"])  # statuts posés depuis l'atelier dans les exécutions Xray du build
     lignes = []
     for cle, x in reco.items():
         t = info.get(cle) or {}
         sx = t.get("statut_xray") or {}
         classe = p._classe(sx.get("statut", ""))
         execute = classe in ("reussi", "echec", "bloque") and str(sx.get("fin") or "")[:10] >= b["date_reception"]
+        loc = locaux.get(cle)
+        if loc and loc["statut"] in plan_release.CLASSE and (not execute or loc["date"][:19] >= str(sx.get("fin") or "")[:19]):
+            sx, classe, execute = {"statut": loc["statut"], "fin": loc["date"]}, plan_release.CLASSE[loc["statut"]], True
         d = (b.get("decisions") or {}).get(cle) or {}
         lignes.append({**x, "resume": t.get("resume", ""), "module": t.get("module", ""), "criticite": t.get("criticite", ""), "connu": cle in info,
                        "automatise": cle in publies, "dernier_statut": sx.get("statut", ""), "derniere_execution": str(sx.get("fin") or "")[:10],
