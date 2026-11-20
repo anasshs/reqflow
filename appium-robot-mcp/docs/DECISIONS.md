@@ -769,3 +769,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   avec la demande à Cursor prête. Lancer la construction fait passer « Approuvé » à « En construction » (journalisé) ;
   aucune autre décision n'est modifiée, et construire un test non approuvé reste possible depuis Mapping (la décision
   reste humaine, elle n'est pas un verrou). Moteur : `strategie.marquer_en_construction`.
+
+## 2026-11-20 — Un seul fil, de la couverture des US à l'automatisation, et un guide dans l'outil
+- Demande de l'utilisateur : brancher le workflow d'automatisation sur celui de la couverture des US ou des parcours
+  par les tests, clair et simple ; ajouter une documentation dans l'outil.
+- Décision : « À automatiser » devient « De l'US au test automatisé ». L'écran liste les US du périmètre, chacune avec
+  son étape (À concevoir, À décider, À construire, En construction, Automatisée) déduite de ses tests, et ses tests
+  avec leurs actions. Une US sans test y figure avec le lien vers Test Design. Le parcours utilisateur de Discovery
+  devient un périmètre (ses exigences rattachées). Un guide est intégré (Automation Studio › À automatiser › Guide),
+  doublé par docs/DE_L_US_AU_TEST_AUTOMATISE.md. Aucune étape n'est saisie ; aucun outil MCP ajouté.

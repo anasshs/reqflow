@@ -6,7 +6,7 @@
   /* 7 entrées qui suivent le travail de l'automaticien ; les anciens écrans deviennent des onglets (adresses inchangées) */
   const GROUPES = [
     ["vue", "Tableau de bord", [["vue", "Tableau de bord"]], "Où en est l'automatisation et quoi faire ensuite"],
-    ["candidats", "1 · À automatiser", [["candidats", "Candidats"]], "Tests Xray retenus pour l'automatisation : créer leur BDD, voir leur mapping ou leur graphe"],
+    ["candidats", "1 · À automatiser", [["candidats", "De l'US au test automatisé"], ["guide", "Guide"]], "Le fil complet dans un périmètre : chaque US, ses tests, et ce qu'il reste à faire pour les automatiser"],
     ["direct", "2 · Construire", [["direct", "Avec Cursor (en direct)"], ["mapping", "BDD → Robot (mapping)"], ["builder", "Assembler un test (palette)"]],
       "Cursor construit le test (écran et appels visibles en direct), vous assistez et validez ; ou construction manuelle"],
     ["revue", "3 · Revue et publication", [["revue", "Revue technique"], ["git", "Git et merge request"]], "Contrôler, approuver ou refuser les scripts, puis commit et merge request"],
@@ -41,7 +41,7 @@
       $$(".menu-strat [data-r]", zone).forEach(b => b.onclick = () => { location.hash = "studio/" + b.dataset.r; });
       $$("[data-onglet]", zone).forEach(b => b.onclick = () => { location.hash = "studio/" + b.dataset.onglet; });
       const z = $("#st-contenu");
-      try { await ({direct, vue, candidats, espaces, mapping, builder, knowledge, locators, keywords, pages, donnees, frameworks, git, revue, historique, parametres}[R])(z, arg); }
+      try { await ({direct, vue, candidats, guide, espaces, mapping, builder, knowledge, locators, keywords, pages, donnees, frameworks, git, revue, historique, parametres}[R])(z, arg); }
       catch (e) { z.innerHTML = `<div class="corps-carte">${vide("Erreur", esc(e.message))}</div>`; }
     },
   });
@@ -254,10 +254,12 @@
   }
 
   /* ------------------------------------------------------------------ 2 candidats */
-  /* Candidats dans un périmètre borné (US, sprint ou module) : de l'US à ses tests, puis à leur automatisation.
+  /* De l'US au test automatisé : un seul fil, dans un périmètre borné (sprint, parcours, US ou module). Chaque US porte
+     son étape, déduite de ses tests ; les actions d'un test sont sur sa ligne, dans l'ordre du travail.
      Le périmètre vient de l'adresse (#studio/candidats/us:CLE, ouvert depuis Test Design) ou du dernier choix. */
   const REVUE_PILL = {"Ready for Automation": "ok", Approved: "violet", "In Review": "info", "Changes Requested": "warn", Draft: ""};
-  const kpisCa = l => `<div class="kpis" style="grid-template-columns:repeat(${l.length},minmax(0,1fr));margin:10px 0">${l.map(([v, t, c]) => `<div class="kpi"><div class="v ${c || ""}">${v}</div><div class="l">${t}</div></div>`).join("")}</div>`;
+  const ETAPE_PILL = {a_concevoir: "warn", a_decider: "", a_construire: "info", en_construction: "violet", automatisee: "ok"};
+  let ETAPE_FILTRE = "";
   async function candidats(z, arg = "") {
     let choisi = arg;
     if (!choisi) { try { choisi = sessionStorage.getItem("as-perimetre") || ""; } catch (e) { /* facultatif */ } }
@@ -266,50 +268,108 @@
     try { d = await api("/api/studio/candidats?perimetre=" + encodeURIComponent(choisi)); }
     catch (e) {
       if (!choisi || !/inconnu/i.test(e.message)) throw e;
-      garder(""); toast(`Périmètre « ${choisi} » indisponible : tous les candidats sont affichés.`, "ko");  // US, sprint ou module disparu
+      garder(""); toast(`Périmètre « ${choisi} » indisponible : tout est affiché.`, "ko");  // US, sprint, parcours ou module disparu
       d = await api("/api/studio/candidats"); choisi = "";
     }
     garder(d.perimetre?.noeud || "");
     const [ref, bdds] = await Promise.all([api("/api/centre/referentiel").catch(() => []), api("/api/bdd").catch(() => [])]);
-    const plan = d.candidats, aBdd = new Set(bdds.map(b => b.cle));
-    const plats = c => [...new Set(ref.filter(t => t.cle_xray === c).flatMap(t => t.plateformes))].join(", ");
-    const TP = {sprint: "Sprints", us: "User Stories couvertes", module: "Modules"};
-    const menu = `<label class="lib" for="ca-perimetre">Périmètre</label>
-      <select class="in" id="ca-perimetre" style="width:auto;max-width:360px" title="Borne la liste à une US, à un sprint ou à un module"><option value="">Tous les tests (${d.total})</option>
+    const plan = d.candidats, aBdd = new Set(bdds.map(b => b.cle)), parTest = Object.fromEntries(plan.map(c => [c.cle, c]));
+    if (!d.etapes.some(e => e.id === ETAPE_FILTRE)) ETAPE_FILTRE = "";
+    const TP = {sprint: "Sprints", parcours: "Parcours utilisateur", us: "User Stories couvertes", module: "Modules"};
+    const menu = `<a class="btn petit" href="#studio/guide" title="Le guide : les étapes, les statuts, qui décide quoi">${ico("aide")}Comment ça marche ?</a>
+      <label class="lib" for="ca-perimetre">Périmètre</label>
+      <select class="in" id="ca-perimetre" style="width:auto;max-width:360px" title="Borne le fil à un sprint, à un parcours, à une US ou à un module"><option value="">Tout le projet (${d.total} tests)</option>
         ${d.perimetre && !d.perimetres.some(p => p.noeud === d.perimetre.noeud) ? `<option value="${esc(d.perimetre.noeud)}" selected>${esc(d.perimetre.libelle)} · 0 test</option>` : ""}
         ${Object.entries(TP).map(([t, lib]) => { const l = d.perimetres.filter(p => p.type === t); return l.length ? `<optgroup label="${lib}">${l.map(p =>
           `<option value="${esc(p.noeud)}" ${p.noeud === d.perimetre?.noeud ? "selected" : ""}>${esc(p.libelle.length > 70 ? p.libelle.slice(0, 69) + "…" : p.libelle)} · ${p.tests} test(s)</option>`).join("")}</optgroup>` : ""; }).join("")}</select>`;
-    const aFaire = plan.length - d.automatises;
     const decide = c => ["Approuvé", "En construction"].includes(c.statut_plan);  // la prochaine action de la ligne est mise en avant
-    z.innerHTML = `${entete("Automation Candidates", menu)}<div class="corps-carte">
-      ${d.perimetre ? `<p style="margin:0 0 8px"><span class="pill info">Périmètre</span> <b>${esc(d.perimetre.libelle)}</b>${d.perimetre.type === "sprint" ? ` · ${d.perimetre.us} US${d.perimetre.fige ? " (photo figée du sprint)" : ""}` : ""}
-        · ${plan.length} test(s) sur ${d.total}${d.perimetre.type === "us" ? ` · <a href="#conception/us">ouvrir Test Design › À concevoir</a>` : ""}</p>` : ""}
-      ${kpisCa([[plan.length, d.perimetre ? "tests dans le périmètre" : "tests"], [d.prets, "prêts pour l'automatisation", d.prets ? "ok-t" : ""], [aFaire - d.prets, "pas encore prêts (revue de Test Design)"], [d.automatises, "déjà automatisés"]])}
-      ${d.us_sans_test.length ? `<p><span class="pill warn">${d.us_sans_test.length} US sans test</span> <span class="lib">dans ce sprint : rien à automatiser tant que leurs cas ne sont pas conçus dans <a href="#conception/us">Test Design › À concevoir</a> : ${esc(d.us_sans_test.slice(0, 12).map(x => x.cle).join(", "))}${d.us_sans_test.length > 12 ? "…" : ""}</span></p>` : ""}
-      <p class="lib">Les tests « Prêt pour l'automatisation » (revue de Test Design) sont en tête. « Décider » enregistre la décision humaine (journalisée, rejet justifié). Le score d'automatisabilité n'est pas inventé : il reste « non calculé » tant que répétitivité, stabilité et complexité ne sont pas mesurées.</p>
-      ${plan.length ? `<table class="table-strat"><tr><th>Clé Xray</th><th>Test</th><th>US couvertes</th><th>Revue</th><th>Module</th><th>Plateforme</th><th>Criticité</th><th title="Décision d'automatisation ; au survol : critères disponibles et critères manquants">Statut</th><th title="Dans l'ordre du travail : décider, scénario BDD, mapping vers Robot ; puis le graphe">Actions</th></tr>
-        ${plan.map(c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume || "")}</td>
-          <td>${c.exigences.map(x => `<button class="lien mono" data-per="us:${esc(x.cle)}" title="${esc(x.resume || "")} — borner la liste à cette US">${esc(x.cle)}</button>`).join(" ") || '<span class="lib" title="Aucune US liée dans la copie locale Xray ni dans la testabilité">—</span>'}</td>
-          <td><span class="pill ${REVUE_PILL[c.revue] || ""}">${esc(c.revue_libelle)}</span></td>
-          <td>${esc(c.module || "")}</td><td>${esc(plats(c.cle) || "—")}</td><td>${esc(c.criticite || "")}</td><td title="${esc([...(c.justification || []), ...(c.donnees_manquantes || []).map(x => "manque : " + x)].join(" · "))}">${pill(c.statut_plan === "Automatisé" ? "Published" : "", c.statut_plan)}
-            ${c.automatise ? "" : '<div class="lib">score non calculé</div>'}</td>
+    const ligneTest = c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume || "")}</td>
+          <td><span class="pill ${REVUE_PILL[c.revue] || ""}" title="Revue du cas de test dans Test Design">${esc(c.revue_libelle)}</span></td><td>${esc(c.criticite || "—")}</td>
+          <td title="${esc([...(c.justification || []), ...(c.donnees_manquantes || []).map(x => "manque : " + x)].join(" · "))}">${pill(c.statut_plan === "Automatisé" ? "Published" : "", c.statut_plan)}</td>
           <td><span class="btns ca-actions">
             ${c.automatise ? "" : `<button class="btn petit ${decide(c) || c.statut_plan === "Rejeté" ? "" : "primaire"}" data-decider="${esc(c.cle)}" title="1. Trancher : on automatise ce test ou non (Approuvé, En construction, Rejeté avec justification…) ; journalisé">Décider</button>`}
             <button class="btn petit ${!c.automatise && decide(c) && !aBdd.has(c.cle) ? "primaire" : ""}" data-bdd="${esc(c.cle)}" data-titre="${esc(c.resume || "")}"
               title="2. ${aBdd.has(c.cle) ? "Ouvrir le scénario BDD (Gherkin) de ce test dans Construction BDD" : "Aucun scénario BDD : le créer depuis le test Xray (Gherkin ou étapes manuelles), puis l'ouvrir"}">${aBdd.has(c.cle) ? "BDD" : "Créer le BDD"}</button>
             ${!c.automatise && decide(c) && aBdd.has(c.cle) ? `<button class="btn petit primaire" data-construire="${esc(c.cle)}" title="3. Lancer la construction avec Cursor : ouvre « Construire en direct » avec la demande prête pour ce scénario. Le test passe à « En construction »">${ico("ia")}Construire</button>` : ""}
-            <button class="btn petit" data-map="${esc(c.cle)}" data-titre="${esc(c.resume || "")}" title="3. ${aBdd.has(c.cle) ? "Correspondance étape BDD → keyword du socle, locators et données ; aperçu du script Robot, puis construction" : "Mapping BDD → Robot : nécessite le scénario BDD (proposé à la création)"}">Mapping</button>
-            <button class="icone" data-kg="${esc(c.cle)}" aria-label="Voir ${esc(c.cle)} dans le Knowledge Graph" title="Knowledge Graph centré sur ce test : exigences, écrans, scripts Robot et exécutions liés">${ico("graphe")}</button></span></td></tr>`).join("")}</table>`
-        : d.perimetre ? vide("Aucun test dans ce périmètre", d.perimetre.type === "module" ? "" : ` Concevoir d'abord les cas de test, puis les publier dans Xray : <a href="#conception/us">Test Design › À concevoir</a>.`)
-          : vide("Aucun candidat", "Importer l'instantané Xray (Rapports › Patrimoine) : les candidats sont calculés automatiquement.")}</div>`;
-    const borner = v => { garder(v); if (location.hash === "#studio/candidats") candidats(z); else location.hash = "studio/candidats"; };
+            <button class="btn petit" data-map="${esc(c.cle)}" data-titre="${esc(c.resume || "")}" title="${aBdd.has(c.cle) ? "Correspondance étape BDD → keyword du socle, locators et données ; aperçu du script Robot" : "Mapping BDD → Robot : nécessite le scénario BDD (proposé à la création)"}">Mapping</button>
+            <button class="icone" data-kg="${esc(c.cle)}" aria-label="Voir ${esc(c.cle)} dans le Knowledge Graph" title="Knowledge Graph centré sur ce test : exigences, écrans, scripts Robot et exécutions liés">${ico("graphe")}</button></span></td></tr>`;
+    const tableTests = l => `<table class="table-strat"><tr><th>Test Xray</th><th>Résumé</th><th>Revue</th><th>Criticité</th><th title="Décision d'automatisation ; au survol : critères disponibles et manquants">Décision</th>
+      <th title="Dans l'ordre du travail : décider, scénario BDD, construire ; puis mapping et graphe">Actions</th></tr>${l.map(ligneTest).join("")}</table>`;
+    const blocUS = u => { const ts = u.tests.map(t => parTest[t]).filter(Boolean);
+      return `<section class="bloc-strat ca-us"><h3><button class="lien mono" data-per="us:${esc(u.cle)}" title="Borner le fil à cette US">${esc(u.cle)}</button> <span>${esc(u.resume || "")}</span>
+          <span class="pill ${ETAPE_PILL[u.etape] || ""}">${esc(u.etape_libelle)}</span>
+          <span class="lien lib">${u.tests.length ? `${u.tests.length} test(s) · ${u.automatises} automatisé(s)` : "aucun test"}
+            ${u.etape === "a_concevoir" ? ` <a class="btn petit primaire" href="#conception/us" title="Test Design › À concevoir : analyser l'US, proposer des cas, les valider et les publier dans Xray">Concevoir les cas de test</a>` : ""}</span></h3>
+        ${ts.length ? tableTests(ts) : u.tests.length ? `<p class="lib">Ses tests sont hors du périmètre affiché.</p>`
+          : `<p class="lib">Aucun test ne couvre encore cette US${u.suivie ? "" : " (elle n'est pas suivie dans Test Design : l'ajouter par la politique des espaces Jira, ou relier un test dans Xray)"}.</p>`}</section>`; };
+    const visibles = d.us.filter(u => !ETAPE_FILTRE || u.etape === ETAPE_FILTRE);
+    const sansUS = ETAPE_FILTRE ? [] : plan.filter(c => !c.exigences.length);
+    const etape = d.etapes.find(e => e.id === ETAPE_FILTRE);
+    const MAX_US = 40;
+    z.innerHTML = `${entete("De l'US au test automatisé", menu)}<div class="corps-carte">
+      ${d.perimetre ? `<p style="margin:0 0 8px"><span class="pill info">Périmètre</span> <b>${esc(d.perimetre.libelle)}</b>${d.perimetre.us !== undefined ? ` · ${d.perimetre.us} US${d.perimetre.fige ? " (photo figée du sprint)" : ""}` : ""}
+        · ${plan.length} test(s) sur ${d.total}</p>` : ""}
+      <ol class="workflow ca-fil" aria-label="Étapes des US du périmètre">${d.etapes.map(e => `<li class="${ETAPE_FILTRE === e.id ? "actif" : e.id === "automatisee" && e.us ? "fait" : ""}">
+        <button data-etape="${e.id}" aria-pressed="${ETAPE_FILTRE === e.id}" title="${esc(e.a_faire)} Cliquer pour ne voir que ces US."><b>${e.us}</b> US · ${esc(e.libelle)}</button></li>`).join("")}</ol>
+      <p class="lib" style="margin:0 0 12px">${etape ? `<b>${esc(etape.libelle)}</b> : ${esc(etape.a_faire)} <button class="lien" data-etape="">Voir toutes les étapes</button>`
+        : "Une US avance de gauche à droite. Son étape se déduit de ses tests : rien n'est à saisir. Cliquer une étape pour ne voir que ses US."}</p>
+      ${visibles.slice(0, MAX_US).map(blocUS).join("")}
+      ${visibles.length > MAX_US ? `<p class="lib">${visibles.length - MAX_US} autre(s) US non affichée(s) : choisir un périmètre ou une étape pour réduire la liste.</p>` : ""}
+      ${sansUS.length ? `<section class="bloc-strat ca-us"><h3>Tests sans US liée <span class="lien lib">${sansUS.length} test(s) : aucune US dans la copie locale Xray ni dans Test Design</span></h3>${tableTests(sansUS)}</section>` : ""}
+      ${!visibles.length && !sansUS.length ? (d.total ? vide("Rien à cette étape", d.perimetre ? " dans ce périmètre." : "") : vide("Aucun test", "Importer l'instantané Xray (Rapports › Patrimoine) : les tests et leurs US sont lus automatiquement.")) : ""}</div>`;
+    const borner = v => { garder(v); ETAPE_FILTRE = ""; if (location.hash === "#studio/candidats") candidats(z); else location.hash = "studio/candidats"; };
     $("#ca-perimetre").onchange = e => borner(e.target.value);
+    $$("[data-etape]", z).forEach(b => b.onclick = () => { ETAPE_FILTRE = ETAPE_FILTRE === b.dataset.etape ? "" : b.dataset.etape; candidats(z, arg); });
     $$("[data-per]", z).forEach(b => b.onclick = () => borner(b.dataset.per));
     $$("[data-construire]", z).forEach(b => b.onclick = () => { try { sessionStorage.setItem("as-construire", b.dataset.construire); } catch (e) { /* facultatif */ } location.hash = "studio/direct"; });
-    $$("[data-decider]", z).forEach(b => b.onclick = () => window.Pilotage.decider(plan.find(c => c.cle === b.dataset.decider), () => candidats(z)));
+    $$("[data-decider]", z).forEach(b => b.onclick = () => window.Pilotage.decider(parTest[b.dataset.decider], () => candidats(z, arg)));
     $$("[data-bdd]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.bdd, b.dataset.titre));
     $$("[data-map]", z).forEach(b => b.onclick = () => window.OuvrirBdd(b.dataset.map, b.dataset.titre, "mapping"));
     $$("[data-kg]", z).forEach(b => b.onclick = () => window.OuvrirGraphe("test:" + b.dataset.kg));
+  }
+
+  /* Guide intégré : le fil complet, écrit pour l'automaticien. À tenir à jour avec docs/DE_L_US_AU_TEST_AUTOMATISE.md. */
+  function guide(z) {
+    const ou = (h, t) => `<a href="#${h}">${t}</a>`;
+    z.innerHTML = `${entete("Guide : de l'US au test automatisé", `<a class="btn petit primaire" href="#studio/candidats">Ouvrir le fil</a>`)}<div class="corps-carte guide">
+      <p><b>En une phrase.</b> Une US (ou un parcours) est d'abord couverte par des cas de test fonctionnels, puis on choisit les tests à automatiser,
+        on les construit avec Cursor, et on relit le script. Tout se suit sur un seul écran : ${ou("studio/candidats", "Automation Studio › 1 · À automatiser")}.</p>
+      <h3>1. Choisir un périmètre</h3>
+      <p>On ne travaille jamais sur tout le projet à la fois. Le menu « Périmètre » borne le fil :</p>
+      <table class="table-strat"><tr><th>Périmètre</th><th>Ce qu'il contient</th></tr>
+        <tr><td>Sprint</td><td>Les US du backlog du sprint (Test Design › À concevoir). Si le sprint est figé, c'est la photo figée qui fait foi.</td></tr>
+        <tr><td>Parcours utilisateur</td><td>Les exigences rattachées au parcours quand on l'a préparé dans Discovery.</td></tr>
+        <tr><td>User Story</td><td>Une seule US et ses tests.</td></tr>
+        <tr><td>Module</td><td>Les tests du module et leurs US.</td></tr></table>
+      <p class="lib">Le même périmètre s'ouvre directement depuis Test Design : bouton « À automatiser » d'une US, ou « Tests du sprint à automatiser ».</p>
+      <h3>2. Les cinq étapes d'une US</h3>
+      <p>L'étape d'une US se déduit de ses tests. Vous n'avez rien à saisir pour la faire avancer : vous faites le travail, elle avance.</p>
+      <table class="table-strat"><tr><th>Étape</th><th>Ce que ça veut dire</th><th>Ce que vous faites</th><th>Où</th></tr>
+        <tr><td><span class="pill warn">À concevoir</span></td><td>Aucun test ne couvre l'US.</td><td>Analyser l'US, proposer des cas (règles, Cursor ou IA), les valider, les publier dans Xray.</td><td>${ou("conception/us", "Test Design › À concevoir")}</td></tr>
+        <tr><td><span class="pill">À décider</span></td><td>L'US a des tests, aucun n'est encore retenu.</td><td>Relire les cas (revue de Test Design), puis « Décider » sur chaque test : approuver ou rejeter.</td><td>${ou("conception/cas", "Test Design › Cas de test")}, puis ${ou("studio/candidats", "À automatiser")}</td></tr>
+        <tr><td><span class="pill info">À construire</span></td><td>Un test est approuvé ou « Prêt pour l'automatisation ».</td><td>« Créer le BDD », relire le scénario, puis « Construire ».</td><td>${ou("studio/candidats", "À automatiser")}</td></tr>
+        <tr><td><span class="pill violet">En construction</span></td><td>La construction est lancée.</td><td>Suivre Cursor, répondre à ses questions, puis relire le script.</td><td>${ou("studio/direct", "2 · Construire")}, puis ${ou("studio/revue", "3 · Revue et publication")}</td></tr>
+        <tr><td><span class="pill ok">Automatisée</span></td><td>Tous les tests de l'US ont un script Robot.</td><td>Rien : exécuter et suivre les résultats.</td><td>${ou("centre", "Execution Center")}</td></tr></table>
+      <h3>3. Les actions sur un test</h3>
+      <table class="table-strat"><tr><th>Bouton</th><th>À quoi il sert</th></tr>
+        <tr><td><b>Décider</b></td><td>Enregistre votre décision : Approuvé, En construction, Rejeté (justifié)… Ne lance rien.</td></tr>
+        <tr><td><b>Créer le BDD</b> / <b>BDD</b></td><td>Crée ou ouvre le scénario Gherkin du test : c'est le texte que l'automatisation suit.</td></tr>
+        <tr><td><b>Construire</b></td><td>Apparaît quand le test est approuvé et a son BDD. Ouvre « Construire en direct » avec la demande à Cursor prête ; le test passe à « En construction ».</td></tr>
+        <tr><td><b>Mapping</b></td><td>Montre, étape par étape, ce qui existe déjà dans le socle (keywords, locators, données) et ce qu'il reste à créer. Permet aussi de générer le script sans Cursor.</td></tr>
+        <tr><td>${ico("graphe")}</td><td>Ouvre le Knowledge Graph centré sur le test : exigences, écrans, scripts et exécutions liés.</td></tr></table>
+      <h3>4. Trois statuts à ne pas confondre</h3>
+      <table class="table-strat"><tr><th>Statut</th><th>Il porte sur</th><th>Valeurs</th><th>Qui le change</th></tr>
+        <tr><td>Revue</td><td>Le cas de test (son contenu)</td><td>Brouillon, En revue, Modifications demandées, Approuvé, Prêt pour l'automatisation</td><td>Vous, dans Test Design › Cas de test</td></tr>
+        <tr><td>Décision</td><td>L'automatisation du test</td><td>À analyser, À valider, Approuvé, En construction, Rejeté ; « Automatisé » dès qu'un script Robot porte la clé du test</td><td>Vous (« Décider ») ; « En construction » se pose seul quand vous lancez la construction</td></tr>
+        <tr><td>Revue technique</td><td>Le script Robot</td><td>Généré, Revue technique, Modifications demandées, Approuvé, Publié, Refusé</td><td>Vous, dans 3 · Revue et publication</td></tr></table>
+      <h3>5. Qui décide quoi</h3>
+      <ul><li>L'IA (Cursor, Claude ou le LLM configuré) <b>propose</b> : cas de test, liens écran ↔ exigence, script.</li>
+        <li>Vous <b>décidez</b> : rien n'est écrit dans Jira ni Xray sans action explicite, un cas se publie après validation, un script s'exécute après revue technique.</li>
+        <li>Rien n'est estimé : le score d'automatisabilité reste « non calculé » tant que ses critères ne sont pas mesurés.</li></ul>
+      <h3>6. À savoir</h3>
+      <ul><li>Le lien entre une US et ses tests vient de la copie locale Xray et des tests liés suivis par Test Design. Un test publié depuis une US apparaît ici après la synchronisation Xray suivante (Rapports › Patrimoine).</li>
+        <li>Une US qui n'apparaît pas n'est ni dans la copie locale ni suivie par Test Design : l'ajouter par la politique des espaces Jira (Test Design › À concevoir).</li>
+        <li>Un test sans US liée est listé à part, en bas du fil.</li></ul></div>`;
   }
 
   /* ------------------------------------------------------------------ 3 espaces */

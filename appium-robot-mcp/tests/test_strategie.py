@@ -281,3 +281,47 @@ def test_construction_lancee_fait_avancer_une_decision_approuvee(st):
     assert st.marquer_en_construction("DEMO-308")["change"] is False                                              # déjà en construction
     assert st.marquer_en_construction("DEMO-309") == {"cle": "DEMO-309", "change": False, "statut": "Rejeté"}     # un rejet ne bouge pas
     assert {c["cle"]: c for c in st.plan_automatisation()}["DEMO-309"]["statut_plan"] == "Rejeté"
+
+
+def test_fil_de_l_us_au_test_automatise(st):
+    """L'étape d'une US se déduit de ses tests : à concevoir (aucun test), à décider, à construire (test approuvé ou
+    prêt), en construction, automatisée (tous ses tests ont un script). Un parcours utilisateur est aussi un périmètre."""
+    from atelier.discovery import parcours_utilisateur as pu
+    from atelier.intelligence import testabilite_us as t
+
+    T = lambda **k: {"automatise": False, "statut_plan": "À analyser", "pret": False, **k}  # noqa: E731
+    assert st.etape_us([]) == "a_concevoir"
+    assert st.etape_us([T()]) == "a_decider"
+    assert st.etape_us([T(pret=True)]) == "a_construire" and st.etape_us([T(statut_plan="Approuvé")]) == "a_construire"
+    assert st.etape_us([T(statut_plan="En construction"), T(statut_plan="Approuvé")]) == "en_construction"
+    assert st.etape_us([T(automatise=True), T()]) == "a_decider"                           # tant qu'un test reste à faire, l'US n'est pas automatisée
+    assert st.etape_us([T(automatise=True), T(automatise=True, statut_plan="Rejeté")]) == "automatisee"
+
+    _remplir(st)
+    d = st.candidats_perimetre()
+    us = {u["cle"]: u for u in d["us"]}
+    assert us["DEMO-311"]["etape"] == "automatisee" and (us["DEMO-311"]["tests"], us["DEMO-311"]["automatises"]) == (["DEMO-304", "DEMO-306"], 2)
+    assert us["DEMO-312"]["etape"] == "a_decider"                                          # DEMO-308, pas encore décidé
+    assert [e["id"] for e in d["etapes"]] == ["a_concevoir", "a_decider", "a_construire", "en_construction", "automatisee"]
+    assert sum(e["us"] for e in d["etapes"]) == len(d["us"]) and all(e["a_faire"] and e["ecran"] for e in d["etapes"])
+    st.decider_candidat("DEMO-308", "Approuvé")
+    assert {u["cle"]: u["etape"] for u in st.candidats_perimetre("us:DEMO-312")["us"]} == {"DEMO-312": "a_construire"}
+    st.marquer_en_construction("DEMO-308")
+    assert st.candidats_perimetre("us:DEMO-312")["us"][0]["etape"] == "en_construction"
+
+    # une US suivie sans test ouvre le fil : à concevoir
+    t.enregistrer_espace({"projet_jira": "SQ1", "projet_xray": "DEMO"})
+    t._sauver_us({"SQ1-2": {"cle": "SQ1-2", "espace": "SQ1", "resume": "Mot de passe oublié", "statut": "Détectée", "tests_lies": [],
+                            "sprints": {"12": {"nom": "Sprint 12", "etat": "active"}}}})
+    d = st.candidats_perimetre("sprint:SQ1|12")
+    assert [(u["cle"], u["etape"], u["suivie"]) for u in d["us"]] == [("SQ1-2", "a_concevoir", True)] and d["candidats"] == []
+
+    # un parcours utilisateur borne le fil à ses exigences rattachées
+    p = pu.enregistrer("", {"nom": "Récupérer son accès", "plateforme": "web", "exigences": ["DEMO-311", "DEMO-312"]})
+    d = st.candidats_perimetre(f"parcours:{p['id']}")
+    assert d["perimetre"]["type"] == "parcours" and d["perimetre"]["us"] == 2
+    assert sorted(c["cle"] for c in d["candidats"]) == ["DEMO-304", "DEMO-306", "DEMO-308"]
+    assert [(u["cle"], u["etape"]) for u in d["us"]] == [("DEMO-312", "en_construction"), ("DEMO-311", "automatisee")]
+    assert (f"parcours:{p['id']}", 3) in [(x["noeud"], x["tests"]) for x in d["perimetres"]]
+    with pytest.raises(KeyError, match="Périmètre inconnu"):
+        st.candidats_perimetre("parcours:PU-inconnu")

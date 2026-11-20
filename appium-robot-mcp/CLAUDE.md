@@ -20,6 +20,7 @@ Corrélation exigences ↔ écrans (« vérifiée sur » automatique, « réalis
 Discovery Data Setup (référentiel universel de variables, profils, générateurs, contexte de session) : docs/DISCOVERY_DATA_SETUP.md.
 Parcours utilisateur (initiation de Discovery : cadrer un parcours avant de le dérouler, le rouvrir, le valider) : docs/PARCOURS_UTILISATEUR.md.
 Dashboard de pilotage (couverture, exécution, TNR par analyse d'impact, état de préparation) : docs/DASHBOARD_PILOTAGE.md.
+De l'US au test automatisé (un seul fil dans un périmètre : couverture des US ou parcours, puis automatisation ; guide dans l'outil) : docs/DE_L_US_AU_TEST_AUTOMATISE.md.
 Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
 fonctionnalité, demandes d'action validées côté serveur, 11 règles Cursor versionnées, couverture parcours / UI, Test

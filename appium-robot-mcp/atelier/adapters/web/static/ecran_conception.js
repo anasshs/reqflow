@@ -201,7 +201,8 @@
         ${idSel ? `<button class="btn" id="us-fig">Figer le périmètre du sprint</button><button class="btn" id="us-bil">Bilan du sprint</button>
           <a class="btn" href="#studio/candidats/sprint:${esc(espSel)}|${esc(idSel)}" title="Automation Studio › À automatiser, borné aux tests des US de ce sprint">${ico("editeur")}Tests du sprint à automatiser</a>` : ""}
         ${Object.entries(SPRINTS).filter(([, v]) => v.erreur).map(([e, v]) => `<span class="pill warn" title="${esc(v.erreur)}">${esc(e)} : sprints non lus (API agile)</span>`).join("")}</div>
-      <p class="lib">Chaque US d'un espace activé doit être comprise, clarifiée puis couverte par au moins un test Xray. Rien n'est écrit dans Jira ni Xray
+      <p class="lib">Chaque US d'un espace activé doit être comprise, clarifiée puis couverte par au moins un test Xray. La suite (choisir les tests à automatiser, les construire) se fait dans
+        <a href="#studio/candidats">Automation Studio › À automatiser</a> : <a href="#studio/guide">comment ça marche ?</a> Rien n'est écrit dans Jira ni Xray
         sans action explicite. IA : <b>${esc(cfg.ia.fournisseur)}</b> — ${esc(cfg.ia.detail)}.</p>
       <div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:10px 0">${[[ind.us, "US suivies"], [ind.couvertes, "couvertes"],
         [ind.taux_couverture === null ? "—" : String(ind.taux_couverture).replace(".", ",") + " %", "taux de couverture"], [ind.en_attente_reponse, "en attente de réponse"],

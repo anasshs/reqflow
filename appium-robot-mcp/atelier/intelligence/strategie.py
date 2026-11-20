@@ -680,14 +680,39 @@ def marquer_en_construction(cle: str, source: str = "") -> dict:
 
 
 ORDRE_REVUE = {"Ready for Automation": 0, "Approved": 1, "In Review": 2, "Changes Requested": 3, "Draft": 4}
-TYPES_PERIMETRE_AUTO = {"sprint": "Sprint", "us": "User Story", "module": "Module"}
+TYPES_PERIMETRE_AUTO = {"sprint": "Sprint", "parcours": "Parcours utilisateur", "us": "User Story", "module": "Module"}
+# Le fil « de l'US au test automatisé » : l'étape d'une US se déduit de ses tests, jamais d'une saisie.
+# (identifiant, libellé, ce qu'il reste à faire, écran où le faire)
+ETAPES_FIL = [
+    ("a_concevoir", "À concevoir", "Aucun test ne couvre l'US : concevoir ses cas de test et les publier dans Xray.", "conception/us"),
+    ("a_decider", "À décider", "L'US a des tests : les relire (revue de Test Design) et décider lesquels automatiser.", "studio/candidats"),
+    ("a_construire", "À construire", "Des tests sont prêts ou approuvés : créer leur scénario BDD, puis lancer la construction.", "studio/candidats"),
+    ("en_construction", "En construction", "La construction est lancée : suivre Cursor, puis relire le script en revue technique.", "studio/direct"),
+    ("automatisee", "Automatisée", "Tous les tests de l'US ont un script Robot.", "studio/revue"),
+]
+
+
+def etape_us(tests: list[dict]) -> str:
+    """Étape d'une US dans le fil, d'après ses tests (candidats enrichis de leur revue et de leur décision)."""
+    if not tests:
+        return "a_concevoir"
+    if all(t["automatise"] for t in tests):
+        return "automatisee"
+    restants = [t for t in tests if not t["automatise"]]
+    if any(t["statut_plan"] == "En construction" for t in restants):
+        return "en_construction"
+    if any(t["statut_plan"] == "Approuvé" or t["pret"] for t in restants):
+        return "a_construire"
+    return "a_decider"
 
 
 def candidats_perimetre(perimetre: str = "") -> dict:
-    """Candidats à l'automatisation dans un périmètre borné, de l'US au test : chaque candidat porte les US qu'il couvre
-    (copie locale Xray et tests liés suivis par la testabilité) et son statut de revue de Test Design ; « Prêt pour
-    l'automatisation » passe en tête. Périmètre : « us:<clé> », « sprint:<espace>|<id> » (les US de la photo si le sprint
-    est figé, sinon celles du sprint) ou « module:<nom> ». Un périmètre inconnu est une erreur, jamais une liste non bornée."""
+    """Le fil « de l'US au test automatisé » dans un périmètre borné. Chaque candidat porte les US qu'il couvre (copie
+    locale Xray et tests liés suivis par la testabilité) et son statut de revue de Test Design ; « Prêt pour
+    l'automatisation » passe en tête. Chaque US du périmètre porte son étape (ETAPES_FIL), déduite de ses tests.
+    Périmètre : « us:<clé> », « sprint:<espace>|<id> » (les US de la photo si le sprint est figé, sinon celles du sprint),
+    « parcours:<id> » (les exigences rattachées au parcours utilisateur) ou « module:<nom> ». Un périmètre inconnu est
+    une erreur, jamais une liste non bornée."""
     from atelier.generation import conception
     from atelier.intelligence import patrimoine_xray, testabilite_us
 
@@ -714,6 +739,15 @@ def candidats_perimetre(perimetre: str = "") -> dict:
                 sp["us"], sp["fige"] = set(json.loads(f.read_text("utf-8"))["us"]), True
         except (OSError, ValueError, KeyError):
             pass
+    parcours: dict = {}
+    try:  # parcours utilisateur de l'application active : leurs exigences rattachées sont leur périmètre
+        from atelier.discovery import parcours_utilisateur
+
+        for x in parcours_utilisateur.lister():
+            if x.get("exigences"):
+                parcours[x["id"]] = {"libelle": x["nom"], "us": set(x["exigences"])}
+    except Exception:  # noqa: BLE001 — aucune application active : pas de parcours
+        parcours = {}
     revues = conception._revues()
     lignes = []
     for c in plan:
@@ -727,30 +761,53 @@ def candidats_perimetre(perimetre: str = "") -> dict:
         return [c for c in lignes if us & {x["cle"] for x in c["exigences"]}]
 
     texte = str(perimetre or "").strip()
-    choix, us_sans_test = None, []
+    choix, us_sans_test, us_cles = None, [], None
     if texte:
         genre, _, valeur = texte.partition(":")
         if genre == "us" and (valeur in resumes or valeur in suivies):
             choix = {"noeud": texte, "type": "us", "libelle": f"{valeur} {resumes.get(valeur, '')}".strip()}
-            retenus = tests_de({valeur})
+            retenus, us_cles = tests_de({valeur}), {valeur}
         elif genre == "sprint" and valeur in sprints:
             sp = sprints[valeur]
             choix = {"noeud": texte, "type": "sprint", "libelle": sp["libelle"] + (" (figé)" if sp["fige"] else ""), "us": len(sp["us"]), "fige": sp["fige"]}
-            retenus = tests_de(sp["us"])
+            retenus, us_cles = tests_de(sp["us"]), set(sp["us"])
             us_sans_test = [{"cle": k, "resume": resumes.get(k, "")} for k in sorted(sp["us"] - couvertes)]
+        elif genre == "parcours" and valeur in parcours:
+            pc = parcours[valeur]
+            choix = {"noeud": texte, "type": "parcours", "libelle": pc["libelle"], "us": len(pc["us"])}
+            retenus, us_cles = tests_de(pc["us"]), set(pc["us"])
+            us_sans_test = [{"cle": k, "resume": resumes.get(k, "")} for k in sorted(pc["us"] - couvertes)]
         elif genre == "module" and valeur in modules:
             choix = {"noeud": texte, "type": "module", "libelle": valeur}
             retenus = [c for c in lignes if c.get("module") == valeur]
         else:
-            raise KeyError(f"Périmètre inconnu : {texte} (attendu : us:<clé d'une US connue>, sprint:<espace>|<id> ou module:<nom>).")
+            raise KeyError(f"Périmètre inconnu : {texte} (attendu : us:<clé d'une US connue>, sprint:<espace>|<id>, "
+                           f"parcours:<id d'un parcours qui a des exigences> ou module:<nom>).")
     else:
         retenus = lignes
     retenus = sorted(retenus, key=lambda c: (bool(c["automatise"]), ORDRE_REVUE.get(c["revue"], 9), c["cle"]))
+    # les US du périmètre et leur étape : une US sans test compte (c'est le début du fil)
+    if us_cles is None:
+        dans_module = {x["cle"] for x in pat.get("exigences", []) if choix and x.get("module") == choix["libelle"]}
+        us_cles = ({x["cle"] for c in retenus for x in c["exigences"]} | dans_module) if choix else (set(resumes) | set(suivies))
+    ordre = {e[0]: n for n, e in enumerate(ETAPES_FIL)}
+    libelles = {e[0]: e[1] for e in ETAPES_FIL}
+    us_lignes = []
+    for k in us_cles:
+        ts = tests_de({k})
+        e = etape_us(ts)
+        us_lignes.append({"cle": k, "resume": resumes.get(k, ""), "etape": e, "etape_libelle": libelles[e], "suivie": k in suivies,
+                          "tests": [t["cle"] for t in ts], "automatises": sum(bool(t["automatise"]) for t in ts)})
+    us_lignes.sort(key=lambda u: (ordre[u["etape"]], u["cle"]))
+    etapes = [{"id": i, "libelle": lib, "a_faire": quoi, "ecran": ecran, "us": sum(u["etape"] == i for u in us_lignes)} for i, lib, quoi, ecran in ETAPES_FIL]
     perimetres = ([{"noeud": f"sprint:{k}", "type": "sprint", "libelle": sp["libelle"] + (" (figé)" if sp["fige"] else ""), "tests": len(tests_de(sp["us"]))}
                    for k, sp in sorted(sprints.items(), key=lambda x: x[1]["libelle"].lower())]
+                  + [{"noeud": f"parcours:{k}", "type": "parcours", "libelle": pc["libelle"], "tests": len(tests_de(pc["us"]))}
+                     for k, pc in sorted(parcours.items(), key=lambda x: x[1]["libelle"].lower())]
                   + [{"noeud": f"us:{k}", "type": "us", "libelle": f"{k} {resumes.get(k, '')}".strip(), "tests": len(tests_de({k}))} for k in sorted(couvertes)]
                   + [{"noeud": f"module:{m}", "type": "module", "libelle": m, "tests": sum(c.get("module") == m for c in lignes)} for m in modules])
     return {"candidats": retenus, "total": len(lignes), "perimetre": choix, "perimetres": perimetres, "us_sans_test": us_sans_test,
+            "us": us_lignes, "etapes": etapes,
             "prets": sum(c["pret"] and not c["automatise"] for c in retenus), "automatises": sum(bool(c["automatise"]) for c in retenus)}
 
 
