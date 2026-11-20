@@ -41,10 +41,11 @@
               <button data-panneau="mobile" title="Aperçu mobile (live)">Aperçu</button><button data-panneau="bas" title="Sortie, problèmes, dépendances et captures (en bas)">Bas</button>
               <button id="e-concentre" title="Ne garder que le code, ou tout réafficher">Code seul</button></div>
             <div class="bascule-mode"><button aria-pressed="true">Mode source</button><button id="e-visuel" title="Ouvrir le scénario BDD du test">Mode visuel</button></div></div>
+          <div id="e-brouillon" role="status" hidden></div>
           <div class="code editeur" id="e-ed"><div class="numeros" id="e-num"></div><div class="surface"><pre id="e-pre" aria-hidden="true"></pre>
             <textarea id="e-txt" spellcheck="false" aria-label="Contenu du fichier" wrap="off"></textarea></div></div>
           <div class="statut-ed"><button class="lien" id="e-annuler" title="Annuler la dernière modification (Ctrl + Z)" disabled>↶ Annuler</button>
-            <button class="lien" id="e-retablir" title="Rétablir la modification annulée (Ctrl + Y ou Ctrl + Maj + Z)" disabled>↷ Rétablir</button><span id="e-pos">Ligne 1, Col 1</span><span tabindex="0" style="text-decoration:underline dotted;cursor:help" title="Ctrl + clic (ou F12) : ouvrir la définition d'un keyword, d'une variable ou d'un fichier importé.&#10;Ctrl + Espace : suggestions de keywords, variables, clés de locators et ressources ; elles s'ouvrent aussi en tapant (flèches, Entrée ou Tab, Échap).&#10;Ctrl + Z : annuler. Ctrl + Y ou Ctrl + Maj + Z : rétablir.&#10;Alt + ← : revenir là où l'on était avant d'ouvrir une définition.">Raccourcis</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
+            <button class="lien" id="e-retablir" title="Rétablir la modification annulée (Ctrl + Y ou Ctrl + Maj + Z)" disabled>↷ Rétablir</button><span id="e-pos">Ligne 1, Col 1</span><span id="e-brouillon-etat" title="Chaque frappe est gardée aussitôt comme brouillon sur ce poste. Le fichier du projet ne change que sur Ctrl + S."></span><span tabindex="0" style="text-decoration:underline dotted;cursor:help" title="Ctrl + clic (ou F12) : ouvrir la définition d'un keyword, d'une variable ou d'un fichier importé.&#10;Ctrl + Espace : suggestions de keywords, variables, clés de locators et ressources ; elles s'ouvrent aussi en tapant (flèches, Entrée ou Tab, Échap).&#10;Ctrl + Z : annuler. Ctrl + Y ou Ctrl + Maj + Z : rétablir.&#10;Alt + ← : revenir là où l'on était avant d'ouvrir une définition.">Raccourcis</span><span>Espaces : 4</span><span>UTF-8</span><span>LF</span><span id="e-type">Robot Framework</span>
             <span style="margin-left:auto" id="e-robocop-statut"></span><span id="e-lint-statut"></span></div>
         </section>
         <section class="carte"><h2 class="titre-carte">Propriétés du test<span class="actions-titre"><button class="icone" id="e-props-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2><div class="corps-carte" id="e-props"></div></section>
@@ -109,7 +110,7 @@
         const touche = e => { if (e.key === "Escape") { fermer(); $("#e-plus")?.focus(); } };
         document.addEventListener("click", dehors); document.addEventListener("keydown", touche);
         $("#pa-hist", menu).onclick = () => { fermer(); S.ongletDep = "histo"; dependances(); };
-        $("#pa-fermer", menu).onclick = () => { fermer(); if ([...S.ouverts.values()].some(f => f.modifie) && !confirm("Des modifications ne sont pas enregistrées. Fermer quand même ?")) return; S.ouverts.clear(); location.hash = "editeur"; };
+        $("#pa-fermer", menu).onclick = () => { fermer(); if ([...S.ouverts.values()].some(f => f.modifie) && !confirm("Des modifications ne sont pas enregistrées. Fermer quand même ? Les brouillons seront abandonnés.")) return; clearTimeout(brouillonT); [...S.ouverts.keys()].forEach(oublierBrouillon); S.ouverts.clear(); location.hash = "editeur"; };
         $("#pa-graphe", menu).onclick = () => { fermer(); location.hash = "graphe/connaissance"; };
         $("#pa-hist", menu).focus();
       };
@@ -166,7 +167,12 @@
     if (!S.ouverts.has(chemin)) {
       try {
         const r = await api("/api/projet/fichier?chemin=" + encodeURIComponent(chemin));
-        S.ouverts.set(chemin, {contenu: r.contenu, original: r.contenu, modifie: false, memoire: [{c: r.contenu, a: 0, b: 0}], rang: 0, dernier: 0});
+        const f = {contenu: r.contenu, original: r.contenu, modifie: false, memoire: [{c: r.contenu, a: 0, b: 0}], rang: 0, dernier: 0};
+        S.ouverts.set(chemin, f);
+        const b = lireBrouillon(chemin);
+        if (b && b.c === r.contenu) oublierBrouillon(chemin);          // déjà enregistré : brouillon inutile
+        else if (b && b.o === empreinte(r.contenu)) reprendreBrouillon(f, b);  // le fichier n'a pas bougé : on reprend où l'on en était
+        else if (b) f.brouillonEnAttente = b;                          // le fichier a changé sur le disque : à vous de choisir
       } catch (e) { toast(e.message, "ko"); return; }
     }
     S.courant = chemin;
@@ -174,6 +180,51 @@
     arbre();
     proprietes();
     linter(true);
+  }
+
+  /* ------------------------------------------------------------------ brouillon automatique
+     Chaque frappe est gardée aussitôt sur ce poste (stockage du navigateur), par projet et par fichier : rien n'est perdu
+     si la page se recharge ou se ferme. Le fichier du projet ne change que sur « Enregistrer » (Ctrl + S) : un script
+     approuvé ne repart donc pas en revue à chaque lettre. Le brouillon est effacé à l'enregistrement, quand on revient
+     à l'état du fichier, ou quand on l'abandonne. S'il est indisponible (stockage bloqué ou plein), l'éditeur le dit. */
+  const cleBrouillon = chemin => `ed-brouillon:${Atelier.ctx?.projet || ""}:${chemin}`;
+  const empreinte = t => { let h = 5381; for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0; return `${t.length}:${h}`; };
+  const heure = d => new Date(d).toLocaleString("fr-FR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+  function lireBrouillon(chemin) { try { return JSON.parse(localStorage.getItem(cleBrouillon(chemin)) || "null"); } catch (e) { return null; } }
+  function oublierBrouillon(chemin) { try { localStorage.removeItem(cleBrouillon(chemin)); } catch (e) { /* stockage indisponible */ } }
+  let brouillonT = null;
+  function garderBrouillon(chemin, f) {
+    clearTimeout(brouillonT);
+    if (!f.modifie) { oublierBrouillon(chemin); f.brouillon = null; return etatBrouillon(); }
+    brouillonT = setTimeout(() => {
+      try { const d = Date.now(); localStorage.setItem(cleBrouillon(chemin), JSON.stringify({c: f.contenu, o: empreinte(f.original), d})); f.brouillon = d; f.brouillonKo = false; }
+      catch (e) { f.brouillonKo = true; }  // stockage plein ou bloqué : dit dans la barre d'état, jamais silencieux
+      etatBrouillon();
+    }, 250);
+  }
+  function reprendreBrouillon(f, b) {
+    f.contenu = b.c; f.modifie = true; f.brouillon = b.d; f.brouillonRepris = b.d; f.brouillonEnAttente = null;
+    f.memoire.push({c: b.c, a: 0, b: 0}); f.rang = f.memoire.length - 1;  // Ctrl + Z revient au fichier enregistré
+  }
+  function etatBrouillon() {
+    const f = S.ouverts.get(S.courant), e = $("#e-brouillon-etat"), z = $("#e-brouillon");
+    if (!e || !z) return;
+    if (f && !f.modifie) f.brouillonRepris = null;  // revenu au fichier enregistré : plus rien à signaler
+    e.innerHTML = !f ? "" : f.brouillonKo ? '<span class="ko-t">Brouillon non gardé (stockage du navigateur indisponible) : enregistrer avec Ctrl + S</span>'
+      : f.modifie && f.brouillon ? `Brouillon gardé à ${new Date(f.brouillon).toLocaleTimeString("fr-FR", {hour: "2-digit", minute: "2-digit", second: "2-digit"})}` : f.modifie ? "Brouillon…" : "";
+    const b = f?.brouillonEnAttente;
+    z.hidden = !(b || f?.brouillonRepris);
+    if (b) {
+      z.innerHTML = `<span><span class="pill warn">Brouillon</span> Un brouillon du ${heure(b.d)} existe pour ce fichier, mais le fichier a changé sur le disque depuis. Le fichier affiché est celui du disque.</span>
+        <span class="btns"><button class="btn petit" id="br-reprendre" title="Affiche le brouillon ; Ctrl + Z revient au fichier du disque">Reprendre le brouillon</button><button class="btn petit" id="br-abandon">L'abandonner</button></span>`;
+      $("#br-reprendre").onclick = () => { reprendreBrouillon(f, b); rendreFichier(); linter(true); $("#e-txt").focus(); };
+      $("#br-abandon").onclick = () => { f.brouillonEnAttente = null; oublierBrouillon(S.courant); etatBrouillon(); };
+    } else if (f?.brouillonRepris) {
+      z.innerHTML = `<span><span class="pill info">Brouillon repris</span> Vos modifications non enregistrées du ${heure(f.brouillonRepris)} sont affichées. Le fichier du projet n'a pas changé : Ctrl + S pour l'enregistrer.</span>
+        <span class="btns"><button class="btn petit" id="br-disque" title="Abandonne le brouillon et réaffiche le fichier enregistré">Revenir au fichier enregistré</button><button class="icone" id="br-ok" aria-label="Fermer ce message">${ico("x")}</button></span>`;
+      $("#br-ok").onclick = () => { f.brouillonRepris = null; etatBrouillon(); };
+      $("#br-disque").onclick = () => { f.brouillonRepris = null; const t = $("#e-txt"); t.value = f.original; modifie(); surligner(); linter(true); t.focus(); };
+    }
   }
 
   function rendreFichier() {
@@ -194,12 +245,14 @@
     ["#e-enr", "#e-lint", "#e-robocop", "#e-dry", "#e-exe"].forEach(s => $(s).disabled = !f);
     $("#e-dry").disabled = $("#e-exe").disabled = !f || !S.courant.endsWith(".robot");
     boutonsMemoire();
+    etatBrouillon();
     surligner();
   }
 
   function fermerOnglet(c) {
     const f = S.ouverts.get(c);
-    if (f?.modifie && !confirm(`${c} a des modifications non enregistrées. Fermer quand même ?`)) return;
+    if (f?.modifie && !confirm(`${c} a des modifications non enregistrées. Fermer quand même ? Le brouillon sera abandonné.`)) return;
+    if (f?.modifie) { clearTimeout(brouillonT); oublierBrouillon(c); }
     S.ouverts.delete(c);
     const reste = [...S.ouverts.keys()];
     location.hash = "editeur" + (reste.length ? "/" + encodeURIComponent(reste[reste.length - 1]) : "");
@@ -216,6 +269,7 @@
     f.modifie = f.contenu !== f.original;
     if (avant !== f.modifie) { rendreFichier(); t.focus(); t.setSelectionRange(a, b); t.scrollTop = haut; }
     boutonsMemoire();
+    garderBrouillon(S.courant, f);
   }
 
   /* ------------------------------------------------------------------ mémoire des modifications (annuler / rétablir)
@@ -430,7 +484,8 @@
     if (!f) return;
     try {
       const r = await api("/api/editeur/enregistrer", {method: "POST", body: {chemin: S.courant, contenu: f.contenu, version_lue: f.original}});
-      f.original = f.contenu; f.modifie = false;
+      f.original = f.contenu; f.modifie = false; f.brouillon = null; f.brouillonRepris = null; f.brouillonEnAttente = null;
+      clearTimeout(brouillonT); oublierBrouillon(S.courant);
       toast(`Enregistré (+${r.lignes_ajoutees} / −${r.lignes_retirees} lignes, historisé).`, "ok");
       if (r.structure && !r.structure.conforme) toast("Hors structure du dépôt : " + r.structure.message, "ko");
       rendreFichier(); arbre(); proprietes(); chargerReutil();

@@ -740,3 +740,6 @@ body.sans-lanceur .df-lanceur { display: none; }
 .statut-ed span { white-space: nowrap; }
 .statut-ed button.lien { background: none; border: 0; padding: 0; cursor: pointer; color: var(--accent-ink); font: inherit; white-space: nowrap; }
 .statut-ed button.lien:disabled { color: var(--muted); cursor: default; opacity: .6; }
+/* éditeur : bandeau du brouillon automatique */
+#e-brouillon { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: 12.5px; flex: none; }
+#e-brouillon[hidden] { display: none; }

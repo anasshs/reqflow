@@ -845,3 +845,8 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Mémoire des modifications (même jour) : l'éditeur tient sa propre mémoire annuler / rétablir par fichier ouvert
   (Ctrl + Z, Ctrl + Y), pour que les insertions faites par l'atelier s'annulent comme la frappe ; Alt + ← revient à
   l'emplacement d'avant un « aller à la définition ». La mémoire vit dans la page : elle est perdue si l'on recharge.
+- Brouillon automatique (même jour, choix de l'utilisateur entre brouillon et enregistrement automatique du fichier) :
+  chaque frappe est gardée aussitôt sur le poste (stockage du navigateur, par projet et par fichier) et reprise à la
+  réouverture ; le fichier du projet ne change que sur Ctrl + S, pour qu'un script approuvé ne reparte pas en revue à
+  chaque lettre. Si le fichier a changé sur le disque depuis le brouillon, l'éditeur affiche le fichier et propose de
+  reprendre ou d'abandonner le brouillon. Le brouillon reste sur le poste : il ne suit pas l'utilisateur ailleurs.
