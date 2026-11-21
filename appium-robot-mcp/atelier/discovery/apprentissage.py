@@ -18,7 +18,7 @@ from datetime import datetime
 
 NATURES = ("nom_ecran", "fonctionnalite", "parcours", "regle", "action", "role", "entite", "lien_exigence")
 CONTIENT_ECRAN = ("fonctionnalite", "parcours")
-AGENTS = ("cursor", "claude", "ia", "automaticien")
+AGENTS = ("cursor", "claude_code", "claude", "ia", "automaticien")
 
 
 def _slug(t: str) -> str:
@@ -32,7 +32,7 @@ def _contexte(agent: str) -> tuple[str, str]:
 
     s = sessions_discovery.active()
     sid = s["id"] if s else ""
-    nom = {"cursor": "Cursor", "claude": "Claude", "ia": "IA", "automaticien": "Automaticien"}.get(agent, agent)
+    nom = {"cursor": "Cursor", "claude_code": "Claude Code", "claude": "Claude Desktop", "ia": "IA", "automaticien": "Automaticien"}.get(agent, agent)
     return sid, f"{nom} (MCP)" + (f" · session {sid}" if sid else "")
 
 

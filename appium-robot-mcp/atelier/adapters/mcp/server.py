@@ -31,13 +31,13 @@ _client = {"v": None}
 
 
 def _client_mcp() -> str:
-    """Client MCP déclaré à la poignée de main (ex. « cursor 1.2.3 ») ; le protocole ne transmet pas le modèle."""
-    if _client["v"] is None:
-        try:
-            info = mcp.get_context().session.client_params.clientInfo
-            _client["v"] = f"{info.name} {info.version or ''}".strip()
-        except Exception:  # noqa: BLE001 - hors requête ou client muet
-            return ""
+    """Client MCP déclaré à la poignée de main (ex. « cursor 1.2.3 ») ; le protocole ne transmet pas le modèle.
+    Lu à chaque appel : en mode HTTP, plusieurs agents (Cursor, Claude Code) peuvent être connectés à la fois."""
+    try:
+        info = mcp.get_context().session.client_params.clientInfo
+        _client["v"] = f"{info.name} {info.version or ''}".strip()
+    except Exception:  # noqa: BLE001 - hors requête ou client muet : le dernier connu
+        return _client["v"] or ""
     return _client["v"]
 
 
@@ -132,14 +132,19 @@ def _suivre_projet(fn):
         _attendre_autorisation(fn.__name__)
         import uuid
 
+        from atelier.domain import agent_mcp
+
         appel = uuid.uuid4().hex[:10]  # relie le début et la fin d'un même appel (console Cursor)
         _publier_activite(fn.__name__, "debut", args, appel=appel)
         t0 = time.time()
+        jeton = agent_mcp.definir(_client_mcp())  # attribution : Cursor, Claude Code… (journaux, propositions, revues)
         try:
             r = _executer(*a, **k)
         except Exception as e:
             _publier_activite(fn.__name__, "erreur", appel=appel, duree=round(time.time() - t0, 2), message=str(e)[:300])
             raise
+        finally:
+            agent_mcp.reinitialiser(jeton)
         from atelier.domain import activite_agent
 
         r = _mesurer(fn.__name__, r, time.time() - t0)

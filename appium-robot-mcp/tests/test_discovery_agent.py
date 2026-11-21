@@ -66,6 +66,14 @@ def test_ecran_courant_et_propositions_vers_le_graphe(app):
     apprentissage.proposer("nom_ecran", "Accueil client", eid, module="Accueil")
     apprentissage.proposer("fonctionnalite", "Initier un virement", eid, description="bouton Nouveau virement")
     apprentissage.proposer("regle", "Montant obligatoire", eid, agent="claude")
+    from atelier.adapters import facade
+    from atelier.domain import agent_mcp
+
+    jeton = agent_mcp.definir("claude-code 2.1")  # nom déclaré à la poignée de main MCP
+    try:
+        facade.discovery_proposer("regle", "Plafond affiché", eid)
+    finally:
+        agent_mcp.reinitialiser(jeton)
     patrimoine_xray.enregistrer({"projet": "DEMO", "tests": [], "exigences": [{"cle": "DEMO-7", "type": "user_story", "resume": "Accueil"}]}, "test")
     apprentissage.proposer("lien_exigence", "", eid, exigence="DEMO-7")
     with pytest.raises(KeyError):
@@ -78,7 +86,8 @@ def test_ecran_courant_et_propositions_vers_le_graphe(app):
     g = connaissance.construire()
     f = g.noeuds["fonctionnalite:initier_un_virement"]
     assert f.statut == "à valider" and "Cursor (MCP) · session" in f.source
-    assert g.noeuds["regle:montant_obligatoire"].source.startswith("Claude (MCP)")
+    assert g.noeuds["regle:montant_obligatoire"].source.startswith("Claude Desktop (MCP)")
+    assert g.noeuds["regle:plafond_affiche"].source.startswith("Claude Code (MCP) · session")  # pas « Cursor »
     loc = next(n for n in g.noeuds.values() if n.type == "locator" and n.libelle == "bouton_virement")
     assert loc.proprietes["classe_action"] == "sensitive"
     assert g.noeuds[f"ecran:{eid}"].proprietes["noms_proposes"]

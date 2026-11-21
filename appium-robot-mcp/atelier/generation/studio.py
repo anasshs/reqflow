@@ -258,6 +258,16 @@ def revues_scripts() -> dict:
     return out
 
 
+def _agent_generation(origine: str) -> dict:
+    """« cursor » désigne une génération par un agent MCP. Le marqueur « généré (cursor) » reste (sessions d'agent,
+    productivité) ; l'agent réel est ajouté quand ce n'est pas Cursor (Claude Code, Claude Desktop)."""
+    if origine != "cursor":
+        return {}
+    from atelier.domain import agent_mcp
+
+    return {} if agent_mcp.cle() == "cursor" else {"agent": agent_mcp.cle(), "libelle": agent_mcp.libelle()}
+
+
 def entrer_en_revue(fichier: str, origine: str) -> dict:
     """Un script généré par l'atelier (Builder, BDD) entre en revue technique à l'état « Generated » :
     il ne pourra être exécuté (hors dry-run) qu'une fois approuvé, ou par dérogation justifiée."""
@@ -266,8 +276,10 @@ def entrer_en_revue(fichier: str, origine: str) -> dict:
     r = st.setdefault(fichier, {"statut": "Generated", "historique": []})
     r["statut"] = "Generated"
     r.pop("empreinte", None)
+    agent = _agent_generation(origine)
     r["historique"].append({"date": _maintenant(), "auteur": _auteur(), "de": "", "vers": "Generated",
-                            "commentaire": f"généré ({origine})"})
+                            "commentaire": f"généré ({origine})" + (f" par {agent['libelle']}" if agent else ""),
+                            **({"agent": agent["agent"]} if agent else {})})
     _ecrire_atomique(_dossier() / "revues_scripts.json", json.dumps(st, ensure_ascii=False, indent=1))
     _journaliser(f"generation_{origine}", fichier=fichier)
     return r

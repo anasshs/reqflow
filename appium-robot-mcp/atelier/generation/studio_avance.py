@@ -398,7 +398,7 @@ def productivite() -> dict:
     for f, r in rev.items():
         h = r.get("historique") or []
         gen = next((x for x in h if (x.get("commentaire") or "").startswith("généré (")), None)
-        o = re.match(r"généré \((\w+)\)", gen["commentaire"]).group(1) if gen else "existant"
+        o = (gen.get("agent") or re.match(r"généré \((\w+)\)", gen["commentaire"]).group(1)) if gen else "existant"  # par agent
         origines[o] = origines.get(o, 0) + 1
         appr = next((x for x in h if x.get("vers") == "Approved"), None)
         if gen and appr:

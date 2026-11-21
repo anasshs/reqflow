@@ -711,7 +711,7 @@ CONSIGNE_ORPHELINS = (
 
 
 def _source_courte(source: str) -> str:
-    return "cursor" if "cursor" in source.lower() else "ia"
+    return "cursor" if "cursor" in source.lower() or "(mcp)" in source.lower() else "ia"  # tout agent MCP
 
 
 def _liens_ecartes() -> dict:

@@ -30,6 +30,13 @@ def outil(fn):
     return fn
 
 
+def _agent():
+    """Agent MCP de l'appel en cours (Cursor, Claude Code…) : attribution des dépôts, revues et propositions."""
+    from atelier.domain import agent_mcp
+
+    return agent_mcp
+
+
 @outil
 def list_devices() -> dict:
     """Liste les devices Android (adb) et iOS (simulateurs démarrés + devices physiques) connectés."""
@@ -549,7 +556,7 @@ def testabilite_deposer_proposition(cle: str, constats: list, cas: list) -> dict
     métier : une information absente devient une question. Rien n'est envoyé à Jira ni créé dans Xray."""
     from atelier.intelligence import testabilite_us
 
-    r = testabilite_us.deposer_proposition(cle, constats or [], cas or [], "Cursor (MCP)")
+    r = testabilite_us.deposer_proposition(cle, constats or [], cas or [], _agent().source())
     return {"cle": cle, "statut": r["statut"], "constats": len(r["constats"]), "cas": len(r["cas"])}
 
 
@@ -673,7 +680,7 @@ def discovery_proposer(nature: str, libelle: str, ecran: str = "", description: 
     N'invente rien : uniquement ce qui est observé à l'écran ou écrit dans une exigence."""
     from atelier.discovery import apprentissage
 
-    return apprentissage.proposer(nature, libelle, ecran, description, module, exigence, "cursor")
+    return apprentissage.proposer(nature, libelle, ecran, description, module, exigence, _agent().cle())
 
 
 @outil
@@ -835,7 +842,7 @@ def studio_soumettre_revue(fichier: str, commentaire: str = "") -> dict:
     technique). L'agent ne peut ni approuver, ni refuser, ni publier : ces décisions restent humaines, dans l'atelier."""
     from atelier.generation import studio
 
-    r = studio.transition_script(fichier, "soumettre", commentaire or "soumis par Cursor")
+    r = studio.transition_script(fichier, "soumettre", commentaire or f"soumis par {_agent().libelle()}")
     return {"fichier": fichier, "statut": r["statut"], "controles": r["controles"]}
 
 
@@ -978,7 +985,7 @@ def test_design_juger_doublons(cle: str, jugements: list[dict]) -> dict:
     rejeté ni publié : l'automaticien décide. Renvoie les jugements retenus et refusés (avec la raison)."""
     from atelier.intelligence import conception_avancee
 
-    return conception_avancee.deposer_jugements_doublons(cle, jugements or [], "Cursor (MCP)")
+    return conception_avancee.deposer_jugements_doublons(cle, jugements or [], _agent().source())
 
 
 @outil
@@ -1001,7 +1008,7 @@ def studio_juger_keywords(cle: str, jugements: list[dict]) -> dict:
     nouveau dans Test Design. Renvoie les jugements retenus et refusés (avec la raison)."""
     from atelier.generation import reutilisation
 
-    return reutilisation.deposer_jugements_keywords(cle, jugements or [], "Cursor (MCP)")
+    return reutilisation.deposer_jugements_keywords(cle, jugements or [], _agent().source())
 
 
 @outil
@@ -1020,7 +1027,7 @@ def xray_juger_redondances(jugements: list[dict]) -> dict:
     l'automaticien décide. Renvoie les jugements retenus et refusés (avec la raison)."""
     from atelier.intelligence import couverture, patrimoine_xray
 
-    return couverture.deposer_jugements_redondances((patrimoine_xray.charger_vue() or {}).get("tests") or [], jugements or [], "Cursor (MCP)")
+    return couverture.deposer_jugements_redondances((patrimoine_xray.charger_vue() or {}).get("tests") or [], jugements or [], _agent().source())
 
 
 @outil
@@ -1041,7 +1048,7 @@ def coverage_juger_liens(jugements: list[dict]) -> dict:
     Jira / Xray : l'automaticien valide. Renvoie les jugements retenus et refusés (avec la raison)."""
     from atelier.intelligence import intelligence_couverture as ci
 
-    return ci.deposer_jugements_liens(jugements or [], "Cursor (MCP)")
+    return ci.deposer_jugements_liens(jugements or [], _agent().source())
 
 
 @outil
@@ -1060,7 +1067,7 @@ def coverage_classer_orphelins(classements: list[dict]) -> dict:
     à valider dans l'atelier, jamais appliquées. Renvoie les classements retenus et refusés (avec la raison)."""
     from atelier.intelligence import intelligence_couverture as ci
 
-    return ci.deposer_classements_orphelins(classements or [], "Cursor (MCP)")
+    return ci.deposer_classements_orphelins(classements or [], _agent().source())
 
 
 @outil
@@ -1082,7 +1089,7 @@ def discovery_juger_correlations(jugements: list[dict]) -> dict:
     a rejetée est refusée. Renvoie les jugements retenus et refusés (avec la raison)."""
     from atelier.discovery import correlation
 
-    return correlation.deposer_correlations(jugements or [], "Cursor (MCP)")
+    return correlation.deposer_correlations(jugements or [], _agent().source())
 
 
 @outil
@@ -1106,7 +1113,7 @@ def release_deposer_interpretation(release: str, build: str = "", evolutions: li
     proposition par défaut que le QA valide ; rien n'est écrit dans Jira / Xray. Renvoie les retenus et les refus."""
     from atelier.intelligence import release_ia
 
-    return release_ia.deposer(release, build, evolutions or [], tests or [], synthese or "", "Cursor (MCP)")
+    return release_ia.deposer(release, build, evolutions or [], tests or [], synthese or "", _agent().source())
 
 
 __all__ = [f.__name__ for f in OUTILS]
@@ -1284,7 +1291,7 @@ def test_design_proposer_regroupements(cle: str, propositions: list[dict]) -> di
     l'automaticien applique ou écarte chaque proposition dans l'atelier. Renvoie les propositions retenues et refusées."""
     from atelier.intelligence import granularite_tests
 
-    return granularite_tests.deposer_regroupements(cle, propositions or [], "Cursor (MCP)")
+    return granularite_tests.deposer_regroupements(cle, propositions or [], _agent().source())
 
 
 # =========================================================================== Champ et Anomalie (V2, phase 5)

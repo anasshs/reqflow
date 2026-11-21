@@ -278,7 +278,7 @@ def a_valider() -> list[dict]:
     for p in apprentissage.propositions():
         vus.add(p["id"])
         src = str(p.get("source") or "")
-        origine = "Cursor" if "cursor" in src.lower() else "Jira (règles extraites)" if src.startswith("jira:") or src == "déduit" else "Discovery"
+        origine = src.split(" (MCP)")[0] if " (MCP)" in src else "Cursor" if "cursor" in src.lower() else "Jira (règles extraites)" if src.startswith("jira:") or src == "déduit" else "Discovery"
         out.append({"source": origine, "decision": "discovery", "id": p["id"], "type": p.get("type", ""), "libelle": p.get("libelle", ""),
                     "detail": p.get("source") or "", "confiance": None})
     for v in intelligence_app.validation():
