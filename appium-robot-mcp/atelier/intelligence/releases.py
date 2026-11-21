@@ -448,8 +448,9 @@ def _operer_build(r: dict, g, b: dict, op: str, p: dict) -> dict:
 
 # =========================================================================== alimentation du TNR
 def evolutions_tnr(depuis: str = "") -> list[dict]:
-    """Évolutions des releases VALIDÉES, au format du TNR (pilotage.evolutions) : une par élément du graphe confirmé ;
-    une évolution sans rattachement confirmé est transmise « hors graphe » (le TNR dit alors que sa sélection est partielle)."""
+    """Évolutions des releases EN COURS (pas encore qualifiées), au format du TNR (pilotage.evolutions) : une par élément du
+    graphe confirmé ; une évolution sans rattachement confirmé est transmise « hors graphe » (le TNR dit alors que sa
+    sélection est partielle). Une release ouverte compte d'office ; qualifiée, elle n'est plus lue (décision du 2026-11-21)."""
     out = []
     d = _dossier()
     for f in sorted(d.glob("REL-*.json")) if d.exists() else []:
@@ -458,7 +459,7 @@ def evolutions_tnr(depuis: str = "") -> list[dict]:
         except (OSError, ValueError):
             continue
         jour = str((r.get("validation") or {}).get("date") or r.get("cree") or "")[:10]
-        if r.get("statut") != "Validée" or (depuis and jour < depuis):
+        if str((r.get("qualification") or {}).get("etat") or "En cours").startswith("Qualifiée") or (depuis and jour < depuis):
             continue
         for e in r.get("evolutions") or []:
             base = {"nature": f"{TYPES.get(e['type'], 'Évolution')} (Release Note)", "detail": e["texte"][:160], "date": jour,

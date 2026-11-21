@@ -4,7 +4,7 @@ Première étape du module « Release Intelligence & Impact Analysis » (cahier 
 le texte d'une Release Note ; l'atelier en tire des évolutions, les rattache au Knowledge Graph, et une release validée
 alimente le TNR existant. Aucun second moteur d'impact : la release est une source d'évolutions de plus.
 
-Où : **Dashboard › Release Notes**, au-dessus de « Intelligence de non-régression (TNR) » (`#dashboard/releases`).
+Où : écran **Releases** (`#releases`) : un sélecteur de release en haut, toute la largeur pour la release et son build en cours. Le Dashboard en garde un résumé, au-dessus du « TNR au fil de l'eau ».
 
 ## Le parcours
 
@@ -26,10 +26,10 @@ Où : **Dashboard › Release Notes**, au-dessus de « Intelligence de non-régr
    rapprochent rien.
 4. **Corrections du QA**, toutes tracées dans le journal de la release : changer le type, corriger le texte (une clé
    d'US ajoutée rattache l'évolution), ajouter ou supprimer une évolution, confirmer, rejeter, relier, délier.
-5. **Valider et envoyer au TNR** : les évolutions rattachées entrent dans l'analyse d'impact du TNR (tests obligatoires
-   et complémentaires, avec « Release Note » dans le motif) ; celles qui ne le sont pas y figurent « hors graphe », et le
-   TNR dit que sa sélection est partielle. Une release modifiée après validation repasse à « Analysée » : le TNR ne lit
-   que du validé.
+5. **TNR du Dashboard, d'office** : tant que la release n'est pas qualifiée, ses évolutions rattachées entrent dans
+   l'analyse d'impact du « TNR au fil de l'eau » (tests obligatoires et complémentaires, avec « Release Note » dans le
+   motif) ; celles qui ne le sont pas y figurent « hors graphe », et le TNR dit que sa sélection est partielle. Une
+   release qualifiée n'y est plus lue. (Le bouton « Envoyer au TNR du Dashboard » a disparu le 2026-11-21.)
 
 Pour chaque évolution rattachée, l'écran affiche les tests que l'analyse d'impact trouve ; « aucun test : à créer »
 signale une évolution rattachée au graphe mais sans couverture.

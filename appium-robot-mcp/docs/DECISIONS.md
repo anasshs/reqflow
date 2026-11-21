@@ -898,3 +898,18 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   (délier, garder, écarter, valider) et ses décisions ne sont jamais écrasées. Les rattachements restent dans la release :
   rien n'entre dans le Knowledge Graph, rien n'est écrit dans Jira ni Xray. Demande envoyée d'office à la création et à la
   réception d'un build ; règles en secours sans IA. 114 outils MCP ; aucune dépendance.
+
+## 2026-11-21 — Parcours de non-régression simplifié (Releases, lots A, B, C)
+- Demande : revoir l'écran Releases pour rendre plus simple l'identification de la non-régression d'une release et de
+  ses builds successifs ; l'utilisateur a retenu les trois lots proposés, dans l'ordre A, B, C.
+- Lot A : un nouveau build remet la release « En cours » (correction) et remplace le build encore en cours (« Remplacé »,
+  consultation seulement) ; build en cours ouvert d'office ; tests retenus par défaut, seul « Écarter » (un ou plusieurs,
+  un motif) ; raison courte ; résultat affiché après validation ; relecture Xray automatique (> 10 min) ; un seul bouton
+  principal.
+- Lot B : un build en 4 étapes (Ce qui change, Périmètre, Exécution, Verdict) ; chaque test situé par rapport au build
+  précédent (nouveau, à rejouer, déjà réussi et non touché, reconduit) avec « Écarter les déjà réussis » ; une campagne
+  Execution Center par Test Execution Xray du build, en mode « réutiliser ». Correction : un résultat compte pour un
+  build s'il est postérieur à sa réception, à l'heure près le jour même.
+- Lot C : une release non qualifiée alimente d'office le TNR du Dashboard, renommé « TNR au fil de l'eau » (lien vers
+  Releases) ; « Envoyer au TNR du Dashboard » retiré (les opérations valider / rouvrir restent dans le moteur, sans effet
+  sur le TNR) ; la liste des releases devient un sélecteur compact. Aucun outil MCP ni dépendance ajouté.

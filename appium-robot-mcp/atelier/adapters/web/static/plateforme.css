@@ -752,14 +752,12 @@ body.sans-lanceur .df-lanceur { display: none; }
 .rel-relier input { width: 300px; max-width: 100%; }
 .rel-evo .pill .lien { background: none; border: 0; cursor: pointer; color: inherit; padding: 0 0 0 4px; font: inherit; }
 /* écran Releases : liste à gauche, release et builds à droite */
-.g-rel { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 12px; min-height: 0; }
+.g-rel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-height: 0; }
 .g-rel > .carte { min-height: 0; }
-.rel-liste #rl-form[hidden] { display: none; }
-.rel-liste #rl-form { flex: none; border-bottom: 1px solid var(--line); }
-.rel-releases li { padding: 0; border: 0; display: block; }
-.rel-item { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; cursor: pointer; color: inherit; font: inherit; margin-bottom: 4px; }
-.rel-item:hover { background: var(--surface-2); }
-.rel-item[aria-current="true"] { background: var(--accent-soft); border-color: var(--accent-line); }
+.rel-barre { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.rel-barre #rl-nouvelle { margin-left: auto; }
+.rel-corps #rl-form[hidden] { display: none; }
+.rel-corps #rl-form { flex: none; border-bottom: 1px solid var(--line); }
 .rel-tete { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
 .rel-criteres summary { cursor: pointer; margin-bottom: 6px; }
 .rel-import { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; margin-top: 4px; color: var(--accent-ink); }
@@ -787,4 +785,3 @@ body.sans-lanceur .df-lanceur { display: none; }
 @media (max-width: 900px) { .rel-change { grid-template-columns: minmax(0, 1fr); } .rel-etapes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .rel-remplace { padding: 8px 12px; border-radius: 10px; background: var(--surface-3); color: var(--ink-2); margin: 0 0 8px; }
 tr.sel td { background: var(--accent-soft); }
-@media (max-width: 1150px) { .g-rel { grid-template-columns: minmax(0, 1fr); } }

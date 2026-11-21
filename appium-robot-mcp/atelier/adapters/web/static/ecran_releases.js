@@ -21,9 +21,9 @@
     async afficher(z, sous) {
       Z = z; [ID = "", BID = ""] = (sous || "").split("/");
       z.className = "g-rel";
-      z.innerHTML = `<section class="carte rel-liste"><h2 class="titre-carte">Releases<span class="actions-titre"><button class="btn petit primaire" id="rl-nouvelle">${ico("plus")}Nouvelle release</button></span></h2>
-          <div class="corps-carte" id="rl-form"></div><div class="corps-carte" id="rl-liste">${vide("Chargement…")}</div></section>
-        <section class="carte rel-corps"><div class="corps-carte" id="rl-corps">${vide("Chargement…")}</div></section>`;
+      z.innerHTML = `<section class="carte rel-corps"><div class="rel-barre"><label class="lib" for="rl-choix">Release</label><span id="rl-liste"></span>
+            <button class="btn petit" id="rl-nouvelle">${ico("plus")}Nouvelle release</button></div>
+          <div class="corps-carte" id="rl-form"></div><div class="corps-carte" id="rl-corps">${vide("Chargement…")}</div></section>`;
       $("#rl-nouvelle").onclick = () => { FORM = FORM === "release" ? "" : "release"; formRelease(); };
       formRelease();
       await liste();
@@ -33,14 +33,13 @@
 
   /* ------------------------------------------------------------------ liste des releases */
   async function liste() {
-    const l = await api("/api/releases").catch(e => { $("#rl-liste").innerHTML = vide("Indisponible", esc(e.message)); return null; });
+    const l = await api("/api/releases").catch(e => { $("#rl-liste").innerHTML = `<span class="lib">${esc(e.message)}</span>`; return null; });
     if (!l) return;
     if (!ID && l.length) { ID = l[0].id; history.replaceState(null, "", "#releases/" + ID); }
-    $("#rl-liste").innerHTML = l.length ? `<ul class="liste rel-releases">${l.map(r => `<li><button class="rel-item" data-r="${esc(r.id)}" aria-current="${r.id === ID}">
-        <b>${esc(r.nom)}</b><span class="lib">${esc([r.version, r.date_prevue && "livraison " + r.date_prevue].filter(Boolean).join(" · ") || "—")}</span>
-        <span>${pill(r.qualification, QUALIF[r.qualification])} <span class="lib">${r.builds} build(s)${r.builds ? `, ${r.builds_passed} Passed` : ""}</span></span></button></li>`).join("")}</ul>`
-      : vide("Aucune release", "« Nouvelle release » pour en créer une.");
-    $$("[data-r]", Z).forEach(b => b.onclick = () => aller(b.dataset.r));
+    /* sélecteur compact : nom, version, qualification et builds dans l'option ; la largeur reste au build */
+    $("#rl-liste").innerHTML = l.length ? `<select class="in" id="rl-choix" style="width:auto;max-width:520px">${l.map(r => `<option value="${esc(r.id)}" ${r.id === ID ? "selected" : ""}>${esc(r.nom)}${r.version ? ` (${esc(r.version)})` : ""} · ${esc(r.qualification)} · ${r.builds} build(s)</option>`).join("")}</select>`
+      : '<span class="lib">Aucune release : « Nouvelle release » pour en créer une.</span>';
+    if ($("#rl-choix")) $("#rl-choix").onchange = e => aller(e.target.value);
   }
 
   function formRelease() {
@@ -302,15 +301,12 @@
       return;
     }
     z.innerHTML = `<p class="lib" style="margin-top:0">${r.evolutions.length} évolution(s) : ${r.rattachees} rattachée(s), ${r.a_trancher} à trancher, ${r.non_rattachees} non rattachée(s) · ${r.tests.length} test(s) par l'analyse d'impact.
-        ${r.statut === "Validée" ? `Envoyée au TNR du Dashboard le ${date(r.validation?.date)}. <button class="lien" id="ri-rouvrir">Retirer du TNR</button>`
-          : `<button class="btn petit" id="ri-tnr" title="Les évolutions rattachées entrent aussi dans l'analyse d'impact du TNR (Dashboard)">Envoyer au TNR du Dashboard</button>`}</p>
+        Tant que la release n'est pas qualifiée, ses évolutions rattachées comptent aussi dans le TNR du Dashboard.</p>
       <div id="ri-ia"></div>
       ${evolutions(r.evolutions, r.types)}
       <details style="margin-top:10px"><summary class="lib">Texte d'origine (conservé tel quel)</summary><pre class="code-bloc" style="white-space:pre-wrap">${esc(r.texte)}</pre></details>`;
     brancherEvolutions(z, c => opRelease(c));
     blocIA($("#ri-ia", z), r.interpretation_ia, "", r.nom, () => initial());
-    if ($("#ri-tnr")) $("#ri-tnr").onclick = () => opRelease({op: "valider"}, "Évolutions envoyées au TNR du Dashboard.");
-    if ($("#ri-rouvrir")) $("#ri-rouvrir").onclick = () => opRelease({op: "rouvrir"}, "Retirée du TNR.");
   }
 
   /* ------------------------------------------------------------------ builds */

@@ -14,7 +14,7 @@
   const ICO_BLOC = {"Vue globale": "dashboard", "État de préparation de la livraison": "bouclier", "Alertes prioritaires": "cloche",
     "Couverture des exigences": "cible", "Application Discovery et rapprochement avec Jira": "recherche", "Qualité de la conception": "assertion",
     "Couverture par sprint": "rapports", "Résultats des campagnes": "execution", "Bugs et anomalies": "alerte",
-    "Responsabilités et charge de travail": "equipe", "Intelligence de non-régression (TNR)": "rejouer", "Aide à la décision : que faire maintenant ?": "ia"};
+    "Responsabilités et charge de travail": "equipe", "TNR au fil de l'eau": "rejouer", "Aide à la décision : que faire maintenant ?": "ia"};
   const ICO_IND = {
     exigences: ["calque", ""], total: ["calque", ""], couvertes: ["assertion", "ok"], reliees: ["lien", "ok"], taux_couverture: ["cible", ""],
     tests: ["xray", ""], tests_xray: ["xray", ""], bdd: ["bdd", ""], automatises: ["editeur", ""], automatisees: ["editeur", "ok"], manuelles: ["fichier", ""],
@@ -142,7 +142,7 @@
   const CAT = {obligatoire: ["Obligatoire", "ko"], complementaire: ["Complémentaire", "warn"], securite: ["Sécurité fonctionnelle", "info"]};
   function rendreTnr(t) {
     const i = t.indicateurs, k = (v, l, c = "") => `<div class="kpi"><div class="v ${c}">${v ?? "—"}</div><div class="l">${l}</div></div>`;
-    poser("pz-tnr", `${titre("Intelligence de non-régression (TNR)", `<span class="lib">évolutions depuis le ${esc(t.depuis)}</span> <button class="btn primaire" id="tn-campagne" ${t.recommandations.length ? "" : "disabled"}>Créer la campagne TNR</button>`)}<div class="corps-carte">
+    poser("pz-tnr", `${titre("TNR au fil de l'eau", `<span class="lib">évolutions depuis le ${esc(t.depuis)}</span> <a class="btn petit" href="#releases" title="Une livraison (release, builds successifs) se qualifie dans l'écran Releases">Qualifier une livraison</a> <button class="btn primaire" id="tn-campagne" ${t.recommandations.length ? "" : "disabled"}>Créer la campagne TNR</button>`)}<div class="corps-carte">
       <div class="kpis" style="grid-template-columns:repeat(8,minmax(0,1fr))">${k(i.recommandes, "recommandés")}${k(i.obligatoires, "obligatoires")}${k(i.selectionnes, "sélectionnés")}${k(i.rejetes, "écartés")}
         ${k(i.executes, "rejoués")}${k(i.reussis, "réussis", "ok-t")}${k(i.echoues, "en échec", i.echoues ? "ko-t" : "")}${k(i.couverture_impacts === null ? "—" : i.couverture_impacts + " %", "impacts couverts")}</div>
       ${t.avertissement ? `<p style="margin-top:8px"><span class="pill warn">Sélection partielle</span> ${esc(t.avertissement)}</p>` : ""}
@@ -229,7 +229,7 @@
         <section class="carte s5" id="pz-anomalies">${titre("Bugs et anomalies")}${attente()}</section>
         <section class="carte s12" id="pz-responsables">${titre("Responsabilités et charge de travail")}${attente()}</section>
         <section class="carte s12" id="pz-releases">${titre("Releases")}${attente("Lecture des releases…")}</section>
-        <section class="carte s12" id="pz-tnr">${titre("Intelligence de non-régression (TNR)")}${attente("Analyse d'impact…")}</section>
+        <section class="carte s12" id="pz-tnr">${titre("TNR au fil de l'eau")}${attente("Analyse d'impact…")}</section>
         <section class="carte s12" id="pz-recos">${titre("Aide à la décision : que faire maintenant ?")}${attente()}</section>`;
       try { CTX = await api("/api/pilotage/contexte"); } catch (e) { CTX = {sprints: [], modules: [], versions: [], plateformes: [], responsables: [], periode_jours: 14, sources: {}}; }
       if (j !== jeton) return;

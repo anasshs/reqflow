@@ -92,14 +92,12 @@ def test_rattachement_cle_citee_propositions_et_decisions(rel):
         rel.creer("trop court")
 
 
-def test_une_release_validee_alimente_le_tnr(rel):
-    from atelier.intelligence import pilotage
+def test_une_release_en_cours_alimente_le_tnr(rel):
+    """Une release ouverte compte d'office dans le TNR du Dashboard ; qualifiée, elle n'y est plus lue."""
+    from atelier.intelligence import builds, pilotage
 
     r = rel.creer(NOTE)
-    assert rel.evolutions_tnr() == [] and not [e for e in pilotage.evolutions({}) if e["id"].startswith("release:")]   # pas validée : le TNR l'ignore
     rel.operer(r["id"], "confirmer", evolution="E4", noeud="user_story:DEMO-311")
-    r = rel.operer(r["id"], "valider")
-    assert r["statut"] == "Validée" and r["validation"]["par"]
     evo = [e for e in pilotage.evolutions({}) if e["id"].startswith("release:")]
     assert {e["noeud"] for e in evo} >= {"user_story:DEMO-312", "user_story:DEMO-311", ""}       # rattachées, et « hors graphe »
     assert all(e["source"] == "Release Note · Release 2.4.0" for e in evo)
@@ -108,9 +106,10 @@ def test_une_release_validee_alimente_le_tnr(rel):
     assert reco["DEMO-308"]["categorie"] == "obligatoire" and any("Release Note" in m for m in reco["DEMO-308"]["motifs"])
     assert {"DEMO-304", "DEMO-306"} <= set(reco)
     assert t["avertissement"]                                                                    # des évolutions hors graphe : sélection partielle, dite
-    # modifiée après validation : à revalider, et le TNR ne la lit plus
-    r = rel.operer(r["id"], "supprimer_evolution", evolution="E5")
-    assert r["statut"] == "Analysée" and not [e for e in pilotage.evolutions({}) if e["id"].startswith("release:")]
+    # qualifiée : la livraison est close, le TNR ne la lit plus
+    builds.qualifier(r["id"], motif="mise en production décidée par le comité de release")
+    pilotage.vider_memo()
+    assert rel.evolutions_tnr() == [] and not [e for e in pilotage.evolutions({}) if e["id"].startswith("release:")]
     assert rel.operer(r["id"], "supprimer_release") == {"supprimee": r["id"]} and rel.lister() == []
 
 
