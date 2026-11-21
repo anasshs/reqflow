@@ -465,6 +465,9 @@ a.kpi { transition: border-color .12s, box-shadow .12s; } a.kpi:hover { border-c
 .g-strat > .menu-strat > .titre-carte { display: none; }
 .g-strat > .menu-strat .liste-strat { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; padding: 6px 0; scrollbar-width: none; }
 .g-strat > .menu-strat .liste-strat li { flex: none; }
+.g-strat > .menu-strat > .lib { flex: none; white-space: nowrap; font-size: 11px; padding: 0 8px !important; }
+.g-strat > .menu-strat .liste-strat .item br { display: none; }
+.g-strat > .menu-strat .liste-strat .item .lib { margin-left: 6px; }
 .g-strat > .menu-strat .liste-strat button { width: auto; padding: 7px 12px; white-space: nowrap; }
 /* pied du menu : seuls ses raccourcis restent, à droite de la barre (la phrase d'explication est dans l'aide) */
 .g-strat > .menu-strat .pied-strat { flex: none; display: flex; align-items: center; gap: 14px; padding: 0 10px 0 14px; margin-left: 6px; border-top: 0; border-left: 1px solid var(--line); font-size: 0; }
