@@ -85,3 +85,23 @@ def test_interpretation_de_la_release_note_et_mode(rel, b, monkeypatch):  # noqa
     monkeypatch.setattr(fournisseur_ia, "fournisseur", lambda: "cursor")
     assert release_ia.etat_ia()["mode"] == "cursor"
     assert release_ia.interpreter_ia(r["id"])["disponible"] is False                       # avec Cursor, l'atelier n'appelle rien
+
+
+def test_contexte_par_pertinence_et_plafonne(rel, b):  # noqa: F811
+    """Jamais le patrimoine entier par défaut : tests du périmètre des règles d'abord, plafond et détail réglables."""
+    from atelier.domain import projet
+    from atelier.intelligence import release_ia
+
+    r = rel.creer(NOTE, nom="Release 3.0")
+    v = b.recevoir(r["id"], "b1", AUJ, "", "- DEMO-777 : le compte n'était plus bloqué après trois échecs\n", anomalies="DEMO-777")
+    perimetre = [x["test"] for x in v["perimetre"]]
+    lu = release_ia.a_interpreter(r["id"], v["id"])
+    transmis = [t["test"] for t in lu["tests"]]
+    assert set(transmis[:len(perimetre)]) == set(perimetre)                                          # le périmètre des règles en tête
+    assert lu["contexte"]["tests_pertinents"] >= 1 and "resume" in lu["elements"][0]
+    (projet.PROJECT_DIR / "atelier_ia.yaml").write_text(
+        "operations:\n  non_regression.interpretation:\n    contexte: {detail: minimal, max_tests: 2}\n", encoding="utf-8")
+    lu = release_ia.a_interpreter(r["id"], v["id"])
+    assert len(lu["tests"]) == 2
+    assert all(t["test"] in perimetre for t in lu["tests"]) and "resume" not in lu["elements"][0]
+    assert lu["contexte"]["detail"] == "minimal" and lu["contexte"]["tests_transmis"] == 2

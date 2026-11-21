@@ -106,6 +106,7 @@ def test_ia_contextuelle_simulee(client, monkeypatch):
                 texte = "Le keyword [keyword:seconnecter] est partagé par 3 tests.\nPropositions à valider :\n1. ..."
                 return types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text=texte)])
     monkeypatch.setenv("ANTHROPIC_API_KEY", "factice")
+    monkeypatch.setenv("IA_FOURNISSEUR", "anthropic")  # l'assistant respecte le fournisseur choisi par l'entreprise
     monkeypatch.setattr(assistant, "_client", lambda: Faux())
     r = client.post("/api/graphes/ia", json={"graphe": "flux", "intention": "resumer",
                                              "selection": "keyword:seconnecter"}).json()

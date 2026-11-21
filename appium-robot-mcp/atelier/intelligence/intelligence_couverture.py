@@ -725,8 +725,12 @@ def _liens_ecartes() -> dict:
 
 def liens_a_juger(exigence: str = "", limite: int = 10, candidats: int = 8) -> dict:
     """Pour une IA : exigences (texte et critères masqués) et tests candidats PRÉSÉLECTIONNÉS par les mots (TF-IDF) ou par
-    une proposition des règles en attente. Sans exigence : d'abord celles sans test, puis celles dont une proposition attend."""
+    une proposition des règles en attente. Sans exigence : d'abord celles sans test, puis celles dont une proposition attend.
+    `limite` est plafonnée par le réglage de l'opération (Paramètres › IA, max_exigences)."""
+    from atelier.intelligence.ia import config
     from atelier.intelligence.jugement_ia import SECOURS, court, etapes_courtes
+
+    limite = config.plafond("exigences.liens_tests", "max_exigences", limite)
 
     d = _donnees()
     ex, tests = d["exigences"], d["tests"]
@@ -827,8 +831,11 @@ def deposer_jugements_liens(jugements: list[dict], source: str = "Cursor (MCP)")
 
 def orphelins_a_classer(limite: int = 20) -> dict:
     """Pour une IA : tests sans exigence et sans classement en cours (texte masqué), candidats PRÉSÉLECTIONNÉS par les mots,
-    et la liste des exigences du périmètre (toute exigence peut être citée)."""
+    et la liste des exigences du périmètre (toute exigence peut être citée). `limite` plafonnée par le réglage (max_tests)."""
+    from atelier.intelligence.ia import config
     from atelier.intelligence.jugement_ia import SECOURS, court, etapes_courtes
+
+    limite = config.plafond("exigences.liens_tests", "max_tests", limite)
 
     d = _donnees()
     en_cours = ("proposee", "validee", "synchronisee")

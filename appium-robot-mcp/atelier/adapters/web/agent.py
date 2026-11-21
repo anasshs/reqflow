@@ -237,14 +237,26 @@ class Agent:
         return anthropic.Anthropic()
 
     def _loop(self):
+        from atelier.intelligence import fournisseur_ia
+        from atelier.intelligence.ia import budget, orchestrateur
+
+        if fournisseur_ia.fournisseur() != "anthropic" or not fournisseur_ia.configure():
+            self.emit({"type": "agent_texte", "texte": "Agent intégré indisponible : il demande le fournisseur d'IA « anthropic » "
+                       f"(IA_FOURNISSEUR) et un budget IA non atteint. Fournisseur actuel : {fournisseur_ia.etat()['detail']}."})
+            self.emit({"type": "agent_etat", "etat": "termine"})
+            return
         client = self._client()
+        correlation_ = uuid.uuid4().hex
         self.emit({"type": "agent_etat", "etat": "travaille"})
         try:
             for _ in range(80):
                 if self.stop_flag.is_set():
                     break
+                budget.verifier("Agent intégré")
+                t0 = time.time()
                 resp = client.messages.create(model=MODEL, max_tokens=4000, system=SYSTEM,
                                               tools=self.tools, messages=self.messages)
+                orchestrateur.mesurer_reponse_agent(resp, "agent.integre", MODEL, int(1000 * (time.time() - t0)), correlation_)
                 self.messages.append({"role": "assistant", "content": resp.content})
                 for b in resp.content:
                     if b.type == "text" and b.text.strip():

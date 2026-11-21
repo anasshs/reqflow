@@ -105,6 +105,18 @@ def _attendre_autorisation(nom: str, delai: float = 1.5):
         time.sleep(delai)
 
 
+def _mesurer(nom: str, r, duree: float):
+    """Taille de la réponse envoyée à Cursor (estimation de tokens), allégée sans perte : journal IA du poste."""
+    try:
+        from atelier.integrations import boite_cursor
+        from atelier.intelligence.ia import orchestrateur
+
+        demande = next((d["id"] for d in reversed(boite_cursor._lire()) if d.get("statut") == "prise"), "")
+        return orchestrateur.mesurer_mcp(nom, r, duree, demande)
+    except Exception:  # noqa: BLE001 — la mesure ne fait jamais échouer un outil
+        return r
+
+
 def _suivre_projet(fn):
     """Avant chaque outil : projet actif de l'atelier et secrets du coffre (même signature et description que l'outil).
     Pendant : début et fin de l'appel publiés à l'atelier (temps réel), image du navigateur après une action."""
@@ -130,6 +142,7 @@ def _suivre_projet(fn):
             raise
         from atelier.domain import activite_agent
 
+        r = _mesurer(fn.__name__, r, time.time() - t0)
         _publier_activite(fn.__name__, "fin", appel=appel, duree=round(time.time() - t0, 2), resultat=activite_agent.resumer_resultat(r))
         _envoyer_image(fn.__name__)
         return r

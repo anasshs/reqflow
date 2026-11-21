@@ -472,8 +472,11 @@ def correlations_a_juger(eid: str = "", limite: int = 15) -> dict:
     """Pour une IA : écrans (nom, titre, module, plateformes, éléments, écrans voisins du parcours ; libellés masqués),
     exigences déjà liées ou seulement vérifiées par les tests, candidats PRÉSÉLECTIONNÉS par les mots (avec description et
     critères d'acceptation) et liste des exigences de la copie locale Jira. Sans écran : d'abord ceux sans exigence liée.
-    Aucune capture d'écran n'est transmise."""
+    Aucune capture d'écran n'est transmise. `limite` plafonnée par le réglage de l'opération (max_ecrans)."""
+    from atelier.intelligence.ia import config
     from atelier.intelligence.jugement_ia import SECOURS, court
+
+    limite = config.plafond("discovery.correlation", "max_ecrans", limite)
 
     ctx = _contexte()
     carte, pat = ctx[0], ctx[3]

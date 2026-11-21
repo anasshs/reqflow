@@ -20,6 +20,8 @@ os.environ["ATELIER_JETON_FICHIER"] = str(Path(os.environ["ROBOT_PROJECT_DIR"]) 
 os.environ.pop("ATELIER_JETON_EVENEMENTS", None)
 os.environ.setdefault("ATELIER_CONFIG", str(Path(os.environ["ROBOT_PROJECT_DIR"]) / "atelier.json"))
 os.environ["ATELIER_PROJETS"] = str(Path(os.environ["ROBOT_PROJECT_DIR"]) / "projets.json")  # jamais la liste du poste
+os.environ["ATELIER_IA_JOURNAL"] = str(Path(os.environ["ROBOT_PROJECT_DIR"]) / "ia.sqlite")  # jamais le journal IA du poste
+os.environ.pop("ATELIER_IA_CONFIG", None)
 os.environ["ATELIER_COFFRE"] = "non"  # jamais le coffre réel du poste (tests : faux coffre explicite)
 sys.path.insert(0, str(RACINE))
 

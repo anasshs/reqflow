@@ -56,10 +56,23 @@ def etat() -> dict:
               "cursor": "propositions déposées par l'agent Cursor via le MCP (outils testabilite_*)",
               "interne": f"LLM interne {os.environ.get('IA_INTERNE_MODELE', '?')} — {os.environ.get('IA_INTERNE_URL', 'URL non configurée')}",
               "anthropic": "API Claude" + ("" if os.environ.get("ANTHROPIC_API_KEY") else " (ANTHROPIC_API_KEY absente)")}[f]
-    return {"fournisseur": f, "detail": detail, "appel_direct": f in ("interne", "anthropic") and configure()}
+    bloque = f in ("interne", "anthropic") and configure_brut() and _budget_bloque()
+    return {"fournisseur": f, "detail": detail + (" — budget IA atteint : règles seules jusqu'au mois prochain" if bloque else ""),
+            "appel_direct": f in ("interne", "anthropic") and configure(), "budget_atteint": bloque}
+
+
+def _budget_bloque() -> bool:
+    from atelier.intelligence.ia import budget
+
+    return budget.bloque_global()
 
 
 def configure() -> bool:
+    """Appel direct possible : fournisseur configuré ET budget IA global non bloqué (sinon : règles seules)."""
+    return configure_brut() and not _budget_bloque()
+
+
+def configure_brut() -> bool:
     f = fournisseur()
     if f == "interne":
         return bool(os.environ.get("IA_INTERNE_URL") and os.environ.get("IA_INTERNE_MODELE"))
@@ -80,10 +93,16 @@ def modele() -> str:
 
 
 def completer(systeme: str, demande: str, max_tokens: int = 1500) -> str:
-    """Appel direct (fournisseurs « interne » et « anthropic » seulement). Le texte doit déjà être masqué."""
+    """Appel direct (fournisseurs « interne » et « anthropic » seulement). Le texte doit déjà être masqué.
+    Passe par l'orchestrateur (atelier/intelligence/ia) : opération déduite de l'appelant, budget, routage du modèle,
+    compactage sans perte, cache, tentatives et repli, mesure des tokens dans le journal du poste."""
+    from atelier.intelligence.ia import orchestrateur
+
+    return orchestrateur.appeler(systeme, demande, max_tokens)
+
+
+def _completer_historique(systeme: str, demande: str, max_tokens: int = 1500) -> str:  # pragma: no cover — remplacé par l'orchestrateur
     f = fournisseur()
-    if not configure():
-        raise RuntimeError(f"IA « {f} » : pas d'appel direct possible (configuration absente ou fournisseur sans appel).")
     if f == "interne":
         from atelier.integrations.http import http, variable_secrete
 

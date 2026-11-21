@@ -48,20 +48,42 @@ def _cible(r: dict, bid: str = "") -> tuple[dict | None, list]:
 # =========================================================================== lecture pour l'IA
 def a_interpreter(rid: str, bid: str = "", limite_elements: int = 400, limite_tests: int = 400) -> dict:
     """Tout ce qu'il faut pour interpréter la Release Note (sans build) ou un build : texte masqué, extraction des règles,
-    éléments du Knowledge Graph, patrimoine de tests, anomalies, périmètre des règles, consigne et format de dépôt."""
-    from atelier.intelligence import builds, jugement_ia, pilotage as p
+    éléments du Knowledge Graph, tests, anomalies, périmètre des règles, consigne et format de dépôt.
 
+    Contexte construit par pertinence, jamais le patrimoine entier par défaut : d'abord les tests du périmètre des
+    règles et ceux des éléments déjà rattachés, puis ceux de leurs modules, puis le reste ; plafonds et niveau de détail
+    réglables pour l'opération (Paramètres › IA : max_tests, max_elements, detail). En détail « minimal », seuls les
+    tests pertinents et ceux de leurs modules sont transmis, sans résumé des éléments."""
+    from atelier.intelligence import builds, jugement_ia, pilotage as p
+    from atelier.intelligence.ia import config
+
+    op = "non_regression.interpretation"
+    ctx = config.contexte(op)
+    limite_elements = config.plafond(op, "max_elements", limite_elements)
+    limite_tests = config.plafond(op, "max_tests", limite_tests)
+    minimal = ctx.get("detail") == "minimal"
     r = R._lire(rid)
     b, evolutions = _cible(r, bid)
     g = R._graphe()
     court = jugement_ia.court
-    elements = [{"id": nid, "type": n.type, "libelle": court(n.libelle, 160), "resume": court(n.proprietes.get("resume") or "", 200)}
-                for nid, n in sorted(g.noeuds.items()) if n.type in R.TYPES_NOEUD][:limite_elements]
+    v = builds.analyser(r, b, g, delta=False) if b else None
+    rattaches = {l["noeud"] for e in evolutions for l in e.get("liens") or [] if l["etat"] != "rejeté"}
+    pertinents = {x["test"] for x in (v["perimetre"] if v else []) if x["impact"] != "ia"}
+    for nid in rattaches:
+        pertinents |= builds._tests_du_noeud(g, nid)[0]
     pat = p._pat()
+    tous = pat.get("tests") or []
+    modules = {t.get("module") for t in tous if t["cle"] in pertinents and t.get("module")}
+    rang = lambda t: 0 if t["cle"] in pertinents else 1 if t.get("module") in modules else 2  # noqa: E731
+    choisis = sorted((t for t in tous if not minimal or rang(t) < 2), key=lambda t: (rang(t), t["cle"]))[:limite_tests]
     publies = p._publies()[0]
     tests = [{"test": t["cle"], "resume": court(t.get("resume"), 200), "module": t.get("module", ""), "criticite": t.get("criticite", ""),
               "etiquettes": t.get("libelles") or [], "exigences": t.get("exigences") or [], "automatise": t["cle"] in publies,
-              "dernier_statut": (t.get("statut_xray") or {}).get("statut", "")} for t in (pat.get("tests") or [])[:limite_tests]]
+              "dernier_statut": (t.get("statut_xray") or {}).get("statut", ""), **({"etapes": t.get("etapes")} if ctx.get("detail") == "complet" and t.get("etapes") else {})}
+             for t in choisis]
+    noeuds = sorted(((nid, n) for nid, n in g.noeuds.items() if n.type in R.TYPES_NOEUD), key=lambda x: (x[0] not in rattaches, x[0]))
+    elements = [{"id": nid, "type": n.type, "libelle": court(n.libelle, 160), **({} if minimal else {"resume": court(n.proprietes.get("resume") or "", 200)})}
+                for nid, n in noeuds][:limite_elements]
     bugs = [{"cle": x["cle"], "resume": court(x.get("resume"), 200), "statut": x.get("statut", ""), "priorite": x.get("priorite", ""),
              "tests": x.get("tests") or []} for x in p._sur(p._bugs, [])[0] or []]
     sortie = {
@@ -72,13 +94,15 @@ def a_interpreter(rid: str, bid: str = "", limite_elements: int = 400, limite_te
                                    "rattachements": [{"id": l["noeud"], "libelle": l["libelle"], "etat": l["etat"], "origine": l.get("origine", "")}
                                                      for l in e.get("liens") or []]} for e in evolutions],
         "elements": elements, "tests": tests, "anomalies": bugs, "types": list(R.TYPES), "consigne": CONSIGNE,
+        "contexte": {"tests_transmis": len(tests), "tests_du_patrimoine": len(tous), "tests_pertinents": len(pertinents), "detail": ctx.get("detail"),
+                     "note": "tests classés par pertinence (périmètre des règles et éléments rattachés, puis leurs modules) ; "
+                             "un test absent de la liste peut être cité par sa clé s'il existe dans Xray"},
         "format_depot": {"evolutions": [{"evolution": "E1 (ou vide pour une nouvelle)", "texte": "si nouvelle", "type": "modification",
                                          "elements": ["user_story:ABC-1"], "justification": "…"}],
                          "tests": [{"test": "ABC-301", "action": "ajouter | ecarter", "categorie": "retest | ciblee | qualification",
                                     "justification": "…"}], "synthese": "deux ou trois phrases sur le risque du build"},
     }
     if b:
-        v = builds.analyser(r, b, g, delta=False)
         sortie["build"] = {"id": b["id"], "numero": b["numero"], "description": court(b.get("description"), 1000), "changements": court(b.get("changements"), 1000),
                            "anomalies_declarees": b.get("anomalies_declarees") or [], "precedent": v["comparaison"]["precedent"]}
         sortie["perimetre_des_regles"] = [{"test": x["test"], "categorie": x["categorie"], "impact": x["impact"], "motifs": x["motifs"]}
