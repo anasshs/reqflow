@@ -116,3 +116,26 @@ def test_anciennes_regles_livrees_reconnues(rc):
     f.write_bytes(ancien.stdout)
     assert {x["id"]: x["statut"] for x in rc.apercu()}["discovery"] == "à mettre à jour"
     assert "atelier-discovery.mdc" in rc.synchroniser()["copiees"]
+
+
+def test_mise_a_niveau_des_regles_d_un_projet_existant(projet):
+    """Projet créé avec d'anciennes règles : les règles livrées changées ou nouvelles arrivent dans une nouvelle version ;
+    une règle personnalisée par l'équipe est gardée telle quelle."""
+    import json
+
+    from atelier.integrations import regles_cursor as rc
+
+    rc.etat()  # v1 = règles livrées
+    rc.enregistrer("security", rc.contenu("security") + "\nRègle maison.\n", "ajout d'une règle maison")  # v2 : personnalisée
+    d = rc._dossier() / "versions" / "v2"
+    (d / "robot-expert.mdc").unlink()                                    # simulation : v2 antérieure à robot-expert
+    (d / "automatisation.mdc").write_text("---\ndescription: ancienne\n---\nancienne règle\n", "utf-8")
+    ix = json.loads((rc._dossier() / "index.json").read_text("utf-8"))
+    ix["signature_base"] = "ancienne"
+    (rc._dossier() / "index.json").write_text(json.dumps(ix), "utf-8")
+    e = rc.etat()
+    assert e["active"] == 3 and "robot-expert" in e["versions"][0]["commentaire"] and "security" in e["versions"][0]["commentaire"]
+    assert "automaticien senior" in rc.contenu("robot-expert")
+    assert "ancienne règle" not in rc.contenu("automation")       # non personnalisée : mise à jour
+    assert "Règle maison." in rc.contenu("security")                   # personnalisée : gardée
+    assert rc.etat()["active"] == 3                                     # une seule mise à niveau

@@ -1,4 +1,7 @@
-"""Liaison avec les agents IA (Cursor, Claude Desktop) : configuration MCP du poste et règles du projet.
+"""Liaison avec les agents IA (Cursor, Claude Code, Claude Desktop) : configuration MCP et règles du projet.
+
+Claude Code : configuration MCP du projet (.mcp.json à la racine du projet de tests) et règles au format de Claude Code
+(CLAUDE.md + skills : atelier/integrations/claude_code.py).
 
 - La configuration MCP ne contient que le Python de l'atelier, server.py et l'adresse de l'interface locale :
   ni chemin de projet (le serveur MCP suit le projet actif de l'atelier), ni secret (variables d'environnement ou
@@ -34,7 +37,9 @@ def fichier_config(agent: str) -> Path:
         if sys.platform == "darwin":
             return Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
         return Path.home() / ".config" / "Claude" / "claude_desktop_config.json"
-    raise ValueError("Agent : cursor ou claude.")
+    if agent == "claude_code":
+        return projet.PROJECT_DIR / ".mcp.json"  # configuration MCP du projet, lue par Claude Code ouvert dans ce dossier
+    raise ValueError("Agent : cursor, claude_code ou claude.")
 
 
 def port_http() -> int | None:
@@ -64,6 +69,9 @@ def entree(port: int, agent: str = "cursor") -> dict:
     en mode HTTP (Cursor seulement), l'URL du serveur MCP que l'atelier a démarré."""
     if agent == "cursor" and port_http():
         return {"url": url_http()}
+    if agent == "claude_code":  # format de Claude Code : type explicite
+        return ({"type": "http", "url": url_http()} if port_http()
+                else {"type": "stdio", "command": sys.executable, "args": [str(projet.RACINE_OUTIL / "server.py")], "env": _env_serveur(port)})
     return {"command": sys.executable, "args": [str(projet.RACINE_OUTIL / "server.py")], "env": _env_serveur(port)}
 
 
@@ -186,7 +194,7 @@ def _lire(f: Path) -> dict:
 def etat(port: int) -> dict:
     """Pour chaque agent : fichier, installé ou non, à jour ou non (chemins / port différents) ; règles du projet."""
     agents = {}
-    for a in ("cursor", "claude"):
+    for a in ("cursor", "claude_code", "claude"):
         attendu = entree(port, a)
         f = fichier_config(a)
         try:
@@ -200,9 +208,15 @@ def etat(port: int) -> dict:
 
     regles = {x["fichier"]: {"present": x["statut"] != "nouveau", "a_jour": x["statut"] == "identique", "statut": x["statut"]}
               for x in regles_cursor.apercu()}
+    from atelier.integrations import claude_code
+
+    try:
+        regles_cc = {x["fichier"]: x["statut"] for x in claude_code.apercu()}
+    except Exception as e:  # noqa: BLE001 — projet illisible : l'écran le dit, sans planter
+        regles_cc = {"erreur": str(e)}
     p = _serveur_http.get("p")
     http = {"url": url_http(), "actif": bool(p and p.poll() is None)} if port_http() else None
-    return {"agents": agents, "regles": regles, "projet": str(projet.PROJECT_DIR), "config": config(port), "http": http}
+    return {"agents": agents, "regles": regles, "regles_claude_code": regles_cc, "projet": str(projet.PROJECT_DIR), "config": config(port), "http": http}
 
 
 def installer(agent: str, port: int) -> dict:
@@ -219,6 +233,13 @@ def installer(agent: str, port: int) -> dict:
     tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), "utf-8")
     os.replace(tmp, f)
     return {"agent": agent, "fichier": str(f), "sauvegarde": sauvegarde}
+
+
+def installer_regles_claude_code(ecraser: bool = False) -> dict:
+    """Règles du projet au format de Claude Code (CLAUDE.md + skills), version active ; jamais d'écrasement silencieux."""
+    from atelier.integrations import claude_code
+
+    return claude_code.installer(ecraser)
 
 
 def installer_regles(ecraser: bool = False) -> dict:

@@ -279,7 +279,8 @@
   /* liaison avec Cursor / Claude Desktop : trois étapes, sans chemin de projet ni secret à recopier */
   async function agents(z) {
     const d = await api("/api/agents-ia"), bo = await api("/api/cursor/boite").catch(() => null);
-    const c = d.agents.cursor, cl = d.agents.claude, regles = Object.values(d.regles);
+    const c = d.agents.cursor, cl = d.agents.claude, cc = d.agents.claude_code, regles = Object.values(d.regles);
+    const rcc = Object.values(d.regles_claude_code || {}), rccOk = rcc.length && rcc.every(x => x === "identique");
     const cliOk = !!(bo && bo.cli.trouvee && bo.cli.valide);
     const etatEnvoi = v => v === "boite" ? (bo.ecoute.active ? '<span class="pill ok">Cursor écoute</span>' : '<span class="pill warn">Cursor n\'écoute pas encore</span>')
       : v === "cli" ? (cliOk ? '<span class="pill ok">commande installée</span>' + ` <span class="lib mono">${esc(bo.cli.commande)} ${esc(bo.cli.arguments)}</span>`
@@ -295,7 +296,7 @@
           <span class="lib">(adresse à faire autoriser par l'administrateur de l'équipe Cursor ; l'atelier doit rester ouvert)</span></p>` : ""}
         <div class="btns"><button class="btn primaire" data-inst="cursor">${c.a_jour ? "Réinstaller" : "Installer dans Cursor"}</button><button class="btn" id="ag-copie">Copier la configuration</button></div>
         <p class="lib">Les autres serveurs MCP de Cursor sont conservés ; l'ancien fichier est sauvegardé (.bak). Ensuite dans Cursor : Settings › MCP, vérifier « appium-robot » (activer / rafraîchir).</p>`)}
-      ${etape(2, regles.every(r => r.a_jour), "Règles Cursor du projet (11 fichiers, versionnées)", `<div id="ag-rg">${vide("Chargement des règles…")}</div>`)}
+      ${etape(2, regles.every(r => r.a_jour), `Règles Cursor du projet (${regles.length} fichiers, versionnées)`, `<div id="ag-rg">${vide("Chargement des règles…")}</div>`)}
       ${etape(3, actif, "Vérifier la connexion", `<p>${actif ? `<span class="pill ok">Cursor connecté</span> dernière action il y a ${Math.round(d.derniere_activite_s / 60)} min` : '<span class="pill">pas encore vu</span>'}</p>
         <p class="lib">Dans Cursor, demander par exemple : « Où suis-je dans l'application ? » (outil where_am_i) ou « Démarre une Discovery de l'application en recette ». L'atelier doit être lancé (python web/app.py).</p>
         <div class="btns"><button class="btn primaire" id="ag-test" title="Interroge le serveur MCP comme Cursor (même commande en stdio, même URL en mode HTTP), l'initialise et liste ses outils">Tester le serveur MCP</button>
@@ -325,12 +326,27 @@
             Attention : Cursor peut alors aussi lancer des commandes sur ce poste et écrire des fichiers sans demander. Réglage du projet, partagé avec l'équipe par le repository de tests. Puis « Valider ».</span></span></label>
           ${bo.cli.force ? '<p><span class="pill warn">--force actif</span> <span class="lib">Cursor agit sans approbation en ligne de commande.</span></p>' : ""}</div>` : ""}
         <p class="lib">Ensuite chaque « Demander à Cursor » part d'un clic, sans choix à refaire. L'exploration passe toujours par le chat de Cursor : vous devez voir l'agent et lui répondre.</p>`) : ""}
+      <details ${cc.installe ? "open" : ""}><summary><b>Claude Code</b> <span class="lib">(agent en terminal ou application de bureau, ouvert sur le dossier du projet de tests)</span></summary>
+        <p style="margin-top:6px">MCP du projet : ${statut(cc)} <span class="lib mono">${esc(cc.fichier)}</span></p>
+        <p>Règles : ${rccOk ? '<span class="pill ok">à jour</span>' : `<span class="pill warn">${rcc.filter(x => x !== "identique").length} fichier(s) à installer ou mettre à jour</span>`}
+          <span class="lib">mêmes règles que Cursor, au format de Claude Code : CLAUDE.md (règles toujours appliquées) et skills .claude/skills/atelier-*</span></p>
+        <div class="btns"><button class="btn primaire" data-inst="claude_code">${cc.a_jour ? "Réinstaller le MCP" : "Installer le MCP pour Claude Code"}</button>
+          <button class="btn" id="ag-rg-cc">Installer les règles pour Claude Code</button></div>
+        <p class="lib">Ensuite : ouvrir Claude Code dans le dossier du projet de tests, accepter le serveur « appium-robot » proposé, puis lui dire par exemple « Traite les demandes de l'atelier ». Un CLAUDE.md existant est conservé : seul le bloc de l'atelier est ajouté.</p></details>
       <details><summary class="lib">Claude Desktop</summary><p style="margin-top:6px">${statut(cl)} <span class="lib mono">${esc(cl.fichier)}</span></p>
         <div class="btns"><button class="btn" data-inst="claude">${cl.a_jour ? "Réinstaller" : "Installer dans Claude Desktop"}</button></div>
         <p class="lib">Redémarrer Claude Desktop ensuite. Les règles .mdc peuvent servir d'instructions de projet Claude.</p></details>
       <details><summary class="lib">Configuration (installation manuelle)</summary><pre class="mono" style="white-space:pre-wrap;font-size:12px">${esc(JSON.stringify(d.config, null, 2))}</pre></details>`;
+    if ($("#ag-rg-cc")) $("#ag-rg-cc").onclick = async () => {
+      try {
+        let r = await api("/api/agents-ia/installer", {method: "POST", body: {regles: true, agent: "claude_code"}});
+        if (r.ignorees.length && confirm(`${r.ignorees.length} fichier(s) modifié(s) à la main : ${r.ignorees.join(", ")}.\n\nLes remplacer (sauvegarde .bak) ?`))
+          r = await api("/api/agents-ia/installer", {method: "POST", body: {regles: true, agent: "claude_code", ecraser: true}});
+        toast(`Règles Claude Code : ${r.copiees.length} écrite(s), ${r.identiques.length} déjà à jour${r.ignorees.length ? `, ${r.ignorees.length} gardée(s)` : ""}.`, "ok"); agents(z);
+      } catch (e) { toast(e.message, "ko"); }
+    };
     $$("[data-inst]", z).forEach(b => b.onclick = async () => {
-      try { const r = await api("/api/agents-ia/installer", {method: "POST", body: {agent: b.dataset.inst}}); toast(`Installé dans ${r.fichier}${r.sauvegarde ? " (sauvegarde .bak)" : ""}. Recharger le MCP dans ${b.dataset.inst === "cursor" ? "Cursor" : "Claude Desktop"}.`, "ok"); agents(z); }
+      try { const r = await api("/api/agents-ia/installer", {method: "POST", body: {agent: b.dataset.inst}}); toast(`Installé dans ${r.fichier}${r.sauvegarde ? " (sauvegarde .bak)" : ""}. Recharger le MCP dans ${({cursor: "Cursor", claude_code: "Claude Code", claude: "Claude Desktop"})[b.dataset.inst]}.`, "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); }
     });
     reglesCursor($("#ag-rg", z), () => agents(z));

@@ -142,10 +142,41 @@ def _creer_version(contenus: dict, commentaire: str, origine: str) -> dict:
     return ix
 
 
+def _signature_base() -> str:
+    """Empreinte des règles livrées avec l'atelier (hors contexte du projet, propre à chaque projet)."""
+    h = hashlib.sha256()
+    for rid, fichier, _, _ in RUBRIQUES:
+        if rid != "project-context":
+            h.update(fichier.encode() + b"\0" + (_base() / fichier).read_bytes())
+    return h.hexdigest()
+
+
+def _personnalisees(ix: dict) -> set[str]:
+    """Règles modifiées par l'équipe dans l'atelier (une version « modification de <règle> » existe)."""
+    return {v["origine"].removeprefix("modification de ") for v in ix["versions"] if str(v.get("origine", "")).startswith("modification de ")}
+
+
 def _assurer() -> dict:
     ix = _index()
+    sig = _signature_base()
     if not ix["versions"]:
         ix = _creer_version({r[0]: _texte_base(r[0]) for r in RUBRIQUES}, "Règles de base de l'atelier", "base")
+        ix["signature_base"] = sig
+        _ecrire_index(ix)
+        return ix
+    if ix.get("signature_base") != sig:  # l'atelier livre des règles nouvelles ou modifiées : mise à niveau du projet
+        perso, actuel = _personnalisees(ix), {}
+        for rid, fichier, _, _ in RUBRIQUES:
+            f = _dossier() / "versions" / f"v{ix['active']}" / fichier
+            actuel[rid] = f.read_text("utf-8") if f.exists() else None
+        nouveau = {rid: (t if t is not None and (rid in perso or rid == "project-context") else _texte_base(rid))
+                   for rid, t in actuel.items()}  # règle personnalisée par l'équipe : gardée telle quelle
+        if nouveau != actuel:
+            ajoutees = [rid for rid, t in actuel.items() if t is None]
+            ix = _creer_version(nouveau, "Règles de l'atelier mises à jour" + (f" (nouvelles : {', '.join(ajoutees)})" if ajoutees else "")
+                                + (f" ; personnalisées gardées : {', '.join(sorted(perso))}" if perso else ""), "mise à niveau")
+        ix["signature_base"] = sig
+        _ecrire_index(ix)
     return ix
 
 
@@ -224,7 +255,12 @@ def comparer(a: int, b: int) -> list[dict]:
 def apercu() -> list[dict]:
     """Pour chaque règle active : état du fichier installé dans le projet et différence."""
     ix = _assurer()
-    connus = {r[0]: {contenu(r[0], v["n"]) for v in ix["versions"]} | {_texte_base(r[0])} for r in RUBRIQUES}
+    def _version(rid: str, n: int) -> str:
+        try:
+            return contenu(rid, n)
+        except KeyError:  # règle apparue après cette version
+            return ""
+    connus = {r[0]: {_version(r[0], v["n"]) for v in ix["versions"]} | {_texte_base(r[0])} for r in RUBRIQUES}
     try:  # règles livrées par les versions précédentes de l'atelier (migration V1 → V2)
         anciennes = json.loads((_base() / "anciennes_versions.json").read_text("utf-8"))["empreintes"]
     except (OSError, ValueError, KeyError):

@@ -520,6 +520,8 @@ async def agents_ia_installer(req: Request):
 
     b = await req.json()
     if b.get("regles"):
+        if b.get("agent") == "claude_code":
+            return _call(agents_ia.installer_regles_claude_code, bool(b.get("ecraser")))
         return _call(agents_ia.installer_regles, bool(b.get("ecraser")))
     return _call(agents_ia.installer, b.get("agent", "cursor"), PORT)
 
