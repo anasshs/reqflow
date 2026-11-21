@@ -290,6 +290,16 @@ def controles_script(fichier: str) -> list[dict]:
         sans_id = [t["nom"] for t in tests if not t.get("cles_xray") and not cles_bdd & set(t.get("tags") or [])]
         add("identifiant", "moyenne" if sans_id else "ok", f"Sans identifiant de test BDD en tag : {', '.join(sans_id)}" if sans_id
             else "Chaque test porte l'identifiant de son test BDD (Xray non utilisé : aucune clé exigée).")
+    if fichier.endswith(".robot"):  # Page Object Model : la suite ne porte que des tests, sans keyword ni locator
+        kw_suite = [k["nom"] for k in inv["keywords"].values() if k["fichier"] == fichier]
+        section = re.split(r"(?mi)^\*+\s*test cases?\s*\*+\s*$", contenu, maxsplit=1)
+        corps_tests = re.split(r"(?m)^\*\*\*", section[1])[0] if len(section) > 1 else ""
+        litteraux = sorted({m.group(0).strip() for l in corps_tests.splitlines() if l.startswith((" ", "\t"))
+                            for m in re.finditer(r"(?:id|css|xpath|text|data-testid|accessibility_id|android)=\S+|//\w\S*", l)})
+        add("pom", "moyenne" if kw_suite or litteraux else "ok",
+            ("Keywords définis dans la suite (à déplacer dans la page de leur écran) : " + ", ".join(kw_suite[:5]) if kw_suite else "")
+            + (" ; " if kw_suite and litteraux else "") + ("Locators écrits dans les tests : " + ", ".join(litteraux[:3]) if litteraux else "")
+            or "Page Object Model respecté : la suite ne contient que des tests.")
     lint = editeur.lint(contenu, fichier)
     add("conventions", "haute" if any(p.get("gravite") == "erreur" for p in lint["problemes"]) else "moyenne" if lint["problemes"] else "ok",
         "; ".join(p["message"] for p in lint["problemes"][:4]) or "Syntaxe et conventions respectées.")

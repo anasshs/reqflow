@@ -128,6 +128,13 @@ def test_generation_robot_reutilise_le_socle(depot):
     # la suite générée est valide pour Robot (dry run)
     (depot / g["chemin"]).parent.mkdir(parents=True, exist_ok=True)
     (depot / g["chemin"]).write_text(g["contenu"], "utf-8")
+    # Page Object Model : aucun keyword dans la suite ; le keyword à créer est dans la page de son écran, importée
+    assert "*** Keywords ***" not in g["contenu"]
+    from atelier.generation import pom
+
+    assert [p["keywords"] for p in g["pages"]] == [["le récapitulatif s'affiche"]]
+    assert g["pages"][0]["chemin"].startswith("resources/pages/") and "Fail    Keyword à implémenter" in g["pages"][0]["contenu"]
+    assert pom.ecrire(g["pages"]) == [g["pages"][0]["chemin"]]
     import server
 
     bilan = server.run_robot(g["chemin"], dry_run=True)

@@ -501,7 +501,7 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
     inv = inventaire if inventaire is not None else depot_robot.lire_depot()
     kws = inv["keywords"]
     rapprochement, confirmes = reutilisation(m, inv), set()  # mots, jugement d'une IA et décisions de l'automaticien
-    a_creer, reutilises, resources, proches = [], [], set(), {}
+    a_creer, reutilises, resources, proches, ecran_de = [], [], set(), {}, {}
     lignes_tests = []
     from atelier.generation import conception
 
@@ -520,6 +520,7 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
                 resources.add(kws[x["id"]]["fichier"])
             elif e["texte"] not in a_creer:
                 a_creer.append(e["texte"])
+                ecran_de[e["texte"]] = e.get("ecran") or ""
                 if x["proches"]:
                     proches[e["texte"]] = x["proches"]
             if x.get("confirme"):
@@ -536,24 +537,31 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
     choix = ({"chemin": cible.replace("\\", "/"), "ajout": False, "parcours": "", "raison": "Chemin choisi par l'appelant."} if cible
              else suites_parcours.cible(m, inv))
     cible = choix["chemin"]
+    # Page Object Model, toujours : les keywords à implémenter vont dans la page de leur écran, jamais dans la suite
+    from atelier.generation import pom
+
+    a_ecrire = []
+    for k in a_creer:
+        doc = "À implémenter : aucun keyword du dépôt ne correspond."
+        if k in proches:
+            doc = (f"À implémenter (nouveau keyword confirmé ; proche de « {proches[k][0]['keyword']} »)." if k in confirmes
+                   else f"Doublon probable de « {proches[k][0]['keyword']} » ({proches[k][0]['fichier']}) : le réutiliser.")
+        a_ecrire.append({"nom": k, "doc": doc, "ecran": ecran_de.get(k, ""),
+                         "args": ["    [Arguments]    &{jdd}"] if k == "Initialiser Le Test" else []})
+    socle = (kws.get("initialiserletest") or kws.get("localiser") or {}).get("fichier", "")
+    prep = pom.preparer(a_ecrire, inv, cible, socle if str(socle).endswith(".resource") else "",
+                        projet.slug(m.get("module") or m.get("titre") or m["cle"], 50, "general"))
     imports = [f"Resource    {Path(os.path.relpath(projet.PROJECT_DIR / r, (projet.PROJECT_DIR / cible).parent)).as_posix()}"
-               for r in sorted(resources) if r.endswith(".resource")]
+               for r in sorted(resources | set(prep["imports"])) if r.endswith(".resource")]
     texte = ["*** Settings ***",
              f"Documentation    {m.get('titre') or m['cle']} — généré depuis le scénario BDD {m['cle']} le "
-             f"{datetime.now():%d/%m/%Y} (à relire).", *imports, "", "*** Test Cases ***", *lignes_tests[1:]]
-    if a_creer:
-        texte += ["", "*** Keywords ***"]
-        for k in a_creer:
-            args = ["    [Arguments]    &{jdd}"] if k == "Initialiser Le Test" else []
-            doc = "À implémenter : aucun keyword du dépôt ne correspond."
-            if k in proches:
-                doc = (f"À implémenter (nouveau keyword confirmé ; proche de « {proches[k][0]['keyword']} »)." if k in confirmes
-                       else f"Doublon probable de « {proches[k][0]['keyword']} » ({proches[k][0]['fichier']}) : le réutiliser.")
-            texte += [k, f"    [Documentation]    {doc}", *args, f"    Fail    Keyword à implémenter : {k}", ""]
+             f"{datetime.now():%d/%m/%Y} (à relire). Page Object Model : les keywords sont dans les pages importées.",
+             *imports, "", "*** Test Cases ***", *lignes_tests[1:]]
     out = {"chemin": cible, "contenu": "\n".join(texte).rstrip() + "\n", "keywords_reutilises": sorted(set(reutilises)),
            "keywords_a_creer": a_creer,
            "keywords_proches": [{"etape": k, "keyword": p[0]["keyword"], "fichier": p[0]["fichier"], "confirme": k in confirmes}
                                 for k, p in proches.items()],
+           "pages": prep["pages"], "pom": True,
            "parcours": choix["parcours"], "ajout": False, "raison_suite": choix["raison"], "cle_xray": cle_xray,
            "tag": cle_xray or m["cle"]}
     if choix["ajout"]:  # la suite du parcours existe : on y ajoute le test, sans rien réécrire

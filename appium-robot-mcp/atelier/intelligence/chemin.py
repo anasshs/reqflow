@@ -79,10 +79,12 @@ def _scripts(bdds: list[dict]) -> dict:
             for c in cles & tags:
                 if c in out:
                     continue
-                try:
-                    a_faire = MARQUE_A_IMPLEMENTER in projet.safe_path(f).read_text("utf-8")
-                except (OSError, ValueError):
-                    a_faire = False
+                a_faire = False
+                for fichier in [f, *((inv.get("fichiers", {}).get(f) or {}).get("resources") or [])]:  # suite + pages (POM)
+                    try:
+                        a_faire = a_faire or MARQUE_A_IMPLEMENTER in projet.safe_path(fichier).read_text("utf-8")
+                    except (OSError, ValueError):
+                        continue
                 out[c] = {"fichier": f, "test": t, "revue": (revues.get(f) or {}).get("statut", "Generated"),
                           "a_implementer": a_faire, "resultat": (res.get(t) or {}).get("statut")}
     return out

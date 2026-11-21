@@ -744,7 +744,8 @@ def studio_scenario_bdd(cle: str) -> dict:
 
 @outil
 def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "") -> dict:
-    """Génère la suite Robot d'un scénario BDD (keywords du socle, stubs pour les étapes à créer). ecrire=False :
+    """Génère la suite Robot d'un scénario BDD en Page Object Model : la suite (tests seulement) et, dans « pages », la
+    ressource de chaque écran où ajouter les keywords à implémenter (stubs). ecrire=False :
     aperçu seulement ; « keywords_proches » liste les étapes qui ressemblent à un keyword existant. ecrire=True : écrit
     le fichier (jamais d'écrasement) ; il entre en revue technique « Généré » et ne s'exécute qu'après approbation de
     l'automaticien dans l'atelier. L'écriture est refusée tant qu'une étape proche d'un keyword existant n'est pas
@@ -763,6 +764,9 @@ def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "") 
             raise FileExistsError(g["ajout_refuse"])
         # une suite par parcours métier : « ajout » complète la suite existante du parcours, sans rien y réécrire
         projet.ecrire_fichier(cible, g["contenu"], bool(g.get("ajout")))
+        from atelier.generation import pom
+
+        g["pages_ecrites"] = pom.ecrire(g.get("pages") or [])  # Page Object Model : les keywords vont dans les pages
         studio.entrer_en_revue(cible, "cursor")
         g["ecrit"] = cible
     return g

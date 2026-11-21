@@ -479,7 +479,9 @@
         <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}" title="Modifier le chemin range le test dans une suite à part"></div>
         ${g.structure && !g.structure.conforme ? `<p class="lib"><span class="pill warn">Hors structure</span> ${esc(g.structure.message)} Corriger le chemin ci-dessus, ou le motif de rangement dans <a href="#conception/parametres">Test Design › Réglages</a>.</p>` : ""}
         <label class="lib" style="display:flex;gap:6px;align-items:center;margin-bottom:8px" ${g.ajout ? "hidden" : ""}><input type="checkbox" id="g-ecr"> Remplacer s'il existe</label>
-        <pre class="code-bloc">${esc(g.contenu)}</pre>`;
+        <pre class="code-bloc">${esc(g.contenu)}</pre>
+        ${(g.pages || []).filter(p => p.keywords.length).map(p => `<p class="lib" style="margin:8px 0 4px"><span class="pill info">Page (POM)</span> <b class="mono">${esc(p.chemin)}</b>
+          · ${p.nouveau ? "nouvelle page" : "ajout en fin de page"} · ${p.keywords.length} keyword(s) à implémenter</p><pre class="code-bloc">${esc(p.contenu)}</pre>`).join("")}`;
       $("#g-x", ap).onclick = () => zones.classList.remove("ouvert");
       // choix à la main (sans relation test ↔ exigence) : enregistré sur le scénario, l'aperçu est recalculé
       const rattacher = async corps => { try { await api(`/api/bdd/${encodeURIComponent(cle)}/operation`, {method: "POST", body: {op: "rangement", ...corps}}); apercu(); } catch (e) { toast(e.message, "ko"); } };
@@ -488,7 +490,7 @@
       $("#g-ok", ap).onclick = async () => {
         try {
           const r = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: true, chemin: $("#g-ch", ap).value, ecraser: $("#g-ecr", ap).checked}});
-          const aImplementer = ((r.ajoute || r.contenu || "").match(/Keyword à implémenter/g) || []).length;
+          const aImplementer = (r.keywords_a_creer || []).length;  // Page Object Model : les stubs sont dans les pages
           try { sessionStorage.setItem("studio-revue", r.ecrit); } catch (e) { /* facultatif */ }
           if (aImplementer) {  // étape suivante : Cursor écrit ces keywords en réutilisant le socle
             toast(`Écrit : ${r.ecrit}. Étape suivante : ${aImplementer} keyword(s) à implémenter, « Demander à Cursor » les écrit.`, "ok");

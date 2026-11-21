@@ -57,6 +57,9 @@ def test_du_parcours_au_script_la_prochaine_action_avance(projet, sans_integrati
     f = pj.safe_path(g["chemin"])
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(g["contenu"], "utf-8")
+    from atelier.generation import pom
+
+    pom.ecrire(g["pages"])  # Page Object Model : les keywords à implémenter sont dans les pages
     e = chemin.etat()
     assert (e["suivante"]["etape"], e["suivante"]["bouton"]) == ("automatiser", "Construire avec Cursor")
     assert e["suivante"]["lien"] == f"#studio/direct/{r['cle']}" and e["etapes"][2]["courante"]

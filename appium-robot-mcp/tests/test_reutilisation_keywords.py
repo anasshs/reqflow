@@ -89,7 +89,7 @@ def test_generation_refusee_tant_qu_un_doublon_est_possible(depot):
     assert g["keywords_reutilises"] == ["Choisir Le Compte ${type}", "Se Connecter"]
     assert {(x["etape"], x["keyword"]) for x in g["keywords_proches"]} == {("je saisis le montant", "Saisir Le Montant"),
                                                                           ("je valide le virement", "Valider Le Virement")}
-    assert "Doublon probable de « Valider Le Virement »" in g["contenu"]
+    assert "Doublon probable de « Valider Le Virement »" in "".join(p["contenu"] for p in g["pages"])  # stub dans la page (POM)
     with pytest.raises(ValueError, match="ressemble au keyword existant « Saisir Le Montant »"):
         facade.studio_generer_depuis_bdd("DEMO-71", ecrire=True)
     assert not (depot / g["chemin"]).exists()

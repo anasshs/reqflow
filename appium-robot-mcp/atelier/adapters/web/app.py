@@ -2353,6 +2353,9 @@ async def bdd_generer(cle: str, req: Request):
             raise HTTPException(400, g["ajout_refuse"])
         # une suite par parcours métier : « ajout » complète la suite existante du parcours, sans rien y réécrire
         _call(outils.write_project_file, chemin, g["contenu"], bool(b.get("ecraser")) or bool(g.get("ajout")))
+        from atelier.generation import pom
+
+        g["pages_ecrites"] = _call(pom.ecrire, g.get("pages") or [])  # Page Object Model : keywords dans les pages
         _call(studio.entrer_en_revue, chemin, "bdd")  # validation humaine avant exécution
         g["ecrit"] = chemin
     return g
