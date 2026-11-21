@@ -172,3 +172,69 @@ def test_assistant_respecte_le_fournisseur(ia, monkeypatch):
     monkeypatch.setenv("IA_FOURNISSEUR", "aucun")
     r = assistant.demander(Graphe(), "connaissance", "anomalies")
     assert r["disponible"] is False and ia.client.appels == []
+
+
+def test_consommation_par_module_operation_et_cursor_a_part(ia):
+    from atelier.intelligence.ia import consommation
+
+    with ia.journal.operation():
+        ia.orch.appeler("S", "un", operation="non_regression.interpretation")
+        ia.orch.appeler("S", "deux", operation="non_regression.interpretation")
+    ia.orch.appeler("S", "trois", operation="conception.doublons")
+    ia.orch.appeler("S", "trois", operation="conception.doublons")                                   # depuis le cache
+    ia.orch.mesurer_mcp("coverage_liens_a_juger", {"exigences": [{"cle": "E-1"}]}, 0.1)
+    c = consommation.tableau()
+    t = c["totaux"]
+    assert (t["appels"], t["tokens"], t["operations"], t["depuis_cache"]) == (3, 450, 2, 1)
+    assert t["par_operation"] == 225 and t["tokens_evites_cache"] == 150
+    mod = {x["cle"]: x for x in c["par_module"]}
+    assert mod["Non-Regression"]["tokens"] == 300 and mod["Non-Regression"]["operations"] == 1 and mod["Test Design"]["depuis_cache"] == 1
+    assert c["modeles"][0]["reussite"] == 100.0
+    assert c["cursor"]["appels_outils"] == 1 and c["cursor"]["factures"] is None and "indisponible" in c["cursor"]["note"]
+    assert consommation.tableau(module="Test Design")["totaux"]["appels"] == 1
+
+
+def test_simulateur_estime_puis_execute_et_note(ia):
+    from atelier.intelligence.ia import simulateur
+
+    _regler(ia.projet, "modeles:\n  economique: {modele: modele-eco}\n  avance: {modele: modele-avance}\n")
+    ia.orch.appeler("S", '{"cas": [1, 2, 3], "vide": []}', operation="exigences.testabilite")
+    (e,) = simulateur.entrees()
+    r = simulateur.simuler(e["id"], [{"nom": "éco", "niveau": "economique"}, {"nom": "trop petit", "max_entree": 1}])
+    assert r["mode"] == "estimation" and len(ia.client.appels) == 1                                    # rien n'est rejoué
+    res = {x["nom"]: x for x in r["resultats"]}
+    assert res["éco"]["modele"] == "modele-eco" and "refus" in res["trop petit"] and res["référence"]["proximite"]["score"] == 100
+    r = simulateur.simuler(e["id"], [{"nom": "éco", "niveau": "economique"}], executer=True)
+    x = {x["nom"]: x for x in r["resultats"]}["éco"]
+    assert len(ia.client.appels) == 2 and x["tokens_sortie"] == 30 and x["proximite"]["methode"] == "texte"
+    assert simulateur.noter(r["id"], "éco", 4)["resultats"][1]["note"]["valeur"] == 4
+    with pytest.raises(ValueError):
+        simulateur.noter(r["id"], "éco", 9)
+
+
+def test_comparaison_par_verdicts():
+    from atelier.intelligence.ia import simulateur
+
+    ref = '{"jugements": [{"test": "T1", "verdict": "couvre", "justification": "a"}, {"test": "T2", "verdict": "non"}]}'
+    autre = '{"jugements": [{"test": "T1", "verdict": "couvre", "justification": "autre mot"}, {"test": "T2", "verdict": "oui"}]}'
+    c = simulateur.comparer(ref, autre)
+    assert c["methode"] == "verdicts" and c["identiques"] == 1 and c["score"] == 33.3
+
+
+def test_routes_pilotage(ia):
+    from fastapi.testclient import TestClient
+
+    from tests.test_routes_web import charger_app_web
+
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200  # cookie de session
+    h = {}
+    e = c.get("/api/ia-pilotage/etat", headers=h).json()
+    assert "non_regression.interpretation" in e["operations"] and e["fournisseur"]["fournisseur"] == "anthropic"
+    r = c.put("/api/ia-pilotage/reglages", json={"modeles": {"economique": {"modele": "eco"}}}, headers=h)
+    assert r.status_code == 200 and (ia.projet / "atelier_ia.yaml").exists()
+    assert c.put("/api/ia-pilotage/reglages", json={"contexte": {"detail": "énorme"}}, headers=h).status_code == 400
+    ia.orch.appeler("S", "x", operation="conception.doublons")
+    assert c.get("/api/ia-pilotage/consommation", headers=h).json()["totaux"]["appels"] == 1
+    assert c.post("/api/ia-pilotage/cache/invalider", json={}, headers=h).json()["supprimees"] == 1
+    assert c.get("/api/ia-pilotage/simulateur", headers=h).json()["entrees"]

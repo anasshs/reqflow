@@ -97,8 +97,9 @@ def executer(systeme: str, demande: str, max_tokens: int = 1500, operation: str 
         k = cache.cle(op, systeme, principal["modele"], envoyee)
         e = cache.lire(k, courantes)
         if e is not None:
-            aid = journal.enregistrer_appel(**base, modele=principal["modele"], niveau=principal["niveau"], statut="ok", cache=True,
-                                            tokens_entree=0, tokens_sortie=0, duree_ms=0)
+            # tokens évités : ceux de l'appel d'origine (gardés « avant » ; rien n'est consommé « après »)
+            aid = journal.enregistrer_appel(**{**base, "tokens_avant": e["tokens_evites"], "tokens_apres": 0}, modele=principal["modele"],
+                                            niveau=principal["niveau"], statut="ok", cache=True, tokens_entree=0, tokens_sortie=0, duree_ms=0)
             return {"texte": e["valeur"], "modele": principal["modele"], "niveau": principal["niveau"], "usage": {}, "estime": False, "cache": True,
                     "repli": False, "duree_ms": 0, "appel": aid, "correlation": cid, "raison": "réponse en cache (sources inchangées)",
                     "tokens_evites": e["tokens_evites"]}

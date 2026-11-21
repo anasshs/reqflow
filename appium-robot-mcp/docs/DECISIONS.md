@@ -913,3 +913,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Lot C : une release non qualifiée alimente d'office le TNR du Dashboard, renommé « TNR au fil de l'eau » (lien vers
   Releases) ; « Envoyer au TNR du Dashboard » retiré (les opérations valider / rouvrir restent dans le moteur, sans effet
   sur le TNR) ; la liste des releases devient un sélecteur compact. Aucun outil MCP ni dépendance ajouté.
+
+## 2026-11-21 — Pilotage de l'IA (cahier « AI Management, Optimization & Cost Control »)
+- Audit et plan d'intégration présentés d'abord (document partagé) ; décisions de l'utilisateur : accepter qu'en
+  production avec Cursor l'atelier optimise ce qu'il envoie et estime ; réglages en YAML versionné et journal SQLite du
+  poste ; assistant et agent intégré soumis à `IA_FOURNISSEUR` ; **pas** de grille de prix (tokens seulement) ; **pas**
+  de connecteurs d'usage fournisseurs / Cursor.
+- Décision : paquet `atelier/intelligence/ia` autour du point d'appel existant, sans second moteur ni changement des
+  outils MCP ; jamais de troncature silencieuse (refus motivé) ; un budget bloqué ne touche que l'IA, jamais les calculs.
+  Aucune dépendance (sqlite3). Voir docs/PILOTAGE_IA.md.

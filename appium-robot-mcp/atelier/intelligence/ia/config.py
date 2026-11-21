@@ -213,5 +213,6 @@ def etat() -> dict:
     eff = effective()
     return {"fournisseur": fournisseur_ia.etat(), "projet": projet_brut(), "entreprise": entreprise_brut(),
             "fichier_entreprise": str(fichier_entreprise() or ""), "effective": eff, "modeles": modeles(eff),
-            "operations": {op: {**v, **pour_operation(op, eff)} for op, v in operations.connues().items()},
+            "operations": {op: {**v, **{k: x for k, x in pour_operation(op, eff).items() if k in ("niveau", "max_sortie", "contexte", "cache")}}
+                           for op, v in operations.connues().items()},
             "niveaux": NIVEAUX, "choix_niveau": CHOIX_NIVEAU, "details": DETAILS, "seuils": SEUILS}

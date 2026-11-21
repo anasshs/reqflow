@@ -1851,6 +1851,65 @@ async def discovery_correlation_ia(req: Request):
     return await asyncio.to_thread(_call, correlation.juger_ia, (await req.json()).get("ecran", ""))
 
 
+# --------------------------------------------------------------------------- pilotage de l'IA (atelier/intelligence/ia)
+@app.get("/api/ia-pilotage/etat")
+async def ia_pilotage_etat():
+    """Réglages (entreprise, projet, effectifs), modèles par niveau, opérations, cache, budget."""
+    from atelier.intelligence.ia import budget, cache, config
+
+    return await asyncio.to_thread(lambda: _call(lambda: {**config.etat(), "cache": cache.etat(), "budget": budget.etat(),
+                                                           "historique": config.historique(15)}))
+
+
+@app.put("/api/ia-pilotage/reglages")
+async def ia_pilotage_reglages(req: Request):
+    from atelier.intelligence.ia import config
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, config.enregistrer, b)
+
+
+@app.get("/api/ia-pilotage/consommation")
+async def ia_pilotage_consommation(depuis: str = "", jusqu: str = "", projet: str = "", poste: str = "", module: str = "",
+                                   fournisseur: str = "", modele: str = "", operation: str = ""):
+    from atelier.intelligence.ia import consommation
+
+    return await asyncio.to_thread(_call, lambda: consommation.tableau(depuis, jusqu, projet=projet, poste=poste, module=module,
+                                                                      fournisseur=fournisseur, modele=modele, operation=operation))
+
+
+@app.post("/api/ia-pilotage/cache/invalider")
+async def ia_pilotage_cache_invalider(req: Request):
+    from atelier.intelligence.ia import cache
+
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, lambda: {"supprimees": cache.invalider(b.get("operation", ""), b.get("module", ""), b.get("source", ""))})
+
+
+@app.get("/api/ia-pilotage/simulateur")
+async def ia_pilotage_simulateur_liste(operation: str = ""):
+    from atelier.intelligence.ia import simulateur
+
+    return await asyncio.to_thread(_call, lambda: {"entrees": simulateur.entrees(50, operation), "historique": simulateur.historique(10)})
+
+
+@app.post("/api/ia-pilotage/simulateur")
+async def ia_pilotage_simuler(req: Request):
+    """Estimation par défaut ; « executer » rejoue réellement la demande (consomme des tokens, action explicite)."""
+    from atelier.intelligence.ia import simulateur
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, simulateur.simuler, str(b.get("entree") or ""), b.get("variantes") or [], bool(b.get("executer")))
+
+
+@app.post("/api/ia-pilotage/simulateur/{sid}/note")
+async def ia_pilotage_noter(sid: str, req: Request):
+    from atelier.intelligence.ia import simulateur
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, simulateur.noter, sid, str(b.get("nom") or ""), int(b.get("note") or 0), str(b.get("commentaire") or ""))
+
+
 @app.get("/api/ia/etat")
 async def ia_etat():
     """Fournisseur d'IA : « cursor » (jugements déposés via le MCP), appel direct (interne / Claude) ou aucun (règles)."""

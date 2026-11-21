@@ -194,7 +194,7 @@ const Atelier = {
     ["Ressources", [["graphe", "Knowledge Graph", "graphe"], ["bdd", "Scénarios BDD", "bdd"], ["editeur", "Éditeur de code", "fichier"],
       ["discovery/donnees", "Jeux de données", "donnee"]]],
     ["Paramètres", [["parametres/projets", "Projets", "dossier"], ["parametres/applications", "Applications", "mobile"],
-      ["parametres/connexions", "Connexions", "lien"], ["parametres", "Paramètres", "parametres"]]]],
+      ["parametres/connexions", "Connexions", "lien"], ["ia", "Pilotage IA", "ia"], ["parametres", "Paramètres", "parametres"]]]],
   /* écrans de travail rattachés à un module, quand ils n'ont pas leur propre entrée dans la barre latérale */
   PARENT: {bdd: "conception", editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance"},
 
