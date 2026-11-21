@@ -28,7 +28,8 @@ from datetime import date
 
 from atelier.intelligence import releases as R
 
-STATUTS = ("Reçu", "Périmètre validé", "En exécution", "Passed", "Failed")
+STATUTS = ("Reçu", "Périmètre validé", "En exécution", "Passed", "Failed", "Remplacé")
+EN_COURS = ("Reçu", "Périmètre validé", "En exécution")  # un build encore en cours est « Remplacé » à l'arrivée du suivant
 CATEGORIES = {"retest": "Retest", "ciblee": "Non-régression ciblée", "qualification": "Qualification"}
 ORDRE = {"retest": 0, "ciblee": 1, "qualification": 2}
 
@@ -69,6 +70,13 @@ def recevoir(rid: str, numero: str, date_reception: str = "", description: str =
          "description": (description or "").strip()[:4000], "changements": (changements or "").strip()[:4000], "texte": texte,
          "evolutions": a["evolutions"], "anomalies_declarees": declarees, "anomalies_citees": [k for k in citees if k not in declarees],
          "anomalies_ouvertes_a_reception": ouvertes, "statut": "Reçu", "decisions": {}, "recu_par": R._auteur(), "recu_le": R._maintenant()}
+    for x in r.get("builds") or []:
+        if x["statut"] in EN_COURS:
+            x.update(statut_avant=x["statut"], statut="Remplacé", remplace_par=numero)
+            R._journal(r, "build remplacé", build=x["numero"], par_build=numero)
+    if (r.get("qualification") or {}).get("etat", "").startswith("Qualifiée"):
+        r["qualification"] = {"etat": "En cours", "rouverte_par": R._auteur(), "date": R._maintenant()}
+        R._journal(r, "qualification à refaire (nouveau build reçu)", build=numero)
     r.setdefault("builds", []).append(b)
     R._journal(r, "build reçu", build=numero, evolutions=len(a["evolutions"]), anomalies=len(declarees) + len(b["anomalies_citees"]))
     R._ecrire(r)
@@ -282,6 +290,12 @@ def operer(rid: str, bid: str, op: str, **p) -> dict:
     r = R._lire(rid)
     b = R._build(r, bid)
     par = R._auteur()
+    if b["statut"] == "Remplacé" and op != "supprimer":
+        raise PermissionError(f"Le build {b['numero']} est remplacé par le build {b.get('remplace_par', '')} : travailler sur le build en cours.")
+    if op == "decider" and isinstance(p.get("tests"), list):  # même décision, même motif, pour plusieurs tests
+        for t in p["tests"]:
+            operer(rid, bid, "decider", test=t, decision=p.get("decision", ""), motif=p.get("motif", ""))
+        return vue(rid, bid)
     if op == "decider":
         test, decision, motif = str(p.get("test") or "").strip().upper(), str(p.get("decision") or ""), str(p.get("motif") or "").strip()
         if decision not in ("acceptée", "rejetée", "ajoutée", ""):
@@ -345,6 +359,10 @@ def operer(rid: str, bid: str, op: str, **p) -> dict:
         R._journal(r, "build rouvert", build=b["numero"])
     elif op == "supprimer":
         r["builds"].remove(b)
+        for x in r["builds"]:
+            if x["statut"] == "Remplacé" and x.get("remplace_par") == b["numero"]:
+                x["statut"] = x.pop("statut_avant", "Reçu")
+                x.pop("remplace_par", None)
         R._journal(r, "build supprimé", build=b["numero"])
         R._ecrire(r)
         return {"supprime": bid}
@@ -396,14 +414,15 @@ def tableau(rid: str) -> dict:
         lignes = a["perimetre"] if not b.get("perimetre_valide") else [x for x in a["perimetre"] if x["test"] in set(b["perimetre_valide"]["tests"])]
         vues.append({"id": b["id"], "numero": b["numero"], "date_reception": b["date_reception"], "statut": b["statut"], "perimetre": lignes,
                      "resultats": _resultats(lignes), "anomalies": _anomalies_du_build(b, lignes), "comparaison": a["comparaison"],
-                     "evolutions": len(b["evolutions"]), "verdict": b.get("verdict")})
+                     "evolutions": len(b["evolutions"]), "verdict": b.get("verdict"), "remplace_par": b.get("remplace_par", "")})
     tests = {x["test"]: x for v in vues for x in _retenus(v["perimetre"])}
     executes = {x["test"] for v in vues for x in v["perimetre"] if x["execute"]}
     criteres = criteres_sortie(r, vues)
     ouvertes = {a["cle"] for v in vues for a in v["anomalies"]["nouvelles"] + v["anomalies"]["residuelles"] + v["anomalies"]["corrigees_non_confirmees"]}
     return {**{k: r.get(k, "") for k in ("id", "nom", "version", "date_prevue", "perimetre", "statut", "texte", "cree")},
             "qualification": r.get("qualification") or {"etat": "En cours"},
-            "builds": [{k: v[k] for k in ("id", "numero", "date_reception", "statut", "resultats", "evolutions", "verdict")}
+            "courant": vues[-1]["id"] if vues else "",
+            "builds": [{k: v[k] for k in ("id", "numero", "date_reception", "statut", "resultats", "evolutions", "verdict", "remplace_par")}
                        | {"anomalies_ouvertes": len(v["anomalies"]["nouvelles"]) + len(v["anomalies"]["residuelles"]) + len(v["anomalies"]["corrigees_non_confirmees"]),
                           "anomalies_corrigees": len(v["anomalies"]["corrigees"]), "nouvelles_evolutions": len(v["comparaison"]["nouvelles"]),
                           "a_retester": len(v["comparaison"]["anomalies_a_retester"])} for v in vues],

@@ -309,3 +309,24 @@ def test_actualiser_depuis_xray_dans_la_vue_du_build(rel, b, monkeypatch):  # no
     with pytest.raises(RuntimeError):
         b.actualiser_xray(r["id"], v["id"])
     assert b.vue(r["id"], v["id"])["lecture_xray"]["executions"] == 3
+
+
+def test_build_remplace_et_qualification_a_refaire(rel, b):  # noqa: F811
+    """Un nouveau build remplace le build encore en cours (lecture seule) et remet une release qualifiée « En cours » ;
+    sa suppression rend la main au build remplacé. Plusieurs tests s'écartent d'un coup, avec un seul motif."""
+    r = rel.creer(NOTE, nom="Release 3.3")
+    v1 = b.recevoir(r["id"], "b1", AUJ, "", BUILD1)
+    v1 = b.operer(r["id"], v1["id"], "decider", tests=["DEMO-302", "DEMO-303"], decision="rejetée", motif="hors périmètre du build")
+    assert {x["test"]: x["decision"] for x in v1["perimetre"]}["DEMO-303"] == "rejetée"
+    b.operer(r["id"], v1["id"], "valider")
+    b.qualifier(r["id"], motif="mise en production décidée par le comité de release")
+    assert b.tableau(r["id"])["qualification"]["etat"] == "Qualifiée par dérogation"
+
+    v2 = b.recevoir(r["id"], "b2", AUJ, "", BUILD2)
+    t = b.tableau(r["id"])
+    assert t["qualification"]["etat"] == "En cours" and t["courant"] == v2["id"]
+    assert [(x["numero"], x["statut"], x["remplace_par"]) for x in t["builds"]] == [("b1", "Remplacé", "b2"), ("b2", "Reçu", "")]
+    with pytest.raises(PermissionError, match="remplacé par le build b2"):
+        b.operer(r["id"], v1["id"], "passed")
+    b.operer(r["id"], v2["id"], "supprimer")
+    assert b.tableau(r["id"])["builds"][0]["statut"] == "Périmètre validé"                 # le build remplacé reprend son statut

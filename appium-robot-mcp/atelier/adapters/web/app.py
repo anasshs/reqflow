@@ -2731,7 +2731,8 @@ async def releases_build_operation(rid: str, bid: str, req: Request):
     if op in ("ajouter_evolution", "supprimer_evolution", "modifier_evolution", "confirmer", "rejeter", "relier", "delier"):
         return await asyncio.to_thread(lambda: _call(releases.operer, rid, op, build=bid, **{k: v for k, v in b.items() if k in ("evolution", "noeud", "texte", "type")}))
     return await asyncio.to_thread(lambda: _call(builds.operer, rid, bid, op, **{k: v for k, v in b.items()
-                                                                              if k in ("test", "decision", "motif", "nom", "plateformes", "environnement")}))
+                                                                              if k in ("test", "tests", "decision", "motif", "nom", "plateformes", "environnement",
+                                                                                       "par_execution")}))
 
 
 @app.get("/api/studio/structure")

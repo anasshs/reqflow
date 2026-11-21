@@ -770,5 +770,7 @@ body.sans-lanceur .df-lanceur { display: none; }
   border: 1px solid var(--violet-soft); border-radius: 10px; background: var(--violet-soft); }
 .rel-ia.a-faire { background: transparent; border: 1px dashed var(--line-2); }
 .rel-ia .btns { flex: none; }
+.rel-selection { position: sticky; top: 0; z-index: 2; padding: 8px 10px; margin: 6px 0; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-2); }
+.rel-remplace { padding: 8px 12px; border-radius: 10px; background: var(--surface-3); color: var(--ink-2); margin: 0 0 8px; }
 tr.sel td { background: var(--accent-soft); }
 @media (max-width: 1150px) { .g-rel { grid-template-columns: minmax(0, 1fr); } }

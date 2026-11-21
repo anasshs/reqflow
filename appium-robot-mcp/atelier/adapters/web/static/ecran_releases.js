@@ -5,11 +5,13 @@
 (() => {
   const TYPE = {nouvelle: "ok", modification: "info", correction: "warn", technique: "", suppression: "ko"};
   const ETAT = {"rattachée": "ok", "à trancher": "warn", "non rattachée": ""};
-  const STATUT = {"Reçu": "info", "Périmètre validé": "violet", "En exécution": "warn", "Passed": "ok", "Failed": "ko"};
+  const STATUT = {"Reçu": "info", "Périmètre validé": "violet", "En exécution": "warn", "Passed": "ok", "Failed": "ko", "Remplacé": ""};
   const QUALIF = {"En cours": "info", "Qualifiée": "ok", "Qualifiée par dérogation": "warn"};
   const CAT = {retest: ["Retest", "ko"], ciblee: ["Non-régression ciblée", "warn"], qualification: ["Qualification", "info"]};
   const RES = {reussi: "ok", echec: "ko", bloque: "warn"};
   let Z = null, ID = "", BID = "", FORM = "", T = null, B = null, AUTO_IA = "";
+  const LU_XRAY = {};  // build -> horodatage de la dernière relecture automatique de Xray faite par cet écran
+  const SEL = new Set();  // tests cochés pour être écartés ensemble
   const date = x => esc(String(x || "").slice(0, 16).replace("T", " "));
   const pill = (t, c = "") => `<span class="pill ${c}">${esc(t)}</span>`;
   const kpi = (v, l, c = "") => `<div class="kpi"><div class="v ${c}">${v ?? "—"}</div><div class="l">${esc(l)}</div></div>`;
@@ -78,10 +80,11 @@
     try { T = await api(`/api/releases/${ID}/tableau`); } catch (e) { z.innerHTML = vide("Release indisponible", esc(e.message)); return; }
     const i = T.indicateurs, q = T.qualification;
     const onglet = ["initial", "journal", "plan"].includes(BID) ? BID : "builds";
+    if (onglet === "builds" && !BID && T.courant) { BID = T.courant; history.replaceState(null, "", `#releases/${ID}/${BID}`); }
     z.innerHTML = `<div class="rel-tete"><div><h2 style="margin:0">${esc(T.nom)} ${T.version ? `<span class="lib">${esc(T.version)}</span>` : ""}</h2>
         <p class="lib" style="margin:4px 0 0">${T.date_prevue ? `Livraison prévue le ${esc(T.date_prevue)} · ` : ""}${T.perimetre ? esc(T.perimetre) : "Périmètre non décrit"}</p></div>
         <div class="btns">${pill(q.etat, QUALIF[q.etat])}<button class="btn petit" id="rl-modifier">Modifier</button>
-          <button class="btn petit primaire" id="rl-qualifier">${q.etat === "En cours" ? "Qualifier la release" : "Annuler la qualification"}</button></div></div>
+          <button class="btn petit ${q.etat === "En cours" && !i.bloquants_non_satisfaits ? "primaire" : ""}" id="rl-qualifier">${q.etat === "En cours" ? "Qualifier la release" : "Annuler la qualification"}</button></div></div>
       <div id="rl-edition"></div>
       ${q.etat !== "En cours" ? `<p class="lib">${esc(q.etat)} par ${esc(q.par || "")} le ${date(q.date)}${q.build ? ` (dernier build : ${esc(q.build)})` : ""}${q.motif ? ` · motif : ${esc(q.motif)}` : ""}</p>` : ""}
       <div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:10px 0">${kpi(i.builds, "builds reçus")}${kpi(i.builds_passed, "builds Passed", i.builds_passed ? "ok-t" : "")}
@@ -303,7 +306,7 @@
         <span class="lib">Chaque build est comparé au précédent et au périmètre initial ; son périmètre est recalculé, sans repartir de zéro.</span></div>
       <div id="rb-form"></div>
       ${T.builds.length ? `<table class="table-strat"><tr><th>Build</th><th>Reçu le</th><th>Statut</th><th>Évolutions</th><th>À retester</th><th>Tests retenus</th><th>Résultats</th><th>Anomalies</th><th></th></tr>
-        ${T.builds.slice().reverse().map(b => { const r = b.resultats; return `<tr class="${b.id === BID ? "sel" : ""}"><td><b>${esc(b.numero)}</b></td><td class="mono">${esc(b.date_reception)}</td><td>${pill(b.statut, STATUT[b.statut])}</td>
+        ${T.builds.slice().reverse().map(b => { const r = b.resultats; return `<tr class="${b.id === BID ? "sel" : ""}"><td><b>${esc(b.numero)}</b></td><td class="mono">${esc(b.date_reception)}</td><td>${pill(b.statut, STATUT[b.statut])}${b.remplace_par ? ` <span class="lib">par ${esc(b.remplace_par)}</span>` : ""}${b.id === T.courant ? ' <span class="pill violet">en cours</span>' : ""}</td>
           <td>${b.evolutions} <span class="lib">dont ${b.nouvelles_evolutions} nouvelle(s)</span></td><td>${b.a_retester}</td><td>${r.retenus}</td>
           <td><span class="ok-t">${r.reussis} ✓</span> ${r.echecs ? `<span class="ko-t">${r.echecs} ✕</span>` : ""} ${r.non_executes ? `<span class="lib">${r.non_executes} à exécuter</span>` : ""}</td>
           <td>${b.anomalies_ouvertes ? `<span class="ko-t">${b.anomalies_ouvertes} ouverte(s)</span>` : '<span class="lib">aucune ouverte</span>'} ${b.anomalies_corrigees ? `<span class="lib">${b.anomalies_corrigees} corrigée(s)</span>` : ""}</td>
@@ -339,6 +342,17 @@
       catch (e) { toast(e.message, "ko"); } };
   }
 
+  /* relecture automatique des résultats Xray à l'ouverture d'un build en exécution (dernière lecture > 10 min) */
+  async function relectureAuto() {
+    if (!["Périmètre validé", "En exécution"].includes(B.statut)) return;
+    const derniere = Math.max(Date.parse(B.lecture_xray?.date || 0) || 0, LU_XRAY[B.id] || 0);
+    if (Date.now() - derniere < 10 * 60 * 1000) return;
+    LU_XRAY[B.id] = Date.now();
+    const info = $("#rb-lecture"); if (info) info.textContent = "Relecture des résultats dans Xray…";
+    try { await api(`/api/releases/${ID}/builds/${B.id}/actualiser-xray`, {method: "POST", body: {}}); if (B.id === BID) vueBuild(); }
+    catch (e) { const i = $("#rb-lecture"); if (i) i.textContent = `Relecture automatique de Xray impossible : ${e.message}`; }
+  }
+
   async function vueBuild() {
     const z = $("#rb-vue");
     try { B = await api(`/api/releases/${ID}/builds/${BID}`); } catch (e) { z.innerHTML = vide("Build indisponible", esc(e.message)); return; }
@@ -346,23 +360,31 @@
     const evo = id => B.evolutions.find(e => e.id === id);
     const listeEvo = ids => ids.length ? `<ul class="rel-puces">${ids.map(id => `<li>${esc(evo(id)?.texte || id)}</li>`).join("")}</ul>` : '<span class="lib">aucune</span>';
     const noeuds = l => l.length ? l.map(n => pill(n.libelle, "info")).join(" ") : '<span class="lib">aucune</span>';
+    if (B.id !== SEL.build) { SEL.clear(); SEL.build = B.id; }
     const actions = {"Reçu": `<button class="btn primaire" data-bo="valider" title="Fige les tests retenus ; ils ne changent plus sauf réouverture">Valider le périmètre</button>`,
       "Périmètre validé": `<button class="btn primaire" data-bo="campagne" title="Crée une campagne dans Execution Center avec les tests automatisés retenus ; rien n'est lancé">Envoyer à Execution Center</button>`,
-      "En exécution": "", "Passed": "", "Failed": ""}[B.statut] || "";
-    const verdict = !ouvert && !["Passed", "Failed"].includes(B.statut) ? `<button class="btn succes" data-verdict="passed">Déclarer Passed</button><button class="btn danger" data-verdict="failed">Déclarer Failed</button>` : "";
-    const ligne = x => `<tr style="${x.decision === "rejetée" ? "opacity:.55" : ""}"><td><b>${esc(x.test)}</b> <span class="lib">${esc(x.resume)}</span>${x.automatise ? "" : ' <span class="pill" title="Aucun script publié : à exécuter à la main dans Xray">manuel</span>'}</td>
+      "En exécution": "", "Passed": "", "Failed": "", "Remplacé": ""}[B.statut] || "";
+    const verdict = !ouvert && !["Passed", "Failed", "Remplacé"].includes(B.statut) ? `<button class="btn succes" data-verdict="passed">Déclarer Passed</button><button class="btn danger" data-verdict="failed">Déclarer Failed</button>` : "";
+    const raison = x => { const m = x.motifs.join(" · ");
+      const court = x.categorie === "retest" ? `retest ${(m.match(/[A-Z][A-Z0-9]+-\d+/) || [""])[0]}` : x.impact === "direct" ? "touché directement"
+        : x.impact === "indirect" ? `module ${x.module || "?"}` : x.impact === "ia" ? "proposé par l'IA" : x.impact === "ajout" ? "ajouté par le QA" : x.categorie === "qualification" ? "test critique" : "";
+      return `<span title="${esc(x.motifs.join("\n"))}">${esc(court)}${x.motifs.length > 1 ? ` <span class="lib">+${x.motifs.length - 1}</span>` : ""}</span>`; };
+    const execEnCours = !ouvert && B.statut !== "Remplacé";
+    const ligne = x => `<tr style="${x.decision === "rejetée" ? "opacity:.55" : ""}">${ouvert ? `<td><input type="checkbox" data-sel="${esc(x.test)}" ${SEL.has(x.test) ? "checked" : ""} ${x.decision === "rejetée" ? "disabled" : ""} aria-label="Sélectionner ${esc(x.test)}"></td>` : ""}<td><b>${esc(x.test)}</b> <span class="lib">${esc(x.resume)}</span>${x.automatise ? "" : ' <span class="pill" title="Aucun script publié : à exécuter à la main dans Xray">manuel</span>'}</td>
         <td>${esc(x.module || "—")}</td><td>${x.impact === "direct" ? pill("direct", "ko") : x.impact === "indirect" ? pill("indirect", "warn") : x.impact === "ajout" ? pill("ajouté") : x.impact === "ia" ? pill("IA", "violet") : ""}</td>
-        <td class="lib">${x.motifs.map(esc).join("<br>")}</td><td>${esc(x.criticite || "—")}</td>
-        <td>${x.execute ? pill(x.dernier_statut, RES[x.resultat]) : x.dernier_statut ? `<span class="lib" title="Dernier résultat, antérieur à la réception du build">${esc(x.dernier_statut)} le ${esc(x.derniere_execution)}</span>` : '<span class="lib">jamais exécuté</span>'}</td>
+        <td class="lib">${raison(x)}</td><td>${esc(x.criticite || "—")}</td>
+        ${execEnCours ? `<td>${x.execute ? pill(x.dernier_statut, RES[x.resultat]) : '<span class="lib">à exécuter</span>'}</td>` : ""}
         <td style="white-space:nowrap">${x.decision_ia ? `<span class="pill" title="${esc(x.decision_motif)}">écarté par l'IA</span>${ouvert ? ` <button class="btn petit" data-dec="${esc(x.test)}" data-v="acceptée" title="${esc(x.decision_motif)}">Garder</button>` : ""}`
-          : x.decision ? `${pill(x.decision, x.decision === "rejetée" ? "" : "ok")}${ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">annuler</button>` : ""}`
-          : ouvert ? `<button class="btn petit" data-dec="${esc(x.test)}" data-v="acceptée">Accepter</button> <button class="btn petit" data-dec="${esc(x.test)}" data-v="rejetée">Écarter</button>` : ""}</td></tr>`;
+          : x.decision === "rejetée" ? `<span class="pill" title="${esc(x.decision_motif)}">écarté</span>${ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">remettre</button>` : ""}`
+          : x.decision === "ajoutée" ? pill("ajouté", "ok") + (ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">retirer</button>` : "")
+          : ouvert ? `<button class="btn petit" data-dec="${esc(x.test)}" data-v="rejetée">Écarter</button>` : '<span class="lib">retenu</span>'}</td></tr>`;
     const anomalies = (titre, l, cls = "") => l.length ? `<p style="margin:6px 0 2px"><b>${titre}</b> (${l.length})</p><ul class="rel-puces">${l.map(x => `<li><b class="${cls}">${esc(x.cle)}</b> ${esc(x.resume || "")} <span class="lib">${esc([x.statut, x.priorite].filter(Boolean).join(" · "))}${(x.tests || []).length ? " · tests " + esc(x.tests.join(", ")) : ""}</span></li>`).join("")}</ul>` : "";
     z.innerHTML = `<section class="bloc-strat" style="margin-top:12px"><h3>Build ${esc(B.numero)} ${pill(B.statut, STATUT[B.statut])} <span class="lib">reçu le ${esc(B.date_reception)} par ${esc(B.recu_par || "")}${c.precedent ? ` · comparé au build ${esc(c.precedent)}` : " · premier build, comparé au périmètre initial"}</span>
-        <span class="lien btns"><button class="btn petit" id="rb-actu" title="Relit dans Xray les Test Executions créées depuis la réception du build : les PASSED / FAILED posés dans Xray comptent pour ce build">${ico("rejouer")}Actualiser depuis Xray</button>${actions}${verdict}${!ouvert ? `<button class="btn petit" data-bo="rouvrir" title="Le périmètre redevient modifiable ; le verdict est effacé">Rouvrir</button>` : ""}
+        <span class="lien btns"><button class="btn petit" id="rb-actu" title="Relit dans Xray les Test Executions créées depuis la réception du build : les PASSED / FAILED posés dans Xray comptent pour ce build">${ico("rejouer")}Actualiser depuis Xray</button>${actions}${verdict}${!ouvert && B.statut !== "Remplacé" ? `<button class="btn petit" data-bo="rouvrir" title="Le périmètre redevient modifiable ; le verdict est effacé">Rouvrir</button>` : ""}
           <button class="btn petit danger" data-bo="supprimer">Supprimer</button></span></h3>
+      ${B.statut === "Remplacé" ? `<p class="rel-remplace">Build remplacé par le build ${esc(B.remplace_par || "")} : consultation seulement. Le travail se fait sur le build en cours.</p>` : ""}
       ${B.description || B.changements ? `<p class="lib" style="margin:0 0 8px">${esc(B.description || "")}${B.changements ? ` · changements : ${esc(B.changements)}` : ""}</p>` : ""}
-      <p class="lib" style="margin:0 0 8px">${B.lecture_xray ? `Résultats relus dans Xray le ${date(B.lecture_xray.date)} par ${esc(B.lecture_xray.par)} (${esc(B.lecture_xray.executions)} exécution(s) lue(s)).` : "Résultats Xray pas encore relus pour ce build : « Actualiser depuis Xray » après les passages dans Xray."}</p>
+      <p class="lib" style="margin:0 0 8px" id="rb-lecture">${B.lecture_xray ? `Résultats relus dans Xray le ${date(B.lecture_xray.date)} par ${esc(B.lecture_xray.par)} (${esc(B.lecture_xray.executions)} exécution(s) lue(s)).` : "Résultats Xray pas encore relus pour ce build : « Actualiser depuis Xray » après les passages dans Xray."}</p>
       <div id="rb-verdict"></div>
       ${B.verdict ? `<p class="lib">Déclaré ${esc(B.statut)} par ${esc(B.verdict.par)} le ${date(B.verdict.date)}${B.verdict.motif ? ` · ${esc(B.verdict.motif)}` : ""}.</p>` : ""}
       ${(B.campagnes || []).length ? `<p class="lib">Campagne(s) : ${B.campagnes.map(x => `<a href="#centre/campagnes">${esc(x.nom)}</a> (${x.tests} tests)`).join(", ")}.</p>` : ""}
@@ -378,8 +400,9 @@
       <h3 class="lib" style="margin-top:14px">PÉRIMÈTRE ${B.perimetre_valide ? `VALIDÉ le ${date(B.perimetre_valide.date)} par ${esc(B.perimetre_valide.par)}` : "RECOMMANDÉ"} · ${r.retenus} test(s) retenu(s)</h3>
       <div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:6px 0 10px">${kpi(r.par_categorie.retest, "retest")}${kpi(r.par_categorie.ciblee, "non-régression ciblée")}${kpi(r.par_categorie.qualification, "qualification")}
         ${kpi(r.executes + "/" + r.retenus, "exécutés depuis la réception")}${kpi(r.reussis, "réussis", "ok-t")}${kpi(r.echecs, "en échec", r.echecs ? "ko-t" : "")}</div>
+      ${ouvert ? `<div class="btns rel-selection" id="rb-sel" ${SEL.size ? "" : "hidden"}><b id="rb-sel-n">${SEL.size} test(s) sélectionné(s)</b><input class="in" id="rb-sel-motif" placeholder="Pourquoi les écarter ?" style="flex:1;min-width:220px"><button class="btn" id="rb-sel-ok">Écarter la sélection</button><button class="lien" id="rb-sel-non">tout désélectionner</button></div>` : ""}
       ${Object.entries(CAT).map(([k, [lib, cls]]) => { const l = B.perimetre.filter(x => x.categorie === k); return l.length ? `<h3 style="margin:10px 0 4px">${pill(lib, cls)} <span class="lib">${l.length} test(s)</span></h3>
-        <table class="table-strat"><tr><th>Test</th><th>Module</th><th>Impact</th><th>Raison</th><th>Criticité</th><th>Résultat pour ce build</th><th>Décision</th></tr>${l.map(ligne).join("")}</table>` : ""; }).join("")
+        <table class="table-strat"><tr>${ouvert ? "<th></th>" : ""}<th>Test</th><th>Module</th><th>Impact</th><th>Raison</th><th>Criticité</th>${execEnCours ? "<th>Résultat pour ce build</th>" : ""}<th></th></tr>${l.map(ligne).join("")}</table>` : ""; }).join("")
         || '<p class="lib">Aucun test : rattacher les évolutions au Knowledge Graph, ou ajouter des tests.</p>'}
       ${ouvert ? `<div class="btns" style="margin-top:8px"><input class="in" id="rb-ajout" placeholder="Ajouter un test (clé Xray)" style="width:200px"><input class="in" id="rb-ajout-motif" placeholder="Raison" style="flex:1;min-width:200px"><button class="btn" id="rb-ajouter">Ajouter au périmètre</button></div>` : ""}
       <h3 class="lib" style="margin-top:14px">EXÉCUTIONS XRAY</h3><div id="rb-xray"><p class="lib">Chargement…</p></div>
@@ -413,6 +436,11 @@
       const i = cell.querySelector("input"); i.focus();
       const ok = () => opBuild({op: "decider", test: b.dataset.dec, decision: "rejetée", motif: i.value});
       cell.querySelector("button").onclick = ok; i.onkeydown = e => { if (e.key === "Enter") ok(); if (e.key === "Escape") vueBuild(); }; });
+    const majSel = () => { const bar = $("#rb-sel", z); if (!bar) return; bar.hidden = !SEL.size; $("#rb-sel-n", z).textContent = `${SEL.size} test(s) sélectionné(s)`; };
+    $$("[data-sel]", z).forEach(c => c.onchange = () => { c.checked ? SEL.add(c.dataset.sel) : SEL.delete(c.dataset.sel); majSel(); });
+    if ($("#rb-sel-non", z)) $("#rb-sel-non", z).onclick = () => { SEL.clear(); $$("[data-sel]", z).forEach(c => { c.checked = false; }); majSel(); };
+    if ($("#rb-sel-ok", z)) $("#rb-sel-ok", z).onclick = async () => { const tests = [...SEL];
+      await opBuild({op: "decider", tests, decision: "rejetée", motif: $("#rb-sel-motif", z).value}, `${tests.length} test(s) écarté(s).`); SEL.clear(); };
     if ($("#rb-ajouter", z)) $("#rb-ajouter", z).onclick = () => opBuild({op: "decider", test: $("#rb-ajout", z).value, decision: "ajoutée", motif: $("#rb-ajout-motif", z).value}, "Test ajouté.");
     $$("[data-verdict]", z).forEach(b => b.onclick = () => {
       const op = b.dataset.verdict, v = $("#rb-verdict");
@@ -422,6 +450,7 @@
       $("#rv-non").onclick = () => { v.innerHTML = ""; };
       $("#rv-ok").onclick = () => opBuild({op, motif: $("#rv-motif").value}, `Build déclaré ${op === "passed" ? "Passed" : "Failed"} : la release reste à qualifier.`); });
     executionsBuild($("#rb-xray", z));
+    relectureAuto();
     blocIA($("#rb-ia", z), B.interpretation, BID, B.release?.nom || "", () => vueBuild());
     z.scrollIntoView({block: "nearest"});
   }

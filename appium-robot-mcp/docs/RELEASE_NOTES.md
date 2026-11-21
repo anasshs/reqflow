@@ -65,6 +65,15 @@ non-régression → Test Executions → résultats de qualification. Moteur : `a
    bloquant non satisfait impose une dérogation justifiée, tracée comme telle. Un build modifié remet la qualification
    « En cours ».
 
+Un nouveau build **remplace** le build encore en cours (Reçu, Périmètre validé, En exécution) : celui-ci passe à
+« Remplacé », en consultation seulement (sa suppression rend la main au build remplacé). Un nouveau build remet aussi une
+release qualifiée « En cours ». À l'ouverture d'une release, le build en cours s'ouvre directement.
+
+Dans le périmètre, un test proposé est **retenu par défaut** : seul « Écarter » existe (avec un motif), y compris pour
+plusieurs tests cochés à la fois. La raison s'affiche en court (« module Connexion », « retest DEMO-777 », « test
+critique »…), le détail au survol. La colonne de résultat n'apparaît qu'une fois le périmètre validé, et les résultats
+Xray sont relus automatiquement à l'ouverture d'un build en exécution (si la dernière lecture date de plus de 10 min).
+
 Chaque build garde son analyse, son périmètre validé, sa campagne, son verdict et les anomalies ouvertes à sa
 réception : on ne repart jamais de zéro. Le Dashboard affiche un résumé des releases.
 
