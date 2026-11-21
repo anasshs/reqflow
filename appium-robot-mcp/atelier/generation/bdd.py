@@ -548,6 +548,9 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
                    else f"Doublon probable de « {proches[k][0]['keyword']} » ({proches[k][0]['fichier']}) : le réutiliser.")
         a_ecrire.append({"nom": k, "doc": doc, "ecran": ecran_de.get(k, ""),
                          "args": ["    [Arguments]    &{jdd}"] if k == "Initialiser Le Test" else []})
+    fin = next((kws[k] for k in ("terminerletest", "finaliserletest", "cloturerletest", "fermerletest") if k in kws), None)
+    if fin:  # Test Teardown du socle : capture si échec, fermeture propre (style professionnel)
+        resources.add(fin["fichier"])
     socle = (kws.get("initialiserletest") or kws.get("localiser") or {}).get("fichier", "")
     prep = pom.preparer(a_ecrire, inv, cible, socle if str(socle).endswith(".resource") else "",
                         projet.slug(m.get("module") or m.get("titre") or m["cle"], 50, "general"))
@@ -556,7 +559,7 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
     texte = ["*** Settings ***",
              f"Documentation    {m.get('titre') or m['cle']} — généré depuis le scénario BDD {m['cle']} le "
              f"{datetime.now():%d/%m/%Y} (à relire). Page Object Model : les keywords sont dans les pages importées.",
-             *imports, "", "*** Test Cases ***", *lignes_tests[1:]]
+             *imports, *([f"Test Teardown    {fin['nom']}"] if fin else []), "", "*** Test Cases ***", *lignes_tests[1:]]
     out = {"chemin": cible, "contenu": "\n".join(texte).rstrip() + "\n", "keywords_reutilises": sorted(set(reutilises)),
            "keywords_a_creer": a_creer,
            "keywords_proches": [{"etape": k, "keyword": p[0]["keyword"], "fichier": p[0]["fichier"], "confirme": k in confirmes}

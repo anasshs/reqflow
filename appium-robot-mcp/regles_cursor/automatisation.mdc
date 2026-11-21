@@ -22,6 +22,15 @@ Conventions du projet :
   · locators de l'écran (resources/locators/…, generate_locators_resource) : dictionnaires &{LOC_<ÉCRAN>_<PLATEFORME>} ;
   · socle commun (Initialiser Le Test, Localiser) : resources/common.resource, ou le socle déjà présent.
   studio_generer_depuis_bdd range déjà ainsi (« pages ») : écrire les keywords à implémenter dans la page indiquée.
+- Style Robot Framework professionnel (contrôlé à la revue, contrôle « style ») :
+  · jamais de Sleep : attentes explicites (Browser : Wait For Elements State, assertions intégrées Get Text ==… ;
+    Appium : Wait Until Element Is Visible / Wait Until Page Contains Element) ;
+  · keywords métier lisibles (« Saisir Le Montant », pas « Click Button 3 »), un keyword par action utile, jamais de
+    wrapper 1:1 ; arguments nommés, pas de valeur en dur ; [Documentation] sur chaque keyword d'une page ;
+  · Test Teardown du socle (capture d'écran si échec, fermeture propre) ; Suite Setup / Teardown pour ouvrir et
+    fermer le navigateur ou l'application ; aucun test ne dépend d'un autre ;
+  · chaque test vérifie un résultat (assertion explicite à la fin) ; variables en ${MAJUSCULES} pour les constantes ;
+  · Robocop sans erreur (bouton Robocop de l'éditeur, configuration du projet si elle existe).
 - Locators robustes (test livré non fragile et rejouable) : locator_robustesse(locators, platform) note chaque
   locator (Stable / Reliable / Fragile) et rend les règles ; ne livrer un locator principal Fragile qu'avec un secours
   et un signalement. Ordre de préférence :

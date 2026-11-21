@@ -39,3 +39,14 @@ def test_revue_signale_une_suite_hors_pom(projet):
     assert c["pom"]["gravite"] == "moyenne" and "Mon Etape" in c["pom"]["message"] and "id=valider" in c["pom"]["message"]
     (projet / "tests" / "propre.robot").write_text("*** Test Cases ***\nT\n    Mon Etape Ailleurs\n", "utf-8")
     assert {x["code"]: x for x in studio.controles_script("tests/propre.robot")}["pom"]["gravite"] == "ok"
+
+
+def test_style_professionnel():
+    from atelier.generation import studio
+
+    brut = "*** Test Cases ***\nT\n    Sleep    2s\n    Valider\n\n*** Keywords ***\nValider\n    Log    x\n"
+    s = studio.style_robot("tests/t.robot", brut)
+    assert [x["gravite"] for x in s] == ["moyenne", "basse", "basse"] and "Sleep" in s[0]["message"] and "Valider" in s[1]["message"]
+    propre = ("*** Settings ***\nTest Teardown    Terminer Le Test\n\n*** Test Cases ***\nT\n    Valider\n\n"
+              "*** Keywords ***\nValider\n    [Documentation]    Valide.\n    Log    x\n")
+    assert studio.style_robot("tests/t.robot", propre) == []

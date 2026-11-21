@@ -269,6 +269,40 @@ def renvoyer_en_revue(fichiers: list[str], motif: str) -> list[str]:
     return renvoyees
 
 
+def _sections(contenu: str) -> dict[str, str]:
+    """Texte de chaque section Robot (« settings », « test cases », « keywords »…)."""
+    out, nom = {}, ""
+    for ligne in contenu.splitlines():
+        m = re.match(r"^\*+\s*([A-Za-z ]+?)\s*\*+\s*$", ligne)
+        if m:
+            nom = m.group(1).strip().lower()
+            out.setdefault(nom, "")
+        elif nom:
+            out[nom] += ligne + "\n"
+    return out
+
+
+def style_robot(fichier: str, contenu: str) -> list[dict]:
+    """Style professionnel d'un fichier Robot : attentes fixes (Sleep), keywords sans documentation, suite sans
+    Test Teardown. [{gravite, message}] ; vide si rien à redire."""
+    out = []
+    sleeps = len(re.findall(r"(?mi)^\s+(?:BuiltIn\.)?Sleep\s", contenu))
+    if sleeps:
+        out.append({"gravite": "moyenne", "message": f"{sleeps} attente(s) fixe(s) « Sleep » : la remplacer par une attente "
+                                                     "explicite (Wait For Elements State, Wait Until Element Is Visible)"})
+    sec = _sections(contenu)
+    kws = sec.get("keywords") or sec.get("keyword") or ""
+    if kws:
+        blocs = re.split(r"(?m)^(?=\S)", kws)
+        sans_doc = [b.splitlines()[0].strip() for b in blocs if b.strip() and not b.startswith("#") and "[Documentation]" not in b]
+        if sans_doc:
+            out.append({"gravite": "basse", "message": "Keywords sans [Documentation] : " + ", ".join(sans_doc[:4])})
+    if fichier.endswith(".robot") and (sec.get("test cases") or sec.get("test case")) \
+            and not re.search(r"(?mi)^\s*(Test Teardown|Suite Teardown)\s", sec.get("settings", "")):
+        out.append({"gravite": "basse", "message": "Aucun Test Teardown : prévoir celui du socle (capture si échec, fermeture propre)"})
+    return out
+
+
 def controles_script(fichier: str) -> list[dict]:
     from atelier.execution.depot_robot import fermeture_keywords
     from atelier.generation import editeur
@@ -300,6 +334,9 @@ def controles_script(fichier: str) -> list[dict]:
             ("Keywords définis dans la suite (à déplacer dans la page de leur écran) : " + ", ".join(kw_suite[:5]) if kw_suite else "")
             + (" ; " if kw_suite and litteraux else "") + ("Locators écrits dans les tests : " + ", ".join(litteraux[:3]) if litteraux else "")
             or "Page Object Model respecté : la suite ne contient que des tests.")
+    style = style_robot(fichier, contenu)
+    add("style", "moyenne" if any(s["gravite"] == "moyenne" for s in style) else "basse" if style else "ok",
+        " ; ".join(s["message"] for s in style[:3]) or "Style professionnel : attentes explicites, keywords documentés, teardown.")
     lint = editeur.lint(contenu, fichier)
     add("conventions", "haute" if any(p.get("gravite") == "erreur" for p in lint["problemes"]) else "moyenne" if lint["problemes"] else "ok",
         "; ".join(p["message"] for p in lint["problemes"][:4]) or "Syntaxe et conventions respectées.")
