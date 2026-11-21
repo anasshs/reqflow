@@ -95,6 +95,25 @@ def etapes_parcours(nid: str, plateforme: str = "") -> dict:
     return {"parcours": nid, "etapes": etapes}
 
 
+def cadrage_source(parcours: str = "", session: str = "") -> dict:
+    """Cadrage du parcours utilisateur d'où vient le brouillon (nœud « parcours:… », ou session rattachée à un parcours) ;
+    {} si aucun. Sert à reprendre l'objectif, le point de départ et le résultat attendu saisis par l'automaticien."""
+    from atelier.discovery import parcours_utilisateur as pu
+
+    try:
+        if session and not parcours:
+            from atelier.discovery import sessions_discovery
+
+            pid = (sessions_discovery._lire(session).get("config") or {}).get("parcours", "")
+            return pu._lire(pid) if pid else {}
+        for p in pu._tous():
+            if parcours and p.get("noeud") == parcours:
+                return p
+    except (KeyError, ValueError, OSError):
+        pass
+    return {}
+
+
 def ecrans_de_session(sid: str) -> list[str]:
     from atelier.discovery import sessions_discovery
 
@@ -187,10 +206,18 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
             locators["connus" if loc else "manquants"] += 1
             etapes.append(bdd._etape("Quand", texte, ecran=_ref(de), locator=loc))
             etapes.append(bdd._etape("Alors", f"l'écran {_lisible(vers)} est affiché", ecran=_ref(vers)))
+    cadre = cadrage_source(parcours, session)
+    attendu = str(cadre.get("resultat_attendu") or "").strip()
+    if attendu:  # le résultat attendu saisi au cadrage devient l'assertion finale du scénario
+        etapes.append(bdd._etape("Alors", f"le résultat attendu est obtenu : {attendu}", ecran=_ref(seq[-1]), resultat_attendu=attendu))
+    description = [f"Brouillon généré depuis la Discovery ({source}) : à relire et valider."]
+    for lib, cle_c in (("Objectif", "objectif"), ("Point de départ", "point_depart"), ("Résultat attendu", "resultat_attendu")):
+        if str(cadre.get(cle_c) or "").strip():
+            description.append(f"{lib} : {str(cadre[cle_c]).strip()}")
     tags = ["discovery"] + (["action_sensible"] if sensible else [])
     from atelier.generation import rangement
 
-    m = {"langue": "fr", "feature": titre, "module": rangement.module_des_ecrans([e["id"] for e in seq]), "description": [f"Brouillon généré depuis la Discovery ({source}) : à relire et valider."],
+    m = {"langue": "fr", "feature": titre, "module": rangement.module_des_ecrans([e["id"] for e in seq]), "description": description,
          "contexte": [], "tags": [], "source": f"discovery ({source})", "parcours": parcours, "session": session, "titre": titre, "jdd": "", "statut": "brouillon",
          **({"profil_donnees": profil_donnees} if profil_donnees else {}),
          "scenarios": [{"id": bdd._id(), "nom": titre, "type": "principal", "tags": tags, "depuis": "", "etapes": etapes}]}

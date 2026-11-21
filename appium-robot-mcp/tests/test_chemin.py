@@ -70,3 +70,34 @@ def test_integrations_suivent_la_configuration(projet, monkeypatch):
     monkeypatch.delenv("JIRA_BASE_URL", raising=False)
     i = chemin.integrations()
     assert i["xray"] and i["xray_configure"] and not i["jira"]
+
+
+def test_cadrage_dans_le_brouillon_et_alerte_production(projet, sans_integrations):
+    """Objectif, point de départ et résultat attendu saisis au cadrage passent dans le test BDD ; la production est signalée."""
+    from atelier.discovery import carte, graphe_texte, parcours_utilisateur as pu
+    from atelier.generation import parcours_bdd
+
+    carte.creer_app("Boutique", ["web"], web={"url": "https://recette.exemple.fr"}, type_="web")
+    p = pu.enregistrer("", {"nom": "Authentification", "objectif": "Ouvrir la connexion", "point_depart": "Accueil",
+                            "resultat_attendu": "Formulaire de connexion affiché", "environnement": "Prod", "pilote": "cursor"})
+    assert any("production" in a and "Cursor navigue seul" in a for a in p["controles"]["avertissements"])
+    assert not any("production" in a for a in pu.enregistrer(p["id"], {"environnement": "recette"})["controles"]["avertissements"])
+
+    u = "https://recette.exemple.fr"
+    acc = carte.observer([_el("lien_connexion", "Connexion", "lien")], "web", u + "/")
+    con = carte.observer([_el("champ_login", "Identifiant", "champ")], "web", u + "/connexion")
+    carte.enregistrer_transition(acc["id"], con["id"], "web", {"type": "tap", "cle": "lien_connexion", "libelle": "Connexion"})
+    assert parcours_bdd.cadrage_source(p["noeud"])["id"] == p["id"]
+    r = parcours_bdd.brouillon([acc["id"], con["id"]], titre="sans cadrage")
+    assert "résultat attendu" not in r["gherkin"]  # chemin de la carte : aucun cadrage
+    import pytest as _pytest
+
+    with _pytest.MonkeyPatch.context() as mp:  # écrans du parcours (validés dans le Knowledge Graph en vrai)
+        mp.setattr(parcours_bdd, "ecrans_du_parcours", lambda nid: [acc["id"], con["id"]])
+        r = parcours_bdd.brouillon(parcours=p["noeud"], titre="Authentification")
+    assert "Alors le résultat attendu est obtenu : Formulaire de connexion affiché" in r["gherkin"]
+    assert "Objectif : Ouvrir la connexion" in r["gherkin"] and "Point de départ : Accueil" in r["gherkin"]
+
+    assert graphe_texte.principal([]) == 0
+    assert graphe_texte.principal([p["noeud"], "1"]) == 0
+    assert graphe_texte.principal(["parcours:inconnu"]) == 1

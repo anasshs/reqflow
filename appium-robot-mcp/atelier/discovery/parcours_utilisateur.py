@@ -38,6 +38,9 @@ _verrou = threading.RLock()
 _index: dict = {"cle": None, "valeur": {}}
 
 
+PRODUCTION = re.compile(r"\bprod(uction)?\b|\bprd\b", re.I)
+
+
 def _d():
     return projet.PROJECT_DIR / "discovery" / "parcours"
 
@@ -293,6 +296,10 @@ def _controles(p: dict, exigences: list[dict], donnees_: dict | None) -> dict:
     elif donnees_ and donnees_["bloquees"]:
         avertissements.append(f"{len(donnees_['bloquees'])} variable(s) du profil sans valeur : "
                               f"{', '.join(x['cle'] for x in donnees_['bloquees'][:6])}.")
+    if PRODUCTION.search(str(p.get("environnement") or "")):
+        avertissements.append("Environnement de production : explorer de préférence en recette. Les actions sensibles restent bloquées ; "
+                              + ("Cursor navigue seul, sans revue avant chaque clic." if p.get("pilote") == "cursor"
+                                 else "aucune donnée réelle à saisir."))
     if not p.get("objectif") or not p.get("resultat_attendu"):
         avertissements.append("Objectif ou résultat attendu vide : Cursor ne saura pas où s'arrêter.")
     return {"pret": not bloquants, "bloquants": bloquants, "avertissements": avertissements}
