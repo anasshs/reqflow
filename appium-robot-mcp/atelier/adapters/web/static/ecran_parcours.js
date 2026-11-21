@@ -15,7 +15,10 @@
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Parcours de fonctionnalité"><div class="titre-carte">PARCOURS</div>
           <div style="padding:8px 12px"><button class="btn primaire" id="pf-n" style="width:100%" title="Suivre le cycle de vie d'une fonctionnalité, de la Discovery à la synchronisation Xray">${ico("plus")}Nouveau parcours</button></div>
+          <div class="lib" style="padding:4px 12px 0">DE FONCTIONNALITÉ (cycle de vie)</div>
           <ol class="liste-strat" id="pf-l"></ol>
+          <div class="lib" style="padding:10px 12px 0" title="Parcours préparés dans Discovery : nom, exigences, données, cible ; chacun s'ouvre dans Discovery">UTILISATEUR (préparés dans Discovery)</div>
+          <ol class="liste-strat" id="pf-u"></ol>
           <div class="pied-strat lib">Un parcours n'est pas un agent : chaque étape est faite dans son module (ou par Cursor via MCP), le parcours en suit l'état et les validations.</div></nav>
         <section class="carte corps-strat"><div class="corps-carte" id="pf-c">${vide("Chargement…")}</div></section><aside class="carte panneau-strat" hidden></aside>`;
       $("#pf-n").onclick = nouveau;
@@ -37,6 +40,14 @@
         <span class="item">${esc(p.libelle)}<br><span class="lib">${esc(p.etape_courante || "terminé")} · ${esc(p.avancement)}</span></span>
         <span class="pill ${PS[p.statut]}">${esc(LS[p.statut] || p.statut)}</span></button></li>`).join("") || "<li class='lib' style='padding:8px 12px'>Aucun parcours.</li>";
     $$("[data-p]", $("#pf-l")).forEach(b => b.onclick = () => { location.hash = "parcours/" + b.dataset.p; });
+    // parcours utilisateur (cadrage Discovery) : autre objet, mais l'utilisateur le cherche ici aussi
+    const u = await api("/api/discovery/cadrage").then(r => r.parcours || []).catch(() => []);
+    if (!$("#pf-u")) return;
+    $("#pf-u").innerHTML = u.map(p => `<li><button data-pu="${esc(p.id)}" title="Ouvrir dans Discovery › Parcours">
+        <span class="item">${esc(p.nom)}<br><span class="lib">${p.ecrans} écran(s) · ${p.sessions} déroulé(s)${p.valide ? " · validé" : ""}</span></span>
+        <span class="pill">${esc(p.statut)}</span></button></li>`).join("")
+      || `<li class="lib" style="padding:8px 12px">Aucun pour l'application active. <a href="#discovery/cadrage/nouveau">Préparer un parcours</a></li>`;
+    $$("[data-pu]", $("#pf-u")).forEach(b => b.onclick = () => { location.hash = "discovery/cadrage/" + encodeURIComponent(b.dataset.pu); });
   }
 
   async function nouveau() {
