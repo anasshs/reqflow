@@ -22,6 +22,8 @@ Parcours utilisateur (initiation de Discovery : cadrer un parcours avant de le d
 Dashboard de pilotage (couverture, exécution, TNR par analyse d'impact, état de préparation) : docs/DASHBOARD_PILOTAGE.md.
 Releases (interprétation par Cursor par défaut, création, Release Note, builds successifs comparés, périmètre retest / ciblée / qualification, verdict par build, critères de sortie et qualification ; écran Releases) : docs/RELEASE_NOTES.md.
 Pilotage de l'IA (point d'appel unique, journal des tokens, réglages, routage, contexte, cache, budgets, simulateur ; écran Paramètres › Pilotage IA) : docs/PILOTAGE_IA.md.
+Chemin de l'utilisateur (Découvrir → Concevoir le test → Automatiser → Exécuter : bandeau « Ton chemin » de l'Accueil, repère
+d'étape en haut des écrans du chemin, prochaine action ; options Jira / Xray affichées seulement s'ils sont utilisés) : atelier/intelligence/chemin.py.
 De l'US au test automatisé (un seul fil dans un périmètre : couverture des US ou parcours, puis automatisation ; guide dans l'outil) : docs/DE_L_US_AU_TEST_AUTOMATISE.md.
 Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de

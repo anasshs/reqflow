@@ -183,21 +183,44 @@ const vide = (titre, texte = "") => `<div class="vide"><b>${esc(titre)}</b>${tex
 /* ======================================================================== application */
 const Atelier = {
   ctx: {}, ecrans: {}, ecranCourant: null, ws: null, abonnes: new Map(), plateforme: "", env: "",
-  ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"], ["parcours", "Parcours", "historique"],
-    ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
+  ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"], ["parcours", "Suivi des fonctionnalités", "historique"],
+    ["conception", "Test Design", "assertion"], ["bdd", "Tests BDD", "bdd"], ["studio", "Automation Studio", "editeur"], ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]],
   /* barre latérale : [adresse, libellé, icône], par groupe. Seules des destinations qui existent ; « parametres » couvre
      les rubriques de Paramètres qui n'ont pas leur propre entrée */
   NAV: [["", [["dashboard", "Accueil", "maison"]]],
-    ["Plateforme", [["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "cible"], ["parcours", "Parcours", "historique"],
-      ["conception", "Test Design", "assertion"], ["studio", "Automation Studio", "editeur"], ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
+    ["Plateforme", [["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "cible"], ["parcours", "Suivi des fonctionnalités", "historique"],
+      ["conception", "Test Design", "assertion"], ["bdd", "Tests BDD", "bdd"], ["studio", "Automation Studio", "editeur"], ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
       ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]]],
-    ["Ressources", [["graphe", "Knowledge Graph", "graphe"], ["bdd", "Scénarios BDD", "bdd"], ["editeur", "Éditeur de code", "fichier"],
+    ["Ressources", [["graphe", "Knowledge Graph", "graphe"], ["editeur", "Éditeur de code", "fichier"],
       ["discovery/donnees", "Jeux de données", "donnee"]]],
     ["Paramètres", [["parametres/projets", "Projets", "dossier"], ["parametres/applications", "Applications", "mobile"],
       ["parametres/connexions", "Connexions", "lien"], ["ia", "Pilotage IA", "ia"], ["parametres", "Paramètres", "parametres"]]]],
   /* écrans de travail rattachés à un module, quand ils n'ont pas leur propre entrée dans la barre latérale */
-  PARENT: {bdd: "conception", editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance"},
+  PARENT: {editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance"},
+
+  /* entrées qui n'ont de sens qu'avec Jira (suivi d'une fonctionnalité par ses US) : cachées sinon */
+  SI_JIRA: ["parcours"],
+  /* le chemin de l'utilisateur : chaque écran qui en fait partie affiche le repère d'étape */
+  CHEMIN: [["decouvrir", "Découvrir", "#discovery/cadrage"], ["concevoir", "Concevoir le test", "#bdd"], ["automatiser", "Automatiser", "#studio/direct"],
+    ["executer", "Exécuter", "#centre/lancer"]],
+  ETAPE_DE: {discovery: "decouvrir", conception: "concevoir", bdd: "concevoir", studio: "automatiser", editeur: "automatiser", centre: "executer", execution: "executer"},
+  integrations() { return this.ctx.integrations || {xray: true, jira: true}; },
+
+  /* repère « étape n/4 » : où l'on est sur le chemin, les autres étapes à un clic, et la prochaine action */
+  async _repere(nom) {
+    let r = document.getElementById("fil-chemin");
+    const etape = this.ETAPE_DE[nom];
+    if (!etape) { if (r) r.remove(); return; }
+    if (!r) { r = document.createElement("nav"); r.id = "fil-chemin"; r.className = "fil-chemin"; r.setAttribute("aria-label", "Ton chemin"); $("#ecran").before(r); }
+    const dessiner = s => {
+      r.innerHTML = this.CHEMIN.map(([id, lib, lien], i) => `<a href="${lien}" class="${id === etape ? "ici" : ""}" ${id === etape ? 'aria-current="step"' : ""}><span class="num">${i + 1}</span>${esc(lib)}</a>`).join('<span class="sep">›</span>')
+        + (s && !location.hash.startsWith(s.suivante.lien) ? `<span class="suite lib">Ensuite : ${esc(s.suivante.texte)}</span> <a class="btn petit primaire" href="${esc(s.suivante.lien)}">${esc(s.suivante.bouton)}</a>` : "");
+    };
+    dessiner(null);
+    const s = await api("/api/chemin").catch(() => null);
+    if (s && this.nomCourant === nom && document.body.contains(r)) dessiner(s);
+  },
 
   enregistrer(id, ecran) { this.ecrans[id] = ecran; },
 
@@ -221,7 +244,7 @@ const Atelier = {
   async demarrer() {
     this._theme();
     $("#onglets").innerHTML = this.NAV.map(([groupe, entrees]) => (groupe ? `<div class="groupe">${esc(groupe)}</div>` : "")
-      + entrees.map(([adresse, lib, i]) => `<button data-ecran="${adresse}" title="${esc(lib)}">${ico(i)}<span>${esc(lib)}</span></button>`).join("")).join("");
+      + entrees.map(([adresse, lib, i]) => `<button data-ecran="${adresse}" title="${esc(lib)}"${this.SI_JIRA.includes(adresse) ? " data-si-jira" : ""}>${ico(i)}<span>${esc(lib)}</span></button>`).join("")).join("");
     $("#onglets").onclick = e => { const b = e.target.closest("[data-ecran]"); if (b) location.hash = b.dataset.ecran === "parametres" ? "parametres/configuration" : b.dataset.ecran; };
     this._navigation();
     $("#b-alertes").innerHTML = ico("cloche");
@@ -256,6 +279,7 @@ const Atelier = {
     zone.removeAttribute("style");
     zone.innerHTML = "";
     this.ecranCourant = this.ecrans[nom];
+    this._repere(nom);
     document.title = `${(this.ONGLETS.find(o => o[0] === onglet) || [0, "Paramètres"])[1]} — AI Test Platform`;
     this.ecranCourant.afficher(zone, decodeURIComponent(reste.join("/")));
   },
@@ -337,6 +361,8 @@ const Atelier = {
     const plats = c.plateformes?.length ? c.plateformes : ["android", "ios", "web"];
     if (!this.plateforme || !plats.includes(this.plateforme)) this.plateforme = c.session || c.flux?.platform || plats[0];
     if (!this.env || !(c.environnements || []).includes(this.env)) this.env = (c.environnements || [])[0] || "";
+    const integ = this.integrations();
+    $$("#onglets [data-si-jira]").forEach(b => { b.hidden = !integ.jira; });
     const xray = !c.xray?.configure ? ["", "Non configuré"] : c.xray.connecte === true ? ["ok", "Connecté"]
       : c.xray.connecte === false ? ["ko", "Erreur"] : ["warn", "Configuré"];
     $("#ctx").innerHTML = `
@@ -349,7 +375,7 @@ const Atelier = {
       <div><label for="c-plat">Plateforme</label><span class="ligne">${ico({android: "android", ios: "pomme", web: "globe"}[this.plateforme] || "mobile")}<select id="c-plat">${plats.map(p => `<option value="${p}" ${p === this.plateforme ? "selected" : ""}>${{android: "Android", ios: "iOS", web: "Web", api: "API"}[p] || esc(p)}</option>`).join("")}</select></span></div>
       <div><label for="c-env">Environnement</label><select id="c-env">${(c.environnements || []).map(e => `<option ${e === this.env ? "selected" : ""}>${esc(e)}</option>`).join("") || "<option value=''>Aucun JDD</option>"}</select></div>
       <div class="secondaire"><label>Outil</label><span class="val">${Atelier.plateforme === "web" ? "Browser + Robot Framework" : "Appium + Robot Framework"}</span></div>
-      <div><label>Xray</label><span class="val" title="${esc(c.xray?.detail || "")}" style="color:var(--${xray[0] === "ok" ? "ok" : xray[0] === "ko" ? "ko" : "ink"})">${ico("xray")}${xray[1]}</span></div>
+      <div ${integ.xray ? "" : "hidden"}><label>Xray</label><span class="val" title="${esc(c.xray?.detail || "")}" style="color:var(--${xray[0] === "ok" ? "ok" : xray[0] === "ko" ? "ko" : "ink"})">${ico("xray")}${xray[1]}</span></div>
 `;
     const u = c.utilisateur || "";
     $("#utilisateur").innerHTML = u ? `<span class="avatar" aria-hidden="true">${esc(u.slice(0, 2).toUpperCase())}</span><div><b>${esc(u)}</b><small>Compte du poste</small></div>` : "";

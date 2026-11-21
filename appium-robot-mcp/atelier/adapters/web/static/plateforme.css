@@ -44,7 +44,12 @@ body { margin: 0; background: var(--bg); color: var(--ink);
   --nav-w: 236px; display: grid; overflow: hidden;
   /* la barre latérale à gauche sur toute la hauteur, puis la barre de contexte au-dessus de la zone de travail ; la colonne
      de droite n'est jamais plus large que la fenêtre (sinon le contenu déborde à 1366 px et moins) */
-  grid-template-columns: var(--nav-w) minmax(0, 1fr); grid-template-rows: 56px minmax(0, 1fr); }
+  grid-template-columns: var(--nav-w) minmax(0, 1fr); grid-template-rows: 56px auto auto minmax(0, 1fr); }
+/* lignes fixes : contexte, alerte de projet (si besoin), repère du chemin (écrans du chemin), zone de travail */
+body > .entete { grid-column: 2; grid-row: 1; }
+body > .alerte-projet { grid-column: 2; grid-row: 2; }
+body > .fil-chemin { grid-column: 2; grid-row: 3; }
+body > #ecran { grid-column: 2; grid-row: 4; }
 body.nav-reduite { --nav-w: 64px; }
 * { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -801,3 +806,26 @@ tr.sel td { background: var(--accent-soft); }
 /* bandeau : aucun projet de tests choisi */
 .alerte-projet { margin: 12px 16px 0; padding: 10px 14px; border-radius: 10px; background: var(--warn-soft); color: var(--ink);
   border: 1px solid var(--warn); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* repère du chemin (Découvrir › Concevoir › Automatiser › Exécuter) en haut des écrans qui en font partie */
+.fil-chemin { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 16px 0; padding: 6px 10px; border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--line); font-size: 13px; }
+.fil-chemin > a:not(.btn) { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 8px; color: var(--muted); text-decoration: none; }
+.fil-chemin > a:not(.btn):hover { background: var(--surface-2); color: var(--ink); }
+.fil-chemin > a.ici { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.fil-chemin .num { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: var(--surface-3); color: var(--muted); }
+.fil-chemin > a.ici .num { background: var(--accent); color: #fff; }
+.fil-chemin .sep { color: var(--muted); }
+.fil-chemin .suite { margin-left: auto; max-width: 52ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* bandeau « Ton chemin » de l'Accueil */
+.chemin-accueil { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.chemin-accueil a { display: block; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); text-decoration: none; color: var(--ink); background: var(--surface); }
+.chemin-accueil a:hover { border-color: var(--accent); }
+.chemin-accueil a.ici { border-color: var(--accent); background: var(--accent-soft); }
+.chemin-accueil b { display: flex; align-items: center; gap: 8px; }
+.chemin-accueil .num { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: var(--surface-3); color: var(--muted); }
+.chemin-accueil a.fait .num { background: var(--ok-soft, var(--surface-3)); color: var(--ok); }
+.chemin-accueil a.ici .num { background: var(--accent); color: #fff; }
+.chemin-suite { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: var(--accent-soft); }
+.chemin-suite .lib { flex: 1; }
+@media (max-width: 900px) { .chemin-accueil { grid-template-columns: repeat(2, minmax(0, 1fr)); } .fil-chemin .suite { display: none; } }

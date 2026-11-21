@@ -31,7 +31,7 @@
       zone.className = "g-bdd";
       zone.innerHTML = `
         <div class="col-g">
-          <section class="carte" style="flex:none"><h2 class="titre-carte">Détails du test Xray<span class="actions-titre"><a class="btn" href="#bdd">Scénarios</a></span></h2><div class="corps-carte" id="b-test"></div></section>
+          <section class="carte" style="flex:none"><h2 class="titre-carte"><span id="b-test-titre">Détails du test</span><span class="actions-titre"><a class="btn" href="#bdd">Tous les tests</a></span></h2><div class="corps-carte" id="b-test"></div></section>
           <section class="carte" style="flex:1"><h2 class="titre-carte">Parcours applicatif</h2><div class="corps-carte" id="b-parcours"></div></section>
         </div>
         <section class="carte">
@@ -107,19 +107,21 @@
   async function accueil(zone) {
     zone.className = "g-dash";
     const [liste, cand] = await Promise.all([api("/api/bdd").catch(() => []), api("/api/graphes/candidats").catch(() => [])]);
+    const xray = Atelier.integrations().xray;
     zone.innerHTML = `
-      <section class="carte s8"><h2 class="titre-carte">Scénarios BDD du projet</h2><div class="corps-carte">
+      <section class="carte s8"><h2 class="titre-carte">Tests BDD du projet</h2><div class="corps-carte">
         ${liste.length ? `<table><tr><th>Clé</th><th>Titre</th><th>Scénarios</th><th>Statut</th><th>Mis à jour</th></tr>${liste.map(s => `<tr class="cliquable" data-cle="${esc(s.cle)}">
           <td class="cle-xray">${esc(s.cle)}</td><td>${esc(s.titre)}</td><td>${s.scenarios}</td><td><span class="pill ${s.statut === "validé" ? "ok" : "warn"}">${esc(s.statut)}</span></td>
-          <td class="lib">${esc((s.maj || "").slice(0, 16).replace("T", " "))}</td></tr>`).join("")}</table>` : vide("Aucun scénario", "Créer le premier à partir d'un test Xray ou d'une page blanche.")}</div></section>
+          <td class="lib">${esc((s.maj || "").slice(0, 16).replace("T", " "))}</td></tr>`).join("")}</table>` : vide("Aucun test BDD", xray ? "Créer le premier depuis un parcours de Discovery (Discovery › Parcours › Créer le test BDD), depuis un test Xray, ou d'une page blanche."
+          : "Créer le premier depuis un parcours de Discovery (Discovery › Parcours › Créer le test BDD), ou d'une page blanche ci-contre.")}</div></section>
       <section class="carte s4"><h2 class="titre-carte">Nouveau scénario</h2><div class="corps-carte">
-        <div class="champ"><label for="n-cle">Clé du test Xray</label><input class="in" id="n-cle" list="n-cles" placeholder="ex. DEMO-745"></div>
+        <div class="champ"><label for="n-cle">${xray ? "Clé du test Xray (ou identifiant libre)" : "Identifiant (facultatif)"}</label><input class="in" id="n-cle" list="n-cles" placeholder="${xray ? "ex. DEMO-745" : "déduit du titre si vide"}"></div>
         <datalist id="n-cles">${cand.map(c => `<option value="${esc(c.cle)}">${esc(c.resume || "")}</option>`).join("")}</datalist>
         <div class="champ"><label for="n-titre">Titre</label><input class="in" id="n-titre"></div>
-        <label class="ligne-champ"><span>Depuis Xray</span><input type="checkbox" class="bascule" id="n-xray" ${Atelier.ctx.xray?.configure ? "checked" : ""}></label>
-        <p class="lib">Reprend le Gherkin du test ou ses étapes manuelles (action → Quand, résultat attendu → Alors).</p>
+        <label class="ligne-champ" ${xray ? "" : "hidden"}><span>Depuis Xray</span><input type="checkbox" class="bascule" id="n-xray" ${Atelier.ctx.xray?.configure ? "checked" : ""}></label>
+        <p class="lib" ${xray ? "" : "hidden"}>Reprend le Gherkin du test ou ses étapes manuelles (action → Quand, résultat attendu → Alors).</p>
         <button class="btn primaire" id="n-ok">${ico("plus")}Créer le scénario</button></div></section>
-      <section class="carte s12"><h2 class="titre-carte">Tests Xray de l'instantané</h2><div class="corps-carte" style="max-height:360px">
+      <section class="carte s12" ${xray || cand.length ? "" : "hidden"}><h2 class="titre-carte">Tests Xray de l'instantané</h2><div class="corps-carte" style="max-height:360px">
         ${cand.length ? `<table><tr><th>Clé</th><th>Test</th><th>Module</th><th>Type</th><th>Automatisé</th><th></th></tr>${cand.map(c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume)}</td>
           <td>${esc(c.module || "—")}</td><td>${esc(c.type || "—")}</td><td>${c.automatise ? '<span class="pill ok">oui</span>' : '<span class="pill">non</span>'}</td>
           <td><button class="btn" data-prendre="${esc(c.cle)}" data-titre="${esc(c.resume || "")}">Construire</button></td></tr>`).join("")}</table>`
@@ -127,9 +129,10 @@
     $$("[data-cle]", zone).forEach(tr => tr.onclick = () => { location.hash = "bdd/" + encodeURIComponent(tr.dataset.cle); });
     $$("[data-prendre]", zone).forEach(b => b.onclick = () => { $("#n-cle").value = b.dataset.prendre; $("#n-titre").value = b.dataset.titre; $("#n-cle").focus(); });
     $("#n-ok").onclick = async () => {
-      const cle = $("#n-cle").value.trim();
-      if (!cle) return toast("Clé obligatoire.", "ko");
-      try { await api("/api/bdd", {method: "POST", body: {cle, titre: $("#n-titre").value.trim(), depuis_xray: $("#n-xray").checked}}); location.hash = "bdd/" + encodeURIComponent(cle); }
+      const titre = $("#n-titre").value.trim();
+      const cle = $("#n-cle").value.trim() || titre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+      if (!cle) return toast("Donner au moins un titre.", "ko");
+      try { await api("/api/bdd", {method: "POST", body: {cle, titre, depuis_xray: xray && $("#n-xray").checked}}); location.hash = "bdd/" + encodeURIComponent(cle); }
       catch (e) { toast(e.message, "ko"); }
     };
   }
@@ -165,6 +168,12 @@
     $("#b-gherkin").value = S.vue.gherkin;
     coloriser();
     $("#b-statut").innerHTML = `<span class="pill ${m.statut === "validé" ? "ok" : "warn"}">${esc(m.statut)}</span>`;
+    const valide = m.statut === "validé";  // le bouton mis en avant est la prochaine étape
+    $("#b-valider").classList.toggle("succes", !valide);
+    $("#b-valider").title = valide ? "Déjà validé ; une modification le repasse en brouillon" : "Étape 1 : relire les étapes, puis valider le scénario";
+    $("#b-generer").classList.toggle("primaire", valide);
+    $("#b-generer").title = valide ? "Étape 2 : écrire le script Robot (Automation Studio), puis Cursor implémente les keywords manquants"
+      : "Valider d'abord le scénario ; la génération reste possible pour un aperçu";
     graphe(); parcours(); stats(); reco(); proprietes(); bulle();
   }
 
@@ -453,7 +462,7 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
     const p = n?.proprietes || {};
     const jira = Atelier.ctx.jira_url;
     const precond = (m.contexte || []).map(e => e.texte);
-    z.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:baseline"><span class="lib">ID Test</span>
+    z.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:baseline"><span class="lib">Identifiant</span>
         ${jira ? `<a href="${esc(jira)}/browse/${encodeURIComponent(m.cle)}" target="_blank" rel="noopener" class="lib" style="color:var(--accent-ink)">Ouvrir dans Xray ${ico("ext")}</a>` : ""}</div>
       <div style="font-size:21px;font-weight:700;color:var(--violet-ink);margin-bottom:8px">${esc(m.cle)}</div>
       <div class="lib">Titre</div><div style="margin-bottom:8px"><b>${esc(p.resume || m.titre)}</b></div>
@@ -462,7 +471,7 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
       <div class="lib">Priorité</div><div style="margin-bottom:8px">${p.criticite ? `<span style="color:var(--orange)">${ico("haut")}</span> ${esc(p.criticite)}` : "—"}</div>
       ${precond.length ? `<div class="lib">Préconditions</div><ul style="margin:2px 0 8px;padding-left:16px">${precond.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       <div class="lib">Module</div><button class="boite" id="t-mod" style="cursor:pointer;margin:3px 0 4px;color:var(--ink)">${esc(m.module || "Choisir le module")}</button>
-      ${S.vue.rangement?.robot ? `<div class="lib" style="font-size:11px;margin-bottom:8px">Dépôt : <span class="mono">${esc(S.vue.rangement.robot)}</span><br>Xray : <span class="mono">${esc(S.vue.rangement.xray)}</span></div>` : ""}
+      ${S.vue.rangement?.robot ? `<div class="lib" style="font-size:11px;margin-bottom:8px">Dépôt : <span class="mono">${esc(S.vue.rangement.robot)}</span>${Atelier.integrations().xray ? `<br>Xray : <span class="mono">${esc(S.vue.rangement.xray)}</span>` : ""}</div>` : ""}
       <div class="lib">Jeu de données</div><button class="boite" id="t-jdd" style="cursor:pointer;margin:3px 0 8px;color:var(--ink)">${ico("donnee")}${esc(m.jdd || "Associer un jeu de données")}</button>
       <div class="lib">Tags</div><div class="btns" style="margin-top:3px">${[...(m.tags || []), ...(p.libelles || [])].map(t => `<span class="pill">${esc(t)}</span>`).join("") || '<span class="lib">—</span>'}</div>`;
     $("#t-jdd").onclick = () => lier("jdd");

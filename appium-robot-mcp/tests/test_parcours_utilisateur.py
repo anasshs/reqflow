@@ -71,8 +71,9 @@ def test_cadrage_controle_et_enregistre(banque):
     assert pu.lister() == []                                                 # un refus n'enregistre rien
 
     p = pu.enregistrer("", {"nom": "Faire un virement interne", "objectif": "Virer entre deux comptes", "exigences": ["demo-2"]})
-    assert p["id"] == "PU-faire_un_virement_interne" and p["statut"] == "Brouillon" and p["noeud"] == "parcours:faire_un_virement_interne"
-    assert p["controles"]["pret"] is False and "plateforme" in p["controles"]["bloquants"][0]
+    # seule plateforme de l'application (web) : choisie d'office, le parcours est prêt à dérouler
+    assert p["id"] == "PU-faire_un_virement_interne" and p["statut"] == "Prêt" and p["noeud"] == "parcours:faire_un_virement_interne"
+    assert p["plateforme"] == "web" and p["controles"]["pret"] is True and not p["controles"]["bloquants"]
     assert [x["cle"] for x in p["exigences"]] == ["DEMO-2"] and p["exigences"][0]["criteres"] == ["Le montant est obligatoire", "Le plafond est contrôlé"]
     with pytest.raises(ValueError, match="existe déjà"):
         pu.enregistrer("", {"nom": "faire un virement INTERNE"})
@@ -84,7 +85,7 @@ def test_cadrage_controle_et_enregistre(banque):
     assert "valeur" not in p["donnees"]["pretes"][0]                          # aucune valeur de donnée dans le cadrage
     assert any("BENEFICIAIRE" in a for a in p["controles"]["avertissements"])
     assert [h["action"] for h in reversed(p["historique"])][:2] == ["création", "modification"]
-    assert {h.get("champ") for h in p["historique"]} >= {"profil de données", "plateforme", "qui navigue"}
+    assert {h.get("champ") for h in p["historique"]} >= {"profil de données", "qui navigue"}  # plateforme : posée dès la création
 
     # Knowledge Graph : parcours déclaré (validé) et lien exigence → parcours validé d'office, lu « a le parcours »
     g = _graphe()

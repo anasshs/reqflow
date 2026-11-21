@@ -191,7 +191,7 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
     from atelier.generation import rangement
 
     m = {"langue": "fr", "feature": titre, "module": rangement.module_des_ecrans([e["id"] for e in seq]), "description": [f"Brouillon généré depuis la Discovery ({source}) : à relire et valider."],
-         "contexte": [], "tags": [], "source": f"discovery ({source})", "titre": titre, "jdd": "", "statut": "brouillon",
+         "contexte": [], "tags": [], "source": f"discovery ({source})", "parcours": parcours, "session": session, "titre": titre, "jdd": "", "statut": "brouillon",
          **({"profil_donnees": profil_donnees} if profil_donnees else {}),
          "scenarios": [{"id": bdd._id(), "nom": titre, "type": "principal", "tags": tags, "depuis": "", "etapes": etapes}]}
     base = bdd._slug(cle or f"parcours_{titre}")

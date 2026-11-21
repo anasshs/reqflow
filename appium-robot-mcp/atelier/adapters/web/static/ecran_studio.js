@@ -63,7 +63,7 @@
       <div class="lib">${n}</div><b>${esc(titre)}</b><div class="v ${cls}" style="font-size:22px;font-weight:600">${val ?? "—"}</div><div class="lib">${esc(lib)}</div></a>`;
     z.innerHTML = `${entete("Tableau de bord")}
       <div class="corps-carte"><div style="display:flex;gap:8px;align-items:stretch;margin-bottom:14px">
-        ${etape("1", "À automatiser", k.candidats, "candidats", "#studio/candidats", "Tests Xray retenus : créer leur scénario BDD", "warn-t")}
+        ${etape("1", "À automatiser", k.candidats, "candidats", "#studio/candidats", "Tests retenus (Xray, ou conçus dans l'atelier) : créer ou relire leur scénario BDD", "warn-t")}
         ${etape("2", "Construire", k.scenarios_bdd, "scénarios BDD", "#studio/direct", "Mapping étape → keyword, prévisualisation et écriture du test Robot")}
         ${etape("3", "Revue", k.en_revue, "scripts en revue", "#studio/revue", "Contrôles automatiques puis décision : approuver, demander des modifications ou refuser", "info")}
         ${etape("4", "Publier", k.approuves, "approuvés à publier", "#studio/revue", "Un script approuvé est publié vers l'Execution Center, puis commit et merge request", "violet")}
@@ -145,6 +145,8 @@
     // arrivée depuis « À automatiser › Construire » : le scénario est choisi et la demande préparée (une seule fois)
     let aLancer = "";
     try { aLancer = sessionStorage.getItem("as-construire") || ""; sessionStorage.setItem("as-construire", ""); } catch (e) { /* facultatif */ }
+    // adresse « #studio/direct/<clé> » (Accueil, À automatiser) : scénario présélectionné ; la demande part au clic, jamais au rechargement
+    if (!aLancer && arg && arg !== "suivi" && bdds.some(b => b.cle === arg) && $("#dr-cle")) $("#dr-cle").value = arg;
     if (aLancer && bdds.some(b => b.cle === aLancer)) { $("#dr-cle").value = aLancer; modelesPrets.finally(() => { if (document.body.contains(z) && $("#dr-dem")) $("#dr-dem").click(); }); }
     $$("[data-revue]", z).forEach(a => a.onclick = () => { try { sessionStorage.setItem("studio-revue", a.dataset.revue); } catch (e) { /* facultatif */ } });
     let vus = 0, imageT = 0;
@@ -306,7 +308,16 @@
     const sansUS = ETAPE_FILTRE ? [] : plan.filter(c => !c.exigences.length);
     const etape = d.etapes.find(e => e.id === ETAPE_FILTRE);
     const MAX_US = 40;
-    z.innerHTML = `${entete("De l'US au test automatisé", menu)}<div class="corps-carte">
+    const atelier = bdds.filter(b => !parTest[b.cle]);
+    const blocAtelier = atelier.length ? `<section class="bloc-strat"><h3>Tests conçus dans l'atelier <span class="lib">(Discovery ou saisis à la main, sans test Xray)</span></h3>
+        <table class="table-strat"><tr><th>Test BDD</th><th>Statut</th><th>Prochaine étape</th></tr>${atelier.map(b => `<tr><td><a href="#bdd/${encodeURIComponent(b.cle)}">${esc(b.titre || b.cle)}</a> <span class="lib mono">${esc(b.cle)}</span></td>
+          <td>${pill(b.statut === "validé" ? "Approved" : "", b.statut)}</td>
+          <td>${b.statut === "validé" ? `<a class="btn petit primaire" href="#studio/direct/${encodeURIComponent(b.cle)}" title="Cursor écrit le script Robot en réutilisant le socle, puis le soumet en revue">${ico("ia")}Construire avec Cursor</a>`
+            : `<a class="btn petit primaire" href="#bdd/${encodeURIComponent(b.cle)}" title="Relire les étapes du brouillon, puis « Valider le scénario »">Relire et valider</a>`}</td></tr>`).join("")}</table></section>` : "";
+    const ix = Atelier.integrations(), seul = !ix.jira && !ix.xray && !d.total;  // sans Jira ni Xray : seuls les tests conçus dans l'atelier
+    z.innerHTML = `${entete(ix.jira ? "De l'US au test automatisé" : "À automatiser", seul ? "" : menu)}<div class="corps-carte">
+      ${blocAtelier}
+      ${seul ? (blocAtelier ? "" : vide("Aucun test à automatiser", "Découvrir un parcours (Discovery › Préparer un parcours), puis « Créer le test BDD » : il apparaîtra ici.")) : `
       ${d.perimetre ? `<p style="margin:0 0 8px"><span class="pill info">Périmètre</span> <b>${esc(d.perimetre.libelle)}</b>${d.perimetre.us !== undefined ? ` · ${d.perimetre.us} US${d.perimetre.fige ? " (photo figée du sprint)" : ""}` : ""}
         · ${plan.length} test(s) sur ${d.total}</p>` : ""}
       <ol class="workflow ca-fil" aria-label="Étapes des US du périmètre">${d.etapes.map(e => `<li class="${ETAPE_FILTRE === e.id ? "actif" : e.id === "automatisee" && e.us ? "fait" : ""}">
@@ -316,9 +327,9 @@
       ${visibles.slice(0, MAX_US).map(blocUS).join("")}
       ${visibles.length > MAX_US ? `<p class="lib">${visibles.length - MAX_US} autre(s) US non affichée(s) : choisir un périmètre ou une étape pour réduire la liste.</p>` : ""}
       ${sansUS.length ? `<section class="bloc-strat ca-us"><h3>Tests sans US liée <span class="lien lib">${sansUS.length} test(s) : aucune US dans la copie locale Xray ni dans Test Design</span></h3>${tableTests(sansUS)}</section>` : ""}
-      ${!visibles.length && !sansUS.length ? (d.total ? vide("Rien à cette étape", d.perimetre ? " dans ce périmètre." : "") : vide("Aucun test", "Importer l'instantané Xray (Rapports › Patrimoine) : les tests et leurs US sont lus automatiquement.")) : ""}</div>`;
+      ${!visibles.length && !sansUS.length ? (d.total ? vide("Rien à cette étape", d.perimetre ? " dans ce périmètre." : "") : vide("Aucun test", "Importer l'instantané Xray (Rapports › Patrimoine) : les tests et leurs US sont lus automatiquement.")) : ""}`}</div>`;
     const borner = v => { garder(v); ETAPE_FILTRE = ""; if (location.hash === "#studio/candidats") candidats(z); else location.hash = "studio/candidats"; };
-    $("#ca-perimetre").onchange = e => borner(e.target.value);
+    if ($("#ca-perimetre")) $("#ca-perimetre").onchange = e => borner(e.target.value);
     $$("[data-etape]", z).forEach(b => b.onclick = () => { ETAPE_FILTRE = ETAPE_FILTRE === b.dataset.etape ? "" : b.dataset.etape; candidats(z, arg); });
     $$("[data-per]", z).forEach(b => b.onclick = () => borner(b.dataset.per));
     $$("[data-construire]", z).forEach(b => b.onclick = () => { try { sessionStorage.setItem("as-construire", b.dataset.construire); } catch (e) { /* facultatif */ } location.hash = "studio/direct"; });
@@ -462,7 +473,8 @@
             <select class="in" id="g-suite" title="Ajouter le test à une suite du dépôt, sans passer par un parcours"><option value="">Aucune</option>
               ${rg.suites.map(x => `<option value="${esc(x.fichier)}" ${x.fichier === rg.choix.suite ? "selected" : ""}>${esc(x.fichier)} · ${x.tests} test(s)</option>`).join("")}</select></div></div>
         <p class="lib" style="margin:0 0 8px">${g.cle_xray ? `<span class="pill ok">Tag Xray</span> Le test portera le tag <b class="mono">${esc(g.tag)}</b>, la clé de son test Xray.`
-          : `<span class="pill warn">Pas encore dans Xray</span> Le test portera le tag local <b class="mono">${esc(g.tag)}</b>. Publier le scénario dans Xray (Scénarios BDD › Publier) : la clé Xray créée remplacera ce tag dans le script, même s'il est déjà écrit.`}</p>
+          : Atelier.integrations().xray ? `<span class="pill warn">Pas encore dans Xray</span> Le test portera le tag local <b class="mono">${esc(g.tag)}</b>. Publier le scénario dans Xray (Tests BDD › Publier) : la clé Xray créée remplacera ce tag dans le script, même s'il est déjà écrit.`
+          : `Le test portera le tag <b class="mono">${esc(g.tag)}</b>, l'identifiant du test BDD.`}</p>
         ${g.ajout_refuse ? `<p class="lib"><span class="pill ko">Ajout impossible</span> ${esc(g.ajout_refuse)}</p>` : ""}
         <div class="champ"><label for="g-ch">Fichier</label><input class="in" id="g-ch" value="${esc(g.chemin)}" title="Modifier le chemin range le test dans une suite à part"></div>
         ${g.structure && !g.structure.conforme ? `<p class="lib"><span class="pill warn">Hors structure</span> ${esc(g.structure.message)} Corriger le chemin ci-dessus, ou le motif de rangement dans <a href="#conception/parametres">Test Design › Réglages</a>.</p>` : ""}
@@ -476,9 +488,15 @@
       $("#g-ok", ap).onclick = async () => {
         try {
           const r = await api(`/api/bdd/${encodeURIComponent(cle)}/generer`, {method: "POST", body: {ecrire: true, chemin: $("#g-ch", ap).value, ecraser: $("#g-ecr", ap).checked}});
-          toast(r.ajout ? `Test ajouté à ${r.ecrit}. La suite repasse en revue.` : `Écrit : ${r.ecrit}. Le script est en revue.`, "ok");
+          const aImplementer = ((r.ajoute || r.contenu || "").match(/Keyword à implémenter/g) || []).length;
           try { sessionStorage.setItem("studio-revue", r.ecrit); } catch (e) { /* facultatif */ }
-          location.hash = "studio/revue";
+          if (aImplementer) {  // étape suivante : Cursor écrit ces keywords en réutilisant le socle
+            toast(`Écrit : ${r.ecrit}. Étape suivante : ${aImplementer} keyword(s) à implémenter, « Demander à Cursor » les écrit.`, "ok");
+            location.hash = "studio/direct/" + encodeURIComponent(cle);
+          } else {
+            toast(r.ajout ? `Test ajouté à ${r.ecrit}. La suite repasse en revue.` : `Écrit : ${r.ecrit}. Le script est en revue.`, "ok");
+            location.hash = "studio/revue";
+          }
         } catch (e) { toast(e.message, "ko"); }
       };
     };

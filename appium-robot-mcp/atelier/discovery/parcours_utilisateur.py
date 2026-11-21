@@ -367,6 +367,9 @@ def enregistrer(pid: str = "", champs: dict | None = None) -> dict:
                  "plateforme": "", "environnement": "", "pilote": "moi", "sessions": [], "deroules": [], "ecrans": [], "historique": []}
             if "nom" not in champs:
                 raise ValueError("Le nom du parcours est obligatoire.")
+            plats = (carte.config_app() or {}).get("plateformes") or []
+            if not champs.get("plateforme") and len(plats) == 1:
+                champs = {**champs, "plateforme": plats[0]}
         valeurs = _controler(champs, p, app)
         if creation:
             base = f"PU-{carte.slug(valeurs['nom'], 40)}"

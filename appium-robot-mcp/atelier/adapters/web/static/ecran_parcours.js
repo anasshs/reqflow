@@ -13,8 +13,8 @@
     async afficher(zone, sous) {
       SEL = sous || SEL;
       zone.className = "g-strat";
-      zone.innerHTML = `<nav class="carte menu-strat" aria-label="Parcours de fonctionnalité"><div class="titre-carte">PARCOURS</div>
-          <div style="padding:8px 12px"><button class="btn primaire" id="pf-n" style="width:100%" title="Suivre le cycle de vie d'une fonctionnalité, de la Discovery à la synchronisation Xray">${ico("plus")}Nouveau parcours</button></div>
+      zone.innerHTML = `<nav class="carte menu-strat" aria-label="Suivi des fonctionnalités"><div class="titre-carte">SUIVI DES FONCTIONNALITÉS</div>
+          <div style="padding:8px 12px"><button class="btn primaire" id="pf-n" style="width:100%" title="Suivre le cycle de vie d'une fonctionnalité, de la Discovery à la synchronisation Xray">${ico("plus")}Suivre une fonctionnalité</button></div>
           <div class="lib" style="padding:4px 12px 0">DE FONCTIONNALITÉ (cycle de vie)</div>
           <ol class="liste-strat" id="pf-l"></ol>
           <div class="lib" style="padding:10px 12px 0" title="Parcours préparés dans Discovery : nom, exigences, données, cible ; chacun s'ouvre dans Discovery">UTILISATEUR (préparés dans Discovery)</div>
@@ -25,7 +25,7 @@
       if (desabo) desabo();
       desabo = Atelier.on("parcours_change", () => { liste(); if (SEL) detail(SEL); });  // une action faite dans Cursor s'affiche ici
       await liste();
-      if (SEL) await detail(SEL); else $("#pf-c").innerHTML = vide("Aucun parcours sélectionné", "Choisir un parcours à gauche ou en créer un.");
+      if (SEL) await detail(SEL); else $("#pf-c").innerHTML = vide("Aucune fonctionnalité suivie sélectionnée", "Choisir un suivi à gauche, ou suivre une fonctionnalité. Pour créer des tests depuis l'application : Discovery › Préparer un parcours.");
     },
     quitter() { if (desabo) desabo(); desabo = null; },
   });
@@ -52,7 +52,7 @@
 
   async function nouveau() {
     const c = await api("/api/cerveau").catch(() => ({modules: []}));
-    const m = modale("Nouveau parcours de fonctionnalité", `<div class="champ"><label for="np-f">Fonctionnalité (module du Knowledge Graph)</label>
+    const m = modale("Suivre une fonctionnalité", `<div class="champ"><label for="np-f">Fonctionnalité (module du Knowledge Graph)</label>
         <input class="in" id="np-f" list="np-mods" placeholder="ex. Connexion"><datalist id="np-mods">${(c.modules || []).map(x => `<option value="${esc(x.module)}">`).join("")}</datalist></div>
       <div class="champ"><label for="np-l">Libellé (facultatif)</label><input class="in" id="np-l"></div>
       <div class="champ"><label for="np-j">Références Jira (US / exigences, séparées par des virgules)</label><input class="in" id="np-j" placeholder="TAM-12, TAM-15"></div>

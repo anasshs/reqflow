@@ -34,7 +34,7 @@
       const G = groupeDe(R);
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Rubriques Test Design"><div class="titre-carte">TEST DESIGN</div>
-        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
+        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li ${id === "suites" && !Atelier.integrations().xray ? "hidden" : ""}><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
         <div class="pied-strat lib">Xray reste le référentiel officiel ; la plateforme garde revues, baselines et mapping.
           <br><a href="#intelligence/couverture" title="Exigences, couverture et tests manquants : Application Intelligence › Couverture">Couverture</a> · <a href="#graphe/couverture" title="Traçabilité exigence → test → script → exécution">Traçabilité</a> · <a href="#studio/donnees" title="Jeux de données (Automation Studio › Socle)">Données de test</a></div></nav>
         <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}</button>`).join("")}</div>` : ""}
@@ -94,8 +94,9 @@
   async function vue(z) {
     const v = await api("/api/conception/vue"), k = v.kpi;
     const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
-    z.innerHTML = `${entete("Vue d'ensemble", `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Importer le repository Xray</a><button class="btn" id="cv-def">${ico("xray")}Importer les définitions Xray</button>
-        <a class="btn" href="#conception/exigences" title="Application Intelligence › Couverture (source unique des exigences)">Exigences sans tests</a><a class="btn" href="#conception/revue" title="Cas de test filtrés sur « En revue »">En attente de validation</a><a class="btn primaire" href="#bdd">${ico("bdd")}Créer un scénario BDD</a>`)}
+    const ix = Atelier.integrations();
+    z.innerHTML = `${entete("Vue d'ensemble", `${ix.xray ? `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Importer le repository Xray</a><button class="btn" id="cv-def">${ico("xray")}Importer les définitions Xray</button>` : ""}
+        ${ix.jira ? `<a class="btn" href="#conception/exigences" title="Application Intelligence › Couverture (source unique des exigences)">Exigences sans tests</a>` : ""}<a class="btn" href="#conception/revue" title="Cas de test filtrés sur « En revue »">En attente de validation</a><a class="btn primaire" href="#bdd">${ico("bdd")}Créer un test BDD</a>`)}
       <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(8,minmax(0,1fr));margin-bottom:12px">
         ${kpi(k.exigences, "exigences importées")}${kpi(k.cas_xray, "cas de test Xray")}${kpi(k.scenarios_bdd, "scénarios BDD")}${kpi(k.a_revoir, "à revoir", "warn-t")}
         ${kpi(k.approuves, "approuvés", "violet")}${kpi(k.prets_automatisation, "prêts pour l'automatisation", "info")}${kpi(k.automatises, "automatisés", "ok")}
@@ -107,7 +108,7 @@
             <td style="width:45%"><div class="barre"><i style="width:${x.exigences ? x.couvertes / x.exigences * 100 : 0}%"></i></div></td></tr>`).join("")}</table>
             ${v.exigences_sans_test.length ? `<p class="lib">Sans test : ${v.exigences_sans_test.map(esc).join(", ")}</p>` : ""}</section>
           <section class="bloc-strat"><h3>Activités récentes</h3><ul class="liste">${v.activite.map(a => `<li><span class="mono lib">${esc(a.date.slice(5, 16).replace("T", " "))}</span><span class="item">${esc(a.op)} ${esc(a.cle || a.nom || "")} ${a.vers ? "→ " + esc(LIB_REVUE[a.vers] || a.vers) : ""}</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul></section></div></div>`;
-    $("#cv-def").onclick = async () => {
+    if ($("#cv-def")) $("#cv-def").onclick = async () => {
       const projet = v.xray.present || Atelier.ctx.projet_xray ? "" : prompt("Clé du projet Xray (aucun instantané à compléter) :");
       if (projet === null) return;
       try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {projet}});

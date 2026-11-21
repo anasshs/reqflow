@@ -11,7 +11,7 @@
   const lire = z => api(`/api/pilotage/${z}${qs() ? "?" + qs() : ""}`);
   /* Icônes : une par bloc (discrète, dans le titre) et une par indicateur. La couleur dit la nature de la mesure, pas une
      alerte : un indicateur de défaut (bugs, tests instables, éléments sans…) reste neutre tant que sa valeur est nulle. */
-  const ICO_BLOC = {"Vue globale": "dashboard", "État de préparation de la livraison": "bouclier", "Alertes prioritaires": "cloche",
+  const ICO_BLOC = {"Ton chemin": "historique", "Application Discovery": "recherche", "Vue globale": "dashboard", "État de préparation de la livraison": "bouclier", "Alertes prioritaires": "cloche",
     "Couverture des exigences": "cible", "Application Discovery et rapprochement avec Jira": "recherche", "Qualité de la conception": "assertion",
     "Couverture par sprint": "rapports", "Résultats des campagnes": "execution", "Bugs et anomalies": "alerte",
     "Responsabilités et charge de travail": "equipe", "TNR au fil de l'eau": "rejouer", "Aide à la décision : que faire maintenant ?": "ia"};
@@ -43,7 +43,10 @@
   const tuile = i => `<a class="kpi" href="${esc(i.lien || "#dashboard")}" title="${esc(infobulle(i))}" style="text-decoration:none;color:inherit;display:block">
     <div class="kpi-tete"><div class="v" ${i.disponible ? "" : 'style="color:var(--muted)"'}>${valeur(i)} ${evolution(i)}</div>${icone(i)}</div><div class="l">${esc(i.libelle)}</div>
     ${i.disponible ? (i.detail ? `<div class="l" style="font-size:10.5px">${esc(i.detail)}</div>` : "") : `<div class="l" style="font-size:10.5px">${esc(i.raison)}</div>`}</a>`;
-  const tuiles = (l, colonnes = 4) => `<div class="kpis" style="grid-template-columns:repeat(${colonnes},minmax(0,1fr))">${l.map(tuile).join("")}</div>`;
+  /* sans Jira (ou sans Xray) : pas de tuile qui ne parle que d'exigences Jira ou de la copie Xray */
+  const utile = i => { const ix = Atelier.integrations(), t = `${i.libelle} ${i.raison || ""} ${i.source || ""}`;
+    return (ix.jira || !/jira|exigence/i.test(t)) && (ix.xray || !/xray/i.test(t)); };
+  const tuiles = (l, colonnes = 4) => `<div class="kpis" style="grid-template-columns:repeat(${colonnes},minmax(0,1fr))">${l.filter(utile).map(tuile).join("")}</div>`;
   const notes = l => l && l.length ? `<p class="lib" style="margin-top:8px">Non mesuré : ${l.map(esc).join(" ")}</p>` : "";
   const cles = l => (l || []).map(k => `<span class="pill">${esc(k)}</span>`).join(" ");
   const poser = (id, html) => { const el = zone && $("#" + id, zone); if (el) el.innerHTML = html; return el; };
@@ -108,7 +111,7 @@
       <p class="lib" style="margin-top:8px">Reliée, exécutée et validée sont trois mesures distinctes : une exigence reliée à un test n'est pas forcément exécutée, ni validée.</p>
       ${c.couverture.sans_test.length ? `<p style="margin-top:6px"><b>Sans test :</b> ${cles(c.couverture.sans_test.slice(0, 14))}${c.couverture.sans_test.length > 14 ? " …" : ""}</p>` : ""}</div>`);
     const etats = Object.entries(c.discovery.par_etat);
-    poser("pz-discovery", `${titre("Application Discovery et rapprochement avec Jira")}<div class="corps-carte">${tuiles(c.discovery.indicateurs, 3)}
+    poser("pz-discovery", `${titre(Atelier.integrations().jira ? "Application Discovery et rapprochement avec Jira" : "Application Discovery")}<div class="corps-carte">${tuiles(c.discovery.indicateurs, 3)}
       ${etats.length ? `<table class="table-strat" style="margin-top:8px"><tr><th>Élément</th><th>Découvert</th><th>Validé par un utilisateur</th><th>Proposé par l'IA, validé</th><th>En attente</th></tr>${etats.map(([t, e]) => `<tr><td>${esc(t)}</td>
         <td>${e["découvert (observé)"] || 0}</td><td>${e["validé par un utilisateur"] || 0}</td><td>${e["proposé par l'IA, validé"] || 0}</td><td>${e["en attente de validation"] || 0}</td></tr>`).join("")}</table>` : ""}</div>`);
     poser("pz-qualite", `${titre("Qualité de la conception")}<div class="corps-carte">${tuiles(c.qualite.indicateurs, 4)}</div>`);
@@ -209,28 +212,40 @@
       .catch(e => CIBLES[z].forEach(id => poser(id, `<div class="corps-carte">${vide("Indisponible", esc(e.message))}</div>`))));
   }
 
+  /* « Ton chemin » : Découvrir → Concevoir le test → Automatiser → Exécuter, et la prochaine action */
+  async function chemin(j) {
+    const s = await api("/api/chemin").catch(() => null);
+    if (j !== jeton || !s) { if (j === jeton) poser("pz-chemin", ""); return; }
+    poser("pz-chemin", `${titre("Ton chemin")}<div class="corps-carte"><div class="chemin-accueil">${s.etapes.map(e => `<a href="${esc(e.lien)}" class="${e.courante ? "ici" : ""} ${e.fait ? "fait" : ""}">
+        <b><span class="num">${e.fait && !e.courante ? "✓" : e.num}</span>${esc(e.titre)}</b><span class="lib">${esc(e.detail)}</span></a>`).join("")}</div>
+      <div class="chemin-suite"><span class="lib"><b>Prochaine action :</b> ${esc(s.suivante.texte)}</span><a class="btn primaire" href="${esc(s.suivante.lien)}">${esc(s.suivante.bouton)}</a></div>
+      <p class="lib" style="margin:8px 0 0">${s.integrations.jira || s.integrations.xray ? "Jira / Xray utilisés : leurs options (exigences, couverture, publication) s'ajoutent au chemin."
+        : "Ni Jira ni Xray : le chemin se fait entièrement dans l'atelier. Les brancher plus tard ajoute exigences, couverture et publication (Paramètres › Connexions)."}</p></div>`);
+  }
+
   Atelier.enregistrer("dashboard", {
     async afficher(z, sous) {
       zone = z; jeton = Symbol("pilotage");
       const j = jeton;
       z.className = "g-dash";
-      const c = Atelier.ctx || {}, appli = (c.applications || []).find(x => x.slug === c.application);
+      const c = Atelier.ctx || {}, appli = (c.applications || []).find(x => x.slug === c.application), jira = Atelier.integrations().jira, ji = jira || Atelier.integrations().xray;  // sans Jira ni Xray : « Ton chemin » tient lieu de vue globale
       z.innerHTML = `<header class="page-tete"><div><h1>Bonjour${c.utilisateur ? " " + esc(c.utilisateur) : ""}</h1>
           <p>État du projet <b>${esc(c.projet || "—")}</b>${appli ? ` · application ${esc(appli.nom)}` : ""}. Chaque indicateur vient d'une source réelle.</p></div>
-          <div class="btns"><a class="btn primaire" href="#discovery/cadrage/nouveau" title="Préparer un parcours utilisateur avant de le dérouler (Discovery)">${ico("plus")}Nouveau parcours</a></div></header>
-        <section class="carte s12"><div class="corps-carte" id="pz-filtres">${vide("Chargement…")}</div></section>
-        <section class="carte s12" id="pz-synthese">${titre("Vue globale")}${attente()}</section>
-        <section class="carte s5" id="pz-preparation">${titre("État de préparation de la livraison")}${attente()}</section>
+          <div class="btns"><a class="btn primaire" href="#discovery/cadrage/nouveau" title="Nommer un parcours de l'application, puis y naviguer : l'atelier enregistre les écrans">${ico("plus")}Découvrir un parcours</a></div></header>
+        <section class="carte s12" id="pz-chemin">${titre("Ton chemin")}${attente()}</section>
+        <section class="carte s12" ${ji ? "" : "hidden"}><div class="corps-carte" id="pz-filtres">${vide("Chargement…")}</div></section>
+        <section class="carte s12" id="pz-synthese" ${ji ? "" : "hidden"}>${titre("Vue globale")}${attente()}</section>
+        <section class="carte s5" id="pz-preparation" ${jira ? "" : "hidden"}>${titre("État de préparation de la livraison")}${attente()}</section>
         <section class="carte s7" id="pz-alertes">${titre("Alertes prioritaires")}${attente()}</section>
-        <section class="carte s6" id="pz-couverture">${titre("Couverture des exigences")}${attente()}</section>
-        <section class="carte s6" id="pz-discovery">${titre("Application Discovery et rapprochement avec Jira")}${attente("Lecture de la carte…")}</section>
+        <section class="carte s6" id="pz-couverture" ${jira ? "" : "hidden"}>${titre("Couverture des exigences")}${attente()}</section>
+        <section class="carte s6" id="pz-discovery">${titre(jira ? "Application Discovery et rapprochement avec Jira" : "Application Discovery")}${attente("Lecture de la carte…")}</section>
         <section class="carte s6" id="pz-qualite">${titre("Qualité de la conception")}${attente()}</section>
-        <section class="carte s6" id="pz-sprints">${titre("Couverture par sprint")}${attente()}</section>
+        <section class="carte s6" id="pz-sprints" ${jira ? "" : "hidden"}>${titre("Couverture par sprint")}${attente()}</section>
         <section class="carte s7" id="pz-activite">${titre("Résultats des campagnes")}${attente()}</section>
         <section class="carte s5" id="pz-anomalies">${titre("Bugs et anomalies")}${attente()}</section>
-        <section class="carte s12" id="pz-responsables">${titre("Responsabilités et charge de travail")}${attente()}</section>
-        <section class="carte s12" id="pz-releases">${titre("Releases")}${attente("Lecture des releases…")}</section>
-        <section class="carte s12" id="pz-tnr">${titre("TNR au fil de l'eau")}${attente("Analyse d'impact…")}</section>
+        <section class="carte s12" id="pz-responsables" ${jira ? "" : "hidden"}>${titre("Responsabilités et charge de travail")}${attente()}</section>
+        <section class="carte s12" id="pz-releases" ${ji ? "" : "hidden"}>${titre("Releases")}${attente("Lecture des releases…")}</section>
+        <section class="carte s12" id="pz-tnr" ${ji ? "" : "hidden"}>${titre("TNR au fil de l'eau")}${attente("Analyse d'impact…")}</section>
         <section class="carte s12" id="pz-recos">${titre("Aide à la décision : que faire maintenant ?")}${attente()}</section>`;
       try { CTX = await api("/api/pilotage/contexte"); } catch (e) { CTX = {sprints: [], modules: [], versions: [], plateformes: [], responsables: [], periode_jours: 14, sources: {}}; }
       if (j !== jeton) return;
@@ -240,6 +255,7 @@
         $("#pf-actualiser", zone).onclick = async () => { await api("/api/pilotage/actualiser", {method: "POST", body: {}}).catch(() => null); toast("Indicateurs recalculés.", "ok"); charger(); };
       };
       poserFiltres();
+      chemin(j);
       charger();
       releases();
       const ancre = {releases: "pz-releases", tnr: "pz-tnr", execution: "pz-activite", decision: "pz-recos", conception: "pz-couverture"}[sous];

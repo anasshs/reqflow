@@ -9,7 +9,7 @@
   const GROUPES = [
     ["vue", "Vue d'ensemble", [["vue", "Vue d'ensemble"]], "Ce que la Discovery connaît de l'application et quoi explorer ensuite"],
     ["cadrage", "Préparer un parcours", [["cadrage", "Parcours utilisateur"]], "Avant de dérouler l'application : nom du parcours, exigences Jira, données, cible ; les parcours sont enregistrés et se rouvrent"],
-    ["studio", "Explorer le reste", [["studio", "Explorer le reste"], ["sessions", "Sessions"]], "Ce qui reste hors des parcours, et l'exploration libre pour le découvrir : elle n'essaie que ce qui n'a jamais été essayé"],
+    ["studio", "Exploration libre", [["studio", "Hors des parcours"], ["sessions", "Sessions"]], "Ce qui reste hors des parcours, et l'exploration libre pour le découvrir : elle n'essaie que ce qui n'a jamais été essayé"],
     ["resultats", "Résultats", [["resultats", "Synthèse"], ["navigation", "Navigation"], ["comportements", "Comportements"], ["api", "API observées"]],
       "Ce qui a été observé : parcours, transitions, comportements, appels réseau"],
     ["donnees", "Données", [["donnees", "Catalogue"], ["donnees-groupes", "Groupes et jeux de données"], ["donnees-profils", "Profils utilisateurs"],
@@ -36,7 +36,7 @@
       const G = groupeDe(R);
       zone.className = "g-strat";
       zone.innerHTML = `<nav class="carte menu-strat" aria-label="Application Discovery"><div class="titre-carte">APPLICATION DISCOVERY</div>
-        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
+        <ol class="liste-strat">${GROUPES.map(([id, lib, , role]) => `<li ${id === "correlation" && !Atelier.integrations().jira ? "hidden" : ""}><button data-r="${id}" title="${esc(role)}" ${id === G[0] ? 'aria-current="page"' : ""}><span class="item">${esc(lib)}</span></button></li>`).join("")}</ol>
         <div class="pied-strat lib">Le Discovery observe l'application réelle ; Jira, Xray et GitLab enrichissent ensuite.
           <br><a href="#intelligence/ecrans" title="Écrans, composants, locators et leur fiabilité ; nommer un écran">Écrans observés</a> · <a href="#intelligence/a_valider" title="Toutes les propositions en attente">À valider</a></div></nav>
         <section class="carte corps-strat">${G[2].length > 1 ? `<div class="sous-onglets" role="tablist" style="padding:8px 12px 0">${G[2].map(([id, lib]) => `<button role="tab" data-onglet="${id}" aria-selected="${id === R}">${esc(lib)}</button>`).join("")}</div>` : ""}
@@ -104,7 +104,7 @@
   /* ------------------------------------------------------------------ 3 studio : la session se pilote dans la fenêtre flottante */
   /* Reste à explorer : ce que les parcours validés et les actions déjà essayées ne couvrent pas (mesure de l'utilité d'une exploration) */
   let PERIMETRE = null;  // périmètre choisi pour l'exploration : {noeud, libelle}, gardé d'un écran à l'autre
-  /* Le même périmètre sert à « Explorer le reste » et à « Corrélation » ; un parcours peut le poser avant d'ouvrir Corrélation. */
+  /* Le même périmètre sert à « Exploration libre » et à « Corrélation » ; un parcours peut le poser avant d'ouvrir Corrélation. */
   const lirePerimetre = () => { try { PERIMETRE = JSON.parse(sessionStorage.getItem("di-perimetre") || "null"); } catch (e) { PERIMETRE = null; } };
   const poserPerimetre = p => { PERIMETRE = p ? {noeud: p.noeud, libelle: p.libelle} : null;
     try { PERIMETRE ? sessionStorage.setItem("di-perimetre", JSON.stringify(PERIMETRE)) : sessionStorage.removeItem("di-perimetre"); } catch (x) { /* facultatif */ } };
@@ -161,12 +161,12 @@
     const ouvrirFenetre = () => DiscoveryFlottant.ouvrir(PERIMETRE ? {perimetre: PERIMETRE} : undefined);
     const blocReste = `<section class="bloc-strat" id="st-reste" style="margin-bottom:14px"><h3>Reste à explorer</h3><p class="lib">Calcul…</p></section>`;
     if (!s0) {
-      z.innerHTML = `${entete("Explorer le reste", avecCursor + ouvrir)}<div class="corps-carte">${blocReste}${vide("Aucune session", "La fenêtre Discovery propose l'émulateur, l'appareil branché ou le navigateur, puis démarre en un clic.")}</div>`;
+      z.innerHTML = `${entete("Exploration libre (hors des parcours)", avecCursor + ouvrir)}<div class="corps-carte">${blocReste}${vide("Aucune session", "La fenêtre Discovery propose l'émulateur, l'appareil branché ou le navigateur, puis démarre en un clic.")}</div>`;
       $("#st-ouvrir").onclick = ouvrirFenetre; $("#st-cursor").onclick = explorerCursor; reste(); return;
     }
     SESSION = s0.id;
     const s = await api("/api/discovery/sessions/" + SESSION), c = s.config;
-    z.innerHTML = `${entete("Explorer le reste", avecCursor + ouvrir)}<div class="corps-carte">${blocReste}
+    z.innerHTML = `${entete("Exploration libre (hors des parcours)", avecCursor + ouvrir)}<div class="corps-carte">${blocReste}
       <h3 class="lib">DERNIÈRE SESSION · ${esc(s.id)}${c.parcours_nom ? ` · PARCOURS « ${esc(c.parcours_nom)} »` : ""}</h3>
       <p><b>${esc(c.app_nom)}</b> ${esc(c.build || "")} · ${esc(c.plateforme)} · ${esc(c.environnement || "environnement non précisé")} · ${esc(MODES[c.mode])}${c.device ? " · " + esc(c.device) : ""}${c.perimetre_noeud ? ` · périmètre « ${esc(c.perimetre)} »` : ""} · <span class="pill ${ST[s.statut]}">${esc(s.statut)}</span></p>
       <p class="lib">La fenêtre Discovery reste ouverte quand on change d'écran : on y voit le device ou le navigateur en direct, on touche l'image pour naviguer (actions classées et autorisées selon l'environnement), avec les suggestions et les derniers événements.</p>

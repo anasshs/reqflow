@@ -6,7 +6,8 @@
   const PS = {Brouillon: "", "Prêt": "info", "En cours": "ok", "Exploré": "warn", "Validé": "ok", "Archivé": ""};
   const TE = {epic: "Epic", user_story: "US", bug: "Bug"};
   const LIEN = {"validé": "ok", "à valider": "warn"};
-  const ETAPES = [["parcours", "Parcours"], ["exigences", "Exigences"], ["donnees", "Données"], ["cible", "Cible et lancement"], ["deroules", "Déroulés et validation"]];
+  const TOUTES = [["parcours", "Parcours"], ["exigences", "Exigences"], ["donnees", "Données"], ["cible", "Cible et lancement"], ["deroules", "Déroulés et validation"]];
+  const etapes = () => TOUTES.filter(([id]) => id !== "exigences" || Atelier.integrations().jira);
   let Z = null, P = null, O = null, etape = "parcours", desabo = null, recherche = "";
   const entete = (t, a = "") => `<h2 class="titre-carte">${esc(t)}<span class="actions-titre">${a}</span></h2>`;
   const date = d => d ? esc(String(d).slice(0, 16).replace("T", " ")) : "—";
@@ -37,7 +38,7 @@
           <td>${esc(p.plateforme || "—")}${p.environnement ? ` · ${esc(p.environnement)}` : ""}</td><td>${esc(O.pilotes[p.pilote] || p.pilote)}</td><td>${pillStatut(p.statut)}</td>
           <td>${p.sessions}</td><td>${p.ecrans}</td><td class="mono">${date(p.modifie)}</td></tr>`).join("")}</table>`
         : vide("Aucun parcours préparé", "« Préparer un parcours » demande un nom, les exigences, les données et la cible, puis lance le déroulé.")}
-      <p class="lib" style="margin-top:10px">Ce que les parcours ne traversent pas se voit et s'explore dans <a href="#discovery/studio">Explorer le reste</a>.</p></div>`;
+      <p class="lib" style="margin-top:10px">Ce que les parcours ne traversent pas se voit et s'explore dans <a href="#discovery/studio">Exploration libre</a>.</p></div>`;
     $("#cad-new").onclick = () => { location.hash = "discovery/cadrage/nouveau"; };
     $("#cad-arch").onchange = e => liste(e.target.checked);
     $$("[data-p]", Z).forEach(tr => tr.onclick = () => { location.hash = "discovery/cadrage/" + encodeURIComponent(tr.dataset.p); });
@@ -71,7 +72,7 @@
     Z.innerHTML = `${entete(P.id ? `Parcours · ${P.nom}` : "Nouveau parcours", `${pillStatut(P.statut)}
         ${P.id ? `<button class="btn" id="cad-dup" title="Nouveau parcours avec le même cadrage (variante)">${ico("copie")}Dupliquer</button>
           <button class="btn" id="cad-arc">${archive ? "Restaurer" : "Archiver"}</button>` : ""}<a class="btn" href="#discovery/cadrage">Tous les parcours</a>`)}
-      <ol class="cad-etapes" role="tablist">${ETAPES.map(([id, lib], i) => `<li><button role="tab" data-e="${id}" aria-selected="${id === etape}" ${!P.id && id !== "parcours" ? "disabled" : ""}
+      <ol class="cad-etapes" role="tablist">${etapes().map(([id, lib], i) => `<li><button role="tab" data-e="${id}" aria-selected="${id === etape}" ${!P.id && id !== "parcours" ? "disabled" : ""}
         class="${fait(id) ? "fait" : ""}"><span class="cad-n">${fait(id) ? ico("check") : i + 1}</span>${esc(lib)}</button></li>`).join("")}</ol>
       <div class="corps-carte" id="cad-corps"></div>`;
     $$("[data-e]", Z).forEach(b => b.onclick = () => { etape = b.dataset.e; rendre(); });
@@ -118,7 +119,7 @@
           <datalist id="cad-ecrans">${O.ecrans.map(e => `<option>${esc(e)}</option>`).join("")}</datalist></div>
         <div class="champ"><label for="cad-res">Résultat attendu</label><input class="in" id="cad-res" value="${esc(P.resultat_attendu)}" maxlength="1000" placeholder="La confirmation du virement est affichée"></div></div>
       ${pied("", `<button class="btn primaire" id="cad-ok">${ico("disque")}Enregistrer et continuer</button>`)}`;
-    $("#cad-ok").onclick = () => enregistrer({nom: $("#cad-nom").value, objectif: $("#cad-obj").value, point_depart: $("#cad-dep").value, resultat_attendu: $("#cad-res").value}, "exigences");
+    $("#cad-ok").onclick = () => enregistrer({nom: $("#cad-nom").value, objectif: $("#cad-obj").value, point_depart: $("#cad-dep").value, resultat_attendu: $("#cad-res").value}, Atelier.integrations().jira ? "exigences" : "donnees");
   }
 
   /* 2 · les exigences que le parcours réalise */
@@ -191,7 +192,7 @@
         <tr><th>Du départ au résultat</th><td>${esc(P.point_depart || "départ non précisé")} → ${esc(P.resultat_attendu || "résultat non précisé")}</td></tr>
         <tr><th>Exigences</th><td>${P.exigences.map(x => `${cleJira(x.cle)} ${esc(x.resume || "")}`).join("<br>") || '<span class="lib">aucune</span>'}</td></tr>
         <tr><th>Données</th><td>${P.profil_donnees ? `<span class="mono">${esc(P.profil_donnees)}</span>${P.donnees && !P.donnees.erreur ? ` · ${P.donnees.pretes.length} prête(s), ${P.donnees.bloquees.length} sans valeur` : ""}` : '<span class="lib">aucun profil</span>'}${P.environnement ? ` · environnement ${esc(P.environnement)}` : ""}</td></tr></table>
-      ${k.bloquants.map(x => `<p><span class="pill ko">À faire avant de lancer</span> ${esc(x)}</p>`).join("")}${k.avertissements.map(x => `<p><span class="pill warn">À savoir</span> ${esc(x)}</p>`).join("")}
+      ${k.bloquants.map(x => `<p><span class="pill ko">À faire avant de lancer</span> ${esc(x)}</p>`).join("")}${k.avertissements.filter(x => Atelier.integrations().jira || !/exigence/i.test(x)).map(x => `<p><span class="pill warn">À savoir</span> ${esc(x)}</p>`).join("")}
       ${P.session_active ? `<p><span class="pill ok">Déroulé en cours</span> session <span class="mono">${esc(P.session_active)}</span></p>` : ""}
       ${pied("donnees", `<button class="btn" id="cad-ok">${ico("disque")}Enregistrer</button>
         <button class="btn primaire" id="cad-go" ${archive ? "disabled" : ""}>${ico("play")}<span id="cad-go-l"></span></button>`)}

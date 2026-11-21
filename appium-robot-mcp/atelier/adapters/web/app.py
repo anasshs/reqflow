@@ -2522,7 +2522,25 @@ def contexte():
             "run_en_cours": centre.FILE.en_cours is not None,
             "agent_integre": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"),
+            "integrations": _integrations(),
             "utilisateur": _utilisateur()}
+
+
+def _integrations() -> dict:
+    from atelier.intelligence import chemin
+
+    try:
+        return chemin.integrations()
+    except Exception:  # noqa: BLE001 — en cas de doute, tout reste proposé
+        return {"xray": True, "jira": True}
+
+
+@app.get("/api/chemin")
+async def chemin_utilisateur():
+    """Découvrir → Concevoir le test → Automatiser → Exécuter : état de chaque étape et prochaine action."""
+    from atelier.intelligence import chemin
+
+    return await asyncio.to_thread(_call, chemin.etat)
 
 
 def _utilisateur() -> str:
