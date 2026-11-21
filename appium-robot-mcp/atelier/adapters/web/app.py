@@ -125,6 +125,16 @@ evenements.abonner(emit, HOOK_TYPES)  # carte et exploration : événements dire
 async def _startup():
     state["loop"] = asyncio.get_running_loop()
     _call_silencieux(projets.au_demarrage)  # dernier projet actif (sauf ROBOT_PROJECT_DIR imposé)
+    try:
+        from atelier.domain import prerequis
+
+        msg = prerequis.message_demarrage(PORT)  # le projet de tests et les prérequis, dès le lancement
+        try:
+            print(msg, flush=True)
+        except UnicodeEncodeError:  # console Windows sans UTF-8 : le message passe quand même, sans accents
+            print(msg.encode("ascii", "replace").decode("ascii"), flush=True)
+    except Exception:  # noqa: BLE001
+        pass
     threading.Thread(target=_call_silencieux, args=(_verifier_connexions, True, 0), daemon=True).start()  # page Connexions prête
 
 
@@ -420,13 +430,12 @@ def _sante_items() -> list[dict]:
     item("device", "Device mobile", ok, detail,
          "Démarre un émulateur Android ou le Simulateur iOS, ou branche un téléphone (débogage USB).",
          optionnel=True)
-    try:
-        import playwright  # noqa: F401
-        pw = True
-    except ImportError:
-        pw = False
-    item("web", "Navigateur web", pw, "Playwright installé" if pw else "",
-         "pip install playwright puis « playwright install chromium ».", optionnel=True)
+    from atelier.domain import prerequis
+
+    pr = prerequis.projet()
+    item("projet", "Projet de tests", pr["ok"], pr["dossier"] if pr["ok"] else f"{pr['raison']} ({pr['dossier']})", pr["solution"])
+    nav = prerequis.navigateur()
+    item("web", "Navigateur web", nav["ok"], nav["detail"], nav["solution"], optionnel=True)
     item("xray", "Xray", *res("xray"),
          "Renseigne XRAY_CLIENT_ID / XRAY_CLIENT_SECRET (et XRAY_CA_BUNDLE derrière le proxy).")
     item("jira", "Jira", *res("jira"),
@@ -2488,7 +2497,11 @@ def contexte():
     cache = state["sante_cache"]
     xray = cache.get("xray")
     pa = projets.actif() or {}
-    return {"projet": pa.get("nom") or projet.PROJECT_DIR.name, "projet_chemin": str(projet.PROJECT_DIR),
+    from atelier.domain import prerequis
+
+    pr = prerequis.projet()
+    return {"projet_alerte": None if pr["ok"] else pr,
+            "projet": pa.get("nom") or projet.PROJECT_DIR.name, "projet_chemin": str(projet.PROJECT_DIR),
             "projet_id": pa.get("id", ""), "projet_xray": pa.get("xray_projet", ""), "filtre_application": _filtre_app_ctx(), "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"), "projet_jira": pa.get("jira_projet") or pa.get("xray_projet", ""),
             "projets": [{"id": p["id"], "nom": p["nom"]} for p in projets.lister()["projets"]],
             "applications": [{"slug": a["slug"], "nom": a.get("nom", a["slug"])} for a in amap.apps()],

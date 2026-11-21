@@ -1,3 +1,7 @@
+# Installation : python installer.py   (ou : pip install -r requirements.txt, PUIS « playwright install chromium »)
+# pip installe la bibliothèque Playwright mais PAS son navigateur : sans « playwright install chromium », Discovery web
+# et les tests web ne démarrent pas. Derrière un proxy qui bloque ce téléchargement : WEB_BROWSER_EXECUTABLE vers
+# Chrome ou Edge déjà installé. Lancer ensuite l'atelier avec ROBOT_PROJECT_DIR vers le dossier du projet de tests.
 mcp>=1.2,<2                    # mcp 2.x renomme FastMCP : migration à planifier
 Appium-Python-Client>=4.0
 robotframework>=7.0

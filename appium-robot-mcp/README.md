@@ -6,6 +6,20 @@ web de contrôle.
 Serveur MCP qui branche Claude Desktop sur un device Android / iOS via Appium, pour relever
 les locators, générer la couche locators Robot Framework (POM) et lancer / analyser les suites.
 
+## Installation rapide (Windows, Linux, macOS)
+
+```bash
+python -m venv .venv            # Windows sans « python » : py -m venv .venv
+.venv\Scripts\activate          # Linux / macOS : source .venv/bin/activate
+python installer.py             # dépendances + navigateur Chromium de Playwright (pip ne l'installe pas)
+set ROBOT_PROJECT_DIR=C:\…\mes-tests   # dossier du projet de tests (Linux / macOS : export …)
+python web/app.py               # http://127.0.0.1:8765
+```
+
+Au lancement, la console affiche le projet de tests utilisé et ce qui manque. Sans `ROBOT_PROJECT_DIR` ni projet choisi
+dans Paramètres › Projets, l'atelier prendrait son propre dossier : un bandeau le signale dans l'interface, avec un
+lien pour choisir ou créer le projet.
+
 ## Installation (macOS)
 
 ```bash

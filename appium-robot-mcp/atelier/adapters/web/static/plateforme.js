@@ -326,6 +326,14 @@ const Atelier = {
   async chargerContexte() {
     try { this.ctx = await api("/api/contexte"); } catch (e) { this.ctx = {erreur: e.message}; }
     const c = this.ctx;
+    /* bandeau : pas de projet de tests choisi, l'atelier écrirait dans son propre dossier */
+    let bandeau = document.getElementById("alerte-projet");
+    if (c.projet_alerte) {
+      if (!bandeau) { bandeau = document.createElement("div"); bandeau.id = "alerte-projet"; bandeau.className = "alerte-projet"; bandeau.setAttribute("role", "alert"); $("#ecran").before(bandeau); }
+      const raison = c.projet_alerte.raison || "";
+      bandeau.innerHTML = `<b>${esc(raison.charAt(0).toUpperCase() + raison.slice(1))}</b> <span class="lib">(${esc(c.projet_alerte.dossier)})</span>.
+        <a class="btn petit primaire" href="#parametres/projets">Choisir ou créer un projet</a> <span class="lib">ou relancer avec ROBOT_PROJECT_DIR vers le dossier de tests.</span>`;
+    } else if (bandeau) bandeau.remove();
     const plats = c.plateformes?.length ? c.plateformes : ["android", "ios", "web"];
     if (!this.plateforme || !plats.includes(this.plateforme)) this.plateforme = c.session || c.flux?.platform || plats[0];
     if (!this.env || !(c.environnements || []).includes(this.env)) this.env = (c.environnements || [])[0] || "";
