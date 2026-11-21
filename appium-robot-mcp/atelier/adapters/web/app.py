@@ -598,6 +598,9 @@ async def action(req: Request):
 def _grab() -> bytes | None:
     """Image courante : navigateur du MCP en web, adb / simctl en mobile (sans passer par Appium)."""
     p, udid = state["flux"].get("platform"), state["flux"].get("udid")
+    ir = state.get("image_run")  # run web en cours : la dernière image du navigateur du run
+    if ir and time.time() - ir["t"] < 20:
+        return ir["img"]
     try:
         if p == "web":
             if session.is_web():
@@ -623,6 +626,23 @@ def _grab() -> bytes | None:
     except Exception:
         return None
     return None
+
+
+@app.post("/api/run/image")
+async def run_image(req: Request):
+    """Image du navigateur d'un run web (listener du run, jeton des processus) : l'aperçu en direct l'affiche."""
+    import base64
+
+    b = await req.json()
+    try:
+        img = base64.b64decode(b.get("image") or "")
+    except ValueError:
+        img = b""
+    if not img or len(img) > 4_000_000:
+        raise HTTPException(400, "Image absente ou trop grande.")
+    state["image_run"] = {"img": img, "t": time.time()}
+    emit({"type": "run_image"})
+    return {"ok": True}
 
 
 @app.post("/api/mcp/image")
@@ -751,7 +771,7 @@ async def frame():
     png = await asyncio.to_thread(_grab)
     if not png:
         raise HTTPException(404, "Rien à afficher.")
-    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
+    return Response(png, media_type="image/jpeg" if png[:3] == b"\xff\xd8\xff" else "image/png", headers={"Cache-Control": "no-store"})
 
 
 # --------------------------------------------------------------------------- locators

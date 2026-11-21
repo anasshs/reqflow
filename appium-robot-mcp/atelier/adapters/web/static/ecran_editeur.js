@@ -38,7 +38,7 @@
           <div class="tabs-fichiers" id="e-tabs" role="tablist"></div>
           <div class="fil"><span class="lib" id="e-fil"></span><div class="bascule-mode" id="e-panneaux" role="group" aria-label="Panneaux affichés autour du code">
               <button data-panneau="gauche" title="Explorateur et réutilisation (à gauche)">Explorateur</button><button data-panneau="props" title="Propriétés du test">Propriétés</button>
-              <button data-panneau="mobile" title="Aperçu mobile (live)">Aperçu</button><button data-panneau="bas" title="Sortie, problèmes, dépendances et captures (en bas)">Bas</button>
+              <button data-panneau="mobile" title="Aperçu du device, de l'émulateur ou du navigateur (live, y compris pendant un run web)">Aperçu</button><button data-panneau="bas" title="Sortie, problèmes, dépendances et captures (en bas)">Bas</button>
               <button id="e-concentre" title="Ne garder que le code, ou tout réafficher">Code seul</button></div>
             <div class="bascule-mode"><button aria-pressed="true">Mode source</button><button id="e-visuel" title="Ouvrir le scénario BDD du test">Mode visuel</button></div></div>
           <div id="e-brouillon" role="status" hidden></div>
@@ -49,7 +49,7 @@
             <span style="margin-left:auto" id="e-robocop-statut"></span><span id="e-lint-statut"></span></div>
         </section>
         <section class="carte"><h2 class="titre-carte">Propriétés du test<span class="actions-titre"><button class="icone" id="e-props-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2><div class="corps-carte" id="e-props"></div></section>
-        <section class="carte"><h2 class="titre-carte">Aperçu mobile (live)<span class="actions-titre"><button class="icone" id="e-frame-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2>
+        <section class="carte"><h2 class="titre-carte">Aperçu (live)<span class="actions-titre"><button class="icone" id="e-frame-r" title="Rafraîchir">${ico("rejouer")}</button></span></h2>
           <div class="sous-onglets" id="e-mob-onglets"><button aria-selected="true" data-mp="android">Android</button><button aria-selected="false" data-mp="ios">iOS</button>
             <button style="margin-left:auto" id="e-identifier" title="Identifier l'écran courant dans la carte (enregistre l'observation)">Identifier l'écran</button></div>
           <div class="corps-carte" style="padding:10px;display:flex;justify-content:center;overflow:hidden"><div class="mobile" id="e-mobile"></div></div>
@@ -122,6 +122,7 @@
       contexte();
       desabo = [Atelier.on("contexte", contexte), ...["run_lance", "run_debut", "test_debut", "kw_debut", "kw_fin", "test_fin", "run_bilan", "journal"].map(t => Atelier.on(t, sortie))];
       minuterie = setInterval(frame, 2500);
+      desabo.push(Atelier.on("run_image", () => { const t = Date.now(); if (t - (S.derniereImage || 0) > 900) { S.derniereImage = t; frame(); } }));
       arbre();
       chargerReutil();
       captures();
@@ -729,9 +730,22 @@
     const z = $("#e-mobile");
     if (!z || z.closest("section").hidden) return;  // aperçu replié : aucune image demandée
     const img = new Image();
-    img.alt = "Écran du device ou du navigateur";
-    img.onload = () => { z.replaceChildren(img); };
-    img.onerror = () => { z.innerHTML = `<span style="padding:20px">Aucun écran en direct.<br><br>Connecter un device ou un navigateur (interface classique › Connecter).</span>`; };
+    img.alt = "Écran du device ou du navigateur (run web compris)";
+    img.onload = () => {
+      const web = img.naturalWidth > img.naturalHeight;  // page web (run web compris) : cadre de navigateur, pas de téléphone
+      z.classList.toggle("navigateur", web);
+      $$("#e-mob-onglets [data-mp]").forEach(o => { o.hidden = web; });
+      let lib = $("#e-mob-web");
+      if (web && !lib) {
+        lib = document.createElement("span"); lib.id = "e-mob-web"; lib.className = "lib"; lib.style.padding = "8px 12px";
+        lib.textContent = "Navigateur (page web) · clic pour agrandir"; $("#e-mob-onglets").prepend(lib);
+      }
+      if (lib) lib.hidden = !web;
+      img.style.cursor = web ? "zoom-in" : "";
+      img.onclick = web ? () => modale("Aperçu du navigateur", `<img alt="Page web en direct" src="${img.src}" style="width:100%;border:1px solid var(--line);border-radius:6px">`) : null;
+      z.replaceChildren(img);
+    };
+    img.onerror = () => { z.innerHTML = `<span style="padding:20px">Aucun écran en direct.<br><br>Pendant un run web, le navigateur du run s'affiche ici. Sinon : connecter un device ou un navigateur.</span>`; };
     img.src = "/api/frame.png?t=" + Date.now();
   }
 

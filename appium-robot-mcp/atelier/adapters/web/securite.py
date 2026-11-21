@@ -23,7 +23,7 @@ from pathlib import Path
 from atelier.integrations.interface_web import ENTETE_JETON, FICHIER_JETON_DEFAUT
 
 COOKIE = "atelier_jeton"
-ROUTES_PROCESSUS = ("/api/events", "/api/externe/", "/api/mcp/image", "/api/mcp/controle")
+ROUTES_PROCESSUS = ("/api/events", "/api/externe/", "/api/mcp/image", "/api/mcp/controle", "/api/run/image")
 TAILLE_MAX_DEFAUT = 2 * 1024 * 1024
 PAGES = ("/", "/plateforme")  # pages qui posent le cookie de session
 

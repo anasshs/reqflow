@@ -391,3 +391,23 @@ def test_modeles_de_demandes_cursor(demo):
     assert studio_avance.modeles()["web"]["titre"] == "Test web depuis un scénario BDD"  # défaut rétabli
     with pytest.raises(ValueError):
         studio_avance.enregistrer_modele("Mauvais Nom", "t", "x")
+
+
+def test_apercu_run_web(projet):
+    """Image du navigateur d'un run web : reçue avec le jeton des processus, servie par l'aperçu en direct."""
+    pytest.importorskip("fastapi")
+    import base64
+
+    from fastapi.testclient import TestClient
+    from web_app_loader import charger_app_web, module_web
+
+    web = module_web()
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 64
+    corps = {"image": base64.b64encode(jpeg).decode(), "type": "jpeg"}
+    assert c.post("/api/run/image", json=corps).status_code == 401  # jeton des processus exigé
+    assert c.post("/api/run/image", json=corps, headers={"X-Atelier-Jeton": web.JETON_PROCESSUS}).status_code == 200
+    c.get("/")
+    r = c.get("/api/frame.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg" and r.content == jpeg
+    web.state.pop("image_run", None)

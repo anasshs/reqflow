@@ -232,7 +232,43 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
     def end_keyword(self, data, result):
         if self.kw_depth <= 3:
             self._emit("kw_fin", nom=result.name, statut=result.status, niveau=self.kw_depth)
+        self._apercu_web(result)
         self.kw_depth -= 1
+
+    APERCU_INTERVALLE_S = 1.0
+
+    def _apercu_web(self, result):
+        """Aperçu en direct d'un run web : après une action Browser (au plus une image par seconde), capture JPEG
+        réduite, jamais écrite dans le rapport, envoyée à l'interface. Une erreur (pas de page, interface fermée)
+        n'a aucun effet sur le run."""
+        if not self.cfg.get("events_url"):
+            return
+        bib = getattr(result, "owner", None) or getattr(result, "libname", "") or ""
+        if bib != "Browser" or time.time() - getattr(self, "_apercu_t", 0) < self.APERCU_INTERVALLE_S:
+            return
+        if str(result.name).lower().replace(" ", "").startswith(("take", "get", "close", "new browser", "newbrowser")):
+            return
+        self._apercu_t = time.time()
+        try:
+            from robot.libraries.BuiltIn import BuiltIn
+
+            from Browser.utils.data_types import ScreenshotFileTypes, ScreenshotReturnType
+
+            b = BuiltIn().get_library_instance("Browser")
+            img = b.take_screenshot(filename=None, fileType=ScreenshotFileTypes.jpeg, quality=55, log_screenshot=False,
+                                    return_as=ScreenshotReturnType.base64)
+        except Exception:
+            return
+        if img:
+            url = self.cfg["events_url"].rsplit("/api/", 1)[0] + "/api/run/image"
+            threading.Thread(target=self._envoyer_image, args=(url, img), daemon=True).start()
+
+    def _envoyer_image(self, url: str, img):
+        try:
+            data = json.dumps({"image": img if isinstance(img, str) else img.decode(), "type": "jpeg"}).encode()
+            urllib.request.urlopen(urllib.request.Request(url, data=data, headers=interface_web.entetes(), method="POST"), timeout=3).read()
+        except Exception:
+            pass  # l'interface peut être fermée : le run continue
 
     # ------------------------------------------------------------------ fin
     def close(self):
