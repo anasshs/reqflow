@@ -20,6 +20,12 @@ les locators, générer la couche locators Robot Framework (POM) et lancer / ana
 | Dépendances (`requirements.txt`) | « à jour » | installées (et réinstallées si le fichier change) |
 | Navigateur Chromium (Playwright) | utilisé | installé ; si le proxy bloque : Chrome ou Edge du poste |
 | Projet de tests | utilisé | demandé (dépôt existant, ou un dossier créé) et enregistré dans Paramètres › Projets |
+| Cursor (s'il est sur le poste) | « branché » | propose de brancher l'atelier (MCP, sauvegarde `.bak`) et de copier ses règles ; mode « ligne de commande » sans agent Cursor installé : propose la boîte de demandes |
+
+Cursor et l'adresse du MCP : `http://127.0.0.1:8765` est l'**interface web**, pas le serveur MCP (`/mcp` y répond 404).
+Par défaut Cursor lance lui-même l'atelier (mode stdio, aucune URL). Si Cursor n'accepte que des URL, le MCP est servi
+par l'atelier sur **`http://localhost:<MCP_HTTP_PORT>/mcp`** (8000 proposé par l'assistant, retenu dans
+`~/.atelier-poste.json`) : l'assistant le détecte et corrige une configuration qui pointe sur 8765.
 
 Puis « Atelier prêt » : il démarre et s'ouvre dans le navigateur (http://127.0.0.1:8765). Poste déjà prêt : moins
 d'une seconde de vérification, rien n'est réinstallé. Options : `--verifier` (préparer sans lancer, équivalent de

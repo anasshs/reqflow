@@ -68,3 +68,50 @@ def test_lanceur_windows_trouve_python_et_propose_de_l_installer():
     assert "py -3 -c" in cmd and "python -c" in cmd and "winget install -e --id Python.Python.3.13" in cmd and "lanceur.py %*" in cmd
     attr = (Path(__file__).resolve().parents[1] / ".gitattributes").read_text(encoding="utf-8")
     assert "*.cmd text eol=crlf" in attr
+
+
+def test_cursor_branche_et_mode_d_envoi(l, monkeypatch):
+    """Cursor sur le poste : l'atelier y est branché (MCP + règles) et la ligne de commande sans agent installé bascule sur
+    la boîte de demandes — chaque changement demandé avant d'être fait ; sans Cursor, rien n'est touché."""
+    etat = {"cursor_present": True, "mcp_installe": False, "mcp_a_jour": False, "erreur": "", "envoi": "cli", "cli": False, "fournisseur": "cursor"}
+    appels = []
+
+    def venv(code, *args, env=None):
+        appels.append((code, args))
+        return etat if code == l.m.CODE_CURSOR else {"ok": True, "fichier": "~/.cursor/mcp.json", "sauvegarde": "", "regles": 11}
+    monkeypatch.setattr(l.m, "_venv_json", venv)
+    reponses = iter(["", "o"])                                                          # Entrée = oui
+    assert l.m.etape_cursor({}, 8765, interactif=True, saisie=lambda _: next(reponses))
+    faits = [c for c, _ in appels]
+    assert l.m.CODE_BRANCHER in faits and (l.m.CODE_ENVOI, ("boite",)) in appels
+    appels.clear()
+    assert l.m.etape_cursor({}, 8765, interactif=True, saisie=lambda _: "n")             # refusé : rien n'est modifié
+    assert [c for c, _ in appels] == [l.m.CODE_CURSOR] and l.m.A_REGLER
+    appels.clear()
+    assert l.m.etape_cursor({}, 8765, interactif=False)                                   # non interactif : signalé seulement
+    assert [c for c, _ in appels] == [l.m.CODE_CURSOR]
+    etat.update(cursor_present=False, fournisseur="aucun")
+    appels.clear()
+    assert l.m.etape_cursor({}, 8765, interactif=True, saisie=lambda _: pytest.fail("Cursor absent : rien à demander"))
+    assert [c for c, _ in appels] == [l.m.CODE_CURSOR]
+
+
+def test_cursor_par_url_sur_le_port_de_l_interface(l, monkeypatch):
+    """Cursor configuré par URL vers l'interface (8765) : signalé ; le mode HTTP du MCP (localhost:8000/mcp) est proposé,
+    retenu sur le poste et passé à l'atelier à chaque lancement."""
+    etats = [{"cursor_present": True, "mcp_installe": True, "mcp_a_jour": False, "erreur": "", "envoi": "boite", "cli": False,
+              "fournisseur": "cursor", "url_actuelle": "http://127.0.0.1:8765", "mcp_http_port": None},
+             {"cursor_present": True, "mcp_installe": True, "mcp_a_jour": False, "erreur": "", "envoi": "boite", "cli": False,
+              "fournisseur": "cursor", "url_actuelle": "http://127.0.0.1:8765", "mcp_http_port": 8000}]
+    appels = []
+
+    def venv(code, *args, env=None):
+        appels.append((code, dict(env or {})))
+        return etats.pop(0) if code == l.m.CODE_CURSOR else {"ok": True, "fichier": "mcp.json", "sauvegarde": "mcp.json.bak", "regles": 0}
+    monkeypatch.setattr(l.m, "_venv_json", venv)
+    env = {}
+    assert l.m.etape_cursor(env, 8765, interactif=True, saisie=lambda _: "o")
+    assert any("interface web" in a for a in l.m.A_REGLER)
+    assert env["MCP_HTTP_PORT"] == "8000" and l.m.lire_poste()["MCP_HTTP_PORT"] == "8000"
+    branchement = next(e for c, e in appels if c == l.m.CODE_BRANCHER)
+    assert branchement["MCP_HTTP_PORT"] == "8000"                                        # l'entrée écrite est l'URL http://localhost:8000/mcp

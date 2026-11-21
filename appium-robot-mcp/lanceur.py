@@ -9,7 +9,11 @@
   2. l'environnement .venv de l'atelier (créé s'il n'existe pas) ;
   3. les dépendances de requirements.txt (installées si le fichier a changé depuis la dernière installation) ;
   4. le navigateur Chromium de Playwright (installé s'il manque ; sinon Chrome ou Edge du poste en secours) ;
-  5. le projet de tests (demandé et enregistré s'il n'y en a pas : l'atelier n'écrit jamais dans son propre dossier).
+  5. le projet de tests (demandé et enregistré s'il n'y en a pas : l'atelier n'écrit jamais dans son propre dossier) ;
+  6. Cursor, s'il est sur le poste : l'atelier branché dans Cursor (MCP : stdio, ou par URL http://localhost:8000/mcp si
+     Cursor est configuré par URL — jamais l'adresse de l'interface 8765) et ses règles copiées dans le projet, et un mode
+     d'envoi des demandes qui marche (la ligne de commande sans l'agent Cursor installé bascule sur la boîte de demandes).
+     Ces changements de configuration sont demandés avant d'être faits.
 Si tout est en place : « Atelier prêt », et il démarre directement, puis s'ouvre dans le navigateur.
 
 Options : --verifier (vérifier et installer, sans lancer), --sans-ouvrir (ne pas ouvrir le navigateur),
@@ -202,6 +206,86 @@ def etape_projet(env: dict, interactif: bool, saisie=input) -> bool:
     return True
 
 
+CODE_CURSOR = ("import json, sys; from atelier.domain import projets; projets.au_demarrage(); "
+               "from atelier.integrations import agents_ia, boite_cursor; from atelier.intelligence import fournisseur_ia; "
+               "port = int(sys.argv[1]); c = agents_ia.etat(port)['agents']['cursor']; "
+               "e = {} if c['erreur'] else (agents_ia._lire(agents_ia.fichier_config('cursor')).get('mcpServers') or {}).get(agents_ia.NOM) or {}; "
+               "print(json.dumps({'cursor_present': c['dossier_agent'], 'mcp_installe': c['installe'], 'mcp_a_jour': c['a_jour'], "
+               "'url_actuelle': e.get('url', ''), 'mcp_http_port': agents_ia.port_http(), "
+               "'erreur': c['erreur'], 'envoi': boite_cursor.envoi(), 'cli': boite_cursor.cli()['trouvee'], "
+               "'fournisseur': fournisseur_ia.fournisseur()}))")
+PORT_MCP_HTTP = 8000
+CODE_BRANCHER = ("import json, sys; from atelier.domain import projets; projets.au_demarrage(); from atelier.integrations import agents_ia; "
+                 "r = agents_ia.installer('cursor', int(sys.argv[1])); g = agents_ia.installer_regles(False); "
+                 "print(json.dumps({'ok': True, 'fichier': r['fichier'], 'sauvegarde': r['sauvegarde'], 'regles': len(g['copiees'])}))")
+CODE_ENVOI = ("import json, sys; from atelier.domain import projets; projets.au_demarrage(); from atelier.integrations import boite_cursor; "
+              "boite_cursor.regler_envoi(sys.argv[1]); print(json.dumps({'ok': True}))")
+
+
+def _oui(question: str, saisie) -> bool:
+    return (saisie(f"  {question} [O/n] ") or "o").strip().lower() in ("o", "oui", "y", "yes")
+
+
+def _venv_json(code: str, *args, env=None) -> dict:
+    r = executer([python_venv(), "-c", code, *args], capture_output=True, text=True, env=env)
+    try:
+        return json.loads((r.stdout or "").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {"erreur": (r.stderr or r.stdout or "").strip()[-300:]}
+
+
+def etape_cursor(env: dict, port: int, interactif: bool, saisie=input) -> bool:
+    """Cursor (facultatif) : MCP de l'atelier branché, règles copiées, mode d'envoi des demandes utilisable."""
+    c = _venv_json(CODE_CURSOR, port, env=env)
+    if c.get("erreur") and "cursor_present" not in c:
+        alerte(f"Cursor : vérification impossible ({c['erreur'][:160]}).")
+        return True
+    if not c["cursor_present"] and c.get("fournisseur") != "cursor":
+        ok("Cursor : absent du poste (facultatif, l'atelier fonctionne sans)")
+        return True
+    # Cursor configuré par URL (liste blanche d'URL côté Cursor) : le MCP HTTP de l'atelier est sur MCP_HTTP_PORT, à
+    # l'adresse http://localhost:<port>/mcp — jamais sur le port de l'interface web (8765)
+    if c.get("url_actuelle") and not c.get("mcp_http_port"):
+        if f":{port}" in c["url_actuelle"]:
+            alerte(f"Cursor pointe sur {c['url_actuelle']} : c'est l'interface web de l'atelier, pas son serveur MCP.")
+        if interactif and _oui(f"Cursor est configuré par URL : servir le MCP de l'atelier en HTTP sur http://localhost:{PORT_MCP_HTTP}/mcp "
+                               "(port retenu pour les prochains lancements) ?", saisie):
+            d = lire_poste()
+            d["MCP_HTTP_PORT"] = str(PORT_MCP_HTTP)
+            ecrire_poste(d)
+            env["MCP_HTTP_PORT"] = str(PORT_MCP_HTTP)
+            c = _venv_json(CODE_CURSOR, port, env=env)
+    if c.get("erreur"):
+        alerte(f"Cursor : {c['erreur']}")
+    elif not c["mcp_a_jour"]:
+        quoi = "mettre à jour le branchement de l'atelier dans Cursor" if c["mcp_installe"] else "brancher l'atelier dans Cursor (MCP)"
+        if interactif and _oui(f"Cursor : {quoi} et copier ses règles dans le projet ?", saisie):
+            r = _venv_json(CODE_BRANCHER, port, env=env)
+            if r.get("ok"):
+                if env.get("MCP_HTTP_PORT"):
+                    ok(f"Cursor : MCP par URL http://localhost:{env['MCP_HTTP_PORT']}/mcp (servi par l'atelier à chaque lancement)")
+                ok(f"Cursor : atelier branché ({r['fichier']}{', sauvegarde .bak' if r.get('sauvegarde') else ''}), "
+                   f"{r['regles']} règle(s) copiée(s) ; redémarrer Cursor pour le prendre en compte")
+            else:
+                alerte(f"Cursor : branchement impossible ({r.get('erreur', '')[:160]}) ; le faire dans Paramètres › Cursor / Claude.")
+        else:
+            alerte(f"Cursor : {quoi} (Paramètres › Cursor / Claude, en un clic).")
+    else:
+        ok("Cursor : atelier branché (MCP à jour)")
+    if c.get("envoi") == "cli" and not c.get("cli"):
+        if interactif and _oui("Demandes à Cursor en « ligne de commande », mais l'agent Cursor en ligne de commande n'est pas installé : "
+                               "passer à la « boîte de demandes » (rien à installer) ?", saisie):
+            if _venv_json(CODE_ENVOI, "boite", env=env).get("ok"):
+                ok("Cursor : demandes envoyées par la boîte de demandes (dire une fois dans Cursor « Traite les demandes de l'atelier »)")
+        else:
+            alerte("Cursor : mode « ligne de commande » sans l'agent Cursor installé (commande « agent ») : installer Cursor CLI, "
+                   "régler ATELIER_CURSOR_CLI, ou choisir la boîte de demandes (Paramètres › Cursor / Claude).")
+    elif c.get("envoi"):
+        mode = {"lien": "le chat (lien)", "boite": "la boîte de demandes", "cli": "la ligne de commande"}.get(c["envoi"], c["envoi"])
+        ok(f"Cursor : demandes envoyées par {mode}")
+    return True
+
+
 # =========================================================================== lancement
 def attendre(url: str, delai: float = 60) -> bool:
     fin = time.time() + delai
@@ -235,13 +319,14 @@ def main(argv=None) -> int:
     a.add_argument("--port", type=int, default=int(os.environ.get("WEB_PORT") or 8765))
     o = a.parse_args(argv)
     print("\nAtelier : préparation du poste")
-    env = {**os.environ, **{k: v for k, v in lire_poste().items() if k == "WEB_BROWSER_EXECUTABLE" and not os.environ.get(k)}}
+    env = {**os.environ, **{k: v for k, v in lire_poste().items() if k in ("WEB_BROWSER_EXECUTABLE", "MCP_HTTP_PORT") and not os.environ.get(k)}}
     etapes_faites = [etape_python() and etape_venv() and etape_dependances(o.reinstaller)]
     if not etapes_faites[0]:
         alerte("Poste non prêt : corriger ci-dessus, puis relancer.")
         return 1
     etape_navigateur(env)
     etape_projet(env, interactif=sys.stdin.isatty())
+    etape_cursor(env, o.port, interactif=sys.stdin.isatty())
     print(f"\n  Atelier prêt{f' ({len(A_REGLER)} point(s) à régler ci-dessus, non bloquant)' if A_REGLER else ''}.")
     if o.verifier:
         return 0
