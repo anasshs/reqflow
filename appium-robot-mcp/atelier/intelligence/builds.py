@@ -106,8 +106,43 @@ def _anomalies(b: dict) -> list[str]:
     return list(dict.fromkeys((b.get("anomalies_declarees") or []) + (b.get("anomalies_citees") or [])))
 
 
-def analyser(r: dict, b: dict, g=None) -> dict:
-    """Comparaison du build avec le build précédent et le périmètre initial, puis périmètre recommandé en trois catégories."""
+DELTA = {"nouveau": "nouveau à jouer", "a_rejouer": "à rejouer (échec sur le build précédent)",
+         "deja_reussi": "déjà réussi sur le build précédent, non touché", "reconduit": "reconduit du build précédent"}
+
+
+def apres_reception(b: dict, fin: str) -> bool:
+    """Un résultat compte pour le build s'il est postérieur à sa réception : à la journée près, sauf le jour même de la
+    réception enregistrée, où l'heure fait foi (deux builds reçus le même jour ne partagent pas leurs résultats)."""
+    fin = str(fin or "")
+    if not fin or fin[:10] < b["date_reception"]:
+        return False
+    recu = str(b.get("recu_le") or "")
+    return not (fin[:10] == b["date_reception"] == recu[:10]) or fin[:19] >= recu[:19]
+
+
+def _resultats_du_build(r: dict, b: dict, suivant: dict, info: dict) -> dict:
+    """{test: réussi | échec | bloqué} obtenus PENDANT le build b (entre sa réception et celle du suivant) : statuts
+    posés depuis l'atelier dans ses exécutions Xray, sinon dernier résultat Xray de cette période."""
+    from atelier.intelligence import plan_release
+
+    p = _pilotage()
+    out = {}
+    for cle, t in info.items():
+        sx = t.get("statut_xray") or {}
+        fin = str(sx.get("fin") or "")
+        if apres_reception(b, fin) and not apres_reception(suivant, fin):
+            c = p._classe(sx.get("statut", ""))
+            if c in ("reussi", "echec", "bloque"):
+                out[cle] = c
+    for cle, s in plan_release.statuts_locaux(r, b["id"]).items():
+        if s["statut"] in plan_release.CLASSE:
+            out[cle] = plan_release.CLASSE[s["statut"]]
+    return out
+
+
+def analyser(r: dict, b: dict, g=None, delta: bool = True) -> dict:
+    """Comparaison du build avec le build précédent et le périmètre initial, puis périmètre recommandé en trois catégories.
+    delta : chaque test est situé par rapport au build précédent (nouveau, à rejouer, déjà réussi et non touché, reconduit)."""
     p = _pilotage()
     g = g or R._graphe()
     pat = p._pat()
@@ -200,7 +235,7 @@ def analyser(r: dict, b: dict, g=None) -> dict:
         t = info.get(cle) or {}
         sx = t.get("statut_xray") or {}
         classe = p._classe(sx.get("statut", ""))
-        execute = classe in ("reussi", "echec", "bloque") and str(sx.get("fin") or "")[:10] >= b["date_reception"]
+        execute = classe in ("reussi", "echec", "bloque") and apres_reception(b, sx.get("fin"))
         loc = locaux.get(cle)
         if loc and loc["statut"] in plan_release.CLASSE and (not execute or loc["date"][:19] >= str(sx.get("fin") or "")[:19]):
             sx, classe, execute = {"statut": loc["statut"], "fin": loc["date"]}, plan_release.CLASSE[loc["statut"]], True
@@ -213,6 +248,16 @@ def analyser(r: dict, b: dict, g=None) -> dict:
                        "execute": execute, "resultat": classe if execute else "", "decision": d.get("decision", ""),
                        "decision_par": d.get("par", ""), "decision_motif": d.get("motif", "")})
     lignes.sort(key=lambda x: (ORDRE[x["categorie"]], x["impact"] != "direct", x["test"]))
+    if delta and precedent:  # ce qui change par rapport au build précédent : l'essentiel pour des builds successifs
+        pa = analyser(r, precedent, g, delta=False)["perimetre"]
+        avant_tests = set(precedent["perimetre_valide"]["tests"]) if precedent.get("perimetre_valide") else {x["test"] for x in _retenus(pa)}
+        res = _resultats_du_build(r, precedent, b, info)
+        for x in lignes:
+            touche = x["categorie"] == "retest" or x["impact"] in ("direct", "ia", "ajout")
+            x["delta"] = ("nouveau" if x["test"] not in avant_tests else "a_rejouer" if res.get(x["test"]) in ("echec", "bloque")
+                          else "deja_reussi" if res.get(x["test"]) == "reussi" and not touche else "reconduit")
+            x["resultat_precedent"] = res.get(x["test"], "")
+        comparaison["delta"] = {"precedent": precedent["numero"], **{k: sum(x["delta"] == k for x in lignes) for k in DELTA}}
     return {"comparaison": comparaison, "perimetre": lignes,
             "interpretation": {k: avis.get(k) for k in ("source", "date", "synthese", "refus")} if avis else None}
 
@@ -316,7 +361,7 @@ def operer(rid: str, bid: str, op: str, **p) -> dict:
     elif op == "valider":
         if b["statut"] != "Reçu":
             raise ValueError("Périmètre déjà validé.")
-        retenus = [x["test"] for x in _retenus(analyser(r, b)["perimetre"])]
+        retenus = [x["test"] for x in _retenus(analyser(r, b, delta=False)["perimetre"])]
         if not retenus:
             raise ValueError("Aucun test dans le périmètre : ajouter des tests, ou rattacher les évolutions au Knowledge Graph.")
         b["perimetre_valide"] = {"tests": retenus, "par": par, "date": R._maintenant()}
@@ -327,10 +372,13 @@ def operer(rid: str, bid: str, op: str, **p) -> dict:
             raise ValueError("Valider d'abord le périmètre du build.")
         from atelier.execution import centre
 
-        lignes = [x for x in analyser(r, b)["perimetre"] if x["test"] in set(b["perimetre_valide"]["tests"])]
+        lignes = [x for x in analyser(r, b, delta=False)["perimetre"] if x["test"] in set(b["perimetre_valide"]["tests"])]
         autos = [x["test"] for x in lignes if x["automatise"]]
         if not autos:
             raise ValueError("Aucun test automatisé dans le périmètre validé : les tests manuels s'exécutent dans Xray.")
+        execs = [e for e in (r.get("plan") or {}).get("executions") or [] if e["build"] == b["id"]]
+        if p.get("par_execution") and execs:
+            return _campagnes_par_execution(r, b, autos, execs, par)
         # plateformes : celles choisies, sinon celles des scripts des tests retenus
         plateformes = p.get("plateformes") or sorted({pl for x in _pilotage()._referentiel() for pl in x.get("plateformes") or []
                                                       if set([x["cle_xray"]] if isinstance(x.get("cle_xray"), str) else x.get("cle_xray") or []) & set(autos)})
@@ -375,6 +423,36 @@ def operer(rid: str, bid: str, op: str, **p) -> dict:
     return vue(rid, bid)
 
 
+def _campagnes_par_execution(r: dict, b: dict, autos: list, execs: list, par: str) -> dict:
+    """Une campagne Execution Center par Test Execution Xray du build : ses tests automatisés, son environnement, et le run
+    écrit ses résultats dans CETTE exécution (mode « réutiliser »). Rien n'est lancé."""
+    from atelier.execution import centre
+
+    deja = {c.get("execution") for c in b.get("campagnes") or []}
+    crees = []
+    for e in execs:
+        tests = [t for t in autos if t in e["tests"]]
+        if not tests or e["xray"]["cle"] in deja:
+            continue
+        env = str(e.get("environnement") or "")
+        plateformes = [env.lower()] if env.lower() in centre.PLATEFORMES else sorted(
+            {pl for x in _pilotage()._referentiel() for pl in x.get("plateformes") or []
+             if set([x["cle_xray"]] if isinstance(x.get("cle_xray"), str) else x.get("cle_xray") or []) & set(tests)}) or ["web"]
+        avant = {c["id"] for c in centre.campagnes()}
+        apres = centre.enregistrer_campagne({"nom": e["nom"], "type": "TNR", "plateformes": plateformes, "environnement": env, "tests": tests,
+                                             "mode_execution": "reutiliser", "execution_xray": e["xray"]["cle"],
+                                             "description": f"Qualification de {r['nom']}, build {b['numero']} : résultats écrits dans {e['xray']['cle']}."})
+        c = next(c for c in apres if c["id"] not in avant)
+        b.setdefault("campagnes", []).append({"id": c["id"], "nom": c["nom"], "tests": len(tests), "execution": e["xray"]["cle"], "par": par, "date": R._maintenant()})
+        crees.append(c["id"])
+    if not crees:
+        raise ValueError("Aucune campagne à créer : pas de test automatisé dans les exécutions Xray du build, ou campagnes déjà créées.")
+    b["statut"] = "En exécution"
+    R._journal(r, "campagnes créées par exécution Xray", build=b["numero"], campagnes=len(crees))
+    R._ecrire(r)
+    return vue(r["id"], b["id"])
+
+
 # =========================================================================== vue release et qualification
 def criteres_sortie(r: dict, vues: list[dict]) -> list[dict]:
     """Critères de sortie de la release, évalués sur les résultats cumulés (le dernier build fait foi pour les tests)."""
@@ -410,7 +488,7 @@ def tableau(rid: str) -> dict:
     g = R._graphe()
     vues = []
     for b in r.get("builds") or []:
-        a = analyser(r, b, g)
+        a = analyser(r, b, g, delta=False)
         lignes = a["perimetre"] if not b.get("perimetre_valide") else [x for x in a["perimetre"] if x["test"] in set(b["perimetre_valide"]["tests"])]
         vues.append({"id": b["id"], "numero": b["numero"], "date_reception": b["date_reception"], "statut": b["statut"], "perimetre": lignes,
                      "resultats": _resultats(lignes), "anomalies": _anomalies_du_build(b, lignes), "comparaison": a["comparaison"],

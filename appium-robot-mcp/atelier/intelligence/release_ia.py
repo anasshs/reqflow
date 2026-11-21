@@ -78,7 +78,7 @@ def a_interpreter(rid: str, bid: str = "", limite_elements: int = 400, limite_te
                                     "justification": "…"}], "synthese": "deux ou trois phrases sur le risque du build"},
     }
     if b:
-        v = builds.analyser(r, b, g)
+        v = builds.analyser(r, b, g, delta=False)
         sortie["build"] = {"id": b["id"], "numero": b["numero"], "description": court(b.get("description"), 1000), "changements": court(b.get("changements"), 1000),
                            "anomalies_declarees": b.get("anomalies_declarees") or [], "precedent": v["comparaison"]["precedent"]}
         sortie["perimetre_des_regles"] = [{"test": x["test"], "categorie": x["categorie"], "impact": x["impact"], "motifs": x["motifs"]}

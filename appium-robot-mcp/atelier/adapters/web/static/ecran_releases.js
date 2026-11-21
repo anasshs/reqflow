@@ -156,55 +156,69 @@
     try { const r = await api(`/api/releases/${ID}/plan`, {method: "POST", body: corps_}); if (message) toast(message, "ok"); return r; }
     catch (e) { toast(e.message, "ko"); return null; } };
   let OUVERTE = "";
+  /* tableau des exécutions (onglet Plan et étape Exécution d'un build) : statuts par test, duplication pour un autre environnement */
+  const resumeStatuts = c => Object.entries(c).filter(([, n]) => n).map(([s_, n]) => pill(`${n} ${s_}`, STAT[s_])).join(" ");
+  const tableExecs = (p, l) => `<table class="table-strat"><tr><th>Test Execution</th><th>Nom</th><th>Environnement</th><th>Tests</th><th>Statuts</th><th></th></tr>${l.map(e => `<tr class="${e.id === OUVERTE ? "sel" : ""}">
+      <td>${lienJira(e.xray.cle)}</td><td>${esc(e.nom)}${e.copie_de ? ' <span class="lib">copie</span>' : ""}${e.absents.length ? ` <span class="pill warn" title="${esc(e.absents.join(", "))}">${e.absents.length} absent(s) de Xray</span>` : ""}</td>
+      <td>${e.environnement ? pill(e.environnement, "info") : '<span class="lib">aucun</span>'}</td><td>${e.tests.length}</td><td>${resumeStatuts(e.compte)}</td>
+      <td style="white-space:nowrap"><button class="btn petit" data-px-ouvrir="${e.id}">${e.id === OUVERTE ? "Fermer" : "Statuts"}</button>
+        ${e.envs_libres.length ? `<select class="in" data-px-env="${e.id}" style="width:auto" aria-label="Environnement de la copie">${e.envs_libres.map(x => `<option>${esc(x)}</option>`).join("")}</select><button class="btn petit" data-px-dup="${e.id}" title="Même exécution, mêmes tests, pour cet environnement">Dupliquer</button>` : ""}</td></tr>
+      ${e.id === OUVERTE ? `<tr><td colspan="6"><table class="table-strat">${e.tests.map(t => { const st = e.statuts[t]; return `<tr><td><b>${esc(t)}</b></td>
+        <td><select class="in" data-px-statut="${e.id}" data-t="${esc(t)}" style="width:auto" aria-label="Statut de ${esc(t)}">${p.statuts.map(s_ => `<option ${s_ === (st?.statut || "TO DO") ? "selected" : ""}>${s_}</option>`).join("")}</select></td>
+        <td class="lib">${st ? `posé par ${esc(st.par)} le ${date(st.date)}${st.commentaire ? " · " + esc(st.commentaire) : ""}` : "non mis à jour depuis l'atelier"}</td></tr>`; }).join("")}</table></td></tr>` : ""}`).join("")}</table>`;
+  function brancherExecs(z, rafraichir) {
+    $$("[data-px-ouvrir]", z).forEach(b => b.onclick = () => { OUVERTE = OUVERTE === b.dataset.pxOuvrir ? "" : b.dataset.pxOuvrir; rafraichir(); });
+    $$("[data-px-dup]", z).forEach(b => b.onclick = async () => { const env = $(`[data-px-env="${b.dataset.pxDup}"]`, z).value;
+      if (await opPlan({op: "dupliquer", execution: b.dataset.pxDup, environnement: env}, `Exécution dupliquée dans Xray pour ${env}.`)) rafraichir(); });
+    $$("[data-px-statut]", z).forEach(sel => sel.onchange = async () => {
+      if (await opPlan({op: "statut", execution: sel.dataset.pxStatut, test: sel.dataset.t, statut: sel.value}, `${sel.dataset.t} : ${sel.value} dans Xray.`)) rafraichir(); });
+  }
   async function planXray() {
     const z = $("#rl-onglet");
     let p;
     try { p = await api(`/api/releases/${ID}/plan`); } catch (e) { z.innerHTML = vide("Indisponible", esc(e.message)); return; }
     const parBuild = {};
     p.executions.forEach(e => (parBuild[e.build_numero] = parBuild[e.build_numero] || []).push(e));
-    const resume = c => Object.entries(c).filter(([, n]) => n).map(([s_, n]) => pill(`${n} ${s_}`, STAT[s_])).join(" ");
     z.innerHTML = `<p style="margin-top:0">${p.plan ? `Test Plan Xray ${lienJira(p.plan.cle)} <span class="lib">créé le ${date(p.plan.date)} par ${esc(p.plan.par)}</span>`
-        : `<span class="lib">Pas encore de Test Plan dans Xray.</span> <button class="btn petit primaire" id="px-plan">Créer le Test Plan de la release</button>`}
-      <span class="lib"> · Les exécutions se créent depuis un build (onglet Builds), avant ou après la validation de son périmètre.${p.environnements.length ? ` Environnements du projet : ${esc(p.environnements.join(", "))}.` : " Aucun environnement de test lu dans Xray."}</span></p>
-      ${p.executions.length ? Object.entries(parBuild).map(([num, l]) => `<h3 style="margin:12px 0 6px">Build ${esc(num)} <span class="lib">${l.length} exécution(s)</span></h3>
-        <table class="table-strat"><tr><th>Test Execution</th><th>Nom</th><th>Environnement</th><th>Tests</th><th>Statuts</th><th></th></tr>${l.map(e => `<tr class="${e.id === OUVERTE ? "sel" : ""}">
-          <td>${lienJira(e.xray.cle)}</td><td>${esc(e.nom)}${e.copie_de ? ' <span class="lib">copie</span>' : ""}${e.absents.length ? ` <span class="pill warn" title="${esc(e.absents.join(", "))}">${e.absents.length} absent(s) de Xray</span>` : ""}</td>
-          <td>${e.environnement ? pill(e.environnement, "info") : '<span class="lib">aucun</span>'}</td><td>${e.tests.length}</td><td>${resume(e.compte)}</td>
-          <td style="white-space:nowrap"><button class="btn petit" data-px-ouvrir="${e.id}">${e.id === OUVERTE ? "Fermer" : "Statuts"}</button>
-            ${e.envs_libres.length ? `<select class="in" data-px-env="${e.id}" style="width:auto" aria-label="Environnement de la copie">${e.envs_libres.map(x => `<option>${esc(x)}</option>`).join("")}</select><button class="btn petit" data-px-dup="${e.id}" title="Même exécution, mêmes tests, pour cet environnement">Dupliquer</button>` : ""}</td></tr>
-          ${e.id === OUVERTE ? `<tr><td colspan="6"><table class="table-strat">${e.tests.map(t => { const st = e.statuts[t]; return `<tr><td><b>${esc(t)}</b></td>
-            <td><select class="in" data-px-statut="${e.id}" data-t="${esc(t)}" style="width:auto" aria-label="Statut de ${esc(t)}">${p.statuts.map(s_ => `<option ${s_ === (st?.statut || "TO DO") ? "selected" : ""}>${s_}</option>`).join("")}</select></td>
-            <td class="lib">${st ? `posé par ${esc(st.par)} le ${date(st.date)}${st.commentaire ? " · " + esc(st.commentaire) : ""}` : "non mis à jour depuis l'atelier"}</td></tr>`; }).join("")}</table></td></tr>` : ""}`).join("")}</table>`).join("")
-        : vide("Aucune exécution", "Ouvrir un build : « Exécutions Xray » propose un découpage par type de test ou par module, avec un environnement par exécution.")}`;
+        : `<span class="lib">Pas encore de Test Plan dans Xray.</span> <button class="btn petit" id="px-plan">Créer le Test Plan de la release</button>`}
+      <span class="lib"> · Vue d'ensemble : les exécutions se créent et se suivent dans l'étape « Exécution » de chaque build.${p.environnements.length ? ` Environnements du projet : ${esc(p.environnements.join(", "))}.` : " Aucun environnement de test lu dans Xray."}</span></p>
+      ${p.executions.length ? Object.entries(parBuild).map(([num, l]) => `<h3 style="margin:12px 0 6px">Build ${esc(num)} <span class="lib">${l.length} exécution(s)</span></h3>${tableExecs(p, l)}`).join("")
+        : vide("Aucune exécution", "Ouvrir un build, étape « Exécution » : découpage par type de test ou par module, un environnement par exécution.")}`;
     if ($("#px-plan")) $("#px-plan").onclick = async () => { if (await opPlan({op: "plan"}, "Test Plan créé dans Xray.")) planXray(); };
-    $$("[data-px-ouvrir]", z).forEach(b => b.onclick = () => { OUVERTE = OUVERTE === b.dataset.pxOuvrir ? "" : b.dataset.pxOuvrir; planXray(); });
-    $$("[data-px-dup]", z).forEach(b => b.onclick = async () => { const env = $(`[data-px-env="${b.dataset.pxDup}"]`, z).value;
-      if (await opPlan({op: "dupliquer", execution: b.dataset.pxDup, environnement: env}, `Exécution dupliquée dans Xray pour ${env}.`)) planXray(); });
-    $$("[data-px-statut]", z).forEach(sel => sel.onchange = async () => {
-      if (await opPlan({op: "statut", execution: sel.dataset.pxStatut, test: sel.dataset.t, statut: sel.value}, `${sel.dataset.t} : ${sel.value} dans Xray.`)) planXray(); });
+    brancherExecs(z, planXray);
   }
 
-  /* exécutions Xray d'un build : découpage proposé, nom et environnement par exécution, création dans Xray */
+  /* exécutions Xray d'un build (étape Exécution) : celles déjà créées, puis la création (découpage, nom, environnement) */
   async function executionsBuild(zone_) {
     const dec = zone_.dataset.decoupage || "type";
     let g, p;
     try { [g, p] = await Promise.all([api(`/api/releases/${ID}/builds/${BID}/executions?decoupage=${dec}`), api(`/api/releases/${ID}/plan`)]); }
     catch (e) { zone_.innerHTML = `<p class="lib">${esc(e.message)}</p>`; return; }
     const miennes = p.executions.filter(e => e.build === BID);
-    zone_.innerHTML = `<div class="btns" style="margin-bottom:6px"><label class="lib" for="xb-dec">Découper</label><select class="in" id="xb-dec" style="width:auto">${Object.entries(p.decoupages).map(([k, v]) => `<option value="${k}" ${k === dec ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+    const ouvert = B && B.statut !== "Remplacé";
+    const creation = `<div class="btns" style="margin-bottom:6px"><label class="lib" for="xb-dec">Découper</label><select class="in" id="xb-dec" style="width:auto">${Object.entries(p.decoupages).map(([k, v]) => `<option value="${k}" ${k === dec ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
         <span class="lib">Possible avant la validation du périmètre. Chaque exécution est créée dans le Test Plan de la release${p.plan ? ` (${esc(p.plan.cle)})` : ", créé au besoin"}.</span></div>
       ${g.length ? `<table class="table-strat"><tr><th></th><th>Exécution</th><th>Environnement</th><th>Tests</th></tr>${g.map((x, n) => `<tr><td><input type="checkbox" data-xb="${n}" ${x.deja.length === x.tests.length ? "" : "checked"} aria-label="Créer ${esc(x.nom)}"></td>
           <td><input class="in" data-xb-nom="${n}" value="${esc(x.nom)}" aria-label="Nom de l'exécution"></td>
           <td>${p.environnements.length ? `<select class="in" data-xb-env="${n}" style="width:auto" aria-label="Environnement">${p.environnements.map(e => `<option>${esc(e)}</option>`).join("")}</select>` : '<span class="lib">aucun</span>'}</td>
           <td>${x.tests.length}${x.deja.length ? ` <span class="pill warn" title="${esc(x.deja.join(", "))}">${x.deja.length} déjà dans une exécution</span>` : ""}</td></tr>`).join("")}</table>
-        <div class="btns" style="margin-top:6px"><button class="btn primaire" id="xb-creer">Créer dans Xray</button></div>` : '<p class="lib">Aucun test dans le périmètre.</p>'}
-      ${miennes.length ? `<p class="lib" style="margin-top:6px">Déjà créées pour ce build : ${miennes.map(e => `${lienJira(e.xray.cle)} ${e.environnement ? `(${esc(e.environnement)})` : ""}`).join(", ")} · <a href="#releases/${ID}/plan">mettre à jour les statuts</a></p>` : ""}`;
-    $("#xb-dec", zone_).onchange = e => { zone_.dataset.decoupage = e.target.value; executionsBuild(zone_); };
+        <div class="btns" style="margin-top:6px"><button class="btn ${miennes.length ? "" : "primaire"}" id="xb-creer">Créer dans Xray</button></div>` : '<p class="lib">Aucun test dans le périmètre.</p>'}`;
+    zone_.innerHTML = `${miennes.length ? tableExecs(p, miennes) : ""}
+      ${!ouvert ? "" : miennes.length ? `<details style="margin-top:8px"><summary class="lib">Créer d'autres exécutions</summary>${creation}</details>` : creation}`;
+    brancherExecs(zone_, () => executionsBuild(zone_));
+    if ($("#xb-dec", zone_)) $("#xb-dec", zone_).onchange = e => { zone_.dataset.decoupage = e.target.value; executionsBuild(zone_); };
     if ($("#xb-creer", zone_)) $("#xb-creer", zone_).onclick = async () => {
       const groupes = g.map((x, n) => ({...x, nom: $(`[data-xb-nom="${n}"]`, zone_).value, environnement: $(`[data-xb-env="${n}"]`, zone_)?.value || "", coche: $(`[data-xb="${n}"]`, zone_).checked})).filter(x => x.coche);
       if (!groupes.length) return toast("Cocher au moins une exécution.", "ko");
       const r = await opPlan({op: "executions", build: BID, groupes});
-      if (r) { toast(`Créé dans Xray : ${r.creees.join(", ")}${r.plan ? ` (Test Plan ${r.plan.cle})` : ""}.`, "ok"); executionsBuild(zone_); } };
+      if (!r) return;
+      toast(`Créé dans Xray : ${r.creees.join(", ")}${r.plan ? ` (Test Plan ${r.plan.cle})` : ""}.`, "ok");
+      // exécution unifiée : périmètre déjà validé → les campagnes des automatisés suivent, chacune écrit dans son exécution
+      if (B && ["Périmètre validé", "En exécution"].includes(B.statut)) {
+        try { await api(`/api/releases/${ID}/builds/${BID}/operation`, {method: "POST", body: {op: "campagne", par_execution: true}}); toast("Campagnes des tests automatisés prêtes dans Execution Center.", "ok"); }
+        catch (e) { /* pas d'automatisé dans ces exécutions : rien à préparer */ }
+      }
+      vueBuild(); };
   }
 
   /* ------------------------------------------------------------------ interprétation par Cursor (par défaut) ou l'IA configurée */
@@ -353,105 +367,176 @@
     catch (e) { const i = $("#rb-lecture"); if (i) i.textContent = `Relecture automatique de Xray impossible : ${e.message}`; }
   }
 
+  /* ------------------------------------------------------------------ vue d'un build : parcours en 4 étapes
+     1 Ce qui change · 2 Périmètre · 3 Exécution · 4 Verdict. Une seule étape dépliée, un seul bouton principal. */
+  const ETAPES = [["change", "Ce qui change"], ["perimetre", "Périmètre"], ["execution", "Exécution"], ["verdict", "Verdict"]];
+  const ETAPE = {};  // build -> étape choisie par l'utilisateur
+  const etapeDuStatut = s => ({"Reçu": "change", "Périmètre validé": "execution", "En exécution": "execution"})[s] || "verdict";
+  const DELTA = {nouveau: ["nouveau", "ok"], a_rejouer: ["à rejouer", "ko"], deja_reussi: ["déjà réussi", ""], reconduit: ["reconduit", "info"]};
+
   async function vueBuild() {
     const z = $("#rb-vue");
     try { B = await api(`/api/releases/${ID}/builds/${BID}`); } catch (e) { z.innerHTML = vide("Build indisponible", esc(e.message)); return; }
-    const c = B.comparaison, r = B.resultats, a = B.anomalies, ouvert = B.statut === "Reçu";
-    const evo = id => B.evolutions.find(e => e.id === id);
-    const listeEvo = ids => ids.length ? `<ul class="rel-puces">${ids.map(id => `<li>${esc(evo(id)?.texte || id)}</li>`).join("")}</ul>` : '<span class="lib">aucune</span>';
-    const noeuds = l => l.length ? l.map(n => pill(n.libelle, "info")).join(" ") : '<span class="lib">aucune</span>';
     if (B.id !== SEL.build) { SEL.clear(); SEL.build = B.id; }
-    const actions = {"Reçu": `<button class="btn primaire" data-bo="valider" title="Fige les tests retenus ; ils ne changent plus sauf réouverture">Valider le périmètre</button>`,
-      "Périmètre validé": `<button class="btn primaire" data-bo="campagne" title="Crée une campagne dans Execution Center avec les tests automatisés retenus ; rien n'est lancé">Envoyer à Execution Center</button>`,
-      "En exécution": "", "Passed": "", "Failed": "", "Remplacé": ""}[B.statut] || "";
-    const verdict = !ouvert && !["Passed", "Failed", "Remplacé"].includes(B.statut) ? `<button class="btn succes" data-verdict="passed">Déclarer Passed</button><button class="btn danger" data-verdict="failed">Déclarer Failed</button>` : "";
-    const raison = x => { const m = x.motifs.join(" · ");
-      const court = x.categorie === "retest" ? `retest ${(m.match(/[A-Z][A-Z0-9]+-\d+/) || [""])[0]}` : x.impact === "direct" ? "touché directement"
-        : x.impact === "indirect" ? `module ${x.module || "?"}` : x.impact === "ia" ? "proposé par l'IA" : x.impact === "ajout" ? "ajouté par le QA" : x.categorie === "qualification" ? "test critique" : "";
-      return `<span title="${esc(x.motifs.join("\n"))}">${esc(court)}${x.motifs.length > 1 ? ` <span class="lib">+${x.motifs.length - 1}</span>` : ""}</span>`; };
-    const execEnCours = !ouvert && B.statut !== "Remplacé";
-    const ligne = x => `<tr style="${x.decision === "rejetée" ? "opacity:.55" : ""}">${ouvert ? `<td><input type="checkbox" data-sel="${esc(x.test)}" ${SEL.has(x.test) ? "checked" : ""} ${x.decision === "rejetée" ? "disabled" : ""} aria-label="Sélectionner ${esc(x.test)}"></td>` : ""}<td><b>${esc(x.test)}</b> <span class="lib">${esc(x.resume)}</span>${x.automatise ? "" : ' <span class="pill" title="Aucun script publié : à exécuter à la main dans Xray">manuel</span>'}</td>
-        <td>${esc(x.module || "—")}</td><td>${x.impact === "direct" ? pill("direct", "ko") : x.impact === "indirect" ? pill("indirect", "warn") : x.impact === "ajout" ? pill("ajouté") : x.impact === "ia" ? pill("IA", "violet") : ""}</td>
-        <td class="lib">${raison(x)}</td><td>${esc(x.criticite || "—")}</td>
-        ${execEnCours ? `<td>${x.execute ? pill(x.dernier_statut, RES[x.resultat]) : '<span class="lib">à exécuter</span>'}</td>` : ""}
-        <td style="white-space:nowrap">${x.decision_ia ? `<span class="pill" title="${esc(x.decision_motif)}">écarté par l'IA</span>${ouvert ? ` <button class="btn petit" data-dec="${esc(x.test)}" data-v="acceptée" title="${esc(x.decision_motif)}">Garder</button>` : ""}`
-          : x.decision === "rejetée" ? `<span class="pill" title="${esc(x.decision_motif)}">écarté</span>${ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">remettre</button>` : ""}`
-          : x.decision === "ajoutée" ? pill("ajouté", "ok") + (ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">retirer</button>` : "")
-          : ouvert ? `<button class="btn petit" data-dec="${esc(x.test)}" data-v="rejetée">Écarter</button>` : '<span class="lib">retenu</span>'}</td></tr>`;
-    const anomalies = (titre, l, cls = "") => l.length ? `<p style="margin:6px 0 2px"><b>${titre}</b> (${l.length})</p><ul class="rel-puces">${l.map(x => `<li><b class="${cls}">${esc(x.cle)}</b> ${esc(x.resume || "")} <span class="lib">${esc([x.statut, x.priorite].filter(Boolean).join(" · "))}${(x.tests || []).length ? " · tests " + esc(x.tests.join(", ")) : ""}</span></li>`).join("")}</ul>` : "";
-    z.innerHTML = `<section class="bloc-strat" style="margin-top:12px"><h3>Build ${esc(B.numero)} ${pill(B.statut, STATUT[B.statut])} <span class="lib">reçu le ${esc(B.date_reception)} par ${esc(B.recu_par || "")}${c.precedent ? ` · comparé au build ${esc(c.precedent)}` : " · premier build, comparé au périmètre initial"}</span>
-        <span class="lien btns"><button class="btn petit" id="rb-actu" title="Relit dans Xray les Test Executions créées depuis la réception du build : les PASSED / FAILED posés dans Xray comptent pour ce build">${ico("rejouer")}Actualiser depuis Xray</button>${actions}${verdict}${!ouvert && B.statut !== "Remplacé" ? `<button class="btn petit" data-bo="rouvrir" title="Le périmètre redevient modifiable ; le verdict est effacé">Rouvrir</button>` : ""}
-          <button class="btn petit danger" data-bo="supprimer">Supprimer</button></span></h3>
-      ${B.statut === "Remplacé" ? `<p class="rel-remplace">Build remplacé par le build ${esc(B.remplace_par || "")} : consultation seulement. Le travail se fait sur le build en cours.</p>` : ""}
-      ${B.description || B.changements ? `<p class="lib" style="margin:0 0 8px">${esc(B.description || "")}${B.changements ? ` · changements : ${esc(B.changements)}` : ""}</p>` : ""}
-      <p class="lib" style="margin:0 0 8px" id="rb-lecture">${B.lecture_xray ? `Résultats relus dans Xray le ${date(B.lecture_xray.date)} par ${esc(B.lecture_xray.par)} (${esc(B.lecture_xray.executions)} exécution(s) lue(s)).` : "Résultats Xray pas encore relus pour ce build : « Actualiser depuis Xray » après les passages dans Xray."}</p>
-      <div id="rb-verdict"></div>
-      ${B.verdict ? `<p class="lib">Déclaré ${esc(B.statut)} par ${esc(B.verdict.par)} le ${date(B.verdict.date)}${B.verdict.motif ? ` · ${esc(B.verdict.motif)}` : ""}.</p>` : ""}
-      ${(B.campagnes || []).length ? `<p class="lib">Campagne(s) : ${B.campagnes.map(x => `<a href="#centre/campagnes">${esc(x.nom)}</a> (${x.tests} tests)`).join(", ")}.</p>` : ""}
-      <div id="rb-ia"></div>
-      <div class="grille-2 rel-comparaison">
-        <div><h3 class="lib">NOUVELLES ÉVOLUTIONS</h3>${listeEvo(c.nouvelles)}${c.deja_livrees.length ? `<p class="lib">${c.deja_livrees.length} évolution(s) déjà livrée(s) dans un build précédent.</p>` : ""}
-          <h3 class="lib">CORRECTIONS</h3>${listeEvo(c.corrections)}</div>
-        <div><h3 class="lib">ANOMALIES À RETESTER</h3>${c.anomalies_a_retester.length ? `<ul class="rel-puces">${c.anomalies_a_retester.map(x => `<li><b>${esc(x.cle)}</b> ${esc(x.resume || "")} <span class="lib">${esc(x.etat)}${x.tests.length ? " · tests " + esc(x.tests.join(", ")) : x.connue ? " · aucun test lié" : " · inconnue de la copie Jira"}</span></li>`).join("")}</ul>` : '<span class="lib">aucune</span>'}
-          <h3 class="lib">FONCTIONNALITÉS NOUVELLEMENT IMPACTÉES</h3>${noeuds(c.fonctionnalites_nouvelles)}
-          <h3 class="lib">HORS DU PÉRIMÈTRE INITIAL</h3>${noeuds(c.hors_perimetre_initial)}
-          ${c.non_rattachees.length ? `<p><span class="pill warn">${c.non_rattachees.length} évolution(s) non rattachée(s)</span> <span class="lib">leur impact n'est pas analysé : les rattacher ci-dessous</span></p>` : ""}</div></div>
-      <details ${c.non_rattachees.length ? "open" : ""} style="margin-top:8px"><summary><b>Contenu du build</b> <span class="lib">${B.evolutions.length} évolution(s), rattachement au Knowledge Graph</span></summary>${evolutions(B.evolutions, B.types)}</details>
-      <h3 class="lib" style="margin-top:14px">PÉRIMÈTRE ${B.perimetre_valide ? `VALIDÉ le ${date(B.perimetre_valide.date)} par ${esc(B.perimetre_valide.par)}` : "RECOMMANDÉ"} · ${r.retenus} test(s) retenu(s)</h3>
-      <div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:6px 0 10px">${kpi(r.par_categorie.retest, "retest")}${kpi(r.par_categorie.ciblee, "non-régression ciblée")}${kpi(r.par_categorie.qualification, "qualification")}
-        ${kpi(r.executes + "/" + r.retenus, "exécutés depuis la réception")}${kpi(r.reussis, "réussis", "ok-t")}${kpi(r.echecs, "en échec", r.echecs ? "ko-t" : "")}</div>
-      ${ouvert ? `<div class="btns rel-selection" id="rb-sel" ${SEL.size ? "" : "hidden"}><b id="rb-sel-n">${SEL.size} test(s) sélectionné(s)</b><input class="in" id="rb-sel-motif" placeholder="Pourquoi les écarter ?" style="flex:1;min-width:220px"><button class="btn" id="rb-sel-ok">Écarter la sélection</button><button class="lien" id="rb-sel-non">tout désélectionner</button></div>` : ""}
-      ${Object.entries(CAT).map(([k, [lib, cls]]) => { const l = B.perimetre.filter(x => x.categorie === k); return l.length ? `<h3 style="margin:10px 0 4px">${pill(lib, cls)} <span class="lib">${l.length} test(s)</span></h3>
-        <table class="table-strat"><tr>${ouvert ? "<th></th>" : ""}<th>Test</th><th>Module</th><th>Impact</th><th>Raison</th><th>Criticité</th>${execEnCours ? "<th>Résultat pour ce build</th>" : ""}<th></th></tr>${l.map(ligne).join("")}</table>` : ""; }).join("")
-        || '<p class="lib">Aucun test : rattacher les évolutions au Knowledge Graph, ou ajouter des tests.</p>'}
-      ${ouvert ? `<div class="btns" style="margin-top:8px"><input class="in" id="rb-ajout" placeholder="Ajouter un test (clé Xray)" style="width:200px"><input class="in" id="rb-ajout-motif" placeholder="Raison" style="flex:1;min-width:200px"><button class="btn" id="rb-ajouter">Ajouter au périmètre</button></div>` : ""}
-      <h3 class="lib" style="margin-top:14px">EXÉCUTIONS XRAY</h3><div id="rb-xray"><p class="lib">Chargement…</p></div>
-      <h3 class="lib" style="margin-top:14px">ANOMALIES</h3>
-      ${anomalies("Corrigées (confirmé dans Jira)", a.corrigees, "ok-t")}${anomalies("Déclarées corrigées, encore ouvertes dans Jira", a.corrigees_non_confirmees, "ko-t")}
-      ${anomalies("Nouvelles sur ce build", a.nouvelles, "ko-t")}${anomalies("Résiduelles (ouvertes avant ce build)", a.residuelles, "warn-t")}
-      ${a.declarees_inconnues.length ? `<p class="lib">Déclarées corrigées mais absentes de la copie Xray : ${esc(a.declarees_inconnues.join(", "))}.</p>` : ""}
-      ${!a.corrigees.length && !a.corrigees_non_confirmees.length && !a.nouvelles.length && !a.residuelles.length ? '<p class="lib">Aucune anomalie liée à ce build dans la copie Xray.</p>' : ""}
-      ${B.texte ? `<details style="margin-top:10px"><summary class="lib">Contenu d'origine (conservé tel quel)</summary><pre class="code-bloc" style="white-space:pre-wrap">${esc(B.texte)}</pre></details>` : ""}</section>`;
+    const c = B.comparaison, r = B.resultats, a = B.anomalies, ouvert = B.statut === "Reçu", remplace = B.statut === "Remplacé";
+    const etape = ETAPE[B.id] || etapeDuStatut(B.statut);
+    ETAPE[B.id] = etape;  // on reste sur l'étape après une action (création d'exécution, décision…)
+    const rang = ETAPES.findIndex(([k]) => k === etapeDuStatut(B.statut));
+    const faite = k => ETAPES.findIndex(([x]) => x === k) < rang || (k === "verdict" && ["Passed", "Failed"].includes(B.statut));
+    z.innerHTML = `<section class="bloc-strat rel-build" style="margin-top:12px">
+      <div class="rel-build-tete"><div><h3 style="margin:0">Build ${esc(B.numero)} ${pill(B.statut, STATUT[B.statut])}</h3>
+          <span class="lib">reçu le ${esc(B.date_reception)} par ${esc(B.recu_par || "")}${c.precedent ? ` · comparé au build ${esc(c.precedent)}` : " · premier build, comparé au périmètre initial"}</span></div>
+        <div class="btns">${!ouvert && !remplace ? `<button class="btn petit" data-bo="rouvrir" title="Le périmètre redevient modifiable ; le verdict est effacé">Rouvrir le périmètre</button>` : ""}
+          <button class="btn petit danger" data-bo="supprimer">Supprimer</button></div></div>
+      ${remplace ? `<p class="rel-remplace">Build remplacé par le build ${esc(B.remplace_par || "")} : consultation seulement. Le travail se fait sur le build en cours.</p>` : ""}
+      ${B.description || B.changements ? `<p class="lib" style="margin:4px 0 0">${esc(B.description || "")}${B.changements ? ` · changements : ${esc(B.changements)}` : ""}</p>` : ""}
+      <nav class="rel-etapes" aria-label="Étapes du build">${ETAPES.map(([k, lib], n) => `<button data-etape="${k}" aria-current="${k === etape ? "step" : "false"}" class="${faite(k) ? "faite" : ""}">
+        <span class="rel-num">${faite(k) ? "✓" : n + 1}</span>${esc(lib)}</button>`).join("")}</nav>
+      <div id="rb-etape"></div></section>`;
+    $$("[data-etape]", z).forEach(b => b.onclick = () => { ETAPE[B.id] = b.dataset.etape; vueBuild(); });
     const opBuild = async (corps_, message = "") => {
       const evolution = ["ajouter_evolution", "supprimer_evolution", "modifier_evolution", "confirmer", "rejeter", "relier", "delier"].includes(corps_.op);
       try { const r_ = await api(`/api/releases/${ID}/builds/${BID}/operation`, {method: "POST", body: corps_});
         if (r_.supprime) { toast("Build supprimé.", "ok"); return aller(ID); }
         if (message) toast(message, "ok");
         if (evolution && B.statut !== "Reçu") toast("Évolutions modifiées : le périmètre du build est à revalider.");
-        await corps(); liste(); }
-      catch (e) { toast(e.message, "ko"); } };
-    brancherEvolutions(z, c_ => opBuild(c_));
-    $("#rb-actu", z).onclick = async () => { const b = $("#rb-actu", z); b.disabled = true; b.textContent = "Lecture de Xray…";
-      try { await api(`/api/releases/${ID}/builds/${BID}/actualiser-xray`, {method: "POST", body: {}}); toast("Résultats relus dans Xray.", "ok"); await vueBuild(); liste(); }
-      catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Actualiser depuis Xray"; } };
+        await corps(); liste(); return r_; }
+      catch (e) { toast(e.message, "ko"); return null; } };
     $$("[data-bo]", z).forEach(b => b.onclick = () => {
-      const op = b.dataset.bo;
-      if (op === "supprimer" && !confirm(`Supprimer le build ${B.numero} et son historique ?`)) return;
-      opBuild({op}, {valider: "Périmètre validé.", campagne: "Campagne créée dans Execution Center (rien n'est lancé).", rouvrir: "Build rouvert."}[op] || ""); });
-    $$("[data-dec]", z).forEach(b => b.onclick = () => {
-      const v = b.dataset.v;
-      if (v !== "rejetée") return opBuild({op: "decider", test: b.dataset.dec, decision: v});
-      const cell = b.closest("td");
-      cell.innerHTML = `<input class="in" placeholder="Pourquoi l'écarter ?" style="width:180px" aria-label="Justification"> <button class="btn petit">OK</button>`;
-      const i = cell.querySelector("input"); i.focus();
-      const ok = () => opBuild({op: "decider", test: b.dataset.dec, decision: "rejetée", motif: i.value});
-      cell.querySelector("button").onclick = ok; i.onkeydown = e => { if (e.key === "Enter") ok(); if (e.key === "Escape") vueBuild(); }; });
-    const majSel = () => { const bar = $("#rb-sel", z); if (!bar) return; bar.hidden = !SEL.size; $("#rb-sel-n", z).textContent = `${SEL.size} test(s) sélectionné(s)`; };
-    $$("[data-sel]", z).forEach(c => c.onchange = () => { c.checked ? SEL.add(c.dataset.sel) : SEL.delete(c.dataset.sel); majSel(); });
-    if ($("#rb-sel-non", z)) $("#rb-sel-non", z).onclick = () => { SEL.clear(); $$("[data-sel]", z).forEach(c => { c.checked = false; }); majSel(); };
-    if ($("#rb-sel-ok", z)) $("#rb-sel-ok", z).onclick = async () => { const tests = [...SEL];
-      await opBuild({op: "decider", tests, decision: "rejetée", motif: $("#rb-sel-motif", z).value}, `${tests.length} test(s) écarté(s).`); SEL.clear(); };
-    if ($("#rb-ajouter", z)) $("#rb-ajouter", z).onclick = () => opBuild({op: "decider", test: $("#rb-ajout", z).value, decision: "ajoutée", motif: $("#rb-ajout-motif", z).value}, "Test ajouté.");
-    $$("[data-verdict]", z).forEach(b => b.onclick = () => {
-      const op = b.dataset.verdict, v = $("#rb-verdict");
-      v.innerHTML = `<div class="btns" style="margin:6px 0 10px"><input class="in" id="rv-motif" placeholder="${op === "passed" && (r.echecs || r.non_executes) ? `Justification obligatoire : ${r.echecs} en échec, ${r.non_executes} non exécuté(s)` : "Commentaire (facultatif)"}" style="flex:1;min-width:280px">
-        <button class="btn ${op === "passed" ? "succes" : "danger"}" id="rv-ok">Confirmer : ${op === "passed" ? "Passed" : "Failed"}</button><button class="btn" id="rv-non">Annuler</button></div>`;
-      $("#rv-motif").focus();
-      $("#rv-non").onclick = () => { v.innerHTML = ""; };
-      $("#rv-ok").onclick = () => opBuild({op, motif: $("#rv-motif").value}, `Build déclaré ${op === "passed" ? "Passed" : "Failed"} : la release reste à qualifier.`); });
-    executionsBuild($("#rb-xray", z));
-    relectureAuto();
-    blocIA($("#rb-ia", z), B.interpretation, BID, B.release?.nom || "", () => vueBuild());
+      if (b.dataset.bo === "supprimer" && !confirm(`Supprimer le build ${B.numero} et son historique ?`)) return;
+      opBuild({op: b.dataset.bo}, {rouvrir: "Périmètre rouvert."}[b.dataset.bo] || ""); });
+    const suivante = (k, lib) => `<button class="btn primaire" data-aller="${k}">${esc(lib)} →</button>`;
+    const brancherSuivante = zone_ => $$("[data-aller]", zone_).forEach(b => b.onclick = () => { ETAPE[B.id] = b.dataset.aller; vueBuild(); });
+    const ez = $("#rb-etape", z);
+    ({change: etapeChange, perimetre: etapePerimetre, execution: etapeExecution, verdict: etapeVerdict})[etape](ez);
     z.scrollIntoView({block: "nearest"});
+
+    /* 1 · ce qui change : interprétation, évolutions, anomalies à retester, fonctionnalités touchées, en un bloc */
+    function etapeChange(ez) {
+      const evo = id => B.evolutions.find(e => e.id === id);
+      const puces = ids => ids.map(id => `<li>${esc(evo(id)?.texte || id)}</li>`).join("");
+      const horsInitial = new Set(c.hors_perimetre_initial.map(n => n.noeud));
+      const touchees = [...new Map([...c.fonctionnalites_nouvelles, ...c.hors_perimetre_initial].map(n => [n.noeud, n])).values()];
+      ez.innerHTML = `<div id="rb-ia"></div>
+        <div class="rel-change">
+          <div><h4>Évolutions</h4>${c.nouvelles.length || c.corrections.length ? `<ul class="rel-puces">${puces(c.nouvelles)}${c.corrections.filter(id => !c.nouvelles.includes(id)).map(id => `<li>${pill("correction", "warn")} ${esc(evo(id)?.texte || id)}</li>`).join("")}</ul>` : '<p class="lib">Aucune nouvelle évolution.</p>'}
+            ${c.deja_livrees.length ? `<p class="lib">${c.deja_livrees.length} évolution(s) déjà livrée(s) dans un build précédent.</p>` : ""}</div>
+          <div><h4>Anomalies à retester</h4>${c.anomalies_a_retester.length ? `<ul class="rel-puces">${c.anomalies_a_retester.map(x => `<li><b>${esc(x.cle)}</b> ${esc(x.resume || "")} <span class="lib">${esc(x.etat)}${x.tests.length ? " · tests " + esc(x.tests.join(", ")) : x.connue ? " · aucun test lié" : " · inconnue de la copie Jira"}</span></li>`).join("")}</ul>` : '<p class="lib">Aucune.</p>'}
+            <h4>Fonctionnalités touchées pour la première fois</h4>${touchees.length ? touchees.map(n => `${pill(n.libelle, "info")}${horsInitial.has(n.noeud) ? ' <span class="lib">hors périmètre initial</span>' : ""}`).join(" ") : '<p class="lib">Aucune.</p>'}</div></div>
+        ${c.non_rattachees.length ? `<p><span class="pill warn">${c.non_rattachees.length} évolution(s) non rattachée(s)</span> <span class="lib">leur impact n'est pas analysé : les rattacher dans le contenu du build</span></p>` : ""}
+        <details ${c.non_rattachees.length ? "open" : ""} style="margin-top:8px"><summary><b>Contenu du build</b> <span class="lib">${B.evolutions.length} évolution(s) et leur rattachement au Knowledge Graph</span></summary>${evolutions(B.evolutions, B.types)}</details>
+        ${B.texte ? `<details style="margin-top:6px"><summary class="lib">Texte reçu (conservé tel quel)</summary><pre class="code-bloc" style="white-space:pre-wrap">${esc(B.texte)}</pre></details>` : ""}
+        <div class="rel-pied">${suivante("perimetre", `Voir le périmètre (${r.retenus} test(s))`)}</div>`;
+      brancherEvolutions(ez, c_ => opBuild(c_));
+      brancherSuivante(ez);
+      blocIA($("#rb-ia", ez), B.interpretation, BID, B.release?.nom || "", () => vueBuild());
+    }
+
+    /* 2 · périmètre : par rapport au build précédent, par catégorie ; écarter (un ou plusieurs), ajouter, valider */
+    function etapePerimetre(ez) {
+      const d = c.delta;
+      const raison = x => { const m = x.motifs.join(" · ");
+        const court = x.categorie === "retest" ? `retest ${(m.match(/[A-Z][A-Z0-9]+-\d+/) || [""])[0]}` : x.impact === "direct" ? "touché directement"
+          : x.impact === "indirect" ? `module ${x.module || "?"}` : x.impact === "ia" ? "proposé par l'IA" : x.impact === "ajout" ? "ajouté par le QA" : x.categorie === "qualification" ? "test critique" : "";
+        return `<span title="${esc(x.motifs.join("\n"))}">${esc(court)}${x.motifs.length > 1 ? ` <span class="lib">+${x.motifs.length - 1}</span>` : ""}</span>`; };
+      const ligne = x => `<tr style="${x.decision === "rejetée" ? "opacity:.55" : ""}">${ouvert ? `<td><input type="checkbox" data-sel="${esc(x.test)}" ${SEL.has(x.test) ? "checked" : ""} ${x.decision === "rejetée" ? "disabled" : ""} aria-label="Sélectionner ${esc(x.test)}"></td>` : ""}
+        <td><b>${esc(x.test)}</b> <span class="lib">${esc(x.resume)}</span>${x.automatise ? "" : ' <span class="pill" title="Aucun script publié : à exécuter à la main dans Xray">manuel</span>'}</td>
+        <td>${esc(x.module || "—")}</td><td>${x.impact === "direct" ? pill("direct", "ko") : x.impact === "indirect" ? pill("indirect", "warn") : x.impact === "ajout" ? pill("ajouté") : x.impact === "ia" ? pill("IA", "violet") : ""}</td>
+        <td class="lib">${raison(x)}</td>${d ? `<td>${x.delta ? pill(...DELTA[x.delta]) : ""}</td>` : ""}<td>${esc(x.criticite || "—")}</td>
+        <td style="white-space:nowrap">${x.decision_ia ? `<span class="pill" title="${esc(x.decision_motif)}">écarté par l'IA</span>${ouvert ? ` <button class="btn petit" data-dec="${esc(x.test)}" data-v="acceptée" title="${esc(x.decision_motif)}">Garder</button>` : ""}`
+          : x.decision === "rejetée" ? `<span class="pill" title="${esc(x.decision_motif)}">écarté</span>${ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">remettre</button>` : ""}`
+          : x.decision === "ajoutée" ? pill("ajouté", "ok") + (ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">retirer</button>` : "")
+          : ouvert ? `<button class="btn petit" data-dec="${esc(x.test)}" data-v="rejetée">Écarter</button>` : '<span class="lib">retenu</span>'}</td></tr>`;
+      const dejaReussis = B.perimetre.filter(x => x.delta === "deja_reussi" && x.decision !== "rejetée");
+      ez.innerHTML = `${d ? `<div class="rel-delta"><b>Par rapport au build ${esc(d.precedent)}</b>
+          ${Object.entries(DELTA).map(([k, [lib, cls]]) => d[k] ? `${pill(`${d[k]} ${lib}`, cls)}` : "").join(" ")}
+          ${ouvert && dejaReussis.length ? `<button class="btn petit" id="rb-ecarter-reussis" title="${esc(dejaReussis.map(x => x.test).join(", "))}">Écarter les ${dejaReussis.length} déjà réussis sur ${esc(d.precedent)}</button>` : ""}</div>` : ""}
+        <p class="lib" style="margin:8px 0">${B.perimetre_valide ? `Périmètre validé le ${date(B.perimetre_valide.date)} par ${esc(B.perimetre_valide.par)} · ` : "Les tests proposés sont retenus par défaut : écarter ce qui ne concerne pas ce build. "}
+          <b>${r.retenus} test(s) retenu(s)</b> : ${r.par_categorie.retest} retest · ${r.par_categorie.ciblee} non-régression ciblée · ${r.par_categorie.qualification} qualification.</p>
+        ${ouvert ? `<div class="btns rel-selection" id="rb-sel" ${SEL.size ? "" : "hidden"}><b id="rb-sel-n">${SEL.size} test(s) sélectionné(s)</b><input class="in" id="rb-sel-motif" placeholder="Pourquoi les écarter ?" style="flex:1;min-width:220px"><button class="btn" id="rb-sel-ok">Écarter la sélection</button><button class="lien" id="rb-sel-non">tout désélectionner</button></div>` : ""}
+        ${Object.entries(CAT).map(([k, [lib, cls]]) => { const l = B.perimetre.filter(x => x.categorie === k); return l.length ? `<h4 style="margin:12px 0 4px">${pill(lib, cls)} <span class="lib">${l.length} test(s)</span></h4>
+          <table class="table-strat"><tr>${ouvert ? "<th></th>" : ""}<th>Test</th><th>Module</th><th>Impact</th><th>Raison</th>${d ? `<th>Depuis ${esc(d.precedent)}</th>` : ""}<th>Criticité</th><th></th></tr>${l.map(ligne).join("")}</table>` : ""; }).join("")
+          || '<p class="lib">Aucun test : rattacher les évolutions au Knowledge Graph (étape 1), ou ajouter des tests.</p>'}
+        ${ouvert ? `<div class="btns" style="margin-top:8px"><input class="in" id="rb-ajout" placeholder="Ajouter un test (clé Xray)" style="width:200px"><input class="in" id="rb-ajout-motif" placeholder="Raison" style="flex:1;min-width:200px"><button class="btn" id="rb-ajouter">Ajouter au périmètre</button></div>` : ""}
+        <div class="rel-pied">${ouvert ? `<button class="btn primaire" id="rb-valider" title="Fige les tests retenus ; les exécutions Xray existantes reçoivent leurs campagnes d'automatisés">Valider le périmètre (${r.retenus} test(s))</button>`
+          : remplace ? "" : suivante("execution", "Passer à l'exécution")}</div>`;
+      const majSel = () => { const bar = $("#rb-sel", ez); if (!bar) return; bar.hidden = !SEL.size; $("#rb-sel-n", ez).textContent = `${SEL.size} test(s) sélectionné(s)`; };
+      $$("[data-sel]", ez).forEach(cb => cb.onchange = () => { cb.checked ? SEL.add(cb.dataset.sel) : SEL.delete(cb.dataset.sel); majSel(); });
+      if ($("#rb-sel-non", ez)) $("#rb-sel-non", ez).onclick = () => { SEL.clear(); $$("[data-sel]", ez).forEach(cb => { cb.checked = false; }); majSel(); };
+      if ($("#rb-sel-ok", ez)) $("#rb-sel-ok", ez).onclick = async () => { const tests = [...SEL];
+        if (await opBuild({op: "decider", tests, decision: "rejetée", motif: $("#rb-sel-motif", ez).value}, `${tests.length} test(s) écarté(s).`)) SEL.clear(); };
+      if ($("#rb-ecarter-reussis", ez)) $("#rb-ecarter-reussis", ez).onclick = () => opBuild({op: "decider", tests: dejaReussis.map(x => x.test), decision: "rejetée",
+        motif: `réussi sur le build ${d.precedent}, non touché par ce build`}, `${dejaReussis.length} test(s) déjà réussi(s) écarté(s).`);
+      $$("[data-dec]", ez).forEach(b => b.onclick = () => {
+        const v = b.dataset.v;
+        if (v !== "rejetée") return opBuild({op: "decider", test: b.dataset.dec, decision: v});
+        const cell = b.closest("td");
+        cell.innerHTML = `<input class="in" placeholder="Pourquoi l'écarter ?" style="width:180px" aria-label="Justification"> <button class="btn petit">OK</button>`;
+        const i = cell.querySelector("input"); i.focus();
+        const ok = () => opBuild({op: "decider", test: b.dataset.dec, decision: "rejetée", motif: i.value});
+        cell.querySelector("button").onclick = ok; i.onkeydown = e => { if (e.key === "Enter") ok(); if (e.key === "Escape") vueBuild(); }; });
+      if ($("#rb-ajouter", ez)) $("#rb-ajouter", ez).onclick = () => opBuild({op: "decider", test: $("#rb-ajout", ez).value, decision: "ajoutée", motif: $("#rb-ajout-motif", ez).value}, "Test ajouté.");
+      if ($("#rb-valider", ez)) $("#rb-valider", ez).onclick = async () => {
+        if (!await opBuild({op: "valider"}, "Périmètre validé.")) return;
+        ETAPE[B.id] = "execution";
+        // exécution unifiée : les exécutions Xray déjà créées pour ce build reçoivent leurs campagnes d'automatisés
+        const p = await api(`/api/releases/${ID}/plan`).catch(() => null);
+        if (p && p.executions.some(e => e.build === BID)) {
+          try { await api(`/api/releases/${ID}/builds/${BID}/operation`, {method: "POST", body: {op: "campagne", par_execution: true}}); toast("Campagnes des tests automatisés prêtes dans Execution Center (rien n'est lancé).", "ok"); }
+          catch (e) { toast(e.message); }
+        }
+        await corps(); };
+      brancherSuivante(ez);
+    }
+
+    /* 3 · exécution : exécutions Xray (créer, dupliquer, statuts), campagnes des automatisés, relecture des résultats */
+    async function etapeExecution(ez) {
+      ez.innerHTML = `<p class="lib" id="rb-lecture" style="margin:0 0 8px">${B.lecture_xray ? `Résultats relus dans Xray le ${date(B.lecture_xray.date)} (${esc(B.lecture_xray.executions)} exécution(s) lue(s)).` : "Résultats Xray pas encore relus pour ce build."}
+          <button class="btn petit" id="rb-actu">${ico("rejouer")}Actualiser depuis Xray</button></p>
+        <div class="kpis rel-kpis">${kpi(r.executes + "/" + r.retenus, "exécutés depuis la réception")}${kpi(r.reussis, "réussis", "ok-t")}${kpi(r.echecs, "en échec", r.echecs ? "ko-t" : "")}${kpi(r.non_executes, "non exécutés")}</div>
+        <h4>Exécutions Xray du build</h4><div id="rb-xray"><p class="lib">Chargement…</p></div>
+        <h4>Tests automatisés</h4><div id="rb-autos"></div>
+        <div class="rel-pied">${remplace ? "" : suivante("verdict", "Passer au verdict")}</div>`;
+      $("#rb-actu", ez).onclick = async () => { const b = $("#rb-actu", ez); b.disabled = true; b.textContent = "Lecture de Xray…";
+        try { await api(`/api/releases/${ID}/builds/${BID}/actualiser-xray`, {method: "POST", body: {}}); toast("Résultats relus dans Xray.", "ok"); await vueBuild(); liste(); }
+        catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Actualiser depuis Xray"; } };
+      brancherSuivante(ez);
+      const autos = B.perimetre.filter(x => x.automatise && x.decision !== "rejetée").length;
+      const za = $("#rb-autos", ez);
+      za.innerHTML = `${(B.campagnes || []).length ? `<ul class="rel-puces">${B.campagnes.map(x => `<li><a href="#centre/campagnes">${esc(x.nom)}</a> <span class="lib">${x.tests} test(s)${x.execution ? ` · résultats écrits dans ${esc(x.execution)}` : ""}</span></li>`).join("")}</ul>` : ""}
+        ${ouvert ? `<p class="lib">${autos} test(s) automatisé(s) retenu(s) : leurs campagnes se préparent à la validation du périmètre.</p>`
+          : remplace ? "" : `<div class="btns"><button class="btn" id="rb-campagnes">Préparer les campagnes des automatisés</button><span class="lib">${autos} test(s) automatisé(s) · une campagne par exécution Xray (résultats écrits dans l'exécution), rien n'est lancé</span></div>`}`;
+      if ($("#rb-campagnes", za)) $("#rb-campagnes", za).onclick = async () => {
+        const p = await api(`/api/releases/${ID}/plan`).catch(() => null);
+        const parExec = !!p && p.executions.some(e => e.build === BID);
+        if (await opBuild({op: "campagne", par_execution: parExec}, "Campagne(s) prête(s) dans Execution Center : les lancer depuis Execution Center.")) ETAPE[B.id] = "execution"; };
+      await executionsBuild($("#rb-xray", ez));
+      relectureAuto();
+    }
+
+    /* 4 · verdict : résultats, anomalies, Passed / Failed */
+    function etapeVerdict(ez) {
+      const anomalies = (titre, l, cls = "") => l.length ? `<p style="margin:6px 0 2px"><b>${titre}</b> (${l.length})</p><ul class="rel-puces">${l.map(x => `<li><b class="${cls}">${esc(x.cle)}</b> ${esc(x.resume || "")} <span class="lib">${esc([x.statut, x.priorite].filter(Boolean).join(" · "))}${(x.tests || []).length ? " · tests " + esc(x.tests.join(", ")) : ""}</span></li>`).join("")}</ul>` : "";
+      const peut = !ouvert && !remplace && !["Passed", "Failed"].includes(B.statut);
+      ez.innerHTML = `<div class="kpis rel-kpis">${kpi(r.executes + "/" + r.retenus, "exécutés")}${kpi(r.reussis, "réussis", "ok-t")}${kpi(r.echecs, "en échec", r.echecs ? "ko-t" : "")}${kpi(r.non_executes, "non exécutés")}</div>
+        ${B.verdict ? `<p>Déclaré ${pill(B.statut, STATUT[B.statut])} par ${esc(B.verdict.par)} le ${date(B.verdict.date)}${B.verdict.motif ? ` · ${esc(B.verdict.motif)}` : ""}.</p>` : ""}
+        ${r.echecs ? `<p class="lib">En échec : ${esc(B.perimetre.filter(x => x.resultat === "echec").map(x => x.test).join(", "))}</p>` : ""}
+        <h4>Anomalies</h4>
+        ${anomalies("Corrigées (confirmé dans Jira)", a.corrigees, "ok-t")}${anomalies("Déclarées corrigées, encore ouvertes dans Jira", a.corrigees_non_confirmees, "ko-t")}
+        ${anomalies("Nouvelles sur ce build", a.nouvelles, "ko-t")}${anomalies("Résiduelles (ouvertes avant ce build)", a.residuelles, "warn-t")}
+        ${a.declarees_inconnues.length ? `<p class="lib">Déclarées corrigées mais absentes de la copie Xray : ${esc(a.declarees_inconnues.join(", "))}.</p>` : ""}
+        ${!a.corrigees.length && !a.corrigees_non_confirmees.length && !a.nouvelles.length && !a.residuelles.length ? '<p class="lib">Aucune anomalie liée à ce build dans la copie Xray.</p>' : ""}
+        <div id="rb-verdict"></div>
+        <div class="rel-pied">${peut ? `<button class="btn succes" data-verdict="passed">Déclarer Passed</button><button class="btn danger" data-verdict="failed">Déclarer Failed</button>`
+          : ouvert ? '<span class="lib">Valider d\'abord le périmètre (étape 2).</span>' : ""}
+          <span class="lib">Un build Passed ne qualifie pas la release : la qualification se décide sur les critères de sortie, en haut de la page.</span></div>`;
+      $$("[data-verdict]", ez).forEach(b => b.onclick = () => {
+        const op = b.dataset.verdict, v = $("#rb-verdict", ez);
+        v.innerHTML = `<div class="btns" style="margin:6px 0 10px"><input class="in" id="rv-motif" placeholder="${op === "passed" && (r.echecs || r.non_executes) ? `Justification obligatoire : ${r.echecs} en échec, ${r.non_executes} non exécuté(s)` : "Commentaire (facultatif)"}" style="flex:1;min-width:280px">
+          <button class="btn ${op === "passed" ? "succes" : "danger"}" id="rv-ok">Confirmer : ${op === "passed" ? "Passed" : "Failed"}</button><button class="btn" id="rv-non">Annuler</button></div>`;
+        $("#rv-motif").focus();
+        $("#rv-non").onclick = () => { v.innerHTML = ""; };
+        $("#rv-ok").onclick = () => opBuild({op, motif: $("#rv-motif").value}, `Build déclaré ${op === "passed" ? "Passed" : "Failed"} : la release reste à qualifier.`); });
+    }
   }
 })();

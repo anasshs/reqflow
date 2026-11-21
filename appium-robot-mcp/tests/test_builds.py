@@ -1,7 +1,7 @@
 """Qualification d'une release build après build : création, réception des builds, comparaison avec le précédent et le
 périmètre initial, périmètre en trois catégories (retest, non-régression ciblée, qualification), décisions du QA,
 verdict de build, critères de sortie et qualification de la release. Projet de démonstration, données fictives."""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -47,7 +47,8 @@ def _resultat(cles, statut, jour=AUJ):
     pat = patrimoine_xray.charger()
     for t in pat["tests"]:
         if t["cle"] in cles:
-            t["statut_xray"] = {"statut": statut, "fin": jour + "T10:00:00"}
+            # un résultat posé « aujourd'hui » l'est maintenant, donc après la réception des builds du test
+            t["statut_xray"] = {"statut": statut, "fin": datetime.now().isoformat(timespec="seconds") if jour == AUJ else jour + "T10:00:00"}
     patrimoine_xray.enregistrer(pat, "test")
     pilotage.vider_memo()
 
@@ -330,3 +331,55 @@ def test_build_remplace_et_qualification_a_refaire(rel, b):  # noqa: F811
         b.operer(r["id"], v1["id"], "passed")
     b.operer(r["id"], v2["id"], "supprimer")
     assert b.tableau(r["id"])["builds"][0]["statut"] == "Périmètre validé"                 # le build remplacé reprend son statut
+
+
+def test_delta_avec_le_build_precedent(rel, b):  # noqa: F811
+    """Chaque test du build est situé par rapport au build précédent : nouveau, à rejouer (échec), déjà réussi et non
+    touché de nouveau (candidat à écarter), reconduit."""
+    r = rel.creer(NOTE, nom="Release 3.4")
+    v1 = b.recevoir(r["id"], "b1", HIER, "", BUILD1)
+    v1 = b.operer(r["id"], v1["id"], "valider")
+    _resultat({"DEMO-303"}, "PASSED", HIER)
+    _resultat({"DEMO-304"}, "FAILED", HIER)
+    v2 = b.recevoir(r["id"], "b2", AUJ, "", BUILD2)
+    d = {x["test"]: x for x in v2["perimetre"]}
+    assert d["DEMO-304"]["delta"] == "a_rejouer" and d["DEMO-304"]["resultat_precedent"] == "echec"
+    assert d["DEMO-303"]["delta"] == "deja_reussi"                                       # réussi sur b1, touché seulement par son module
+    assert all(x["delta"] == "nouveau" for x in v2["perimetre"] if x["test"] not in v1["perimetre_valide"]["tests"])
+    delta = v2["comparaison"]["delta"]
+    assert delta["precedent"] == "b1" and delta["a_rejouer"] >= 1 and delta["deja_reussi"] >= 1
+    assert "delta" not in b.vue(r["id"], v1["id"])["comparaison"]                         # premier build : rien à comparer
+
+
+def test_campagnes_par_execution_xray(rel, b, plan, monkeypatch):  # noqa: F811
+    """Exécution unifiée : une campagne par Test Execution Xray du build, qui réutilise cette exécution pour ses résultats."""
+    from atelier.execution import centre
+    from atelier.intelligence import pilotage
+
+    r = rel.creer(NOTE, nom="Release 3.5")
+    v = b.recevoir(r["id"], "b1", AUJ, "", BUILD1)
+    v = b.operer(r["id"], v["id"], "valider")
+    autos = [x["test"] for x in v["perimetre"] if x["automatise"] and x["test"] in v["perimetre_valide"]["tests"]]
+    assert autos, "le projet de démonstration doit avoir des tests automatisés"
+    x = XrayPlan()
+    e = plan.creer_executions(r["id"], v["id"], plan.proposer(r["id"], v["id"], "type"), xray=x)
+    v = b.operer(r["id"], v["id"], "campagne", par_execution=True)
+    camps = {c["id"]: c for c in centre.campagnes()}
+    liees = [c for c in v["campagnes"] if c.get("execution")]
+    assert liees and v["statut"] == "En exécution"
+    for c in liees:
+        assert camps[c["id"]]["mode_execution"] == "reutiliser" and camps[c["id"]]["execution_xray"] == c["execution"]
+        assert set(camps[c["id"]]["tests"]) <= set(autos)
+    assert {c["execution"] for c in liees} <= {ex["xray"]["cle"] for ex in e["executions"]}
+    with pytest.raises(ValueError, match="déjà créées"):
+        b.operer(r["id"], v["id"], "campagne", par_execution=True)
+    pilotage.vider_memo()
+
+
+def test_resultat_compte_apres_la_reception_a_l_heure_pres(b):  # noqa: F811
+    """Deux builds reçus le même jour ne partagent pas leurs résultats : le jour de la réception, l'heure fait foi."""
+    b1 = {"date_reception": "2026-11-21", "recu_le": "2026-11-21T09:00:00"}
+    assert b.apres_reception(b1, "2026-11-21T09:30:00") and not b.apres_reception(b1, "2026-11-21T08:59:00")
+    assert b.apres_reception(b1, "2026-11-22T01:00:00") and not b.apres_reception(b1, "2026-11-20T23:00:00")
+    saisi = {"date_reception": "2026-11-18", "recu_le": "2026-11-21T09:00:00"}                # date de réception saisie dans le passé
+    assert b.apres_reception(saisi, "2026-11-18T07:00:00")

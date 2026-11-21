@@ -65,6 +65,21 @@ non-régression → Test Executions → résultats de qualification. Moteur : `a
    bloquant non satisfait impose une dérogation justifiée, tracée comme telle. Un build modifié remet la qualification
    « En cours ».
 
+**Un build se traite en 4 étapes**, une seule dépliée, chacune avec un seul bouton principal :
+1. **Ce qui change** : interprétation (Cursor), évolutions et corrections, anomalies à retester, fonctionnalités touchées
+   pour la première fois (hors périmètre initial signalé), contenu du build et rattachements.
+2. **Périmètre** : situé par rapport au build précédent — *nouveau*, *à rejouer* (échec ou blocage sur le build
+   précédent), *déjà réussi* (réussi sur le build précédent et non touché de nouveau), *reconduit* ; « Écarter les N déjà
+   réussis » en un clic (motif tracé). Puis « Valider le périmètre ».
+3. **Exécution** : exécutions Xray du build (créer, dupliquer pour un autre environnement, statuts par test), campagnes
+   des tests automatisés — **une par exécution Xray**, dont le run écrit ses résultats dans cette exécution (mode
+   « réutiliser » d'Execution Center) ; elles se préparent d'office à la validation du périmètre ou à la création
+   d'exécutions sur un périmètre validé. Résultats relus depuis Xray.
+4. **Verdict** : résultats, anomalies, Passed / Failed.
+
+Un résultat compte pour un build s'il est postérieur à sa réception ; le jour même de la réception, l'heure fait foi :
+deux builds reçus le même jour ne partagent pas leurs résultats.
+
 Un nouveau build **remplace** le build encore en cours (Reçu, Périmètre validé, En exécution) : celui-ci passe à
 « Remplacé », en consultation seulement (sa suppression rend la main au build remplacé). Un nouveau build remet aussi une
 release qualifiée « En cours ». À l'ouverture d'une release, le build en cours s'ouvre directement.

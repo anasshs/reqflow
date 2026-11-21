@@ -771,6 +771,20 @@ body.sans-lanceur .df-lanceur { display: none; }
 .rel-ia.a-faire { background: transparent; border: 1px dashed var(--line-2); }
 .rel-ia .btns { flex: none; }
 .rel-selection { position: sticky; top: 0; z-index: 2; padding: 8px 10px; margin: 6px 0; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-2); }
+.rel-build-tete { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.rel-etapes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 12px 0; }
+.rel-etapes button { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 10px;
+  background: var(--surface); color: var(--ink-2); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+.rel-etapes button[aria-current="step"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.rel-etapes .rel-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--surface-3); font-size: 12px; flex: none; }
+.rel-etapes button.faite .rel-num { background: var(--ok-soft); color: var(--ok); }
+.rel-etapes button[aria-current="step"] .rel-num { background: var(--accent); color: #fff; }
+.rel-build h4 { margin: 14px 0 6px; font-size: 13px; letter-spacing: .02em; color: var(--ink-2); }
+.rel-change { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.rel-pied { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.rel-delta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); }
+.rel-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 6px 0 10px; }
+@media (max-width: 900px) { .rel-change { grid-template-columns: minmax(0, 1fr); } .rel-etapes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .rel-remplace { padding: 8px 12px; border-radius: 10px; background: var(--surface-3); color: var(--ink-2); margin: 0 0 8px; }
 tr.sel td { background: var(--accent-soft); }
 @media (max-width: 1150px) { .g-rel { grid-template-columns: minmax(0, 1fr); } }
