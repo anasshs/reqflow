@@ -101,3 +101,15 @@ def test_cadrage_dans_le_brouillon_et_alerte_production(projet, sans_integration
     assert graphe_texte.principal([]) == 0
     assert graphe_texte.principal([p["noeud"], "1"]) == 0
     assert graphe_texte.principal(["parcours:inconnu"]) == 1
+
+
+def test_revue_sans_xray_n_exige_pas_de_cle(projet, sans_integrations):
+    """Sans Xray, l'approbation n'est pas bloquée par l'absence de clé : l'identifiant du test BDD en tag suffit."""
+    from atelier.generation import bdd, studio
+
+    bdd.creer("authentification", "Authentification")
+    (projet / "tests").mkdir()
+    (projet / "tests" / "auth.robot").write_text("*** Test Cases ***\nAuthentification\n    [Tags]    authentification\n    Log    ok\n", "utf-8")
+    c = {x["code"]: x for x in studio.controles_script("tests/auth.robot")}
+    assert "xray" not in c and c["identifiant"]["gravite"] == "ok"
+    assert not [x for x in c.values() if x["gravite"] == "haute"]

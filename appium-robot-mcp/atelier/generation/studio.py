@@ -281,7 +281,17 @@ def controles_script(fichier: str) -> list[dict]:
     add = lambda code, g, m: out.append({"code": code, "gravite": g, "message": m})  # noqa: E731
     tests = [t for t in inv["tests"].values() if t["fichier"] == fichier]
     sans_cle = [t["nom"] for t in tests if not t.get("cles_xray")]
-    add("xray", "haute" if sans_cle else "ok", f"Clé Xray absente : {', '.join(sans_cle)}" if sans_cle else "Clé Xray conservée sur chaque test.")
+    from atelier.intelligence import chemin
+
+    if chemin.integrations()["xray"]:  # Xray utilisé : la clé relie le test à son exécution ; sans elle, rien ne remonte
+        add("xray", "haute" if sans_cle else "ok", f"Clé Xray absente : {', '.join(sans_cle)}" if sans_cle else "Clé Xray conservée sur chaque test.")
+    else:  # sans Xray : l'identifiant du test BDD en tag suffit à le suivre (exécutions, chemin, revue)
+        from atelier.generation import bdd
+
+        cles_bdd = {b["cle"] for b in bdd.lister()}
+        sans_id = [t["nom"] for t in tests if not t.get("cles_xray") and not cles_bdd & set(t.get("tags") or [])]
+        add("identifiant", "moyenne" if sans_id else "ok", f"Sans identifiant de test BDD en tag : {', '.join(sans_id)}" if sans_id
+            else "Chaque test porte l'identifiant de son test BDD (Xray non utilisé : aucune clé exigée).")
     lint = editeur.lint(contenu, fichier)
     add("conventions", "haute" if any(p.get("gravite") == "erreur" for p in lint["problemes"]) else "moyenne" if lint["problemes"] else "ok",
         "; ".join(p["message"] for p in lint["problemes"][:4]) or "Syntaxe et conventions respectées.")
