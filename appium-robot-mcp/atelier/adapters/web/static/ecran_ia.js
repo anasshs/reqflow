@@ -88,6 +88,10 @@
       <div class="btns"><label class="lib">Seuil du modèle avancé (niveau « auto ») ${champ("routage.seuil_avance_tokens", (p.routage || {}).seuil_avance_tokens, "number", eff.routage.seuil_avance_tokens)} tokens</label>
         ${[["compacter", "Compacter les demandes (sans perte)"], ["alleger_mcp", "Alléger les réponses MCP (valeurs vides retirées)"], ["cache_prompt", "Prompt caching (API Claude)"]].map(([k, l]) =>
           `<label><input type="checkbox" data-r="optimisation.${k}" ${eff.optimisation[k] ? "checked" : ""}> ${l}</label>`).join("")}</div>
+      <h3>Modèle applicatif : périmètre de non-régression</h3>
+      <div class="btns"><label class="lib">Impact indirect ≤ ${champ("perimetre.max_indirects", (p.perimetre || {}).max_indirects, "number", eff.perimetre.max_indirects)} tests</label>
+        <label class="lib">Qualification ≤ ${champ("perimetre.max_qualification", (p.perimetre || {}).max_qualification, "number", eff.perimetre.max_qualification)} tests</label>
+        <span class="lib">Les plus à risque d'abord (criticité, dernier échec, étiquette) ; les autres sont affichés « non retenus », jamais cachés. 0 = sans plafond.</span></div>
       <h3>Contexte transmis (par défaut)</h3>
       <div class="btns">${[["max_tests", "tests"], ["max_exigences", "exigences"], ["max_elements", "éléments du graphe"], ["max_ecrans", "écrans"]].map(([k, l]) => `<label class="lib">${l} ≤ ${champ("contexte." + k, (p.contexte || {})[k], "number", eff.contexte[k])}</label>`).join("")}
         <label class="lib">Détail <select class="in" data-r="contexte.detail" style="width:auto">${E.details.map(d => `<option ${(p.contexte || {}).detail === d || (!(p.contexte || {}).detail && eff.contexte.detail === d) ? "selected" : ""}>${d}</option>`).join("")}</select></label></div>
@@ -112,6 +116,8 @@
       const seuil = $('[data-r="routage.seuil_avance_tokens"]').value;
       d.routage = {...(d.routage || {}), ...(seuil ? {seuil_avance_tokens: +seuil} : {})};
       d.optimisation = Object.fromEntries(["compacter", "alleger_mcp", "cache_prompt"].map(k => [k, $(`[data-r="optimisation.${k}"]`).checked]));
+      d.perimetre = {};
+      ["max_indirects", "max_qualification"].forEach(k => { const v = $(`[data-r="perimetre.${k}"]`).value; if (v !== "") d.perimetre[k] = +v; });
       d.contexte = {detail: $('[data-r="contexte.detail"]').value};
       ["max_tests", "max_exigences", "max_elements", "max_ecrans"].forEach(k => { const v = $(`[data-r="contexte.${k}"]`).value; if (v) d.contexte[k] = +v; });
       d.operations = {};

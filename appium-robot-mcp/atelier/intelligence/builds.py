@@ -23,6 +23,8 @@ Résultats : dernier statut Xray de chaque test (copie locale), compté pour le 
 """
 from __future__ import annotations
 
+from collections import Counter
+
 import re
 from datetime import date
 
@@ -100,6 +102,31 @@ def _tests_du_noeud(g, nid: str) -> tuple[set, set]:
     if g.noeuds[nid].type in ("user_story", "epic", "bug"):
         directs |= {x.vers.split(":", 1)[1] for x in g.sortants(nid, fiables=True) if x.type == "teste_par" and x.vers.startswith("test:")}
     return directs, modules
+
+
+BORNES = {"max_indirects": 40, "max_qualification": 30}
+
+
+def _bornes() -> dict:
+    """Plafonds du modèle applicatif (Paramètres › Pilotage IA › Réglages, section « perimetre » ; 0 = sans plafond)."""
+    try:
+        from atelier.intelligence.ia import config
+
+        return {**BORNES, **{k: int(v) for k, v in (config.effective().get("perimetre") or {}).items() if k in BORNES}}
+    except Exception:  # noqa: BLE001 — réglage illisible : les plafonds par défaut
+        return dict(BORNES)
+
+
+def _risque(t: dict, p) -> int:
+    """Score de risque d'un test, pour classer les candidats indirects et de qualification : criticité, dernier résultat en
+    échec ou bloqué, étiquette de sécurité, jamais exécuté."""
+    crit = str(t.get("criticite") or "").casefold()
+    s = 3 if crit in p.CRITIQUES else 2 if crit in ("moyenne", "medium", "normale", "normal", "majeur") else 1
+    statut = str((t.get("statut_xray") or {}).get("statut") or "").upper()
+    s += 3 if "FAIL" in statut or "BLOCK" in statut else 0
+    s += 2 if any(str(x).casefold() in p.ETIQUETTES_SECURITE for x in t.get("libelles") or []) else 0
+    s += 1 if not statut else 0
+    return s
 
 
 def _anomalies(b: dict) -> list[str]:
@@ -185,6 +212,8 @@ def analyser(r: dict, b: dict, g=None, delta: bool = True) -> dict:
 
     # --- périmètre recommandé
     reco: dict = {}
+    candidats_indirects: dict = {}
+    candidats_qualif: dict = {}
 
     def ajouter(cle, categorie, motif, impact=""):
         x = reco.setdefault(cle, {"test": cle, "categorie": categorie, "impact": impact, "motifs": []})
@@ -198,21 +227,41 @@ def analyser(r: dict, b: dict, g=None, delta: bool = True) -> dict:
     for e in b["evolutions"]:
         for l in [l for l in e.get("liens") or [] if l["etat"] == "confirmé"]:
             directs, modules = _tests_du_noeud(g, l["noeud"])
-            # impact indirect : les autres tests du module de l'élément, ou des modules de ses tests directs
-            modules |= {info[t].get("module") for t in directs if t in info and info[t].get("module")}
             n = g.noeuds.get(l["noeud"])
             if n and n.type == "module":
                 modules.add(n.libelle)
+            if not modules:  # US sans module dans le graphe : le module où se trouvent le plus de ses tests directs, un seul
+                c = Counter(info[t].get("module") for t in directs if t in info and info[t].get("module"))
+                modules = {c.most_common(1)[0][0]} if c else set()
             for t in directs:
                 ajouter(t, "ciblee", f"{R.TYPES.get(e['type'], 'évolution')} : {l['libelle']}", "direct")
             for t in pat.get("tests") or []:
                 if t.get("module") in modules and t["cle"] not in directs:
-                    ajouter(t["cle"], "ciblee", f"même module ({t['module']}) que {l['libelle']}", "indirect")
+                    candidats_indirects.setdefault(t["cle"], f"même module ({t['module']}) que {l['libelle']}")
+    # bornes : l'impact indirect et la qualification ne retiennent que les tests les plus à risque, le reste est dit
+    bornes = _bornes()
+    non_retenus = []
+
+    def borner(cands, cat, impact, cle_borne):
+        restants = {k: v for k, v in cands.items() if k not in reco}
+        classes = sorted(restants, key=lambda k: (-_risque(info.get(k) or {}, p), k))
+        garder = classes[:bornes[cle_borne]] if bornes[cle_borne] > 0 else classes
+        for k in garder:
+            ajouter(k, cat, restants[k], impact)
+        for k in classes[len(garder):]:
+            non_retenus.append({"test": k, "categorie": cat, "motif": restants[k], "module": (info.get(k) or {}).get("module", ""),
+                                "risque": _risque(info.get(k) or {}, p)})
+    borner(candidats_indirects, "ciblee", "indirect", "max_indirects")
     for t in pat.get("tests") or []:
         crit = str(t.get("criticite") or "").casefold() in p.CRITIQUES
         etiq = next((x for x in t.get("libelles") or [] if str(x).casefold() in p.ETIQUETTES_SECURITE), "")
         if crit or etiq:
-            ajouter(t["cle"], "qualification", f"criticité métier ({t['criticite']})" if crit else f"étiquette « {etiq} »")
+            motif = f"criticité métier ({t['criticite']})" if crit else f"étiquette « {etiq} »"
+            if t["cle"] in reco:
+                ajouter(t["cle"], "qualification", motif)  # déjà retenu : la raison s'ajoute, la catégorie la plus forte reste
+            else:
+                candidats_qualif.setdefault(t["cle"], motif)
+    borner(candidats_qualif, "qualification", "", "max_qualification")
     for cle, d in (b.get("decisions") or {}).items():
         if d.get("decision") == "ajoutée":
             ajouter(cle, "ciblee", f"ajouté par {d.get('par', '?')} : {d.get('motif', '')}".strip(" :"), "ajout")
@@ -258,6 +307,14 @@ def analyser(r: dict, b: dict, g=None, delta: bool = True) -> dict:
                           else "deja_reussi" if res.get(x["test"]) == "reussi" and not touche else "reconduit")
             x["resultat_precedent"] = res.get(x["test"], "")
         comparaison["delta"] = {"precedent": precedent["numero"], **{k: sum(x["delta"] == k for x in lignes) for k in DELTA}}
+    if non_retenus:  # jamais un silence : ce que le plafond a laissé de côté, par catégorie et module
+        decides = {k for k, d in (b.get("decisions") or {}).items() if d.get("decision") == "ajoutée"}
+        restes = [x for x in non_retenus if x["test"] not in decides]
+        par: dict = {}
+        for x in restes:
+            par.setdefault((x["categorie"], x["module"] or "Sans module"), []).append(x["test"])
+        comparaison["non_retenus"] = [{"categorie": c, "module": m, "nombre": len(l), "tests": l} for (c, m), l in sorted(par.items())]
+        comparaison["bornes"] = bornes
     return {"comparaison": comparaison, "perimetre": lignes,
             "interpretation": {k: avis.get(k) for k in ("source", "date", "synthese", "refus")} if avis else None}
 

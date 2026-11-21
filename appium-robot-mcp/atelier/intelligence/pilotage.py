@@ -24,6 +24,7 @@ Rien n'appelle Jira, Xray ni GitLab : tout vient des copies locales (leur date e
 from __future__ import annotations
 
 import json
+import sys
 import subprocess
 import time
 from datetime import date, datetime, timedelta
@@ -668,7 +669,7 @@ def tnr(f: dict | None = None) -> dict:
         if motif not in r["motifs"]:
             r["motifs"].append(motif)
         r["depuis"] = max(r["depuis"], date_evo or "")
-    non_rattachees = []
+    non_rattachees, cand_comp, cand_secu = [], {}, {}
     for e in evo:
         directs, modules = set(e["tests_directs"]), set()
         if e["noeud"]:
@@ -684,7 +685,7 @@ def tnr(f: dict | None = None) -> dict:
             ajouter(t, "obligatoire", f"{e['nature']} : {e['element']}", e["date"])
         for t in pat.get("tests") or []:
             if t.get("module") in modules and t["cle"] not in directs:
-                ajouter(t["cle"], "complementaire", f"même module ({t['module']}) que {e['element']}", e["date"])
+                cand_comp.setdefault(t["cle"], (f"même module ({t['module']}) que {e['element']}", e["date"]))
     if evo:  # sans évolution, rien n'est à rejouer : la sécurité fonctionnelle accompagne une campagne, elle ne la déclenche pas
         for t in pat.get("tests") or []:
             if f.get("module") and t.get("module") != f["module"]:
@@ -692,8 +693,20 @@ def tnr(f: dict | None = None) -> dict:
             crit = str(t.get("criticite") or "").casefold() in CRITIQUES
             etiq = next((x for x in t.get("libelles") or [] if str(x).casefold() in ETIQUETTES_SECURITE), "")
             if (crit or etiq) and t["cle"] not in reco:
-                ajouter(t["cle"], "securite", f"criticité métier ({t['criticite']})" if crit else f"étiquette « {etiq} »")
+                cand_secu.setdefault(t["cle"], (f"criticité métier ({t['criticite']})" if crit else f"étiquette « {etiq} »", ""))
     dec = _decisions()
+    # mêmes bornes que le périmètre d'un build : complémentaires et sécurité classés par risque, plafonnés, le reste dit
+    from atelier.intelligence import builds as _bld
+
+    bornes, non_retenus = _bld._bornes(), {}
+    for cands, cat, cle_borne in ((cand_comp, "complementaire", "max_indirects"), (cand_secu, "securite", "max_qualification")):
+        restants = {k: v for k, v in cands.items() if k not in reco and (dec.get(k) or {}).get("decision") != "ajoutée"}
+        classes = sorted(restants, key=lambda k: (-_bld._risque(info.get(k) or {}, sys.modules[__name__]), k))
+        garder = classes[:bornes[cle_borne]] if bornes[cle_borne] > 0 else classes
+        for k in garder:
+            ajouter(k, cat, *restants[k])
+        if len(classes) > len(garder):
+            non_retenus[cat] = classes[len(garder):]
     for cle, d in dec.items():
         if d.get("decision") == "ajoutée" and cle not in reco:
             ajouter(cle, "obligatoire", f"ajouté par {d.get('par', '?')} : {d.get('motif', '')}".strip(" :"))
@@ -725,12 +738,15 @@ def tnr(f: dict | None = None) -> dict:
            "obligatoires_non_executes": sum(not x["rejoue"] for x in retenus if x["categorie"] == "obligatoire"),
            "couverture_impacts": _pct(sum(x["rejoue"] for x in impactes), len(impactes))}
     return {"evolutions": evo, "recommandations": lignes, "indicateurs": ind, "depuis": _depuis(f), "non_rattachees": non_rattachees,
+            "non_retenus": {c: {"nombre": len(l), "tests": l[:200]} for c, l in non_retenus.items()}, "bornes": bornes,
             "avertissement": (f"{len(non_rattachees)} évolution(s) sans élément correspondant dans le Knowledge Graph : leur impact n'a pas pu être analysé. "
                               "Cette sélection est donc partielle." if non_rattachees else ""),
             "non_detecte": ["Merge requests et commits distants GitLab (appel réseau : hors du chargement du Dashboard).",
                             "Changements d'API et de règles métier : pas de comparaison de versions disponible."],
             "definition": "Obligatoire : test directement lié à l'élément modifié (relations fiables du graphe). Complémentaire : autre test du même module. "
-                          "Sécurité fonctionnelle : test de criticité élevée ou étiqueté smoke / tnr, sans lien avec une évolution."}
+                          "Sécurité fonctionnelle : test de criticité élevée ou étiqueté smoke / tnr, sans lien avec une évolution. "
+                          "Complémentaires et sécurité : les plus à risque d'abord (criticité, dernier échec, étiquette), dans la limite des plafonds "
+                          "réglés (Paramètres › Pilotage IA) ; les autres sont comptés comme non retenus."}
 
 
 def decider_tnr(test: str, decision: str, motif: str = "", priorite: str = "") -> dict:

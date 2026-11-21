@@ -383,3 +383,26 @@ def test_resultat_compte_apres_la_reception_a_l_heure_pres(b):  # noqa: F811
     assert b.apres_reception(b1, "2026-11-22T01:00:00") and not b.apres_reception(b1, "2026-11-20T23:00:00")
     saisi = {"date_reception": "2026-11-18", "recu_le": "2026-11-21T09:00:00"}                # date de réception saisie dans le passé
     assert b.apres_reception(saisi, "2026-11-18T07:00:00")
+
+
+def test_impact_indirect_et_qualification_bornes(rel, b):  # noqa: F811
+    """Le périmètre ne s'emballe pas : indirects et qualification classés par risque et plafonnés (réglage du projet),
+    le reste compté « non retenus » par module, et ajoutable par le QA."""
+    from atelier.domain import projet
+
+    r = rel.creer(NOTE, nom="Release 3.6")
+    v = b.recevoir(r["id"], "b1", AUJ, "", BUILD1)
+    indirects = [x["test"] for x in v["perimetre"] if x["impact"] == "indirect"]
+    assert len(indirects) >= 2 and "non_retenus" not in v["comparaison"]                       # plafonds par défaut (40, 30) non atteints
+    (projet.PROJECT_DIR / "atelier_ia.yaml").write_text("perimetre: {max_indirects: 1, max_qualification: 0}\n", encoding="utf-8")
+    v = b.vue(r["id"], v["id"])
+    garde = [x for x in v["perimetre"] if x["impact"] == "indirect"]
+    assert len(garde) == 1
+    nr = v["comparaison"]["non_retenus"]
+    assert sum(x["nombre"] for x in nr if x["categorie"] == "ciblee") == len(indirects) - 1 and v["comparaison"]["bornes"]["max_indirects"] == 1
+    # le plus à risque est gardé : DEMO-304 est en échec dans la copie Xray de démonstration
+    assert garde[0]["test"] == "DEMO-304" or garde[0]["criticite"] == "Haute"
+    ajout = next(x for x in nr if x["categorie"] == "ciblee")
+    v = b.operer(r["id"], v["id"], "decider", tests=ajout["tests"], decision="ajoutée", motif="non retenu par le plafond, ajouté par le QA")
+    assert set(ajout["tests"]) <= {x["test"] for x in v["perimetre"]}
+    assert not [x for x in v["comparaison"].get("non_retenus", []) if x["categorie"] == "ciblee"]

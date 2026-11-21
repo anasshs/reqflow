@@ -31,6 +31,7 @@ DEFAUT = {
     "budgets": {"global": 0, "projets": {}, "modules": {}, "postes": {},
                 "seuils": {"information": 50, "avertissement": 80, "restriction": 90, "blocage": 100}},
     "simulateur": {"conserver_entrees": True, "max_entrees": 200},
+    "perimetre": {"max_indirects": 40, "max_qualification": 30},  # modèle applicatif : plafonds du périmètre d'un build
 }
 PLAFONDS = (("modeles", "*", "max_entree"), ("modeles", "*", "max_sortie"), ("operations", "*", "max_sortie"), ("budgets", "global"))
 
@@ -173,6 +174,9 @@ def valider(d: dict) -> list[str]:
             err.append(f"Opération {op} : réglage attendu.")
         elif o.get("niveau") and o["niveau"] not in CHOIX_NIVEAU:
             err.append(f"Opération {op} : niveau {', '.join(CHOIX_NIVEAU)}.")
+    for k, v in (d.get("perimetre") or {}).items():
+        if k not in DEFAUT["perimetre"] or not isinstance(v, int) or v < 0:
+            err.append(f"Périmètre : {k} doit être un entier positif ou nul ({', '.join(DEFAUT['perimetre'])}).")
     c = d.get("contexte") or {}
     if c.get("detail") and c["detail"] not in DETAILS:
         err.append(f"Contexte : niveau de détail {', '.join(DETAILS)}.")

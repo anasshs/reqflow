@@ -474,6 +474,10 @@
           ${ouvert && dejaReussis.length ? `<button class="btn petit" id="rb-ecarter-reussis" title="${esc(dejaReussis.map(x => x.test).join(", "))}">Écarter les ${dejaReussis.length} déjà réussis sur ${esc(d.precedent)}</button>` : ""}</div>` : ""}
         <p class="lib" style="margin:8px 0">${B.perimetre_valide ? `Périmètre validé le ${date(B.perimetre_valide.date)} par ${esc(B.perimetre_valide.par)} · ` : "Les tests proposés sont retenus par défaut : écarter ce qui ne concerne pas ce build. "}
           <b>${r.retenus} test(s) retenu(s)</b> : ${r.par_categorie.retest} retest · ${r.par_categorie.ciblee} non-régression ciblée · ${r.par_categorie.qualification} qualification.</p>
+        ${(c.non_retenus || []).length ? `<details class="rel-delta" style="display:block"><summary><b>${c.non_retenus.reduce((a, x) => a + x.nombre, 0)} test(s) non retenus par les plafonds</b>
+            <span class="lib">les plus à risque sont retenus d'abord (criticité, dernier échec, étiquette) : au plus ${c.bornes.max_indirects} par impact indirect, ${c.bornes.max_qualification} en qualification (Paramètres › Pilotage IA › Réglages)</span></summary>
+          <table class="table-strat" style="margin-top:6px"><tr><th>Catégorie</th><th>Module</th><th>Tests non retenus</th><th></th></tr>${c.non_retenus.map((x, i) => `<tr><td>${esc(CAT[x.categorie][0])}</td><td>${esc(x.module)}</td>
+            <td><span title="${esc(x.tests.join(", "))}">${x.nombre}</span></td><td>${ouvert ? `<button class="btn petit" data-ajout-nr="${i}">Ajouter les ${x.nombre}</button>` : ""}</td></tr>`).join("")}</table></details>` : ""}
         ${ouvert ? `<div class="btns rel-selection" id="rb-sel" ${SEL.size ? "" : "hidden"}><b id="rb-sel-n">${SEL.size} test(s) sélectionné(s)</b><input class="in" id="rb-sel-motif" placeholder="Pourquoi les écarter ?" style="flex:1;min-width:220px"><button class="btn" id="rb-sel-ok">Écarter la sélection</button><button class="lien" id="rb-sel-non">tout désélectionner</button></div>` : ""}
         ${barre}
         ${Object.entries(CAT).map(([k, [lib, cls]]) => { const l = page.filter(x => x.categorie === k), tot = filtres_.filter(x => x.categorie === k).length; return l.length ? `<h4 style="margin:12px 0 4px">${pill(lib, cls)} <span class="lib">${tot} test(s)${tot > l.length ? `, ${l.length} sur cette page` : ""}</span></h4>
@@ -498,6 +502,8 @@
       if ($("#rb-sel-non", ez)) $("#rb-sel-non", ez).onclick = () => { SEL.clear(); $$("[data-sel]", ez).forEach(cb => { cb.checked = false; }); majSel(); };
       if ($("#rb-sel-ok", ez)) $("#rb-sel-ok", ez).onclick = async () => { const tests = [...SEL];
         if (await opBuild({op: "decider", tests, decision: "rejetée", motif: $("#rb-sel-motif", ez).value}, `${tests.length} test(s) écarté(s).`)) SEL.clear(); };
+      $$("[data-ajout-nr]", ez).forEach(b => b.onclick = () => { const x = c.non_retenus[+b.dataset.ajoutNr];
+        opBuild({op: "decider", tests: x.tests, decision: "ajoutée", motif: `non retenu par le plafond (${CAT[x.categorie][0]}, module ${x.module}), ajouté par le QA`}, `${x.nombre} test(s) ajouté(s) au périmètre.`); });
       if ($("#rb-ecarter-reussis", ez)) $("#rb-ecarter-reussis", ez).onclick = () => opBuild({op: "decider", tests: dejaReussis.map(x => x.test), decision: "rejetée",
         motif: `réussi sur le build ${d.precedent}, non touché par ce build`}, `${dejaReussis.length} test(s) déjà réussi(s) écarté(s).`);
       $$("[data-dec]", ez).forEach(b => b.onclick = () => {
