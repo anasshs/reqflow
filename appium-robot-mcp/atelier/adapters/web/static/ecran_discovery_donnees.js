@@ -135,6 +135,7 @@
       ${table(["Nom", "Description", "Variables", ""], l.map(p => `<tr><td><b class="mono">${esc(p.nom)}</b></td><td>${esc(p.description) || "—"}</td>
         <td>${p.variables.map(v => `<span class="pill ${p.inconnues.includes(v) ? "ko" : ""}">${esc(v)}</span>`).join(" ") || "—"}</td>
         <td style="white-space:nowrap"><button class="btn" data-utiliser="${esc(p.nom)}" title="Les prochaines demandes de données prennent les valeurs de ce profil">Utiliser pour la session</button>
+          <button class="btn" data-profil-jdd="${esc(p.nom)}" title="Crée le jeu de données des tests automatisés (data/jdd) avec ces valeurs : la Discovery et le test rejoué utilisent les mêmes données">Jeu de données des tests</button>
           <button class="icone" data-profil-modif="${esc(p.nom)}" title="Modifier">${ico("editeur")}</button><button class="icone" data-profil-dup="${esc(p.nom)}" title="Dupliquer">${ico("copie")}</button>
           <button class="icone" data-profil-suppr="${esc(p.nom)}" title="Supprimer">${ico("poubelle")}</button></td></tr>`), nature === "profil" ? "Aucun profil utilisateur." : "Aucun groupe.")}</div>`;
   }
@@ -241,6 +242,13 @@
     q("[data-profil-dup]").forEach(b => b.onclick = () => { const n = prompt(`Nom de la copie de ${b.dataset.profilDup} :`, b.dataset.profilDup + "_2"); if (n) action("dupliquer-profil", {nom: b.dataset.profilDup, nouveau: n}, "Dupliqué."); });
     q("[data-profil-suppr]").forEach(b => b.onclick = () => confirm(`Supprimer ${b.dataset.profilSuppr} ? Les variables restent au catalogue.`) && action("supprimer-profil", {nom: b.dataset.profilSuppr}, "Supprimé."));
     q("[data-utiliser]").forEach(b => b.onclick = () => action("contexte", {profil: b.dataset.utiliser}, `Profil ${b.dataset.utiliser} utilisé pour la session.`));
+    q("[data-profil-jdd]").forEach(b => b.onclick = async () => {  // profil → jeu de données des tests automatisés
+      const env = prompt("Environnement du jeu de données des tests (ex. recette) :", (Atelier.env || "recette").toLowerCase());
+      if (!env) return;
+      const r = await action("jdd", {profil: b.dataset.profilJdd, env}, "");
+      if (r) modale(`Jeu de données ${r.jeu} (${r.env})`, `<p>Écrit dans <span class="mono">${esc(r.fichier)}</span>. À associer au test BDD (Tests BDD › le test › Jeu de données).</p>
+        <p class="lib">Dans les keywords des pages, chaque donnée se lit ainsi :</p><table class="table-strat">${Object.entries(r.dans_un_keyword).map(([c, k]) => `<tr><td class="mono">${esc(c)}</td><td class="mono">${esc(k)}</td></tr>`).join("")}</table>`);
+    });
     const exemples = async source => { try { const r = await api("/api/discovery/donnees/generer", {method: "POST", body: {source}}); toast("Exemples : " + r.exemples.join("   ·   "), "ok"); } catch (e) { toast(e.message, "ko"); } };
     q("[data-essai-gen]").forEach(b => b.onclick = () => exemples({generateur: b.dataset.essaiGen}));
     q("[data-essai-var]").forEach(b => b.onclick = () => exemples(parCle(b.dataset.essaiVar).source));

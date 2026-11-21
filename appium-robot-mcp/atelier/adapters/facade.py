@@ -623,6 +623,17 @@ def discovery_donnee_definir(cle: str, valeur: str, description: str = "", sensi
 
 
 @outil
+def discovery_profil_vers_jdd(profil: str, environnement: str, jeu: str = "") -> dict:
+    """Crée (ou met à jour) le jeu de données des tests automatisés (data/jdd/<environnement>.yaml) depuis un profil du
+    référentiel Discovery : le test rejoue avec les valeurs de la Discovery. Champ = clé de la variable en minuscules,
+    lu dans un keyword par ${JDD}[champ] (« dans_un_keyword »). Date générée (J+N) : recalculée à chaque run ;
+    variable sensible : {{env:CLE}}, jamais écrite. Associer ensuite le jeu au test BDD."""
+    from atelier.discovery import donnees
+
+    return donnees.profil_vers_jdd(profil, environnement, jeu)
+
+
+@outil
 def discovery_donnees_contexte(profil: str = "", environnement: str = "") -> dict:
     """Data Context de la session Discovery en cours : valeurs déjà utilisées (masquées si sensibles), leur origine
     (référentiel, source externe, générée, calculée, créée pendant la session) et leurs dépendances. profil /

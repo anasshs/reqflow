@@ -14,7 +14,10 @@ bloquant empêche l'approbation. Avant d'écrire : studio_socle (keywords, locat
 - Locators de l'écran dans leur fichier (&{LOC_<ÉCRAN>_<PLATEFORME>}), mêmes clés métier sur Android, iOS et web.
 - Socle commun : Initialiser Le Test (par test : première ligne ou Test Setup, jamais Suite Setup), Terminer Le Test
   (Test Teardown), Localiser (principal puis secours), attentes génériques.
-- Données : jeux de données de l'atelier (&{JDD_<NOM>}, par environnement), jamais en dur ; secrets jamais écrits.
+- Données : jeux de données de l'atelier (&{JDD_<NOM>}, par environnement), jamais en dur, jamais en *** Variables ***
+  de la suite ; secrets jamais écrits. Le profil utilisé en Discovery devient le jeu de données du test
+  (discovery_profil_vers_jdd) : un keyword lit ${JDD}[<clé de la variable en minuscules>] (ex. ${JDD}[demo_email]).
+  Date relative (rendez-vous à J+7…) : {{date:+7}} dans le jeu, recalculée à chaque run ; jamais une date figée.
 
 ## Keywords
 - Nom métier à l'impératif ou en phrase Gherkin (« Saisir Le Montant », « le récapitulatif s'affiche »), jamais

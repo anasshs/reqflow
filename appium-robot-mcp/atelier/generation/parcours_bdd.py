@@ -95,6 +95,16 @@ def etapes_parcours(nid: str, plateforme: str = "") -> dict:
     return {"parcours": nid, "etapes": etapes}
 
 
+def m_jdd_connu(nom: str) -> bool:
+    """Un jeu de données de ce nom existe-t-il dans au moins un environnement (data/jdd) ?"""
+    from atelier.execution import jdd
+
+    try:
+        return any(nom.upper() == j["jeu"] for e in jdd.environnements() for j in jdd.lister(e))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def cadrage_source(parcours: str = "", session: str = "") -> dict:
     """Cadrage du parcours utilisateur d'où vient le brouillon (nœud « parcours:… », ou session rattachée à un parcours) ;
     {} si aucun. Sert à reprendre l'objectif, le point de départ et le résultat attendu saisis par l'automaticien."""
@@ -206,6 +216,9 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
             locators["connus" if loc else "manquants"] += 1
             etapes.append(bdd._etape("Quand", texte, ecran=_ref(de), locator=loc))
             etapes.append(bdd._etape("Alors", f"l'écran {_lisible(vers)} est affiché", ecran=_ref(vers)))
+    if profil_donnees and not m_jdd_connu(profil_donnees):
+        avertissements.append(f"Profil de données {profil_donnees} : créer son jeu de données des tests (Discovery › Données › "
+                              "profil › « Jeu de données des tests »), sinon le script échouera (${JDD} absent).")
     cadre = cadrage_source(parcours, session)
     attendu = str(cadre.get("resultat_attendu") or "").strip()
     if attendu:  # le résultat attendu saisi au cadrage devient l'assertion finale du scénario
@@ -218,7 +231,7 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
     from atelier.generation import rangement
 
     m = {"langue": "fr", "feature": titre, "module": rangement.module_des_ecrans([e["id"] for e in seq]), "description": description,
-         "contexte": [], "tags": [], "source": f"discovery ({source})", "parcours": parcours, "session": session, "titre": titre, "jdd": "", "statut": "brouillon",
+         "contexte": [], "tags": [], "source": f"discovery ({source})", "parcours": parcours, "session": session, "titre": titre, "jdd": profil_donnees.upper() if profil_donnees and m_jdd_connu(profil_donnees) else "", "statut": "brouillon",
          **({"profil_donnees": profil_donnees} if profil_donnees else {}),
          "scenarios": [{"id": bdd._id(), "nom": titre, "type": "principal", "tags": tags, "depuis": "", "etapes": etapes}]}
     base = bdd._slug(cle or f"parcours_{titre}")

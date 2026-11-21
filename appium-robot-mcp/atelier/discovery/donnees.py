@@ -241,6 +241,56 @@ def dependances() -> dict:
 
 
 # =========================================================================== profils et groupes
+def profil_vers_jdd(profil: str, env: str, jeu: str = "") -> dict:
+    """Jeu de données des tests (data/jdd/<env>.yaml) depuis un profil du référentiel : les tests automatisés rejouent
+    avec les valeurs de la Discovery. Champ du jeu = clé de la variable en minuscules (KLINDOC_EMAIL → klindoc_email ;
+    dans un keyword : ${JDD}[klindoc_email]).
+    - date produite par le générateur « date » (decalage_jours) → {{date:+N:format}}, recalculée à chaque run ;
+    - variable confidentielle ou secrète → {{env:CLE}} (jamais de valeur sensible écrite) ;
+    - sinon la valeur réglée (profil, puis environnement, puis défaut), ou une valeur produite une fois par le générateur."""
+    import random
+
+    from atelier.execution import jdd
+
+    p = profils_dict().get(str(profil or "").strip().upper())
+    if not p:
+        raise KeyError(f"Profil inconnu : {profil}")
+    profil = str(profil).strip().upper()
+    env = str(env or "").strip().lower()
+    jeu = str(jeu or profil).strip().upper()
+    vals, donnees, manquantes = _lire("valeurs"), {}, []
+    for cle in p["variables"]:
+        v = variable(cle)
+        src, regle, champ = v["source"], vals.get(cle) or {}, cle.lower()
+        if _sensible(v):
+            donnees[champ] = "{{env:" + cle + "}}"
+            continue
+        valeur = next((regle.get(ou, {}).get(k) for ou, k in (("profils", profil), ("environnements", env))
+                       if k and k in (regle.get(ou) or {})), None)
+        if valeur is None and "defaut" in regle:
+            valeur = regle["defaut"]
+        if valeur is None and src.get("type") == "generateur" and src.get("generateur") == "date" and src.get("decalage_min") is None:
+            valeur = "{{date:%+d:%s}}" % (int(src.get("decalage_jours", 0)), src.get("format", "%d/%m/%Y"))
+        elif valeur is None and src.get("type") == "generateur":
+            valeur = generer(src, v, None, random.Random())
+        if valeur in (None, ""):
+            manquantes.append(cle)
+            continue
+        donnees[champ] = valeur
+    if manquantes:
+        raise ValueError("Valeur à régler avant de créer le jeu de données : " + ", ".join(manquantes)
+                         + " (Discovery › Données : valeur du profil ou par défaut).")
+    import json
+
+    r = jdd.importer(env, json.dumps({jeu: {"description": f"Depuis le profil {profil} (Discovery › Données)", "donnees": donnees}}),
+                     "json", ecraser=True, ecrire=True)
+    if r.get("erreurs"):
+        raise ValueError(" ; ".join(r["erreurs"]))
+    _tracer("jeu de données créé depuis le profil", profil, environnement=env, jeu=jeu)
+    return {"jeu": jeu, "env": env, "fichier": r.get("fichier", ""), "champs": {c: c.lower() for c in p["variables"]},
+            "dans_un_keyword": {c: "${JDD}[" + c.lower() + "]" for c in p["variables"]}}
+
+
 def profils_dict() -> dict:
     return {k: {"description": (p or {}).get("description", ""), "nature": (p or {}).get("nature") or "groupe",
                 "variables": list((p or {}).get("variables") or [])} for k, p in _lire("profils").items()}

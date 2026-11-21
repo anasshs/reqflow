@@ -1736,6 +1736,7 @@ async def discovery_donnees_action(action: str, req: Request):
                "reglages": lambda: donnees.regler(b.get("sans_variable", "signaler"), b.get("generateurs_autorises") or []),
                "generer": lambda: {"exemples": [donnees.generer(b.get("source") or {}) for _ in range(3)]},
                "preparer": lambda: donnees.preparer(b.get("profil", ""), b.get("env", "")),
+               "jdd": lambda: donnees.profil_vers_jdd(b.get("profil", ""), b.get("env", ""), b.get("jeu", "")),
                "contexte": lambda: donnees.choisir(b.get("profil"), b.get("env")),
                "obtenir": lambda: donnees.obtenir(b.get("cle", ""), champ="essai depuis l'atelier"),
                "reinitialiser": lambda: donnees.reinitialiser(tout=bool(b.get("tout")))}

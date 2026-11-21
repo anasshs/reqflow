@@ -26,7 +26,7 @@ import yaml
 from atelier.domain import projet
 from atelier.integrations import oracle
 
-TOKEN_RE = re.compile(r"\{\{\s*(env|requete|api)\s*:\s*([^}]+?)\s*\}\}")
+TOKEN_RE = re.compile(r"\{\{\s*(env|requete|api|date)\s*:\s*([^}]+?)\s*\}\}")
 SECRET_RE = re.compile(r"\{\{\s*env\s*:")
 READ_ONLY_RE = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 
@@ -90,6 +90,18 @@ def executer_requete(env: str, nom: str, params: dict | None = None, max_lignes:
 
 
 # --------------------------------------------------------------------------- résolution
+def date_relative(ref: str) -> str:
+    """« +7 », « -1 », « +7:%Y-%m-%d » : date du jour décalée, au format demandé (jj/mm/aaaa par défaut)."""
+    from datetime import date, timedelta
+
+    decalage, _, fmt = ref.partition(":")
+    try:
+        n = int(decalage.strip() or 0)
+    except ValueError:
+        raise KeyError(f"{{{{date:{ref}}}}} : décalage en jours attendu (ex. +7)") from None
+    return (date.today() + timedelta(days=n)).strftime(fmt.strip() or "%d/%m/%Y")
+
+
 def resoudre(env: str, jeux: list[str]) -> dict:
     """Vérifie les prérequis puis résout les valeurs.
     Retour : {'jeux': {nom: données résolues}, 'bloques': [...], 'controles': [...]}"""
@@ -131,6 +143,8 @@ def resoudre(env: str, jeux: list[str]) -> dict:
 
         def sub(m):
             kind, ref = m.group(1), m.group(2)
+            if kind == "date":  # {{date:+7}} = aujourd'hui + 7 jours (jj/mm/aaaa) ; {{date:+7:%Y-%m-%d}} pour un autre format
+                return date_relative(ref)
             if kind == "env":
                 val = os.environ.get(ref)
                 if val is None:
