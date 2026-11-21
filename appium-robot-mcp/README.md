@@ -6,19 +6,24 @@ web de contrôle.
 Serveur MCP qui branche Claude Desktop sur un device Android / iOS via Appium, pour relever
 les locators, générer la couche locators Robot Framework (POM) et lancer / analyser les suites.
 
-## Installation rapide (Windows, Linux, macOS)
+## Installation et lancement : l'assistant (Windows, Linux, macOS)
 
-```bash
-python -m venv .venv            # Windows sans « python » : py -m venv .venv
-.venv\Scripts\activate          # Linux / macOS : source .venv/bin/activate
-python installer.py             # dépendances + navigateur Chromium de Playwright (pip ne l'installe pas)
-set ROBOT_PROJECT_DIR=C:\…\mes-tests   # dossier du projet de tests (Linux / macOS : export …)
-python web/app.py               # http://127.0.0.1:8765
-```
+- **Windows** : double-clic sur `lancer-atelier.cmd` (ou `lancer-atelier.cmd` dans un terminal).
+- **Linux / macOS** : `./lancer-atelier.sh`.
 
-Au lancement, la console affiche le projet de tests utilisé et ce qui manque. Sans `ROBOT_PROJECT_DIR` ni projet choisi
-dans Paramètres › Projets, l'atelier prendrait son propre dossier : un bandeau le signale dans l'interface, avec un
-lien pour choisir ou créer le projet.
+À chaque lancement, l'assistant (`lanceur.py`) vérifie le poste et ne fait **que ce qui manque** :
+
+| Étape | Si c'est en place | Sinon |
+|---|---|---|
+| Python 3.10+ | utilisé | Windows : propose de l'installer (winget, Python 3.13), sinon ouvre python.org |
+| Environnement `.venv` | utilisé | créé |
+| Dépendances (`requirements.txt`) | « à jour » | installées (et réinstallées si le fichier change) |
+| Navigateur Chromium (Playwright) | utilisé | installé ; si le proxy bloque : Chrome ou Edge du poste |
+| Projet de tests | utilisé | demandé (dépôt existant, ou un dossier créé) et enregistré dans Paramètres › Projets |
+
+Puis « Atelier prêt » : il démarre et s'ouvre dans le navigateur (http://127.0.0.1:8765). Poste déjà prêt : moins
+d'une seconde de vérification, rien n'est réinstallé. Options : `--verifier` (préparer sans lancer, équivalent de
+`python installer.py`), `--sans-ouvrir`, `--reinstaller`, `--port N`.
 
 ## Installation (macOS)
 

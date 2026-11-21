@@ -111,7 +111,8 @@ l'import REST `/api/v2/import/execution/robot`. Consigner le résultat dans `doc
 ```
 python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 playwright install chromium      # ou WEB_BROWSER_EXECUTABLE=/chemin/chromium
-python installer.py              # équivalent des deux lignes ci-dessus (dépendances + Chromium)
+lancer-atelier.cmd / ./lancer-atelier.sh  # assistant : Python, .venv, dépendances, Chromium, projet de tests, puis lancement
+python installer.py              # le même assistant, sans lancer (lanceur.py --verifier)
 python server.py                 # serveur MCP (stdio) -> atelier/adapters/mcp/server.py
 MCP_HTTP_PORT=8000 python web/app.py  # l'interface démarre aussi le MCP en HTTP : http://localhost:8000/mcp
 python web/app.py                # interface web http://127.0.0.1:8765 -> atelier/adapters/web/app.py
