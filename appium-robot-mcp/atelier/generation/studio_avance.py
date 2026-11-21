@@ -98,6 +98,56 @@ def secours_utilises(limite_runs: int = 50) -> dict:
     return out
 
 
+# Playwright, locator ambigu : « strict mode violation: locator('text="X"') resolved to 2 elements: 1) <a …> aka getByRole(…) 2) … »
+RE_AMBIGU = re.compile(r"strict mode violation: locator\('(.+?)'\) resolved to (\d+) elements: 1\) .*? aka (.+?)(?=\s+\d+\) <|\s+Call log|$)", re.S)
+_GETBY = re.compile(r"getBy(Role|Text|TestId|Label|Placeholder)\('((?:[^'\\]|\\.)*)'(?:,\s*\{([^}]*)\})?\)|locator\('((?:[^'\\]|\\.)*)'\)")
+
+
+def selecteur_depuis_playwright(suggestion: str) -> str:
+    """« getByRole('banner').getByRole('link', { name: 'Connexion' }) » → « role=banner >> role=link[name="Connexion"] »
+    (syntaxe de sélecteur acceptée par la bibliothèque Browser). Vide si une partie n'est pas reconnue."""
+    parties, reste = [], suggestion.strip()
+    while reste:
+        m = _GETBY.match(reste)
+        if not m:
+            return ""
+        kind, val, opts, css = m.groups()
+        if css is not None:
+            parties.append(css)
+        elif kind == "Role":
+            nom = re.search(r"name:\s*'((?:[^'\\]|\\.)*)'", opts or "")
+            parties.append(f'role={val}' + (f'[name="{nom.group(1)}"]' if nom else ""))
+        elif kind == "TestId":
+            parties.append(f"data-testid={val}")
+        elif kind == "Text":
+            parties.append(f'text="{val}"')
+        elif kind == "Placeholder":
+            parties.append(f'css=[placeholder="{val}"]')
+        else:
+            return ""  # getByLabel : pas d'équivalent simple et sûr
+        reste = reste[m.end():].lstrip(".")
+    return " >> ".join(parties)
+
+
+def ambiguites_runs(limite_runs: int = 20) -> dict:
+    """Locators ambigus vus à l'exécution (strict mode violation) : {valeur: {run, elements, proposition, suggestion}}.
+    La proposition vient de Playwright (le premier élément désigné, sous une forme rôle / test id)."""
+    base = projet.PROJECT_DIR / "results" / "runs"
+    out: dict = {}
+    for d in sorted(base.glob("RUN-*"), reverse=True)[:limite_runs] if base.exists() else []:
+        f = d / "output.xml"
+        try:
+            texte = html.unescape(f.read_text("utf-8", errors="replace")) if f.exists() else ""
+        except OSError:
+            continue
+        for m in RE_AMBIGU.finditer(texte):
+            valeur, n, sugg = m.group(1), int(m.group(2)), m.group(3).strip()
+            prop = selecteur_depuis_playwright(sugg)
+            if prop and valeur not in out:
+                out[valeur] = {"run": d.name, "elements": n, "proposition": prop, "suggestion": sugg}
+    return out
+
+
 def propositions_correction() -> list[dict]:
     """Locators à corriger (fragiles, obsolètes, ou dont un secours a servi) et la valeur proposée :
     1) le secours qui a réellement fonctionné à l'exécution ; 2) sinon une valeur stable observée sur l'écran
@@ -106,6 +156,7 @@ def propositions_correction() -> list[dict]:
     from atelier.generation import studio
 
     utilises = secours_utilises()
+    ambigus = ambiguites_runs()
     observes: dict = {}
     try:
         for e in carte.ecrans():
@@ -122,10 +173,14 @@ def propositions_correction() -> list[dict]:
         stables = [v for v in observes.get((l["ecran"], l["cle"], l["plateforme"]), []) if v != l["valeur"] and studio.fiabilite(v)[1] == "Stable"]
         # un identifiant de test est apparu sur l'écran (testTag…) : proposé aussi pour un locator « Reliable » (texte)
         identifiant_arrive = bool(stables) and l["etat"] == "Reliable"
-        if l["etat"] not in ("Fragile", "Obsolete") and not usages and not identifiant_arrive:
+        ambigu = ambigus.get(l["valeur"])
+        if l["etat"] not in ("Fragile", "Obsolete") and not usages and not identifiant_arrive and not ambigu:
             continue
         prop, source = "", ""
-        if usages:
+        if ambigu:  # échec réel : le locator désignait plusieurs éléments ; Playwright a nommé le premier
+            prop, source = ambigu["proposition"], (f"locator ambigu à l'exécution ({ambigu['elements']} éléments, {ambigu['run']}) : "
+                                                   f"premier élément désigné selon Playwright ({ambigu['suggestion']}) ; vérifier que c'est le bon")
+        elif usages:
             prop, source = usages[0]["secours"], f"secours utilisé à l'exécution ({len(usages)} fois, dernier : {usages[0]['run']})"
         elif stables:
             prop, source = stables[0], ("identifiant de test apparu sur l'écran cartographié" if identifiant_arrive

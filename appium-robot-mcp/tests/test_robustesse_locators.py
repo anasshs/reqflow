@@ -42,3 +42,23 @@ def test_android_libelle_repete_borne_au_conteneur():
     assert b["locators"][0].startswith("xpath=//*[@resource-id='carte_livret']") and len(b["locators"]) >= 2  # l'ancien en secours
     assert els["bouton_valider"]["locators"][0] == "id=com.app:id/valider"
     assert not any(k.startswith("_") for e in els.values() for k in e)
+
+
+def test_correction_proposee_depuis_un_locator_ambigu_a_l_execution(projet):
+    """Run en échec « strict mode violation » : la correction est proposée depuis la suggestion de Playwright."""
+    from atelier.generation import studio_avance
+
+    (projet / "resources" / "locators").mkdir(parents=True)
+    (projet / "resources" / "locators" / "accueil.resource").write_text(
+        '*** Variables ***\n&{LOC_ACCUEIL_WEB}    lien_connexion=text="Connexion"    titre=data-testid=titre\n', "utf-8")
+    run = projet / "results" / "runs" / "RUN-20261121-184421"
+    run.mkdir(parents=True)
+    msg = ("Error: locator.waitFor: Error: strict mode violation: locator('text=\"Connexion\"') resolved to 2 elements: "
+           "1) <a href=\"/fr/login\">Connexion</a> aka getByRole('banner').getByRole('link', { name: 'Connexion' }) "
+           "2) <a href=\"/fr/login\">Connexion</a> aka getByRole('contentinfo').getByRole('link', { name: 'Connexion' }) Call log: x")
+    import html
+    (run / "output.xml").write_text(f"<robot><msg>{html.escape(msg)}</msg></robot>", "utf-8")
+    p = {x["cle"]: x for x in studio_avance.propositions_correction()}
+    assert p["lien_connexion"]["proposition"] == 'role=banner >> role=link[name="Connexion"]'
+    assert "ambigu" in p["lien_connexion"]["source"] and p["lien_connexion"]["fiabilite_proposee"] == "Reliable"
+    assert "titre" not in p
