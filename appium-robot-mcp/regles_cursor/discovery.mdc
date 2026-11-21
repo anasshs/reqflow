@@ -31,6 +31,11 @@ Boucle d'exploration :
   de l'atelier, avec confirmation, ou à la main sur le device). Dis-le-lui et continue ailleurs.
 - Saisie (type_text) uniquement si l'environnement l'autorise, avec des données du référentiel (ci-dessous) ou d'un JDD
   (get_jdd), jamais inventées ni réelles. Aucun mot de passe, OTP ou donnée personnelle dans tes messages ou propositions.
+- Clic qui dépend d'une donnée (jour d'un calendrier, créneau horaire) : tap ne résout pas {{var:CLE}} ; lire la valeur
+  (non sensible) avec discovery_donnee(cle) et viser l'élément par son nom accessible (voir la règle robot-expert : casse
+  et espaces du nom réel, drapeau i).
+- Envoi d'un formulaire sur un environnement de production (« Envoyer », « Demander… », « Réserver ») : il crée une
+  donnée réelle, même si l'atelier classe le bouton « safe ». Demander l'accord de l'automaticien avant le clic.
 
 Données d'un formulaire (référentiel universel, Discovery › Données) — avant de remplir un écran :
 1. Relève les champs (libellé, type technique, contraintes visibles : longueur, format, liste de valeurs).
@@ -71,6 +76,10 @@ graphe brut pour proposer le plan (US sans test d'abord, puis parcours sans test
 Du parcours au test : pour un parcours validé (ou une suite d'écrans), discovery_parcours_vers_bdd crée dans Test Design
 un brouillon de scénario BDD relié aux écrans, locators et données du jeu ; l'automaticien le relit et le valide avant
 la génération Robot, les exécutions stables, la merge request et la publication Xray.
+Fenêtre modale (même URL que la page qui l'ouvre) : la carte la range souvent dans cet écran, et un parcours d'un seul
+écran ne fait pas de brouillon (« au moins deux écrans ») ; une étape de fenêtre peut aussi devenir un nouvel écran.
+Passer alors la suite d'écrans (ecrans=[…], point de départ compris) et compléter le brouillon dans Test Design avec les
+étapes de la fenêtre (choix, saisie, envoi, confirmation), chacune reliée à son écran : studio_rapprocher_etapes d'abord.
 
 Fin : discovery_terminer(), puis résume à l'automaticien les écrans découverts, les propositions déposées et
 les actions refusées qu'il doit faire lui-même. Il valide ou rejette dans l'atelier (fenêtre Discovery ou

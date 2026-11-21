@@ -114,6 +114,31 @@ def test_validation(projet):
     assert m["statut"] == "brouillon"   # un texte modifié est à revalider
 
 
+def test_retouche_du_texte_garde_module_et_parcours(projet):
+    """Retoucher le Gherkin (ex. ajouter un tag) garde ce que le texte ne porte pas : module, parcours, jeu de données."""
+    from atelier.generation import bdd
+
+    bdd.creer("DEMO-17", depuis_xray={"gherkin": GHERKIN}, jdd="VIREMENT_STANDARD")
+    bdd.associer_module("DEMO-17", "Virements")
+    m = bdd.charger("DEMO-17")
+    m["parcours"] = "parcours:virement"
+    bdd.sauver(m)
+    m = bdd.depuis_texte("DEMO-17", GHERKIN.replace("  Scénario:", "  @e2e\n  Scénario:"))
+    assert (m["module"], m["parcours"], m["jdd"]) == ("Virements", "parcours:virement", "VIREMENT_STANDARD")
+    assert m["scenarios"][0]["tags"] == ["e2e"]
+
+
+def test_generation_robot_reprend_les_tags_fonctionnels(depot):
+    """Les tags du Gherkin (e2e, consomme_donnee…) passent en [Tags] après la clé ; un tag de provenance (discovery), non."""
+    from atelier.generation import bdd
+
+    texte = GHERKIN.replace("  Scénario: Virement nominal", "  @discovery @e2e @consomme_donnee\n  Scénario: Virement nominal")
+    m = bdd.creer("DEMO-16", depuis_xray={"gherkin": "@smoke\n" + texte}, jdd="VIREMENT_STANDARD")
+    g = bdd.generer_robot(m)
+    assert "    [Tags]    DEMO-16    smoke    e2e    consomme_donnee\n" in g["contenu"]
+    assert "discovery" not in g["contenu"]
+
+
 def test_generation_robot_reutilise_le_socle(depot):
     from atelier.generation import bdd
 

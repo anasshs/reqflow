@@ -34,6 +34,7 @@ MOTS = {
 MOTS_EN = {"given": "Given", "when": "When", "then": "Then", "and": "And", "but": "But"}
 MOTS_FR = {"given": "Étant donné", "when": "Quand", "then": "Alors", "and": "Et", "but": "Mais"}
 TYPES_SCENARIO = ("principal", "alternatif", "negatif")
+TAGS_PROVENANCE = ("discovery",)  # d'où vient le brouillon, pas ce que fait le test : jamais repris en [Tags] Robot
 # Données littérales : nombres et texte entre guillemets doubles ou « ». Les apostrophes du français
 # (« d'erreur », « s'affiche ») ne sont pas des délimiteurs.
 LITTERAL = re.compile(r"\d[\d\s.,]*\d|\b\d+\b|\"[^\"]+\"|«[^»]+»")
@@ -174,9 +175,11 @@ def _fusionner_liens(nouveau: dict, ancien: dict) -> dict:
             for k in ("keyword_nouveau", "jugement_keyword", "variable"):
                 if a.get(k):
                     e[k] = a[k]
-    for k in ("cle", "titre", "jdd", "source", "statut", "test_robot"):
-        if k in ancien and k not in nouveau:
-            nouveau[k] = ancien[k]
+    # tout ce que le texte Gherkin ne porte pas est gardé (clé, titre, jeu de données, module, parcours, session, statut…) :
+    # sinon une simple retouche du texte rangeait le test dans tests/<application>/sans_module/
+    for k, v in ancien.items():
+        if k not in nouveau:
+            nouveau[k] = v
     return nouveau
 
 
@@ -520,7 +523,10 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
     # le tag est la clé du test Xray : celle créée à la publication du scénario, sinon la clé du scénario
     cle_xray = conception.cle_xray_du_scenario(m["cle"])
     for s in m["scenarios"]:
-        tags = [cle_xray or m["cle"]] + (["negatif"] if s["type"] == "negatif" else [])
+        # clé du test, puis les tags fonctionnels du Gherkin (fonctionnalité et scénario : smoke, e2e, consomme_donnee…) ;
+        # les tags de provenance (« discovery ») ne décrivent pas le test et ne sont pas repris
+        tags = list(dict.fromkeys([cle_xray or m["cle"]] + (["negatif"] if s["type"] == "negatif" else [])
+                                  + [t for t in [*(m.get("tags") or []), *(s.get("tags") or [])] if t not in TAGS_PROVENANCE]))
         lignes_tests += ["", s["nom"], f"    [Tags]    {'    '.join(tags)}"]
         if m.get("jdd"):
             lignes_tests.append(f"    Initialiser Le Test    &{{JDD_{m['jdd'].upper()}}}")

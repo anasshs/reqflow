@@ -68,6 +68,13 @@ def fiabilite(valeur: str) -> tuple[str, str]:
     return e["strategie"], e["niveau"]
 
 
+def _forme_observee(valeur: str) -> str:
+    """Forme comparable à ce que la carte observe : la carte relève l'élément lui-même ; le dépôt le borne souvent à une
+    zone (« role=dialog >> role=button[name="Continuer"] ») ou ignore la casse (drapeau i) : même élément."""
+    v = valeur.rsplit(">>", 1)[-1].strip()
+    return re.sub(r"\s+[is]\]$", "]", v).casefold() if v.startswith("role=") else v  # un id ou un css garde sa casse
+
+
 def locators() -> list[dict]:
     """Locators du dépôt + fiabilité + état (obsolète si l'écran est cartographié mais l'élément absent,
     manquant si référencé sans être défini) + utilisations + secours."""
@@ -89,15 +96,20 @@ def locators() -> list[dict]:
     except Exception:
         pass
     verifs = {j["locator"]: j for j in reversed(journal(1000)) if j["op"] == "verification_locator"}
+    formes_obs = {k: {_forme_observee(v) for v in vals} for k, vals in observes.items()}
     out = []
     for lid, l in inv["locators"].items():
         strat, niveau = fiabilite(l["valeur"])
         cle_obs = (l["ecran"], l["plateforme"])
-        etat = niveau
-        if cle_obs in observes and l["valeur"] not in observes[cle_obs]:
+        etat, modele = niveau, "{}" in l["valeur"]
+        verifie = bool((verifs.get(lid) or {}).get("trouve"))
+        # obsolète : écran cartographié, valeur jamais observée (même bornée à une zone ou sans tenir compte de la casse),
+        # et aucune vérification réussie sur le device / navigateur. Un modèle (Format String, « {} ») n'est jamais
+        # observé tel quel : il n'est pas obsolète pour autant.
+        if cle_obs in observes and not modele and not verifie and _forme_observee(l["valeur"]) not in formes_obs[cle_obs]:
             etat = "Obsolete"
         out.append({**l, "strategie": strat, "fiabilite": niveau, "etat": etat, "utilisations": usages.get((l["ecran"], l["cle"]), 0),
-                    "ecran_cartographie": cle_obs in observes, "derniere_verification": verifs.get(lid)})
+                    "ecran_cartographie": cle_obs in observes, "derniere_verification": verifs.get(lid), "modele": modele})
     definis = {(l["ecran"], l["cle"]) for l in inv["locators"].values()}
     for (ec, cle), n in usages.items():
         if (ec, cle) not in definis:
@@ -111,6 +123,17 @@ def noter_verification(locator_id: str, resultat: dict) -> dict:
     e = {"locator": locator_id, "trouve": bool(resultat.get("nb_trouves")), "nb": resultat.get("nb_trouves", 0)}
     _journaliser("verification_locator", **e)
     return e
+
+
+def noter_verification_valeur(valeur: str, resultat: dict, plateforme: str = "") -> list[str]:
+    """Un check_locator (Cursor, Claude Code…) sur la valeur exacte d'un locator du dépôt vaut vérification de ce locator,
+    comme le bouton « Tester » de l'atelier : sinon un locator jamais observé tel quel par la carte (borné à une zone,
+    écrit à la main) resterait « obsolète » malgré une vérification réussie. Renvoie les identifiants journalisés."""
+    v = (valeur or "").strip()
+    ids = [lid for lid, l in _inv()["locators"].items() if l["valeur"].strip() == v and (not plateforme or l["plateforme"] == plateforme)]
+    for lid in ids:
+        noter_verification(lid, resultat)
+    return ids
 
 
 # =========================================================================== Keywords Repository
@@ -282,6 +305,14 @@ def _sections(contenu: str) -> dict[str, str]:
     return out
 
 
+def _statut_teste(affectation: str, suite: str) -> bool:
+    """Statut gardé dans une variable puis testé par un IF (${ok}=  Run Keyword And Return Status … puis IF ${ok}) :
+    un choix explicite (locator de secours, variante d'écran), pas un échec masqué. Un appel dont le résultat est
+    ignoré, ou jamais testé, masque l'échec."""
+    noms = re.findall(r"\$\{(\w+)\}", affectation)
+    return bool(noms) and any(re.search(r"(?mi)^\s+(?:ELSE\s+)?IF\s+.*(?:\$\{" + n + r"\}|\$" + n + r"\b)", suite) for n in noms)
+
+
 def style_robot(fichier: str, contenu: str) -> list[dict]:
     """Style professionnel d'un fichier Robot : attentes fixes (Sleep), keywords sans documentation, suite sans
     Test Teardown. [{gravite, message}] ; vide si rien à redire."""
@@ -295,7 +326,8 @@ def style_robot(fichier: str, contenu: str) -> list[dict]:
         out.append({"gravite": "haute", "message": "« Initialiser Le Test » en Suite Setup : ${JDD} n'existe pas dans les tests "
                                                    "(Variable '${JDD}' not found). Le mettre en Test Setup, ou en première ligne de chaque test"})
     corps = "\n".join(v for k, v in sec.items() if k != "settings")
-    masques = len(re.findall(r"(?mi)^\s+.*\bRun Keyword And (Ignore Error|Return Status)\b", corps))
+    masques = sum(1 for m in re.finditer(r"(?mi)^\s+(.*?)\bRun Keyword And (?:Ignore Error|Return Status)\b", corps)
+                  if not _statut_teste(m.group(1), corps[m.end():]))
     if masques:
         out.append({"gravite": "moyenne", "message": f"{masques} échec(s) masqué(s) (Run Keyword And Ignore Error / Return Status) : "
                                                      "un échec doit faire échouer le test"})
@@ -356,6 +388,13 @@ def controles_script(fichier: str) -> list[dict]:
             + (" ; " if kw_suite and litteraux else "") + ("Locators écrits dans les tests : " + ", ".join(litteraux[:3]) if litteraux else "")
             or "Page Object Model respecté : la suite ne contient que des tests.")
     style = style_robot(fichier, contenu)
+    # Page Object Model : les keywords vivent dans les pages importées ; leur style compte autant que celui de la suite
+    for page in (inv["fichiers"].get(fichier) or {}).get("resources", []):
+        if page != fichier and page.endswith(".resource") and any(k["fichier"] == page for k in inv["keywords"].values()):
+            try:
+                style += [{**s, "message": f"{page} : {s['message']}"} for s in style_robot(page, projet.safe_path(page).read_text("utf-8"))]
+            except OSError:
+                pass
     add("style", "haute" if any(s["gravite"] == "haute" for s in style) else "moyenne" if any(s["gravite"] == "moyenne" for s in style)
         else "basse" if style else "ok",
         " ; ".join(s["message"] for s in style[:3]) or "Style professionnel : attentes explicites, keywords documentés, teardown.")

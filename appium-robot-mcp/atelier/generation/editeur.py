@@ -119,19 +119,31 @@ def _lint_conventions(contenu: str) -> list[dict]:
         except Exception:  # noqa: BLE001 — aucun scénario lisible : contrôle simple
             return "", ""
 
+    def xray_utilise() -> bool:
+        try:
+            from atelier.intelligence import chemin
+
+            return bool(chemin.integrations()["xray"])
+        except Exception:  # noqa: BLE001 — état des intégrations illisible : on garde l'exigence Xray
+            return True
+
     def fin_test():
         if test is None:
             return
         if not any(KEY_RE.match(t) for t in tags + tags_suite):
             cle, xray = locale(tags + tags_suite)
-            if cle and xray:
+            message = ""  # Xray non utilisé : l'identifiant du test BDD en tag suffit (même règle que le contrôle « identifiant »)
+            if cle and not xray and not xray_utilise():
+                pass
+            elif cle and xray:
                 message = f"Test « {test} » : le tag « {cle} » est la clé locale du scénario, publié dans Xray sous {xray} : remplacer le tag par {xray}."
             elif cle:
                 message = (f"Test « {test} » : le tag « {cle} » est la clé locale d'un scénario pas encore publié dans Xray. "
                            "Publier le scénario (Scénarios BDD) : la clé Xray remplacera ce tag.")
             else:
                 message = f"Test « {test} » sans tag de clé Xray."
-            out.append({"ligne": debut, "message": message, "gravite": "avertissement"})
+            if message:
+                out.append({"ligne": debut, "message": message, "gravite": "avertissement"})
         if not init:
             out.append({"ligne": debut, "message": f"Test « {test} » sans bloc INITIALISATION (Initialiser Le Test).",
                         "gravite": "avertissement"})

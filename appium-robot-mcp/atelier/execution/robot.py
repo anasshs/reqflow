@@ -18,6 +18,17 @@ LISTENERS = Path(__file__).resolve().parent / "listeners"
 EN_COURS: dict = {"proc": None, "arret": False}
 
 
+def env_robot(base: dict | None = None) -> dict:
+    """Environnement du processus Robot. PYTHONIOENCODING « encodage:erreurs » (ex. utf-8:surrogateescape, que posent
+    certains terminaux et agents) est valide pour Python, mais une partie de la chaîne Robot le prend pour un nom
+    d'encodage : LookupError à chaque message, erreur en boucle, run bloqué sans output.xml. Seul l'encodage est gardé."""
+    env = dict(os.environ if base is None else base)
+    v = env.get("PYTHONIOENCODING", "")
+    if ":" in v:
+        env["PYTHONIOENCODING"] = v.split(":", 1)[0] or "utf-8"
+    return env
+
+
 def arreter_run() -> str:
     """Demande l'arrêt du run en cours. Linux / macOS : SIGINT, Robot termine proprement et écrit output.xml.
     Windows : un sous-processus ne peut pas recevoir SIGINT ; le run est interrompu (rapport Robot possiblement absent)."""
@@ -190,7 +201,9 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     cmd.append(projet.safe_path(target).relative_to(projet.PROJECT_DIR).as_posix())
 
     try:
-        proc = subprocess.Popen(cmd, cwd=projet.PROJECT_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
+        # stdin=DEVNULL : Robot ne lit jamais l'entrée ; hériter d'un tube que le parent lit (serveur MCP HTTP) le bloquait
+        proc = subprocess.Popen(cmd, cwd=projet.PROJECT_DIR, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, errors="replace", env=env_robot())
         EN_COURS["proc"], EN_COURS["arret"] = proc, False
         try:
             sortie, erreurs = proc.communicate(timeout=timeout_s)

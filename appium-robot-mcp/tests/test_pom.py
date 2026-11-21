@@ -125,3 +125,16 @@ def test_style_expert_antipatterns():
     m = " | ".join(x["message"] for x in studio.style_robot("tests/t.robot", brut))
     for attendu in ("masqué", "SeleniumLibrary", "coordonnées", "URL écrite", "15 lignes"):
         assert attendu in m, attendu
+
+
+def test_statut_teste_par_un_if_n_est_pas_un_echec_masque():
+    """Localiser du socle : ${ok}= Run Keyword And Return Status … puis IF ${ok} (choix du secours) n'est pas masquer un
+    échec ; un statut jamais testé, ou un appel sans affectation, l'est."""
+    from atelier.generation import studio
+
+    tete = "*** Keywords ***\nLocaliser\n    [Documentation]    x\n"
+    choix = tete + "    ${ok}=    Run Keyword And Return Status    Wait For Elements State    a    visible\n    IF    ${ok}\n        RETURN    a\n    END\n    Fail    absent\n"
+    ignore = tete + "    ${ok}=    Run Keyword And Return Status    Cliquer\n    Log    fini\n"
+    nu = tete + "    Run Keyword And Ignore Error    Cliquer\n    IF    $x    Log    y\n"
+    masque = lambda c: any("masqué" in x["message"] for x in studio.style_robot("resources/p.resource", c))  # noqa: E731
+    assert not masque(choix) and masque(ignore) and masque(nu)

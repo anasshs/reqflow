@@ -125,6 +125,43 @@ def test_locator_obsolete_si_absent_de_la_carte(demo):
     assert {l["id"]: l for l in studio.locators()}["connexion.message_erreur@web"]["etat"] == "Obsolete"
 
 
+def test_style_controle_aussi_les_pages_importees(demo):
+    """Page Object Model : un Sleep dans une page importée par la suite est un écart de style de la suite."""
+    from atelier.execution.depot_robot import lire_depot
+    from atelier.generation import studio
+
+    inv = lire_depot()
+    suite = next(f for f, i in inv["fichiers"].items() if f.endswith(".robot") and any(
+        r.endswith(".resource") and any(k["fichier"] == r for k in inv["keywords"].values()) for r in i.get("resources", [])))
+    page = next(r for r in inv["fichiers"][suite]["resources"] if any(k["fichier"] == r for k in inv["keywords"].values()))
+    avant = {c["code"]: c for c in studio.controles_script(suite)}["style"]
+    f = demo / page
+    f.write_text(f.read_text("utf-8").rstrip() + "\n\nAttendre Un Peu\n    [Documentation]    Mauvaise attente.\n    Sleep    2s\n", "utf-8")
+    apres = {c["code"]: c for c in studio.controles_script(suite)}["style"]
+    assert f"{page} : 1 attente(s) fixe(s) « Sleep »" in apres["message"] and "Sleep" not in avant["message"]
+
+
+def test_locator_borne_modele_ou_verifie_n_est_pas_obsolete(demo):
+    """Même élément que la carte borné à une zone ou sans casse, modèle « {} », ou trouvé par une vérification réelle :
+    pas obsolète. Une valeur jamais observée ni vérifiée le reste."""
+    from atelier.generation import studio
+
+    f = demo / "resources" / "locators" / "connexion.resource"
+    texte = f.read_text("utf-8").replace("message_erreur=id=message_erreur", "message_erreur=css=main >> id=message_erreur")
+    f.write_text(texte.replace("&{LOC_CONNEXION_WEB}    ", "&{LOC_CONNEXION_WEB}    modele_ligne=role=row[name=\"{}\" i]    "
+                               "absent_verifie=id=nouveau_bandeau    absent=id=jamais_vu    ", 1), "utf-8")
+    studio.noter_verification("connexion.absent_verifie@web", {"nb_trouves": 1})
+    locs = {l["id"]: l for l in studio.locators()}
+    assert locs["connexion.message_erreur@web"]["etat"] != "Obsolete"
+    assert locs["connexion.modele_ligne@web"]["etat"] != "Obsolete" and locs["connexion.modele_ligne@web"]["modele"]
+    assert locs["connexion.absent_verifie@web"]["etat"] != "Obsolete"
+    assert locs["connexion.absent@web"]["etat"] == "Obsolete"
+    # une vérification par l'agent (check_locator sur la valeur exacte) vaut celle du bouton « Tester »
+    assert studio.noter_verification_valeur("id=jamais_vu", {"nb_trouves": 1}, "web") == ["connexion.absent@web"]
+    assert studio.noter_verification_valeur("id=jamais_vu", {"nb_trouves": 1}, "android") == []
+    assert {l["id"]: l for l in studio.locators()}["connexion.absent@web"]["etat"] != "Obsolete"
+
+
 def test_revue_script_et_retour_en_revue_si_modifie(demo):
     from atelier.generation import studio
 

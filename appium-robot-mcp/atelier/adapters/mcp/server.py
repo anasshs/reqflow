@@ -279,9 +279,11 @@ def main(argv: list[str] | None = None):
         mcp.settings.host = "127.0.0.1"  # interface locale uniquement, jamais exposée
         mcp.settings.port = agents_ia.port_http() or 8000
         if os.environ.get("ATELIER_SURVEILLER_PARENT") == "1":  # démarré par l'atelier : s'arrêter avec lui
+            canal = _detacher_stdin()
+
             def _surveiller():
                 try:
-                    while sys.stdin.read(4096):
+                    while os.read(canal, 4096):
                         pass
                 finally:
                     os._exit(0)
@@ -290,6 +292,21 @@ def main(argv: list[str] | None = None):
         _servir_http(mcp.settings.port)
     else:
         mcp.run()
+
+
+def _detacher_stdin() -> int:
+    """Garde le tube d'entrée de l'atelier pour la seule surveillance, et donne NUL comme entrée standard au processus.
+
+    Sous Windows, tant qu'un fil est bloqué dans une lecture synchrone de ce tube, un processus fils qui en hérite comme
+    entrée standard (run Robot, git…) reste bloqué dès son démarrage : runs lancés par le MCP sans fin, sans output.xml.
+    Les fils héritent donc de NUL ; la surveillance lit une copie du tube."""
+    import os
+
+    canal = os.dup(0)
+    nul = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(nul, 0)  # sous Windows, met aussi à jour le handle d'entrée standard que les fils reçoivent
+    os.close(nul)
+    return canal
 
 
 if __name__ == "__main__":

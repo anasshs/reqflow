@@ -46,4 +46,8 @@ alwaysApply: false
   et les réponses de l'équipe ; ne reproposer aucun cas déjà présent.
 - Dépôt : testabilite_deposer_proposition (cas proposés pour une US) ; scénario BDD depuis un parcours :
   discovery_parcours_vers_bdd. Gherkin en français, sans donnée littérale (jeux de données).
+- Scénario BDD : un brouillon de la carte ne vaut pas un parcours complet (fenêtre modale fondue dans un écran, saisies
+  absentes) ; le compléter jusqu'au résultat attendu du parcours. Tags fonctionnels sur le scénario (@e2e, @smoke,
+  @consomme_donnee si chaque run crée une donnée réelle) : ils passent dans les [Tags] du test Robot. Jeu de données
+  et module associés avant la validation (sinon tests/<application>/sans_module/).
 - Sans US : coverage_intelligence("reconstruction") puis coverage_proposer_story (Story reconstruite, à valider).

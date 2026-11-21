@@ -89,3 +89,12 @@ def test_option_listener_chemins_windows():
 
     assert option_listener("l.py", "/tmp/config.json") == "l.py:/tmp/config.json"
     assert option_listener(r"C:\a\l.py", r"C:\r\xray_run_config.json") == r"C:\a\l.py;C:\r\xray_run_config.json"
+
+
+def test_env_robot_garde_seulement_l_encodage():
+    """PYTHONIOENCODING « utf-8:surrogateescape » bloquait Robot (LookupError en boucle) : seul l'encodage est transmis."""
+    from atelier.execution.robot import env_robot
+
+    assert env_robot({"PYTHONIOENCODING": "utf-8:surrogateescape", "X": "1"}) == {"PYTHONIOENCODING": "utf-8", "X": "1"}
+    assert env_robot({"PYTHONIOENCODING": "utf-8"})["PYTHONIOENCODING"] == "utf-8"
+    assert "PYTHONIOENCODING" not in env_robot({})

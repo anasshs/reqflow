@@ -106,7 +106,18 @@ def locator_robustesse(locators: list[str], platform: str = "") -> dict:
 @outil
 def check_locator(locator: str) -> dict:
     """Vérifie un locator : nombre d'éléments trouvés + texte/visibilité du premier."""
-    return session.check_locator(locator)
+    # valeur d'un locator du dépôt : vérification journalisée pour lui (« verifie » : ses identifiants), la revue en tient
+    # compte (description de l'outil inchangée : rétrocompatibilité MCP)
+    r = session.check_locator(locator)
+    try:
+        from atelier.generation import studio
+
+        ids = studio.noter_verification_valeur(locator, r, session.plateforme() or "")
+        if ids:
+            r = {**r, "verifie": ids}
+    except Exception:  # noqa: BLE001 — dépôt illisible : la vérification elle-même reste rendue
+        pass
+    return r
 
 
 @outil

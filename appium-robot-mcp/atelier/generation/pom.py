@@ -84,7 +84,9 @@ def chemin_page(page: str, inv: dict) -> str:
 
 
 def _rel(de: str, vers: str) -> str:
-    return PurePosixPath(os.path.relpath(vers, str(PurePosixPath(de).parent))).as_posix()
+    """Chemin relatif d'import Robot, toujours avec des « / » : sous Windows, os.path.relpath rend des « \\ » que Robot
+    lit comme des échappements (« ..\\socle\\commun.resource » devenait « ....soclecommun.resource », introuvable)."""
+    return os.path.relpath(vers, str(PurePosixPath(de).parent)).replace("\\", "/")
 
 
 def _definis(texte: str) -> set[str]:

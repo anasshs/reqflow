@@ -57,7 +57,10 @@ JS = r"""
       if (z && memeTexte(z, tag, txt) === 1 && document.querySelectorAll(selZone(z)).length === 1) locs.push(['css=' + selZone(z) + ' >> text="' + q(txt) + '"', true]);
       if (href && uniq('a[href="' + q(href) + '"]')) locs.push(['css=a[href="' + q(href) + '"]', true]);
     }
-    if (role && name && name.length <= 60) locs.push(['role=' + role + '[name="' + q(name) + '"]', parTexte && name === txt ? texteUnique : null]);
+    /* nom tiré du texte affiché : innerText suit le CSS (text-transform : « Lun. 23 Nov. » affiché pour un nom accessible
+       « lun. 23 nov. ») et role=…[name="…"] compare la casse : le drapeau i rend le locator juste quel que soit le style */
+    const casse = name === txt && !el.getAttribute('aria-label') && !label ? ' i' : '';
+    if (role && name && name.length <= 60) locs.push(['role=' + role + '[name="' + q(name) + '"' + casse + ']', parTexte && name === txt ? texteUnique : null]);
     if (parTexte) locs.push(['text="' + q(txt) + '"', texteUnique]);
     if (!locs.length) {
       const p = []; let e = el;

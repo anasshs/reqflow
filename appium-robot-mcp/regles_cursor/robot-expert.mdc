@@ -40,6 +40,15 @@ bloquant empêche l'approbation. Avant d'écrire : studio_socle (keywords, locat
 ## Par bibliothèque
 - Browser (web, défaut de l'atelier) : New Browser / New Context / New Page dans le socle ; sélecteurs uniques
   (role=, data-testid=, css= borné à une zone) ; une page par test (isolation) ; Take Screenshot dans le teardown si échec.
+  · role=…[name="…"] compare le nom accessible ENTIER, casse comprise. Ce nom n'est pas toujours le texte affiché : le
+    CSS (text-transform) change la casse affichée (« Lun. 23 Nov. » pour « lun. 23 nov. »), un libellé fait de plusieurs
+    <span> n'a pas les espaces du rendu. Le lire dans l'arbre d'accessibilité, ou ajouter le drapeau i
+    (role=button[name="lun. 23 nov." i]) ; check_locator → 1 élément avant de l'écrire.
+  · Fenêtre modale (role=dialog) : borner ses locators à la fenêtre (role=dialog >> role=button[name="Continuer"]) et
+    attendre son ouverture (Wait For Elements State <fenêtre> visible) avant d'y agir.
+  · Élément qui dépend d'une donnée (jour d'un calendrier, créneau, ligne d'un tableau) : un locator modèle dans le
+    fichier de locators (modele_jour=role=dialog >> role=button[name="{}" i]) rempli par Format String avec la valeur
+    calculée depuis ${JDD} ; jamais la valeur vue en Discovery figée dans le locator.
 - SeleniumLibrary (seulement si le dépôt l'utilise déjà ; ne jamais la mélanger avec Browser dans une suite) :
   Open Browser dans le socle, Close All Browsers en Suite Teardown, Capture Page Screenshot si échec.
 - AppiumLibrary : capabilities dans le socle (pas dans les tests) ; locators id / accessibility_id / UiSelector ;
@@ -51,10 +60,17 @@ bloquant empêche l'approbation. Avant d'écrire : studio_socle (keywords, locat
 
 ## Tests
 - Indépendants (aucun ordre imposé), rejouables 3 fois de suite, données remises en état ou consommées (tag
-  consomme_donnee). Tags : clé du test (Xray ou identifiant BDD) + smoke / e2e / negatif.
+  consomme_donnee). Tags : clé du test (Xray ou identifiant BDD) + smoke / e2e / negatif : les tags du scénario BDD
+  (@e2e, @consomme_donnee) passent tels quels dans [Tags] à la génération.
+- Donnée que chaque run consomme (créneau réservé, inscription, numéro unique) : le jeu donne la valeur souhaitée ; si
+  l'application ne la propose plus, le keyword prend la suivante disponible (Log … WARN), la retient
+  (Set Test Variable) et la vérifie dans le résultat. Rien de disponible : échec explicite (Fail), jamais masqué.
 - Chaque test vérifie un résultat métier à la fin ; un cas négatif vérifie le message d'erreur exact attendu.
 - Nommage : test = phrase métier ; variables constantes en ${MAJUSCULES}, locales en ${minuscules}.
 
 ## Avant de soumettre
 - locator_robustesse sur chaque nouveau locator ; check_locator → 1 élément ; studio_executer_etape pour vérifier à
   l'écran ; run_robot en dry_run ; Robocop sans erreur ; puis studio_soumettre_revue (3 runs stables + revue humaine).
+- check_locator sur la valeur EXACTE écrite dans le fichier de locators : la vérification est journalisée pour ce
+  locator ; sans elle, un locator que la carte n'a jamais vu tel quel (fenêtre, titre de confirmation) reste
+  « obsolète » dans la revue (contrôle « locators »).

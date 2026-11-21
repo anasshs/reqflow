@@ -290,3 +290,17 @@ def test_l_editeur_de_code_connait_le_fil(banque):
     assert "clé locale d'un scénario pas encore publié dans Xray" in lint("parcours_releve")[0]
     conception.publier_bdd("parcours_releve", "DEMO", xray=_XrayQuiCree())
     assert "publié dans Xray sous DEMO-501 : remplacer le tag par DEMO-501" in lint("parcours_releve")[0]
+
+
+def test_sans_xray_l_identifiant_bdd_suffit_aux_conventions(banque, monkeypatch):
+    """Xray non utilisé : l'identifiant du test BDD en tag satisfait les conventions, comme le contrôle « identifiant »
+    de la revue (aucune publication Xray exigée) ; un test sans identifiant reste signalé."""
+    from atelier.generation import bdd, editeur
+    from atelier.intelligence import chemin
+
+    monkeypatch.setattr(chemin, "integrations", lambda: {"xray": False, "jira": False})
+    bdd.creer("parcours_releve", "Exporter un relevé", depuis_xray={"gherkin": GHERKIN, "resume": "Exporter un relevé"})
+    lint = lambda tag: [x["message"] for x in editeur.lint(f"*** Test Cases ***\nUn test\n    [Tags]    {tag}\n    Initialiser Le Test    &{{JDD_X}}\n    Log    x\n")["problemes"]
+                        if "tag" in x["message"]]  # noqa: E731
+    assert lint("parcours_releve    e2e") == []
+    assert lint("smoke") == ["Test « Un test » sans tag de clé Xray."]

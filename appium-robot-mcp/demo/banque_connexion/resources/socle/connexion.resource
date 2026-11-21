@@ -17,29 +17,37 @@ Terminer Le Test
     Fermer L Application
 
 je suis sur la page de connexion
+    [Documentation]    Vérifie que la page de connexion de Banque Démo est affichée.
     Le Texte Doit Contenir    css=h1    Banque Démo
 
 je me connecte avec le jeu de données
+    [Documentation]    Saisit identifiant et mot de passe du jeu de données, puis valide la connexion.
     Saisir Dans    ${LOC_CONNEXION_WEB.champ_identifiant}    ${DONNEES.identifiant}
     Saisir Dans    ${LOC_CONNEXION_WEB.champ_mot_de_passe}    ${DONNEES.mot_de_passe}
     Cliquer Sur    ${LOC_CONNEXION_WEB.bouton_connexion}
 
 je valide sans remplir les champs
+    [Documentation]    Valide le formulaire de connexion sans rien saisir.
     Cliquer Sur    ${LOC_CONNEXION_WEB.bouton_connexion}
 
 je me trompe de mot de passe le nombre de fois autorisé
+    [Documentation]    Répète la connexion du jeu de données autant de fois que le nombre de tentatives prévu.
     FOR    ${i}    IN RANGE    ${DONNEES.tentatives}
         je me connecte avec le jeu de données
     END
 
 le message d'erreur attendu s'affiche
+    [Documentation]    Vérifie le message d'erreur attendu par le jeu de données.
     Le Texte Doit Contenir    ${LOC_CONNEXION_WEB.message_erreur}    ${DONNEES.message_attendu}
 
 la page d'accueil m'accueille par mon nom
+    [Documentation]    Vérifie que l'accueil salue l'utilisateur par son nom affiché.
     Le Texte Doit Contenir    ${LOC_ACCUEIL_WEB.titre}    Bienvenue, ${DONNEES.nom_affiche}
 
 je me déconnecte
+    [Documentation]    Se déconnecte depuis l'accueil.
     Cliquer Sur    ${LOC_ACCUEIL_WEB.bouton_deconnexion}
 
 la page de connexion confirme la déconnexion
+    [Documentation]    Vérifie le message de confirmation de déconnexion.
     Le Texte Doit Contenir    ${LOC_CONNEXION_WEB.message_info}    ${DONNEES.message_attendu}
