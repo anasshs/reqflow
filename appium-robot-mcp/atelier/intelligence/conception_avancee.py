@@ -312,6 +312,9 @@ def doublons_pour_agent(cle: str, limite: int = 6) -> dict:
 def deposer_jugements_doublons(cle: str, jugements: list[dict], source: str = "Cursor (MCP)") -> dict:
     """Jugements de doublon d'une IA, contrôlés (cas jugeable, verdict connu, test cité connu pour réutiliser / faire
     évoluer, justification), puis affichés sur chaque cas. Rien n'est rejeté, fusionné ni publié : l'automaticien décide."""
+    from atelier.intelligence import jugement_ia as _jia
+
+    _jia.exiger_ia()
     from atelier.intelligence import patrimoine_xray, testabilite_us as t
     from atelier.intelligence.jugement_ia import justification as _j, maintenant
 

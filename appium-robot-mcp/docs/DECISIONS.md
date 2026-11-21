@@ -922,3 +922,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
 - Décision : paquet `atelier/intelligence/ia` autour du point d'appel existant, sans second moteur ni changement des
   outils MCP ; jamais de troncature silencieuse (refus motivé) ; un budget bloqué ne touche que l'IA, jamais les calculs.
   Aucune dépendance (sqlite3). Voir docs/PILOTAGE_IA.md.
+
+## 2026-11-21 — Modèle applicatif borné ; IA ou applicatif par type de traitement
+- Constat (mesure sur 3 000 tests) : le périmètre d'un build proposait tout le patrimoine, l'impact indirect s'étendant
+  aux modules de tous les tests directs. Décision : module de l'élément touché seulement ; indirects et qualification
+  classés par risque et plafonnés (réglable) ; non retenus toujours affichés. Mêmes bornes pour le TNR du Dashboard.
+- Demande : choisir, par type de traitement, l'IA ou le modèle applicatif, l'IA par défaut là où l'applicatif est fragile.
+  Décision : registre des traitements (`ia/operations.TRAITEMENTS`), réglage `traitements` dans atelier_ia.yaml, appliqué
+  côté serveur (appel direct refusé, état « aucun » vu par l'écran, dépôt MCP de Cursor refusé). Défaut : l'IA pour tous ;
+  les calculs déterministes restent toujours applicatifs.

@@ -87,8 +87,9 @@ function modale(titre, html, actions = "") {
 
 /* Jugements délégués à l'IA (atelier/intelligence/jugement_ia.py) : les règles présélectionnent par les mots ; Cursor (via
    le MCP) ou l'IA à appel direct juge le sens avec une justification ; l'automaticien décide. Règles = secours. */
-let ETAT_IA = null;
-window.EtatIA = () => (ETAT_IA = ETAT_IA || api("/api/ia/etat").catch(() => { ETAT_IA = null; return {fournisseur: "aucun"}; }));  // un échec passager n'est pas mémorisé
+const ETAT_IA = {};
+window.EtatIA = (operation = "") => (ETAT_IA[operation] = ETAT_IA[operation] || api("/api/ia/etat?operation=" + encodeURIComponent(operation))
+  .catch(() => { delete ETAT_IA[operation]; return {fournisseur: "aucun"}; }));  // un échec passager n'est pas mémorisé
 window.AvecIA = ia => !!ia && (ia.fournisseur === "cursor" || !!ia.appel_direct);
 /* bouton principal : « Demander à Cursor » (id-cursor) ou « Avis de l'IA » (id-ia) ; rien sans IA */
 window.BoutonIA = (ia, id, quoi = "") => !ia ? "" : ia.fournisseur === "cursor"

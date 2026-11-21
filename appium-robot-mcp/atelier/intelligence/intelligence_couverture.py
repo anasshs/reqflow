@@ -781,6 +781,9 @@ def deposer_jugements_liens(jugements: list[dict], source: str = "Cursor (MCP)")
     """Jugements d'une IA sur des paires exigence ↔ test, contrôlés (exigence du périmètre, test de l'application, verdict
     connu, justification, lien ni déjà présent ni rejeté). « couvre » / « partiel » : proposition de lien (ou avis ajouté à la
     proposition des règles) ; « ne_couvre_pas » : avis ajouté à la proposition des règles. L'automaticien valide ou rejette."""
+    from atelier.intelligence import jugement_ia as _jia
+
+    _jia.exiger_ia()
     from atelier.intelligence.jugement_ia import justification as _j
 
     d = _donnees()
@@ -858,6 +861,9 @@ def orphelins_a_classer(limite: int = 20) -> dict:
 def deposer_classements_orphelins(classements: list[dict], source: str = "Cursor (MCP)") -> dict:
     """Classements de tests orphelins proposés par une IA : mêmes contrôles que le classement manuel, plus un test
     réellement sans exigence et une justification obligatoire. Propositions à valider, jamais appliquées."""
+    from atelier.intelligence import jugement_ia as _jia
+
+    _jia.exiger_ia()
     from atelier.intelligence.jugement_ia import justification as _j
 
     d = _donnees()

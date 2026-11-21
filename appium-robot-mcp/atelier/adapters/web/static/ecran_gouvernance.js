@@ -91,7 +91,7 @@
   }
 
   async function efficacite(z) {
-    const [e, ia] = await Promise.all([api("/api/gouvernance/efficacite"), EtatIA()]);
+    const [e, ia] = await Promise.all([api("/api/gouvernance/efficacite"), EtatIA("exigences.redondances")]);
     const RED = {redondants: "ko", distincts: "ok"};
     z.innerHTML = `${entete("Efficacité des tests")}<div class="corps-carte"><p>Défauts applicatifs confirmés : <b>${e.defauts_confirmes}</b> · échecs confirmés sans défaut applicatif : <b>${e.echecs_sans_defaut}</b> · échecs par module : ${Object.entries(e.echecs_par_module).map(([m, n]) => `${esc(m)} ${n}`).join(", ") || "—"}</p>
       <table class="table-strat"><tr><th>Test</th><th>Clé</th><th>Exécutions</th><th>Échecs</th><th>Taux d'échec</th></tr>${e.tests.map(t => `<tr><td>${esc(t.test)}</td><td class="cle-xray">${esc(t.cle_xray || "—")}</td><td>${t.executions}</td><td>${t.echecs}</td><td>${val(t.taux_echec, "%")}</td></tr>`).join("")}</table>

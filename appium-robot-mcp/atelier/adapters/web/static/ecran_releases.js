@@ -228,10 +228,11 @@
   async function blocIA(zone_, interp, bid, nom, rafraichir) {
     const m = await modeIA();
     const qui = interp ? esc(interp.source) : "";
-    zone_.innerHTML = `<div class="rel-ia ${interp ? "" : "a-faire"}"><div><b>${interp ? `Interprété par ${qui}` : m.mode === "regles" ? "Interprétation par les règles (secours)" : "Interprétation demandée à " + (m.mode === "cursor" ? "Cursor" : "l'IA")}</b>
+    zone_.innerHTML = `<div class="rel-ia ${interp ? "" : "a-faire"}"><div><b>${interp ? `Interprété par ${qui}` : m.applicatif ? "Interprétation par le modèle applicatif" : m.mode === "regles" ? "Interprétation par les règles (secours)" : "Interprétation demandée à " + (m.mode === "cursor" ? "Cursor" : "l'IA")}</b>
         ${interp ? `<span class="lib">le ${date(interp.date)}</span>` : ""}
         ${interp?.synthese ? `<p style="margin:4px 0 0">${esc(interp.synthese)}</p>` : ""}
         <p class="lib" style="margin:4px 0 0">${interp ? "Rattachements et tests proposés par l'IA appliqués par défaut, chacun avec sa justification : délier, garder ou écarter ci-dessous, puis valider."
+          : m.applicatif ? "Lecture réglée sur le modèle applicatif (Paramètres › Pilotage IA › Réglages) : découpage ligne par ligne et rapprochement par les mots."
           : m.mode === "regles" ? "Aucune IA configurée (Paramètres › Cursor / Claude) : découpage ligne par ligne et rapprochement par les mots."
           : "En attendant, la proposition des règles s'affiche ; elle est remplacée dès que l'interprétation est déposée."}</p>
         ${(interp?.refus || []).length ? `<details><summary class="lib">${interp.refus.length} proposition(s) refusée(s) par le serveur</summary><ul class="rel-puces">${interp.refus.map(x => `<li><span class="mono">${esc(x.objet)}</span> : ${esc(x.raison)}</li>`).join("")}</ul></details>` : ""}</div>

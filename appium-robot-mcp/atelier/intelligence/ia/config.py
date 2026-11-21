@@ -32,7 +32,9 @@ DEFAUT = {
                 "seuils": {"information": 50, "avertissement": 80, "restriction": 90, "blocage": 100}},
     "simulateur": {"conserver_entrees": True, "max_entrees": 200},
     "perimetre": {"max_indirects": 40, "max_qualification": 30},  # modèle applicatif : plafonds du périmètre d'un build
+    "traitements": {},  # opération -> "ia" | "applicatif" ; par défaut l'IA (voir operations.TRAITEMENTS)
 }
+TRAITEMENT = ("ia", "applicatif")
 PLAFONDS = (("modeles", "*", "max_entree"), ("modeles", "*", "max_sortie"), ("operations", "*", "max_sortie"), ("budgets", "global"))
 
 
@@ -138,6 +140,33 @@ def pour_operation(operation: str, cfg: dict | None = None) -> dict:
             "optimisation": cfg["optimisation"], "routage": cfg["routage"], "modeles": modeles(cfg)}
 
 
+def traitement(operation: str, cfg: dict | None = None) -> str:
+    """« ia » ou « applicatif » réglé pour un type de traitement (défaut : l'IA). Une opération inconnue suit l'IA."""
+    try:
+        v = ((cfg or effective()).get("traitements") or {}).get(operation)
+    except Exception:  # noqa: BLE001
+        v = None
+    return v if v in TRAITEMENT else "ia"
+
+
+def traitements(cfg: dict | None = None) -> list[dict]:
+    """Pour l'écran : chaque traitement, son réglage, et ce qui s'applique réellement compte tenu du fournisseur global."""
+    from atelier.intelligence import fournisseur_ia
+    from atelier.intelligence.ia import operations
+
+    cfg = cfg or effective()
+    f = fournisseur_ia.fournisseur()
+    out = []
+    for op, (lib, mod, fragile, applicatif) in operations.TRAITEMENTS.items():
+        t = traitement(op, cfg)
+        reel = "applicatif" if t == "applicatif" or f == "aucun" else ("cursor" if f == "cursor" else "modele")
+        if op == "agent.integre" and reel != "applicatif" and f != "anthropic":
+            reel = "indisponible"  # boucle avec outils de l'API Claude : seulement avec le fournisseur « anthropic »
+        out.append({"operation": op, "libelle": lib, "module": mod, "fragile": fragile, "applicatif": applicatif, "reglage": t,
+                    "defaut": "ia", "effectif": reel})
+    return out
+
+
 def contexte(operation: str) -> dict:
     """Plafonds du contexte transmis pour une opération (nombre de tests, d'exigences, d'éléments, niveau de détail)."""
     try:
@@ -174,6 +203,9 @@ def valider(d: dict) -> list[str]:
             err.append(f"Opération {op} : réglage attendu.")
         elif o.get("niveau") and o["niveau"] not in CHOIX_NIVEAU:
             err.append(f"Opération {op} : niveau {', '.join(CHOIX_NIVEAU)}.")
+    for k, v in (d.get("traitements") or {}).items():
+        if v not in TRAITEMENT:
+            err.append(f"Traitement {k} : {', '.join(TRAITEMENT)}.")
     for k, v in (d.get("perimetre") or {}).items():
         if k not in DEFAUT["perimetre"] or not isinstance(v, int) or v < 0:
             err.append(f"Périmètre : {k} doit être un entier positif ou nul ({', '.join(DEFAUT['perimetre'])}).")
@@ -219,4 +251,5 @@ def etat() -> dict:
             "fichier_entreprise": str(fichier_entreprise() or ""), "effective": eff, "modeles": modeles(eff),
             "operations": {op: {**v, **{k: x for k, x in pour_operation(op, eff).items() if k in ("niveau", "max_sortie", "contexte", "cache")}}
                            for op, v in operations.connues().items()},
+            "traitements": traitements(eff), "deterministes": operations.DETERMINISTES,
             "niveaux": NIVEAUX, "choix_niveau": CHOIX_NIVEAU, "details": DETAILS, "seuils": SEUILS}

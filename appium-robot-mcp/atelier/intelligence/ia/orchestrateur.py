@@ -72,6 +72,8 @@ def executer(systeme: str, demande: str, max_tokens: int = 1500, operation: str 
     if not fournisseur_ia.configure_brut():
         raise RuntimeError(f"IA « {f} » : pas d'appel direct possible (configuration absente ou fournisseur sans appel).")
     op, module = (operation, operations.module_de(operation)) if operation else operations.appelante()
+    if config.traitement(op) == "applicatif" and not forcer:
+        raise RuntimeError(f"« {operations.TRAITEMENTS.get(op, (op,))[0]} » est réglé sur le modèle applicatif (Paramètres › Pilotage IA) : pas d'appel IA.")
     niveau_budget = budget.verifier(module)
     reg = config.pour_operation(op)
     forcer = forcer or {}

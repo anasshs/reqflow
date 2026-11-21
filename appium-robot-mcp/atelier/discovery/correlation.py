@@ -511,6 +511,9 @@ def deposer_correlations(jugements_: list[dict], source: str = "Cursor (MCP)") -
     justification, lien pas déjà confirmé, proposition pas déjà rejetée), conservés par application. Facultatifs :
     « confiance » (faible, moyenne, forte : estimation de l'IA) et « preuves » (éléments sur lesquels elle s'appuie).
     Rien n'entre dans le graphe sans confirmation."""
+    from atelier.intelligence import jugement_ia as _jia
+
+    _jia.exiger_ia()
     from atelier.intelligence.jugement_ia import court, justification as _j, maintenant
     from atelier.intelligence.strategie import _ecrire_atomique
 

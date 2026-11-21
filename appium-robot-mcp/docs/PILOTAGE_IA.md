@@ -43,6 +43,29 @@ consommation facturée de Cursor est affichée « indisponible », jamais à zé
 Le fournisseur reste celui de l'entreprise (`IA_FOURNISSEUR`) : un modèle déclaré pour un autre fournisseur est ignoré.
 Chaque modification depuis l'atelier est historisée (journal du poste) en plus de l'historique git du fichier.
 
+## IA ou modèle applicatif, par type de traitement
+
+Paramètres › Pilotage IA › Réglages, tableau « Traitement : IA ou modèle applicatif » (section `traitements` de
+`atelier_ia.yaml`). Pour chacun des 15 types de traitement où l'IA peut intervenir : **IA** (défaut) ou **modèle
+applicatif** (règles seules). Les 8 traitements où l'applicatif est **fragile** (il ne fait que rapprocher des mots :
+lecture des Release Notes, liens exigence ↔ test, redondances, testabilité, doublons, granularité, keywords,
+corrélation écran ↔ exigence) sont marqués et recommandés en IA.
+
+Réglé sur le modèle applicatif : aucun appel direct (l'orchestrateur refuse), l'état vu par l'écran est « aucun » (les
+boutons « Demander à Cursor » / « Avis de l'IA » disparaissent), et un jugement déposé par Cursor via le MCP est refusé
+avec un message. Le traitement est déduit du module appelant : les écrans et les points d'appel existants n'ont pas
+changé. Le fournisseur global de l'entreprise prime : avec « aucun », tout passe par le modèle applicatif.
+
+Toujours applicatifs (calculs, jamais confiés à l'IA) : couverture et taux, analyse d'impact, périmètre de
+non-régression et ses plafonds, comparaison entre builds, critères de sortie, statuts et résultats.
+
+## Modèle applicatif : plafonds du périmètre
+
+Impact indirect limité au module de l'élément touché ; indirects et qualification classés par risque (criticité,
+dernier échec, étiquette, jamais exécuté) et plafonnés (40 et 30 par défaut, section `perimetre`, 0 = sans plafond).
+Les non retenus sont comptés par catégorie et module, et s'ajoutent en un clic. Mesuré sur 3 000 tests : 3 009 tests
+proposés avant, 821 après (dont 751 directs, liés par les données de l'essai).
+
 ## Contexte transmis
 
 Plafonds réglables (tests, exigences, éléments du graphe, écrans) et niveau de détail (minimal, standard, complet),

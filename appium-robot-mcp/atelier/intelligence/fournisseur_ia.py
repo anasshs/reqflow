@@ -50,7 +50,41 @@ def fournisseur() -> str:
     return impose() or du_projet() or "aucun"
 
 
-def etat() -> dict:
+def _operation(operation: str = "") -> str:
+    if operation:
+        return operation
+    try:
+        from atelier.intelligence.ia import operations
+
+        return operations.appelante()[0]
+    except Exception:  # noqa: BLE001
+        return "autre"
+
+
+def applicatif(operation: str = "") -> bool:
+    """Le type de traitement (donné, ou déduit du module appelant) est réglé sur le modèle applicatif : pas d'IA."""
+    try:
+        from atelier.intelligence.ia import config
+
+        return config.traitement(_operation(operation)) == "applicatif"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def etat(operation: str = "") -> dict:
+    """État de l'IA pour un type de traitement (donné, ou déduit du module appelant) : un traitement réglé sur le modèle
+    applicatif est vu comme « aucun » (règles seules), même si le fournisseur global est Cursor ou un modèle."""
+    op = _operation(operation)
+    if applicatif(op):
+        from atelier.intelligence.ia import operations
+
+        lib = operations.TRAITEMENTS.get(op, (op,))[0]
+        return {"fournisseur": "aucun", "detail": f"{lib} : modèle applicatif (réglé dans Paramètres › Pilotage IA)", "appel_direct": False,
+                "applicatif": True, "fournisseur_global": fournisseur(), "operation": op}
+    return {**_etat_global(), "operation": op}
+
+
+def _etat_global() -> dict:
     f = fournisseur()
     detail = {"aucun": "règles explicables uniquement",
               "cursor": "propositions déposées par l'agent Cursor via le MCP (outils testabilite_*)",
@@ -68,8 +102,9 @@ def _budget_bloque() -> bool:
 
 
 def configure() -> bool:
-    """Appel direct possible : fournisseur configuré ET budget IA global non bloqué (sinon : règles seules)."""
-    return configure_brut() and not _budget_bloque()
+    """Appel direct possible : fournisseur configuré, budget IA global non bloqué, et type de traitement de l'appelant non
+    réglé sur le modèle applicatif (sinon : règles seules)."""
+    return configure_brut() and not _budget_bloque() and not applicatif()
 
 
 def configure_brut() -> bool:

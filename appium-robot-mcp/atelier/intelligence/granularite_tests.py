@@ -198,6 +198,9 @@ def deposer_regroupements(cle: str, propositions: list[dict], source: str = "Cur
     """Regroupements proposés par une IA : contrôlés (cas connus et regroupables, au moins deux, chacun dans un seul
     regroupement, mode connu, justification), puis présentés à l'automaticien qui applique ou écarte. Remplacent les
     suggestions encore en attente ; rien n'est regroupé ici."""
+    from atelier.intelligence import jugement_ia as _jia
+
+    _jia.exiger_ia()
     d, u = t._exiger(cle)
     regroupables = {c["id"] for c in actifs(u) if c.get("statut") != "Publié"}
     retenues, refusees, pris = [], [], set()

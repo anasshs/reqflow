@@ -178,6 +178,9 @@ def keywords_pour_agent(cle: str, limite: int = 6, socle: int = 200) -> dict:
 def deposer_jugements_keywords(cle: str, jugements: list[dict], source: str = "Cursor (MCP)") -> dict:
     """Jugements d'une IA, contrôlés (étape jugeable, verdict connu, keyword cité présent dans le dépôt, justification),
     puis gardés sur l'étape. Aucun texte d'étape n'est modifié : l'automaticien reprend le keyword ou confirme le nouveau."""
+    from atelier.intelligence import jugement_ia as _jia
+
+    _jia.exiger_ia()
     from atelier.generation import bdd
     from atelier.intelligence.jugement_ia import justification as _j, maintenant
 

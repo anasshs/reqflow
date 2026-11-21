@@ -1911,11 +1911,11 @@ async def ia_pilotage_noter(sid: str, req: Request):
 
 
 @app.get("/api/ia/etat")
-async def ia_etat():
+async def ia_etat(operation: str = ""):
     """Fournisseur d'IA : « cursor » (jugements déposés via le MCP), appel direct (interne / Claude) ou aucun (règles)."""
     from atelier.intelligence import fournisseur_ia
 
-    return fournisseur_ia.etat()
+    return fournisseur_ia.etat(operation)
 
 
 @app.post("/api/redondances/ia")

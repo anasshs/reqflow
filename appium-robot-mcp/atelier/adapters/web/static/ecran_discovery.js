@@ -262,7 +262,7 @@
   async function correlation(z) {
     lirePerimetre();
     let s, ia;
-    try { [s, ia] = await Promise.all([api("/api/discovery/correlation?perimetre=" + encodeURIComponent(PERIMETRE?.noeud || "")), EtatIA()]); }
+    try { [s, ia] = await Promise.all([api("/api/discovery/correlation?perimetre=" + encodeURIComponent(PERIMETRE?.noeud || "")), EtatIA("discovery.correlation")]); }
     catch (e) {
       if (PERIMETRE && /inconnu/i.test(e.message)) {  // module disparu, ou parcours pas encore validé
         toast(`Périmètre « ${PERIMETRE.libelle} » indisponible (seul un parcours validé borne la Corrélation) : toute l'application est affichée.`, "ko");
@@ -349,7 +349,7 @@
           <button class="btn petit primaire" data-conf="${esc(x.cle)}">Confirmer</button><button class="btn petit" data-rej="${esc(x.cle)}">Rejeter</button></span>
         ${jugementCo(x.jugement)}
         ${(x.parcours || []).length ? `<span class="lib co-just"><span class="pill info">Parcours</span> exigence du parcours « ${esc(x.parcours.join(" », « "))} », qui traverse cet écran</span>` : ""}</li>`;
-    const ia = await EtatIA(), nomIA = ia?.fournisseur === "cursor" ? "Cursor" : "l'IA";
+    const ia = await EtatIA("discovery.correlation"), nomIA = ia?.fournisseur === "cursor" ? "Cursor" : "l'IA";
     droite.innerHTML = `<section class="bloc-strat"><h3>Exigences Jira</h3>
       <h3 class="lib">RÉALISÉ PAR · validé (${c.realisees.length})</h3>
       <ul class="liste co-liens">${c.realisees.map(x => `<li><span class="co-ligne">${cle(x.cle)}<span class="item">${esc(x.resume)}</span><span class="pill ok">${esc(x.origine_libelle)}</span>

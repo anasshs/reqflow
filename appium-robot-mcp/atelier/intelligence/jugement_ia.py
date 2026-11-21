@@ -38,6 +38,18 @@ def justification(j) -> str:
     return " ".join(str(j or "").split())[:800]
 
 
+def exiger_ia(operation: str = "") -> None:
+    """Refuse un jugement d'IA (dépôt de Cursor ou appel direct) pour un type de traitement réglé sur le modèle applicatif."""
+    from atelier.intelligence import fournisseur_ia
+
+    if fournisseur_ia.applicatif(operation):
+        from atelier.intelligence.ia import operations
+
+        op = fournisseur_ia._operation(operation)
+        raise PermissionError(f"« {operations.TRAITEMENTS.get(op, (op,))[0]} » est réglé sur le modèle applicatif (Paramètres › Pilotage IA) : "
+                              "jugement de l'IA refusé, l'atelier garde ses règles.")
+
+
 def maintenant() -> str:
     from datetime import datetime
 

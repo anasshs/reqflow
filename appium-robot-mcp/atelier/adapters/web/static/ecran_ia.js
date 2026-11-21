@@ -78,6 +78,18 @@
     const m = niv => (p.modeles || {})[niv] || {};
     z.innerHTML = `${bandeauFournisseur()}
       <p class="lib">Réglages du projet (atelier_ia.yaml, versionné avec le projet) : ils s'ajoutent à ceux de l'entreprise${E.fichier_entreprise ? ` (${esc(E.fichier_entreprise)})` : " (aucun fichier d'entreprise)"}, sans dépasser ses plafonds. Champ vide : valeur par défaut.</p>
+      <h3>Traitement : IA ou modèle applicatif</h3>
+      <p class="lib">Pour chaque type de traitement, qui juge : l'IA (Cursor, ou le modèle appelé par l'atelier) ou le modèle applicatif seul (règles,
+        sans compréhension du texte). Par défaut l'IA, surtout là où l'applicatif est fragile. Le fournisseur global reste celui de l'entreprise :
+        « ${esc(E.fournisseur.fournisseur)} »${E.fournisseur.fournisseur === "aucun" ? " — tout passe alors par le modèle applicatif" : ""}.</p>
+      <table class="table-strat"><tr><th>Traitement</th><th>Module QA</th><th>Modèle applicatif seul</th><th>Réglage</th><th>Appliqué</th></tr>
+        ${E.traitements.map(t => `<tr><td><b>${esc(t.libelle)}</b> <span class="lib mono">${esc(t.operation)}</span></td><td>${esc(t.module)}</td>
+          <td class="lib">${t.fragile ? '<span class="pill warn">fragile</span> ' : ""}${esc(t.applicatif)}</td>
+          <td><select class="in" data-tr="${esc(t.operation)}" style="width:auto" aria-label="Traitement de ${esc(t.libelle)}">
+            <option value="ia" ${t.reglage === "ia" ? "selected" : ""}>IA${t.fragile ? " (recommandé)" : ""}</option><option value="applicatif" ${t.reglage === "applicatif" ? "selected" : ""}>Modèle applicatif</option></select></td>
+          <td>${t.effectif === "applicatif" ? pill("modèle applicatif") : t.effectif === "indisponible" ? `<span class="pill warn" title="Demande le fournisseur « anthropic »">indisponible</span>`
+            : pill(t.effectif === "cursor" ? "IA : Cursor" : "IA : modèle", "violet")}</td></tr>`).join("")}</table>
+      <p class="lib">Toujours par le modèle applicatif (calculs, jamais confiés à l'IA) : ${E.deterministes.map(esc).join(" · ")}.</p>
       <h3>Modèles</h3>
       <table class="table-strat"><tr><th>Niveau</th><th>Modèle</th><th>Entrée max (tokens)</th><th>Sortie max</th><th>Température</th><th>Délai (s)</th><th>Tentatives</th><th>Actif</th><th>Appliqué</th></tr>
         ${E.niveaux.map(niv => `<tr><td><b>${esc({economique: "Économique", avance: "Avancé", secours: "Secours"}[niv])}</b></td><td>${champ(`m.${niv}.modele`, m(niv).modele, "text", E.modeles[niv]?.modele || "modèle par défaut")}</td>
@@ -116,6 +128,7 @@
       const seuil = $('[data-r="routage.seuil_avance_tokens"]').value;
       d.routage = {...(d.routage || {}), ...(seuil ? {seuil_avance_tokens: +seuil} : {})};
       d.optimisation = Object.fromEntries(["compacter", "alleger_mcp", "cache_prompt"].map(k => [k, $(`[data-r="optimisation.${k}"]`).checked]));
+      d.traitements = Object.fromEntries($$("[data-tr]").filter(s => s.value === "applicatif").map(s => [s.dataset.tr, "applicatif"]));
       d.perimetre = {};
       ["max_indirects", "max_qualification"].forEach(k => { const v = $(`[data-r="perimetre.${k}"]`).value; if (v !== "") d.perimetre[k] = +v; });
       d.contexte = {detail: $('[data-r="contexte.detail"]').value};

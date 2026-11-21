@@ -716,6 +716,9 @@ def analyser_ia(cle: str) -> dict:
 
 def deposer_proposition(cle: str, constats: list[dict], cas: list[dict], source: str = "Cursor", contexte_envoye: str = "", _d=None) -> dict:
     """Propositions d'une IA (Cursor via le MCP, LLM interne) : constats et cas « Proposé », jamais appliqués sans validation."""
+    from atelier.intelligence import jugement_ia as _jia
+
+    _jia.exiger_ia()
     d = _d if _d is not None else _us()
     if cle not in d:
         raise KeyError(f"US inconnue : {cle}")

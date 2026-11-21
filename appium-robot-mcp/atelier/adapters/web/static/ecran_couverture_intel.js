@@ -156,7 +156,7 @@
 
   /* ------------------------------------------------------------------ test mapping */
   async function mapping(c, z) {
-    const ia = await EtatIA();
+    const ia = await EtatIA("exigences.liens_tests");
     c.innerHTML = `<p class="lib">Rapprochement exigence ↔ test Xray. ${AvecIA(ia) ? "<b>L'IA juge si un test vérifie vraiment l'exigence</b> (couvre, partiellement, ne couvre pas), avec une justification ; les règles ne font que présélectionner" : "Règles seules (aucune IA configurée)"} :
         similarité des textes (Story, description, critères ↔ test, étapes, préconditions), module / composant, libellés et versions, critères retrouvés dans les étapes : <b>des mots communs, sans compréhension du texte</b>.
         Rien ne crée de lien : validation par un relecteur, puis lien natif « Test » créé sur demande.</p>
@@ -204,7 +204,7 @@
 
   /* ------------------------------------------------------------------ orphan tests */
   async function orphelins(c, z) {
-    const [l, ia] = await Promise.all([api("/api/ci/orphelins"), EtatIA()]);
+    const [l, ia] = await Promise.all([api("/api/ci/orphelins"), EtatIA("exigences.liens_tests")]);
     c.innerHTML = `<p class="lib">Un test sans exigence n'est pas forcément inutile : il peut couvrir une exigence implicite, technique ou réglementaire. Chaque classement est une proposition à valider.
         Les candidats ci-dessous viennent des mots communs (sans compréhension du texte)${AvecIA(ia) ? " ; l'IA lit le test et les exigences, propose un classement et le justifie" : ""}.</p>
       ${AvecIA(ia) ? `<div class="btns" style="margin-bottom:8px">${BoutonIA(ia, "or", "de classer")}</div>` : ""}

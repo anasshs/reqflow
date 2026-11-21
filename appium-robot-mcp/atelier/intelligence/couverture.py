@@ -167,6 +167,9 @@ def redondances_pour_agent(tests: list[dict], module: str = "", limite: int = 30
 def deposer_jugements_redondances(tests: list[dict], jugements: list[dict], source: str = "Cursor (MCP)") -> dict:
     """Jugements d'une IA sur des paires de tests, contrôlés (deux tests connus et différents, verdict connu,
     justification), conservés par application. Aucun test n'est modifié ni supprimé."""
+    from atelier.intelligence import jugement_ia as _jia
+
+    _jia.exiger_ia()
     import json
 
     from atelier.intelligence.jugement_ia import justification as _j, maintenant

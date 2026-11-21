@@ -115,6 +115,9 @@ def deposer(rid: str, bid: str = "", evolutions: list | None = None, tests: list
             source: str = SOURCE_CURSOR) -> dict:
     """Interprétation déposée par l'IA, contrôlée puis appliquée comme proposition par défaut. Un nouveau dépôt remplace
     l'avis précédent sur les tests ; les décisions du QA (rattachement rejeté ou confirmé, test gardé ou écarté) priment."""
+    from atelier.intelligence import jugement_ia as _jia
+
+    _jia.exiger_ia()
     from atelier.intelligence import jugement_ia, pilotage as p
 
     r = R._lire(rid)
@@ -229,4 +232,6 @@ def etat_ia() -> dict:
     from atelier.intelligence import fournisseur_ia as ia
 
     f = ia.fournisseur()
+    if ia.applicatif("non_regression.interpretation"):
+        return {"fournisseur": f, "mode": "regles", "applicatif": True}
     return {"fournisseur": f, "mode": "cursor" if f == "cursor" else "direct" if ia.configure() else "regles"}

@@ -38,13 +38,39 @@ PREFIXES_MCP = [("release_", "Non-Regression"), ("discovery_", "Discovery"), ("c
                 ("cerveau_", "QA Decision")]
 
 
+# Traitements où l'IA peut intervenir : libellé, module QA, fragilité du modèle applicatif, ce que fait l'applicatif seul.
+# « fragile » : sans IA, l'atelier ne fait que rapprocher des mots (sans comprendre le texte) : l'IA par défaut.
+TRAITEMENTS = {
+    "non_regression.interpretation": ("Lecture des Release Notes et des builds", "Non-Regression", True,
+                                      "une ligne = une évolution, rattachement par les clés Jira et les mots communs"),
+    "exigences.liens_tests": ("Liens exigence ↔ test et tests orphelins", "Requirement Analysis", True, "ressemblance des mots (TF-IDF)"),
+    "exigences.redondances": ("Tests redondants (Xray)", "Requirement Analysis", True, "titres presque identiques"),
+    "exigences.testabilite": ("Testabilité des US", "Requirement Analysis", True, "ambiguïtés repérées par mots-clés, un cas par critère"),
+    "conception.doublons": ("Doublons de cas de test", "Test Design", True, "ressemblance des mots avec les tests Xray"),
+    "conception.granularite": ("Granularité des tests", "Test Design", True, "regroupement par mots communs"),
+    "automatisation.keywords": ("Réutilisation des keywords", "Test Design", True, "rapprochement des étapes par les mots"),
+    "discovery.correlation": ("Corrélation écran ↔ exigence", "Discovery", True, "mots communs entre l'écran et l'exigence"),
+    "discovery.assistance": ("Assistance à l'exploration", "Discovery", False, "suggestions explicables (actions sûres jamais essayées)"),
+    "automatisation.relecture": ("Relecture des scripts Robot", "Test Design", False, "contrôles calculés (Robocop, structure)"),
+    "conception.relecture_scenario": ("Relecture des scénarios BDD", "Test Design", False, "contrôles calculés"),
+    "decision.question": ("Question libre sur la connaissance", "QA Decision", False, "recherche dans la connaissance, sans synthèse"),
+    "impact.assistant": ("Assistant des graphes", "Impact Analysis", False, "anomalies calculées"),
+    "echecs.analyse": ("Analyse des échecs", "Defect Analysis", False, "classement des échecs par règles"),
+    "agent.integre": ("Agent intégré de l'interface", "Agent intégré", False, "aucun : sans IA, pas d'agent"),
+}
+# Toujours le modèle applicatif : calculs déterministes, jamais confiés à l'IA (backend first).
+DETERMINISTES = ("Couverture, taux de réussite, agrégation des anomalies", "Analyse d'impact par le Knowledge Graph",
+                 "Périmètre de non-régression (retest, ciblée, qualification, plafonds)", "Comparaison entre builds successifs",
+                 "Critères de sortie et qualification de la release", "Statuts et résultats d'exécution")
+
+
 def connues() -> dict:
     """{opération: {module, niveau}} : les opérations que l'atelier sait appeler (pour l'écran de réglages)."""
     return {op: {"module": mod, "niveau": niv} for op, mod, niv in PAR_MODULE.values()}
 
 
 def module_de(operation: str) -> str:
-    return next((mod for op, mod, _ in PAR_MODULE.values() if op == operation), "Autre")
+    return next((mod for op, mod, _ in PAR_MODULE.values() if op == operation), TRAITEMENTS.get(operation, ("", "Autre"))[1])
 
 
 def niveau_defaut(operation: str) -> str:

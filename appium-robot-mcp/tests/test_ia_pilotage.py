@@ -238,3 +238,43 @@ def test_routes_pilotage(ia):
     assert c.get("/api/ia-pilotage/consommation", headers=h).json()["totaux"]["appels"] == 1
     assert c.post("/api/ia-pilotage/cache/invalider", json={}, headers=h).json()["supprimees"] == 1
     assert c.get("/api/ia-pilotage/simulateur", headers=h).json()["entrees"]
+
+
+def test_traitement_ia_ou_modele_applicatif(ia, tmp_path):
+    """Chaque type de traitement passe par l'IA (défaut, surtout là où l'applicatif est fragile) ou par le modèle applicatif :
+    appel direct refusé, état « aucun » pour l'écran, dépôt de Cursor refusé ; les autres traitements ne changent pas."""
+    from atelier.intelligence import fournisseur_ia, jugement_ia
+    from atelier.intelligence.ia import config
+
+    t = {x["operation"]: x for x in config.traitements()}
+    assert t["non_regression.interpretation"]["reglage"] == "ia" and t["non_regression.interpretation"]["fragile"]
+    assert t["exigences.liens_tests"]["effectif"] == "modele" and config.etat()["deterministes"]
+    with pytest.raises(ValueError, match="Traitement"):
+        config.enregistrer({"traitements": {"discovery.correlation": "peut-être"}})
+    config.enregistrer({"traitements": {"discovery.correlation": "applicatif"}})
+    assert config.traitement("discovery.correlation") == "applicatif" and config.traitement("conception.doublons") == "ia"
+    e = fournisseur_ia.etat("discovery.correlation")
+    assert e["fournisseur"] == "aucun" and e["applicatif"] and e["fournisseur_global"] == "anthropic"
+    assert fournisseur_ia.etat("conception.doublons")["fournisseur"] == "anthropic"
+    with pytest.raises(RuntimeError, match="modèle applicatif"):
+        ia.orch.appeler("S", "D", operation="discovery.correlation")
+    assert ia.orch.appeler("S", "D", operation="conception.doublons")                               # les autres traitements : inchangés
+    with pytest.raises(PermissionError, match="modèle applicatif"):
+        jugement_ia.exiger_ia("discovery.correlation")
+    # déduit du module appelant : un module « correlation » ne peut plus appeler l'IA, ni la voir disponible
+    f = tmp_path / "correlation.py"
+    f.write_text("from atelier.intelligence import fournisseur_ia\ndef dispo():\n    return fournisseur_ia.configure(), fournisseur_ia.etat()['fournisseur']\n",
+                 encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("correlation_essai2", f)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    assert m.dispo() == (False, "aucun")
+
+
+def test_depot_cursor_refuse_pour_un_traitement_applicatif(ia):
+    from atelier.discovery import correlation
+    from atelier.intelligence.ia import config
+
+    config.enregistrer({"traitements": {"discovery.correlation": "applicatif"}})
+    with pytest.raises(PermissionError, match="modèle applicatif"):
+        correlation.deposer_correlations([{"ecran": "x", "exigence": "DEMO-1", "verdict": "concerne", "justification": "j"}])
