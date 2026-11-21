@@ -27,7 +27,7 @@ d'étape en haut des écrans du chemin, prochaine action ; options Jira / Xray a
 De l'US au test automatisé (un seul fil dans un périmètre : couverture des US ou parcours, puis automatisation ; guide dans l'outil) : docs/DE_L_US_AU_TEST_AUTOMATISE.md.
 Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
-fonctionnalité, demandes d'action validées côté serveur, 11 règles Cursor versionnées, couverture parcours / UI, Test
+fonctionnalité, demandes d'action validées côté serveur, 12 règles Cursor versionnées (dont « robot-expert » : qualité du code), couverture parcours / UI, Test
 Design par catégories et doublons, Champ / Anomalie, échecs reliés à la connaissance, jugements délégués à Cursor (granularité, doublons, redondances, liens
 exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 115 outils MCP (76 historiques
 inchangés) ; classement de sécurité de chaque outil : tests/test_securite_outils.py (à compléter pour tout nouvel outil) ;

@@ -33,6 +33,7 @@ RUBRIQUES = [  # id, fichier livré, fichier installé, rôle
     ("failure-analysis", "failure-analysis.mdc", "atelier-failure-analysis.mdc", "Diagnostic des échecs"),
     ("coverage", "coverage.mdc", "atelier-coverage.mdc", "Mesure de la couverture"),
     ("knowledge-graph", "knowledge-graph.mdc", "atelier-knowledge-graph.mdc", "Consultation et enrichissement du graphe"),
+    ("robot-expert", "robot-expert.mdc", "atelier-robot-expert.mdc", "Automaticien expert : qualité du code Robot (Browser, Selenium, Appium, Requests)"),
 ]
 PAR_ID = {r[0]: r for r in RUBRIQUES}
 

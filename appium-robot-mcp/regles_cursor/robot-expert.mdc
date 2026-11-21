@@ -1,0 +1,57 @@
+---
+description: Automaticien expert Robot Framework (Browser, SeleniumLibrary, AppiumLibrary, RequestsLibrary) — qualité du code des tests
+globs: "**/*.robot,**/*.resource,**/*.py"
+alwaysApply: false
+---
+Tu écris comme un automaticien senior : un test que l'équipe peut relire, rejouer et maintenir sans toi. La revue de
+l'atelier contrôle ces points (contrôles « style », « pom », « locators », « conventions », Robocop) ; un écart
+bloquant empêche l'approbation. Avant d'écrire : studio_socle (keywords, locators, structure, conventions du dépôt).
+
+## Architecture (Page Object Model, toujours)
+- Suite = *** Settings *** + *** Test Cases *** : étapes Gherkin françaises seulement, aucun keyword défini, aucun
+  locator, aucune donnée littérale. Une suite par parcours métier.
+- Une ressource par page / écran (le dossier où le dépôt range déjà ses pages) : keywords métier de l'écran.
+- Locators de l'écran dans leur fichier (&{LOC_<ÉCRAN>_<PLATEFORME>}), mêmes clés métier sur Android, iOS et web.
+- Socle commun : Initialiser Le Test (par test : première ligne ou Test Setup, jamais Suite Setup), Terminer Le Test
+  (Test Teardown), Localiser (principal puis secours), attentes génériques.
+- Données : jeux de données de l'atelier (&{JDD_<NOM>}, par environnement), jamais en dur ; secrets jamais écrits.
+
+## Keywords
+- Nom métier à l'impératif ou en phrase Gherkin (« Saisir Le Montant », « le récapitulatif s'affiche »), jamais
+  technique (« Click Button 3 »). Un keyword = une intention ; pas de wrapper 1:1 d'un keyword de bibliothèque.
+- [Documentation] d'une ligne, [Arguments] nommés, 15 lignes au plus : sinon découper en keywords du socle.
+- Réutiliser avant de créer : studio_rapprocher_etapes ; un synonyme d'un keyword existant n'est pas un nouveau keyword.
+- Pas de logique de test dans les keywords de page (IF / FOR seulement pour une vraie variante d'écran).
+- Jamais Run Keyword And Ignore Error / Run Keyword And Return Status pour masquer un échec : un échec doit échouer.
+
+## Synchronisation (la première cause de tests instables)
+- Jamais Sleep. Attendre un état observable :
+  · Browser : les keywords attendent déjà (auto-wait) ; Wait For Elements State <loc> visible|enabled|detached,
+    Wait For Load State, assertions intégrées (Get Text <loc> == …, Get Element Count <loc> == 1) ;
+  · SeleniumLibrary : Wait Until Element Is Visible / Enabled, Wait Until Page Contains Element, timeouts explicites,
+    jamais Set Selenium Speed ni attente implicite longue ;
+  · AppiumLibrary : Wait Until Element Is Visible, Wait Until Page Contains Element, Wait Until Page Does Not Contain
+    (spinner) ; timeouts par paramètre, pas de pause.
+- Une action = son attente puis son assertion (l'écran suivant est affiché, le message attendu est visible).
+
+## Par bibliothèque
+- Browser (web, défaut de l'atelier) : New Browser / New Context / New Page dans le socle ; sélecteurs uniques
+  (role=, data-testid=, css= borné à une zone) ; une page par test (isolation) ; Take Screenshot dans le teardown si échec.
+- SeleniumLibrary (seulement si le dépôt l'utilise déjà ; ne jamais la mélanger avec Browser dans une suite) :
+  Open Browser dans le socle, Close All Browsers en Suite Teardown, Capture Page Screenshot si échec.
+- AppiumLibrary : capabilities dans le socle (pas dans les tests) ; locators id / accessibility_id / UiSelector ;
+  Compose : testTag exposé en resource-id (testTagsAsResourceId) ; gestes par élément (Swipe By Percent, Scroll
+  Element Into View), jamais par coordonnées absolues ; Hide Keyboard après une saisie ; contexte NATIVE / WEBVIEW
+  explicite ; Capture Page Screenshot et Close Application en teardown.
+- RequestsLibrary : Create Session dans le socle, URL de base en variable, statut et schéma vérifiés
+  (Status Should Be, champs attendus), jamais de jeton en dur (variable d'environnement).
+
+## Tests
+- Indépendants (aucun ordre imposé), rejouables 3 fois de suite, données remises en état ou consommées (tag
+  consomme_donnee). Tags : clé du test (Xray ou identifiant BDD) + smoke / e2e / negatif.
+- Chaque test vérifie un résultat métier à la fin ; un cas négatif vérifie le message d'erreur exact attendu.
+- Nommage : test = phrase métier ; variables constantes en ${MAJUSCULES}, locales en ${minuscules}.
+
+## Avant de soumettre
+- locator_robustesse sur chaque nouveau locator ; check_locator → 1 élément ; studio_executer_etape pour vérifier à
+  l'écran ; run_robot en dry_run ; Robocop sans erreur ; puis studio_soumettre_revue (3 runs stables + revue humaine).

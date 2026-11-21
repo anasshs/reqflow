@@ -114,3 +114,14 @@ def test_initialiser_en_suite_setup_bloquant():
 
     s = studio.style_robot("tests/t.robot", "*** Settings ***\nSuite Setup       Initialiser Le Test    &{JDD_X}\n\n*** Test Cases ***\nT\n    Log    x\n")
     assert s[0]["gravite"] == "haute" and "Test Setup" in s[0]["message"]
+
+
+def test_style_expert_antipatterns():
+    from atelier.generation import studio
+
+    brut = ("*** Settings ***\nLibrary    Browser\nLibrary    SeleniumLibrary\n\n*** Test Cases ***\nT\n    Go To    https://exemple.fr\n"
+            "    Run Keyword And Ignore Error    Valider\n    Tap    100    200\n\n*** Keywords ***\nValider\n    [Documentation]    x\n"
+            + "".join(f"    Log    {i}\n" for i in range(16)))
+    m = " | ".join(x["message"] for x in studio.style_robot("tests/t.robot", brut))
+    for attendu in ("masqué", "SeleniumLibrary", "coordonnées", "URL écrite", "15 lignes"):
+        assert attendu in m, attendu

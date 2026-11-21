@@ -294,8 +294,26 @@ def style_robot(fichier: str, contenu: str) -> list[dict]:
     if re.search(r"(?mi)^\s*Suite Setup\s+Initialiser Le Test\b", sec.get("settings", "")):
         out.append({"gravite": "haute", "message": "« Initialiser Le Test » en Suite Setup : ${JDD} n'existe pas dans les tests "
                                                    "(Variable '${JDD}' not found). Le mettre en Test Setup, ou en première ligne de chaque test"})
+    corps = "\n".join(v for k, v in sec.items() if k != "settings")
+    masques = len(re.findall(r"(?mi)^\s+.*\bRun Keyword And (Ignore Error|Return Status)\b", corps))
+    if masques:
+        out.append({"gravite": "moyenne", "message": f"{masques} échec(s) masqué(s) (Run Keyword And Ignore Error / Return Status) : "
+                                                     "un échec doit faire échouer le test"})
+    if re.search(r"(?mi)^Library\s+Browser\b", sec.get("settings", "")) and re.search(r"(?mi)^Library\s+SeleniumLibrary\b", sec.get("settings", "")):
+        out.append({"gravite": "moyenne", "message": "Browser et SeleniumLibrary dans le même fichier : n'en garder qu'une"})
+    if re.search(r"(?mi)^\s+(Click Element At Coordinates|Tap With Positions|Click\s+With\s+Coordinates)\b|^\s+(Tap|Swipe)\s{2,}\d", corps):
+        out.append({"gravite": "moyenne", "message": "Geste par coordonnées : agir sur un élément (locator) ou en pourcentage (Swipe By Percent)"})
+    if re.search(r"(?mi)^\s+Set Selenium (Speed|Implicit Wait)\b", corps):
+        out.append({"gravite": "moyenne", "message": "Set Selenium Speed / Implicit Wait : ralentit tout et masque l'instabilité ; attentes explicites"})
+    tests = sec.get("test cases") or sec.get("test case") or ""
+    if re.search(r"(?m)^\s+.*\bhttps?://", tests):
+        out.append({"gravite": "moyenne", "message": "URL écrite dans un test : la mettre en variable du socle ou du jeu de données"})
     kws = sec.get("keywords") or sec.get("keyword") or ""
     if kws:
+        longs = [b.splitlines()[0].strip() for b in re.split(r"(?m)^(?=\S)", kws)
+                 if b.strip() and not b.startswith("#") and sum(1 for l in b.splitlines()[1:] if l.strip() and not l.strip().startswith("#")) > 15]
+        if longs:
+            out.append({"gravite": "basse", "message": "Keywords de plus de 15 lignes (à découper) : " + ", ".join(longs[:3])})
         blocs = re.split(r"(?m)^(?=\S)", kws)
         sans_doc = [b.splitlines()[0].strip() for b in blocs if b.strip() and not b.startswith("#") and "[Documentation]" not in b]
         if sans_doc:
