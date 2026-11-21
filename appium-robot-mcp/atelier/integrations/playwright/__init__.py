@@ -25,6 +25,12 @@ JS = r"""
   const q = s => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const uniq = css => { try { return document.querySelectorAll(css).length === 1; } catch (e) { return false; } };
   const stableId = id => /^[A-Za-z][\w-]*$/.test(id) && !/\d{3,}/.test(id);
+  /* texte et rôle ne sont pas forcément uniques (un même lien « Connexion » dans l'en-tête et le pied de page) :
+     on compte, et sinon on borne à la zone de la page (en-tête, menu, pied…) ou au lien (href) */
+  const texte = e => (e.innerText || '').trim().replace(/\s+/g, ' ');
+  const memeTexte = (racine, tag, t) => [...racine.querySelectorAll(tag)].filter(e => texte(e) === t).length;
+  const ZONES = 'header,nav,footer,main,aside,[role="banner"],[role="navigation"],[role="contentinfo"],[role="main"],[role="dialog"]';
+  const selZone = z => z.id && stableId(z.id) ? '#' + CSS.escape(z.id) : z.getAttribute('role') ? '[role="' + z.getAttribute('role') + '"]' : z.tagName.toLowerCase();
   window.__mcpDescribe = (el) => {
     const r = el.getBoundingClientRect();
     const tag = el.tagName.toLowerCase();
@@ -43,8 +49,16 @@ JS = r"""
     if (el.id && stableId(el.id)) locs.push(['id=' + el.id, uniq('#' + CSS.escape(el.id))]);
     if (nm && ['input', 'select', 'textarea'].includes(tag)) { const c = tag + '[name="' + q(nm) + '"]'; locs.push(['css=' + c, uniq(c)]); }
     if (ph) { const c = '[placeholder="' + q(ph) + '"]'; locs.push(['css=' + c, uniq(c)]); }
-    if (role && name && name.length <= 60) locs.push(['role=' + role + '[name="' + q(name) + '"]', null]);
-    if (txt && txt.length <= 50 && !['input', 'select', 'textarea'].includes(tag)) locs.push(['text="' + q(txt) + '"', null]);
+    const parTexte = txt && txt.length <= 50 && !['input', 'select', 'textarea'].includes(tag);
+    const texteUnique = parTexte ? memeTexte(document, tag, txt) === 1 && [...document.querySelectorAll('a,button,[role]')].filter(e => e !== el && texte(e) === txt).length === 0 : false;
+    if (parTexte && !texteUnique) {  // ambigu : variantes bornées, gardées seulement si elles désignent un seul élément
+      const z = el.closest(ZONES), href = tag === 'a' ? el.getAttribute('href') : '';
+      if (z && href) { const c = selZone(z) + ' a[href="' + q(href) + '"]'; if (uniq(c)) locs.push(['css=' + c, true]); }
+      if (z && memeTexte(z, tag, txt) === 1 && document.querySelectorAll(selZone(z)).length === 1) locs.push(['css=' + selZone(z) + ' >> text="' + q(txt) + '"', true]);
+      if (href && uniq('a[href="' + q(href) + '"]')) locs.push(['css=a[href="' + q(href) + '"]', true]);
+    }
+    if (role && name && name.length <= 60) locs.push(['role=' + role + '[name="' + q(name) + '"]', parTexte && name === txt ? texteUnique : null]);
+    if (parTexte) locs.push(['text="' + q(txt) + '"', texteUnique]);
     if (!locs.length) {
       const p = []; let e = el;
       while (e && e.nodeType === 1 && e !== document.body) {

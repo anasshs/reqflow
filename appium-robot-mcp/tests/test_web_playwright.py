@@ -110,3 +110,16 @@ def test_exploration_respecte_les_invariants(session_web, site):
     contextes = [p.get("contexte", "") for e in app_map.ecrans() for p in e["plateformes"].values()]
     assert not any("localhost:9" in c for c in contextes), "un lien externe a été cartographié"
     assert len(urls) >= 3
+
+
+def test_texte_en_double_locator_borne_et_unique(session_web, site):
+    """Même lien « Connexion » en en-tête et en pied de page : le premier locator désigne un seul élément."""
+    session_web.open_url(f"{site}/doublon.html")
+    liens = [e for e in session_web.get_screen_elements()["elements"] if e.get("libelle") == "Connexion"]
+    assert len(liens) == 2
+    premiers = sorted(e["locators"][0] for e in liens)
+    assert premiers == ['css=footer a[href="/fr/login"]', 'css=nav a[href="/fr/login"]']  # zone la plus proche
+    for loc in premiers:
+        assert session_web.check_locator(loc)["nb_trouves"] == 1
+    aide = next(e for e in session_web.get_screen_elements()["elements"] if e.get("libelle") == "Aide")
+    assert 'text="Aide"' in aide["locators"]  # texte unique : inchangé
