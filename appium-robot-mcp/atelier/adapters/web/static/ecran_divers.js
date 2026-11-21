@@ -280,8 +280,10 @@
   async function agents(z) {
     const d = await api("/api/agents-ia"), bo = await api("/api/cursor/boite").catch(() => null);
     const c = d.agents.cursor, cl = d.agents.claude, regles = Object.values(d.regles);
+    const cliOk = !!(bo && bo.cli.trouvee && bo.cli.valide);
     const etatEnvoi = v => v === "boite" ? (bo.ecoute.active ? '<span class="pill ok">Cursor écoute</span>' : '<span class="pill warn">Cursor n\'écoute pas encore</span>')
-      : v === "cli" ? (bo.cli.trouvee && bo.cli.valide ? '<span class="pill ok">commande installée</span>' : '<span class="pill ko">commande absente sur ce poste</span>') + ` <span class="lib mono">${esc(bo.cli.commande)} ${esc(bo.cli.arguments)}</span>` : "";
+      : v === "cli" ? (cliOk ? '<span class="pill ok">commande installée</span>' + ` <span class="lib mono">${esc(bo.cli.commande)} ${esc(bo.cli.arguments)}</span>`
+        : `<span class="pill">indisponible : agent Cursor en ligne de commande non installé</span> <span class="lib">(commande « ${esc(bo.cli.commande)} » introuvable ; à installer depuis la documentation de Cursor, ou ATELIER_CURSOR_CLI vers son chemin)</span>`) : "";
     const actif = d.derniere_activite_s !== null && d.derniere_activite_s < 900;
     const etape = (n, ok, titre, corps) => `<section class="bloc-strat" style="margin-bottom:10px"><h3><span class="pill ${ok ? "ok" : ""}">${ok ? "✓" : n}</span> ${titre}</h3>${corps}</section>`;
     const statut = a => a.erreur ? `<span class="pill ko">fichier illisible</span> <span class="lib">${esc(a.erreur)}</span>` : a.a_jour ? '<span class="pill ok">installé</span>'
@@ -299,7 +301,9 @@
         <div class="btns"><button class="btn primaire" id="ag-test" title="Interroge le serveur MCP comme Cursor (même commande en stdio, même URL en mode HTTP), l'initialise et liste ses outils">Tester le serveur MCP</button>
           <button class="btn" id="ag-rafr">Actualiser</button></div><div id="ag-test-r" class="lib"></div>`)}
       ${bo ? etape(4, bo.envoi !== "lien", "Envoi des demandes à Cursor (réglé une fois, pour tout le projet)", `
-        ${Object.entries(bo.envois).map(([v, lib]) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 0"><input type="radio" name="ag-envoi" value="${v}" ${v === bo.envoi ? "checked" : ""}> <span>${esc(lib)}</span> ${etatEnvoi(v)}</label>`).join("")}
+        ${bo.envoi === "cli" && !cliOk ? `<p class="alerte-projet" style="margin:0 0 8px"><b>Les demandes ne peuvent pas partir :</b> le mode « ligne de commande » est choisi, mais l'agent Cursor en ligne de commande n'est pas installé sur ce poste.
+          <button class="btn petit primaire" id="ag-vers-boite">Passer à la boîte de demandes</button> <span class="lib">rien à installer : dire une fois dans Cursor « Traite les demandes de l'atelier »</span></p>` : ""}
+        ${Object.entries(bo.envois).map(([v, lib]) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 0${v === "cli" && !cliOk ? ";opacity:.65" : ""}"><input type="radio" name="ag-envoi" value="${v}" ${v === bo.envoi ? "checked" : ""} ${v === "cli" && !cliOk && bo.envoi !== "cli" ? "disabled" : ""}> <span>${esc(lib)}</span> ${etatEnvoi(v)}</label>`).join("")}
         <label style="display:flex;gap:8px;align-items:center;padding:6px 0 3px;border-top:1px solid var(--line);margin-top:6px"><input type="checkbox" id="ag-ia-cursor" ${bo.ia.boutons_cursor ? "checked" : ""} ${bo.ia.impose ? "disabled" : ""}>
           <span><b>Cursor est l'IA de l'atelier</b> : affiche les boutons « Demander à Cursor » dans les modules</span>
           ${bo.ia.impose ? `<span class="lib">imposé par la variable IA_FOURNISSEUR (« ${esc(bo.ia.impose)} »)</span>` : ""}</label>
@@ -346,6 +350,9 @@
         $("#ag-cli-r").innerHTML = `<span class="pill ${lib[0]}">${lib[1]}</span> <span class="mono">${esc(r.detail)}</span>${r.a_faire ? `<br><b>À faire :</b> <span class="mono">${esc(r.a_faire)}</span>` : ""}`; }
       catch (e) { $("#ag-cli-r").textContent = e.message; }
     };
+    if ($("#ag-vers-boite")) $("#ag-vers-boite").onclick = async () => {
+      try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: "boite"}}); toast("Demandes envoyées par la boîte de demandes. Dire une fois dans Cursor : « Traite les demandes de l'atelier ».", "ok"); agents(z); }
+      catch (e) { toast(e.message, "ko"); } };
     if ($("#ag-envoi-ok")) $("#ag-envoi-ok").onclick = async () => {
       try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: ($("[name=ag-envoi]:checked", z) || {}).value || "lien", ...($("#ag-ia-cursor").disabled ? {} : {ia_cursor: $("#ag-ia-cursor").checked}), ...($("#ag-cli-force") ? {cli_force: $("#ag-cli-force").checked} : {})}}); toast("Réglages Cursor enregistrés pour le projet.", "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); }
