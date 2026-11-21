@@ -280,7 +280,7 @@
     if (!s.ecrans.some(e => e.id === ECRAN)) ECRAN = s.ecrans[0].id;
     const somme = k => s.ecrans.reduce((a, x) => a + x[k], 0);
     const avecIA = AvecIA(ia), nomIA = ia?.fournisseur === "cursor" ? "Cursor" : "l'IA";
-    z.innerHTML = `${entete("Corrélation exigences Jira ↔ écrans", `<span class="btns">${menuPerimetre("co-perimetre", s.perimetres, s.perimetre, "Borne la liste des écrans à un module ou à un parcours validé")}${BoutonIA(ia, "co")}
+    z.innerHTML = `${entete("Corrélation exigences Jira ↔ écrans", `<span class="btns">${menuPerimetre("co-perimetre", s.perimetres, s.perimetre, "Borne la liste des écrans à un module ou à un parcours validé")}${s.copie_jira ? BoutonIA(ia, "co") : ""}
         <button class="btn petit" id="co-relier">${ico("lien")}Relier manuellement</button><button class="btn petit" id="co-actu">${ico("rejouer")}Actualiser</button>
         <button class="btn petit" id="co-histo">${ico("historique")}Historique</button></span>`)}<div class="corps-carte">
       <p class="lib"><b>Vérifiée sur</b> : preuve issue des tests, créée seule (un test automatisé de l'exigence passe par l'écran) ; elle ne dit pas que l'écran réalise l'exigence.
@@ -427,7 +427,7 @@
       ${r ? `${kpis([[r.ecrans_visites, "écrans visités"], [r.nouveaux_ecrans, "nouveaux écrans"], [r.ecrans_modifies, "écrans modifiés"], [r.composants_ajoutes, "composants ajoutés"], [r.nouvelles_transitions, "nouvelles transitions"], [r.actions, "actions"], [r.comportements ?? 0, "comportements"], [(r.endpoints || []).length, "endpoints observés"]])}
         <div class="grille-2"><section class="bloc-strat"><h3>Nouveaux écrans</h3><ul class="liste">${r.nouveaux.map(e => `<li><button class="lien item" data-e="${esc(e.id)}">${esc(e.nom)}</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul></section>
           <section class="bloc-strat"><h3>Écrans modifiés</h3><ul class="liste">${r.modifies.map(e => `<li><button class="lien item" data-e="${esc(e.id)}">${esc(e.nom)}</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul></section></div>
-        <div class="btns" style="margin:8px 0"><button class="btn primaire" id="rs-bdd">Du parcours de la session au test (brouillon BDD)</button></div>
+        <div class="btns" style="margin:8px 0"><button class="btn primaire" id="rs-bdd">Créer le test BDD de ce parcours</button> <span class="lib">brouillon écrit par l'atelier, sans Cursor ni Xray ; ensuite « Générer le script Robot »</span></div>
         <p class="lib">Annotations : ${r.annotations} · étapes sensibles : ${r.sensibles}. Les éléments découverts arrivent dans le Knowledge Graph avec leur provenance ; les noms et rapprochements se valident dans <a href="#discovery/validation">Discovery Validation</a>.</p>`
         : vide("Session pas encore démarrée")}</div>`;
     $("#rs-s").onchange = e => { SESSION = e.target.value; resultats(z); };

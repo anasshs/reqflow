@@ -309,6 +309,10 @@
           ${bo.ia.impose ? `<span class="lib">imposé par la variable IA_FOURNISSEUR (« ${esc(bo.ia.impose)} »)</span>` : ""}</label>
         ${bo.ia.boutons_cursor ? "" : `<p><span class="pill ko">Boutons masqués</span> ${esc(bo.ia.aide)}</p>`}
         <div class="btns"><button class="btn primaire" id="ag-envoi-ok">Valider</button></div>
+        ${(bo.demandes || []).some(x => x.statut === "en attente") ? `<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:6px"><p><b>Demandes en attente dans la boîte</b>
+          <span class="lib">Cursor les prendra au prochain « Traite les demandes de l'atelier » ; annuler celles envoyées par erreur</span></p>
+          <table class="table-strat">${bo.demandes.filter(x => x.statut === "en attente").map(x => `<tr><td class="mono">${esc(x.id)}</td><td>${esc(x.titre)}</td>
+            <td class="lib">${esc(String(x.cree || "").slice(0, 16).replace("T", " "))}</td><td><button class="btn petit" data-ann-boite="${esc(x.id)}">Annuler</button></td></tr>`).join("")}</table></div>` : ""}
         ${bo.envoi === "cli" ? `<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:6px"><p><b>Ligne de commande : ce que Cursor a le droit d'appeler</b></p>
           <p>${bo.cli.permissions.erreur ? `<span class="pill ko">${esc(bo.cli.permissions.erreur)}</span>` : bo.cli.permissions.accordee ? '<span class="pill ok">outils de l\'atelier autorisés</span>' : '<span class="pill ko">outils de l\'atelier non autorisés</span>'}
             <span class="lib mono">${esc(bo.cli.permissions.fichier)} · ${esc(bo.cli.permissions.jeton)}</span></p>
@@ -350,6 +354,9 @@
         $("#ag-cli-r").innerHTML = `<span class="pill ${lib[0]}">${lib[1]}</span> <span class="mono">${esc(r.detail)}</span>${r.a_faire ? `<br><b>À faire :</b> <span class="mono">${esc(r.a_faire)}</span>` : ""}`; }
       catch (e) { $("#ag-cli-r").textContent = e.message; }
     };
+    $$("[data-ann-boite]", z).forEach(b => b.onclick = async () => {
+      try { await api(`/api/cursor/boite/${encodeURIComponent(b.dataset.annBoite)}/annuler`, {method: "POST", body: {}}); toast("Demande annulée.", "ok"); agents(z); }
+      catch (e) { toast(e.message, "ko"); } });
     if ($("#ag-vers-boite")) $("#ag-vers-boite").onclick = async () => {
       try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: "boite"}}); toast("Demandes envoyées par la boîte de demandes. Dire une fois dans Cursor : « Traite les demandes de l'atelier ».", "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); } };

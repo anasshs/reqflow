@@ -235,10 +235,12 @@
         <div class="btns"><button class="btn primaire" id="cad-val">${ico("check")}${P.valide && !aValider ? "Mettre à jour la validation" : "Valider les écrans du parcours"}</button>
           ${P.valide ? `<span class="lib">Validé par ${esc(P.valide.par)} le ${date(P.valide.date)}${aValider ? ` · ${aValider} nouvel(aux) écran(s) à valider` : ""}</span>` : ""}</div>`
         : `<p class="lib">Les écrans apparaîtront ici à la fin du premier déroulé.</p>`}
+      ${P.id && P.ecrans.length ? `<div class="alerte-projet" style="margin-top:14px;background:var(--bg2,transparent)"><b>Étape suivante : créer le test BDD de ce parcours.</b>
+        <span class="lib">L'atelier écrit le brouillon Gherkin à partir des écrans parcourus (sans Cursor, sans Jira ni Xray). Ensuite, dans Scénarios BDD : relire, puis « Générer le script Robot ».</span>
+        <div class="btns" style="margin-top:6px"><button class="btn primaire" id="cad-bdd">${ico("bdd")}Créer le test BDD</button></div></div>` : ""}
       ${P.id ? `<h3 class="lib" style="margin-top:14px">ENSUITE</h3><div class="btns">
         <button class="btn" id="cad-graphe" title="Le parcours, ses exigences et ses écrans dans le Knowledge Graph">${ico("graphe")}Voir dans le graphe</button>
         <a class="btn" id="cad-corr" href="#discovery/correlation" title="Confirmer, écran par écran, les exigences du parcours proposées en priorité. La Corrélation s'ouvre sur les écrans de ce parcours une fois validé">Corrélation des écrans</a>
-        ${P.ecrans.length ? `<button class="btn" id="cad-bdd" title="Brouillon de scénario BDD dans Test Design, à partir des écrans du parcours">${ico("bdd")}Créer le scénario BDD</button>` : ""}
         <button class="btn" id="cad-encore">${ico("play")}Dérouler à nouveau</button></div>` : ""}
       <details style="margin-top:14px"><summary class="lib">Journal du parcours (${P.historique.length})</summary>
         <table class="table-strat"><tr><th>Date</th><th>Par</th><th>Action</th><th>Détail</th></tr>${P.historique.map(h => `<tr><td class="mono">${date(h.date)}</td><td>${esc(h.par || "")}</td><td>${esc(h.action)}</td>
@@ -255,7 +257,7 @@
     if ($("#cad-graphe")) $("#cad-graphe").onclick = () => { try { sessionStorage.setItem("kg-perimetre", P.noeud); } catch (e) { /* facultatif */ } location.hash = "graphe/connaissance/parcours"; };
     if ($("#cad-encore")) $("#cad-encore").onclick = () => { etape = "cible"; rendre(); };
     if ($("#cad-bdd")) $("#cad-bdd").onclick = async () => {
-      try { const r = await api("/api/discovery/parcours-bdd", {method: "POST", body: {parcours: P.noeud, titre: P.nom}}); toast(`Brouillon ${r.cle} créé dans Test Design.`, "ok"); location.hash = "bdd/" + encodeURIComponent(r.cle); }
+      try { const r = await api("/api/discovery/parcours-bdd", {method: "POST", body: {parcours: P.noeud, titre: P.nom}}); toast(`Test BDD ${r.cle} créé (brouillon). Relire, puis « Générer le script Robot ».`, "ok"); location.hash = "bdd/" + encodeURIComponent(r.cle); }
       catch (e) { toast(e.message, "ko"); }
     };
   }

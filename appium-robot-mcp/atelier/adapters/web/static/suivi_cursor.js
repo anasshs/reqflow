@@ -60,6 +60,7 @@
     if (!b) return {texte: "", alerte: false};
     if (b.statut === "échouée") return {texte: `${b.mode === "cli" ? "Cursor en ligne de commande a échoué" : "Demande en échec"} : ${b.erreur || "raison inconnue"}`, alerte: true};
     if (b.statut === "terminée") return {texte: `Terminé${b.resultat ? " : " + b.resultat.slice(0, 300) : "."}`, alerte: false};
+    if (b.statut === "annulée") return {texte: "Annulée : Cursor ne la traitera pas.", alerte: false};
     if (b.mode === "cli") return {texte: b.statut === "prise" ? "Cursor travaille en ligne de commande, sans fenêtre : rien n'apparaît dans son chat. Le résultat s'affichera ici." : "Lancement de Cursor en ligne de commande…", alerte: false};
     if (b.statut === "prise") return {texte: "Cursor a pris la demande dans la boîte.", alerte: false};
     if (b.ecoute === null) return {texte: "Demande déposée dans la boîte de l'atelier…", alerte: false};
@@ -87,6 +88,7 @@
     if (d.depot) return {n: 4, lib: `Résultat déposé${d.depots > 1 ? ` (${d.depots} dépôts)` : ""}`, cls: "ok"};
     const b = d.boite || {};  // demande déposée : son état réel prime sur l'absence d'activité
     if (b.statut === "échouée") return {n: 1, lib: "Échec de l'envoi", cls: "warn"};
+    if (b.statut === "annulée") return {n: 1, lib: "Annulée", cls: "attente"};
     if (b.statut === "terminée") return {n: 4, lib: "Terminé par Cursor", cls: "ok"};
     if (b.statut === "prise" && !d.prise) return {n: 2, lib: "Prise en compte", cls: "run"};
     if (d.prise) return {n: d.appels ? 3 : 2, lib: d.appels ? "Cursor travaille" : "Prise en compte", cls: "run"};
@@ -114,7 +116,8 @@
       ${depot.texte ? `<div class="sc-aide" ${depot.alerte ? 'style="color:var(--ko)"' : ""}>${esc(depot.texte)}</div>` : ""}
       ${aide ? `<div class="sc-aide">${esc(aide)}</div>` : ""}
       <div class="btns">${!ici ? `<button class="btn petit${d.depot ? " primaire" : ""}" data-sc-voir>${d.depot ? "Voir le résultat" : "Revenir à l'écran"}</button>` : ""}
-        <button class="btn petit" data-sc-console>Console Cursor</button></div></div>`;
+        <button class="btn petit" data-sc-console>Console Cursor</button>
+        ${d.boite && d.boite.statut === "en attente" ? `<button class="btn petit" data-sc-annuler title="Retirer la demande de la boîte : Cursor ne la prendra pas">Annuler la demande</button>` : ""}</div></div>`;
   }
 
   function rendre() {
@@ -155,6 +158,11 @@
     if (ev.target.closest("[data-sc-fermer]")) { d.ferme = true; demandes = demandes.filter(x => !x.ferme); ecrire(); return rendre(); }
     if (ev.target.closest("[data-sc-voir]")) location.hash = d.ecran.slice(1);
     if (ev.target.closest("[data-sc-console]")) window.ConsoleAgent?.ouvrir();
+    if (ev.target.closest("[data-sc-annuler]") && d.boite) {
+      api(`/api/cursor/boite/${encodeURIComponent(d.boite.id)}/annuler`, {method: "POST", body: {}})
+        .then(() => { d.boite.statut = "annulée"; ecrire(); rendre(); toast("Demande annulée : Cursor ne la prendra pas.", "ok"); })
+        .catch(e => { toast(e.message, "ko"); sonder(); });
+    }
   }
 
   /* ------------------------------------------------------------------ API */

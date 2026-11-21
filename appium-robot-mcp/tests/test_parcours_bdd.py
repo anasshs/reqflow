@@ -71,3 +71,26 @@ def test_brouillon_depuis_une_session_et_champs(carte_virements):
     assert "je renseigne montant avec le jeu de données" in r["gherkin"] and r["donnees"] == ["champ_montant", "champ_motif"]
     with pytest.raises(ValueError):
         parcours_bdd.brouillon(ecrans=["accueil"], session=s["id"])
+
+
+def test_du_parcours_au_script_robot_sans_xray(carte_virements, monkeypatch):
+    """Fil complet par l'interface, sans Jira ni Xray : écrans découverts → test BDD → suite Robot écrite."""
+    from fastapi.testclient import TestClient
+
+    for v in ("XRAY_CLIENT_ID", "XRAY_CLIENT_SECRET", "JIRA_URL", "JIRA_TOKEN"):
+        monkeypatch.delenv(v, raising=False)
+    from web_app_loader import charger_app_web
+
+    _, (acc, vir, sai) = carte_virements
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200  # cookie de session, comme en ouvrant la page
+    r = c.post("/api/discovery/parcours-bdd", json={"ecrans": [acc, vir, sai], "titre": "Saisir un virement"})
+    assert r.status_code == 200, r.text
+    cle = r.json()["cle"]
+    assert c.get(f"/api/bdd/{cle}").status_code == 200
+    apercu = c.post(f"/api/bdd/{cle}/generer", json={}).json()
+    assert "*** Test Cases ***" in apercu["contenu"] and "ecrit" not in apercu
+    ecrit = c.post(f"/api/bdd/{cle}/generer", json={"ecrire": True})
+    assert ecrit.status_code == 200, ecrit.text
+    from atelier.domain import projet
+    assert (projet.PROJECT_DIR / ecrit.json()["ecrit"]).exists()
