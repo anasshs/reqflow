@@ -109,6 +109,7 @@ const lienCursor = texte => {
    attendus : outils MCP dont la fin signifie « résultat déposé » (suivi de la demande : suivi_cursor.js).
    Le troisième paramètre (ancienne explication) n'est plus affiché : la fenêtre ne garde que l'essentiel. */
 const PHRASE_BOITE = "Traite les demandes de l'atelier.";
+window.OuvrirCursorBoite = () => { const l = lienCursor(PHRASE_BOITE); if (l) location.href = l; };
 window.DemanderCursor = async (titre, texte, _explication, attendus = [], options = {}) => {
   const e = options.chat ? null : await api("/api/cursor/boite").catch(() => null);
   if (e && e.envoi !== "lien") {
@@ -116,9 +117,11 @@ window.DemanderCursor = async (titre, texte, _explication, attendus = [], option
       const dep = await api("/api/cursor/boite", {method: "POST", body: {titre, texte, attendus, ecran: location.hash}});
       window.SuiviCursor?.ajouter(titre, attendus, {id: dep.id, mode: dep.mode});  // le suivi affiche l'état réel de la demande déposée
       if (options.zone && document.body.contains(options.zone)) options.zone.innerHTML = "";
-      return toast(e.envoi === "cli" ? "Cursor est lancé : le suivi s'affiche en bas à droite."
-        : e.ecoute.active ? "Demande envoyée à Cursor : le suivi s'affiche en bas à droite."
-          : `Demande déposée. Cursor n'écoute pas : dire une fois dans son chat « ${PHRASE_BOITE} »`, e.envoi === "cli" || e.ecoute.active ? "ok" : "");
+      if (e.envoi !== "cli" && !e.ecoute.active) {  // personne n'écoute la boîte : sans ce message, Cursor ne fera rien
+        window.OuvrirCursorBoite();
+        return toast(`Demande déposée. Cursor s'ouvre avec « ${PHRASE_BOITE} » : appuyer sur Entrée dans son chat (mode Agent). Il traitera ensuite les demandes seul.`, "ok");
+      }
+      return toast(e.envoi === "cli" ? "Cursor est lancé : le suivi s'affiche en bas à droite." : "Demande envoyée à Cursor : le suivi s'affiche en bas à droite.", "ok");
     } catch (err) { toast(`Envoi direct impossible (${err.message}) : passage par le chat.`, "ko"); }
   }
   const lien = lienCursor(texte);

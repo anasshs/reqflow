@@ -65,7 +65,8 @@
     if (b.statut === "prise") return {texte: "Cursor a pris la demande dans la boîte.", alerte: false};
     if (b.ecoute === null) return {texte: "Demande déposée dans la boîte de l'atelier…", alerte: false};
     return b.ecoute ? {texte: "Dans la boîte : Cursor écoute, il la prendra à son prochain passage.", alerte: false}
-      : {texte: "Dans la boîte, mais Cursor ne l'écoute pas. Dans le chat de Cursor (mode Agent), écrire une fois : « Traite les demandes de l'atelier. »", alerte: true};
+      : {texte: "Dans la boîte, mais Cursor ne l'écoute pas : l'ouvrir avec « Traite les demandes de l'atelier. » et appuyer sur Entrée (chat en mode Agent). "
+        + "Si Cursor répond sans rien faire, le serveur MCP de l'atelier n'est pas vert dans Cursor (Settings › MCP ; Paramètres › Cursor / Claude › Vérifier).", alerte: true, ecoute: true};
   }
 
   /* au rechargement : les événements gardés par l'atelier (heure HH:MM:SS du jour) refont le suivi */
@@ -116,6 +117,7 @@
       ${depot.texte ? `<div class="sc-aide" ${depot.alerte ? 'style="color:var(--ko)"' : ""}>${esc(depot.texte)}</div>` : ""}
       ${aide ? `<div class="sc-aide">${esc(aide)}</div>` : ""}
       <div class="btns">${!ici ? `<button class="btn petit${d.depot ? " primaire" : ""}" data-sc-voir>${d.depot ? "Voir le résultat" : "Revenir à l'écran"}</button>` : ""}
+        ${depot.ecoute ? `<button class="btn petit primaire" data-sc-ecoute title="Ouvre Cursor avec la phrase pré-remplie : appuyer sur Entrée dans son chat">Ouvrir Cursor</button>` : ""}
         <button class="btn petit" data-sc-console>Console Cursor</button>
         ${d.boite && d.boite.statut === "en attente" ? `<button class="btn petit" data-sc-annuler title="Retirer la demande de la boîte : Cursor ne la prendra pas">Annuler la demande</button>` : ""}</div></div>`;
   }
@@ -158,6 +160,7 @@
     if (ev.target.closest("[data-sc-fermer]")) { d.ferme = true; demandes = demandes.filter(x => !x.ferme); ecrire(); return rendre(); }
     if (ev.target.closest("[data-sc-voir]")) location.hash = d.ecran.slice(1);
     if (ev.target.closest("[data-sc-console]")) window.ConsoleAgent?.ouvrir();
+    if (ev.target.closest("[data-sc-ecoute]")) window.OuvrirCursorBoite?.();
     if (ev.target.closest("[data-sc-annuler]") && d.boite) {
       api(`/api/cursor/boite/${encodeURIComponent(d.boite.id)}/annuler`, {method: "POST", body: {}})
         .then(() => { d.boite.statut = "annulée"; ecrire(); rendre(); toast("Demande annulée : Cursor ne la prendra pas.", "ok"); })
