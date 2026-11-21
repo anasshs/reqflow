@@ -216,6 +216,50 @@ def __getattr__(nom: str):
     raise AttributeError(nom)
 
 
+def _prises_locales(port: int) -> list:
+    """Prises d'écoute sur les deux adresses locales : 127.0.0.1 et, si le poste a l'IPv6, ::1. « localhost » peut désigner
+    l'une ou l'autre (sous Windows, souvent ::1) : Cursor trouve le serveur dans les deux cas. Jamais d'adresse externe."""
+    import socket
+
+    prises = []
+    for famille, hote in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        try:
+            s = socket.socket(famille, socket.SOCK_STREAM)
+        except OSError:
+            continue
+        try:
+            if famille == socket.AF_INET6:
+                s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            s.bind((hote, port))
+            s.listen(128)
+            s.set_inheritable(True)
+            prises.append(s)
+        except OSError as e:
+            s.close()
+            if famille == socket.AF_INET:
+                for x in prises:
+                    x.close()
+                raise RuntimeError(f"Port {port} déjà utilisé ou interdit ({e}) : le serveur MCP de l'atelier ne peut pas démarrer. "
+                                   "Fermer l'autre programme (ou un atelier déjà lancé), ou choisir un autre MCP_HTTP_PORT.") from e
+    return prises
+
+
+def _servir_http(port: int):
+    """Serveur MCP en HTTP streamable sur http://localhost:<port>/mcp (127.0.0.1 et ::1 seulement)."""
+    import asyncio
+
+    import uvicorn
+
+    try:
+        prises = _prises_locales(port)
+    except RuntimeError as e:  # message clair dans le journal, que l'atelier montre à l'utilisateur
+        print(f"ÉCHEC : {e}", flush=True)
+        raise SystemExit(1) from None
+    config = uvicorn.Config(mcp.streamable_http_app(), host="127.0.0.1", port=port, log_level=mcp.settings.log_level.lower())
+    print(f"Serveur MCP de l'atelier : http://localhost:{port}/mcp ({', '.join(s.getsockname()[0] for s in prises)})", flush=True)
+    asyncio.run(uvicorn.Server(config).serve(sockets=prises))
+
+
 def main(argv: list[str] | None = None):
     """stdio par défaut (Cursor lance le serveur) ; « --http » : HTTP streamable sur http://127.0.0.1:<MCP_HTTP_PORT, 8000>/mcp,
     pour une équipe Cursor qui n'autorise que des URL (l'atelier le démarre lui-même, voir agents_ia)."""
@@ -243,7 +287,7 @@ def main(argv: list[str] | None = None):
                     os._exit(0)
 
             threading.Thread(target=_surveiller, daemon=True, name="surveillance-atelier").start()
-        mcp.run(transport="streamable-http")
+        _servir_http(mcp.settings.port)
     else:
         mcp.run()
 

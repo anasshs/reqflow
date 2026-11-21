@@ -447,6 +447,16 @@ def _sante_items() -> list[dict]:
     item("base", "Base de données", bool(envs_db), ", ".join(envs_db) or "",
          "Renseigne DB_<ENV>_HOST, _PORT, _SID, _USER, _PASSWORD pour la recherche de données.",
          optionnel=True)
+    try:
+        from atelier.integrations import agents_ia
+
+        mh = agents_ia.etat_serveur_http()
+        if mh.get("attendu") or mh.get("url_cursor"):
+            item("mcp_http", "MCP pour Cursor (URL)", mh["ok"], mh["message"],
+                 "Lancer l'atelier avec lancer-atelier.cmd (ou MCP_HTTP_PORT=8000) ; port occupé : fermer l'autre programme. "
+                 f"Journal du serveur : {mh.get('journal', '')}", optionnel=True)
+    except Exception:  # noqa: BLE001
+        pass
     age = time.time() - state["dernier_mcp"] if state["dernier_mcp"] else None
     item("cursor", "Cursor / Claude Desktop", age is not None and age < 900,
          f"dernière action il y a {int(age // 60)} min" if age is not None else "pas encore vu",
@@ -3042,6 +3052,20 @@ def _demarrer_mcp_http():
     from atelier.integrations import agents_ia
 
     _call_silencieux(agents_ia.demarrer_serveur_http, PORT)  # MCP_HTTP_PORT défini : Cursor se connecte par URL
+
+    def _dire_mcp():  # l'état du MCP pour Cursor, dit dans la console dès qu'il est connu (jamais un silence)
+        try:
+            e = agents_ia.etat_serveur_http(attendre_s=15)
+        except Exception as ex:  # noqa: BLE001
+            e = {"ok": False, "message": str(ex)}
+        if not e.get("attendu") and e.get("ok"):
+            return
+        ligne = f"MCP pour Cursor : {e['message']}" if e.get("ok") else f"\n/!\\ MCP POUR CURSOR : {e['message']}"
+        try:
+            print(ligne, flush=True)
+        except UnicodeEncodeError:
+            print(ligne.encode("ascii", "replace").decode("ascii"), flush=True)
+    threading.Thread(target=_dire_mcp, daemon=True).start()
 
 
 @app.on_event("shutdown")

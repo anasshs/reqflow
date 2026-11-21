@@ -83,9 +83,81 @@ def demarrer_serveur_http(port: int):
     env = {**os.environ, **_env_serveur(port), "PYTHONIOENCODING": "utf-8", "FASTMCP_LOG_LEVEL": "WARNING",
            "ATELIER_SURVEILLER_PARENT": "1"}
     # stdin relié à l'atelier : s'il s'arrête, même brutalement, le serveur MCP voit la fin du flux et s'arrête (port libéré)
-    p = subprocess.Popen([sys.executable, str(projet.RACINE_OUTIL / "server.py"), "--http"], env=env, stdin=subprocess.PIPE)
+    journal = journal_http()
+    sortie = open(journal, "w", encoding="utf-8")  # noqa: SIM115 — gardé ouvert pour le processus fils
+    p = subprocess.Popen([sys.executable, str(projet.RACINE_OUTIL / "server.py"), "--http"], env=env, stdin=subprocess.PIPE,
+                         stdout=sortie, stderr=subprocess.STDOUT)
     _serveur_http["p"] = p
     return p
+
+
+def journal_http() -> Path:
+    """Sortie du serveur MCP HTTP (démarrage, erreurs) : dite à l'utilisateur quand il ne répond pas."""
+    return Path(os.environ.get("ATELIER_MCP_JOURNAL") or Path.home() / ".atelier-mcp-http.log").expanduser()
+
+
+def _joignable(hote: str, port: int, delai: float = 0.5) -> bool:
+    import socket
+
+    try:
+        with socket.create_connection((hote, port), timeout=delai):
+            return True
+    except OSError:
+        return False
+
+
+def cursor_par_url() -> str:
+    """URL configurée pour l'atelier dans Cursor (« » en mode stdio, sans configuration ou fichier illisible)."""
+    try:
+        return ((_lire(fichier_config("cursor")).get("mcpServers") or {}).get(NOM) or {}).get("url", "")
+    except ValueError:
+        return ""
+
+
+def etat_serveur_http(attendre_s: float = 0) -> dict:
+    """État du serveur MCP HTTP, pour la console, la pastille et l'assistant : attendu (MCP_HTTP_PORT), lancé, joignable
+    sur 127.0.0.1 et ::1, fin du journal en cas d'échec ; et Cursor configuré par URL sans serveur attendu."""
+    import time
+
+    port = port_http()
+    url_cursor = cursor_par_url()
+    if not port:
+        return {"attendu": False, "url_cursor": url_cursor, "ok": not url_cursor,
+                "message": (f"Cursor attend {url_cursor}, mais l'atelier n'a pas été lancé avec MCP_HTTP_PORT : le serveur MCP n'est pas démarré. "
+                            "Lancer l'atelier avec lancer-atelier.cmd (il retient le port), ou définir MCP_HTTP_PORT=8000 avant de le lancer.")
+                if url_cursor else "mode stdio : Cursor lance lui-même le serveur MCP"}
+    def a_pris_le_port() -> bool:  # notre serveur écrit cette ligne une fois le port pris (journal réécrit à chaque démarrage)
+        try:
+            return "Serveur MCP de l'atelier :" in journal_http().read_text("utf-8", errors="replace")
+        except OSError:
+            return False
+    fin = time.time() + attendre_s
+    while True:
+        v4, v6 = _joignable("127.0.0.1", port), _joignable("::1", port)
+        p = _serveur_http.get("p")
+        mort = p is not None and p.poll() is not None
+        # lancé par cet atelier : prêt seulement quand c'est NOTRE serveur qui a pris le port (un port qui répond peut être
+        # tenu par un autre programme, ou un autre atelier) ; sinon (état lu d'ailleurs) : le port répond
+        pret = v4 and (p is None or (not mort and a_pris_le_port()))
+        if pret or mort or time.time() >= fin:
+            break
+        time.sleep(0.5)
+    v4 = pret
+    queue = ""
+    if not v4:
+        try:
+            lignes = journal_http().read_text("utf-8", errors="replace").strip().splitlines()
+            echec = [x for x in lignes if x.startswith("ÉCHEC :")]
+            queue = echec[-1].removeprefix("ÉCHEC : ") if echec else "\n".join(lignes[-6:])
+        except OSError:
+            queue = ""
+    url = url_http()
+    return {"attendu": True, "url": url, "url_cursor": url_cursor, "ok": v4, "ipv4": v4, "ipv6": v6,
+            "processus": None if p is None else ("arrêté (code %s)" % p.returncode if mort else "lancé"),
+            "message": (f"prêt sur {url}" + ("" if v6 or not v4 else " (IPv4 seulement)")) if v4
+            else (f"le serveur MCP n'a pas démarré sur {url}" if mort else f"le serveur MCP ne répond pas sur {url}")
+            + (f" — {queue}" if queue else f" (journal : {journal_http()})"),
+            "journal": str(journal_http())}
 
 
 def arreter_serveur_http() -> None:
