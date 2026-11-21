@@ -115,3 +115,15 @@ def test_cursor_par_url_sur_le_port_de_l_interface(l, monkeypatch):
     assert env["MCP_HTTP_PORT"] == "8000" and l.m.lire_poste()["MCP_HTTP_PORT"] == "8000"
     branchement = next(e for c, e in appels if c == l.m.CODE_BRANCHER)
     assert branchement["MCP_HTTP_PORT"] == "8000"                                        # l'entrée écrite est l'URL http://localhost:8000/mcp
+
+
+def test_etape_browser_robot(monkeypatch):
+    import lanceur
+
+    monkeypatch.setattr(lanceur, "interroger_atelier", lambda code, env=None: {"ok": True})
+    assert lanceur.etape_browser_robot({}, interactif=False)
+    appels = []
+    monkeypatch.setattr(lanceur, "interroger_atelier", lambda code, env=None: {"ok": False})
+    monkeypatch.setattr(lanceur.shutil, "which", lambda nom: None)
+    monkeypatch.setattr(lanceur, "executer", lambda cmd, **kw: appels.append(cmd))
+    assert lanceur.etape_browser_robot({}, interactif=False) and appels == []  # sans Node.js : rien lancé, message

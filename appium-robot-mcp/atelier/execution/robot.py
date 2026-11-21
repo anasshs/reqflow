@@ -105,6 +105,12 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     relancer_echecs : rejoue uniquement les tests en échec du run précédent (même output_dir).
       Pour mettre à jour la même exécution Xray, passer sa clé dans xray_ticket.
     La session Appium du MCP est fermée avant le run pour libérer le device."""
+    if not dry_run:
+        from atelier.domain import prerequis
+
+        rfb = prerequis.browser_robot()
+        if not rfb["ok"] and prerequis.suites_web(target):
+            raise RuntimeError(f"Run web impossible : {rfb['detail']}. {rfb['solution']}")
     if session.etat["platform"]:
         session.stop_session()
     evenements.publier({"type": "run_lance", "suite": target})

@@ -48,3 +48,35 @@ def test_contexte_et_sante_signalent_le_projet(monkeypatch):
     assert alerte and Path(alerte["dossier"]) == prerequis.dossier_atelier()
     item = next(x for x in c.get("/api/sante").json() if x["cle"] == "projet")
     assert item["ok"] is False and item["optionnel"] is False and item["solution"]
+
+
+def test_bibliotheque_browser_initialisee_ou_non(tmp_path, monkeypatch):
+    """Robot Browser sans « rfbrowser init » : signalé avec la solution, et un run web s'arrête avec ce message."""
+    import sys
+    import types
+
+    from atelier.domain import prerequis
+
+    faux = types.ModuleType("Browser")
+    (tmp_path / "Browser" / "wrapper").mkdir(parents=True)
+    faux.__file__ = str(tmp_path / "Browser" / "__init__.py")
+    monkeypatch.setitem(sys.modules, "Browser", faux)
+    monkeypatch.setattr(prerequis.shutil, "which", lambda nom: None)
+    r = prerequis.browser_robot()
+    assert not r["ok"] and "Node.js" in r["solution"] and "Browser.entry init" in r["solution"]
+    (tmp_path / "Browser" / "wrapper" / "node_modules").mkdir()
+    assert prerequis.browser_robot()["ok"]
+
+
+def test_run_web_bloque_si_browser_non_initialise(projet, monkeypatch):
+    import pytest
+
+    from atelier.domain import prerequis
+    from atelier.execution import robot
+
+    (projet / "tests").mkdir()
+    (projet / "tests" / "web.robot").write_text("*** Settings ***\nLibrary    Browser\n\n*** Test Cases ***\nT\n    No Operation\n", "utf-8")
+    assert prerequis.suites_web()
+    monkeypatch.setattr(prerequis, "browser_robot", lambda: {"ok": False, "detail": "pas initialisée", "solution": "rfbrowser init"})
+    with pytest.raises(RuntimeError, match="Run web impossible : pas initialisée. rfbrowser init"):
+        robot.run_robot("tests/web.robot")

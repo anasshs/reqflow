@@ -27,6 +27,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -311,6 +312,30 @@ def lancer(env: dict, port: int, ouvrir: bool) -> int:
         return 0
 
 
+def etape_browser_robot(env: dict, interactif: bool, saisie=input) -> bool:
+    """Bibliothèque Robot Browser (tests web) : « rfbrowser init » après pip ; Node.js est requis. Non bloquant."""
+    code = "import json; from atelier.domain import prerequis; print(json.dumps(prerequis.browser_robot()))"
+    r = interroger_atelier(code, env)
+    if r.get("ok"):
+        ok("Tests web : bibliothèque Robot Browser prête")
+        return True
+    if not shutil.which("node"):
+        if sys.platform.startswith("win") and shutil.which("winget") and interactif and _oui(
+                "  Node.js est requis pour les tests web (bibliothèque Robot Browser). L'installer avec winget ? [O/n] ", saisie):
+            executer(["winget", "install", "-e", "--id", "OpenJS.NodeJS.LTS", "--accept-package-agreements", "--accept-source-agreements"])
+        if not shutil.which("node"):
+            alerte("Tests web : Node.js absent (https://nodejs.org, version LTS). Après installation, fermer et rouvrir la fenêtre, "
+                   "puis relancer : l'atelier initialisera la bibliothèque Browser. La Discovery et le mobile fonctionnent sans.")
+            return True
+    action("Initialisation de la bibliothèque Robot Browser (rfbrowser init), quelques minutes la première fois…")
+    if executer([python_venv(), "-m", "Browser.entry", "init"]).returncode == 0 and interroger_atelier(code, env).get("ok"):
+        ok("Tests web : bibliothèque Robot Browser initialisée")
+        return True
+    alerte("Initialisation de la bibliothèque Browser impossible. Derrière un proxy : régler HTTPS_PROXY (et NODE_EXTRA_CA_CERTS "
+           "pour le certificat), puis « .venv\\Scripts\\python -m Browser.entry init ».")
+    return True
+
+
 def main(argv=None) -> int:
     a = argparse.ArgumentParser(description="Assistant d'installation et de lancement de l'atelier.")
     a.add_argument("--verifier", action="store_true", help="vérifier et installer ce qui manque, sans lancer")
@@ -325,6 +350,7 @@ def main(argv=None) -> int:
         alerte("Poste non prêt : corriger ci-dessus, puis relancer.")
         return 1
     etape_navigateur(env)
+    etape_browser_robot(env, interactif=sys.stdin.isatty())
     etape_projet(env, interactif=sys.stdin.isatty())
     etape_cursor(env, o.port, interactif=sys.stdin.isatty())
     print(f"\n  Atelier prêt{f' ({len(A_REGLER)} point(s) à régler ci-dessus, non bloquant)' if A_REGLER else ''}.")

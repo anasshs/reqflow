@@ -10,6 +10,7 @@ Le navigateur : `pip install -r requirements.txt` installe la bibliothèque Play
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -68,11 +69,47 @@ def navigateur() -> dict:
                         "WEB_BROWSER_EXECUTABLE vers Chrome ou Edge déjà installé."}
 
 
+def browser_robot() -> dict:
+    """{ok, detail, solution} : la bibliothèque Robot « Browser » (tests web générés) est-elle initialisée ? Elle a besoin
+    de Node.js et d'une installation à part (« rfbrowser init ») que pip ne fait pas."""
+    try:
+        import Browser
+    except ImportError:
+        return {"ok": False, "detail": "bibliothèque Robot Browser absente", "solution": "pip install -r requirements.txt"}
+    wrapper = Path(Browser.__file__).parent / "wrapper"
+    if (wrapper / "node_modules").is_dir():
+        return {"ok": True, "detail": "bibliothèque Browser initialisée", "solution": ""}
+    sans_node = not shutil.which("node")
+    return {"ok": False, "detail": "bibliothèque Robot Browser installée mais pas initialisée (les tests web échouent au démarrage)"
+                                   + (" ; Node.js absent" if sans_node else ""),
+            "solution": ("Installer Node.js LTS (https://nodejs.org ou « winget install OpenJS.NodeJS.LTS »), puis " if sans_node else "")
+                        + "lancer une fois « .venv\\Scripts\\python -m Browser.entry init » (ou relancer lancer-atelier.cmd)."}
+
+
+def suites_web(cible: str = "") -> bool:
+    """Le projet de tests (ou la cible d'un run) utilise-t-il la bibliothèque Browser ?"""
+    import re
+
+    from atelier.domain import projet as pj
+
+    motif = re.compile(r"^\s*Library\s+Browser\b", re.M)
+    base = pj.PROJECT_DIR
+    for f in list(base.rglob("*.robot")) + list(base.rglob("*.resource")):
+        if any(p.startswith(".") or p in ("results", "node_modules") for p in f.relative_to(base).parts):
+            continue
+        try:
+            if motif.search(f.read_text("utf-8", errors="ignore")):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def message_demarrage(port: int) -> str:
     """Bloc affiché dans la console au lancement : adresse, projet de tests, et ce qui manque, avec la correction."""
-    pr, nav = projet(), navigateur()
+    pr, nav, rfb = projet(), navigateur(), browser_robot()
     lignes = [f"Atelier : http://127.0.0.1:{port}", f"Projet de tests : {pr['dossier']}"]
-    for titre, x in (("PROJET DE TESTS", pr), ("NAVIGATEUR WEB", nav)):
+    for titre, x in (("PROJET DE TESTS", pr), ("NAVIGATEUR WEB", nav), ("TESTS WEB (Robot Browser)", rfb)):
         if not x["ok"]:
             lignes += ["", f"/!\\ {titre} : {x.get('raison') or x.get('detail')}", f"    → {x['solution']}"]
     return "\n".join(lignes)
