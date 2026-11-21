@@ -470,12 +470,24 @@ def controles(m: dict) -> list[dict]:
     if m.get("scenarios") and not any(s["type"] == "negatif" for s in m["scenarios"]):
         c("info", "branche_negative", "Aucune branche négative : en ajouter une pour couvrir les cas d'erreur.")
     if not m.get("jdd"):
-        c("moyenne", "jdd_absent", "Aucun jeu de données associé (bloc INITIALISATION).")
+        donnees = etapes_avec_donnees(m)
+        if donnees:  # sans jeu de données, ${JDD} n'existe pas au run : « Variable '${JDD}' not found »
+            c("haute", "jdd_requis", f"{len(donnees)} étape(s) utilisent des données (« {donnees[0]} »…) mais aucun jeu de données "
+              "n'est associé : l'associer (Jeu de données, à gauche) avant de valider et de générer le script.")
+        else:
+            c("moyenne", "jdd_absent", "Aucun jeu de données associé (bloc INITIALISATION).")
     nv = sum(1 for s in m.get("scenarios", []) for e in s["etapes"] if not e.get("valide"))
     if nv:
         c("info", "non_valide", f"{nv} étape(s) non validée(s).")
     ordre = {"haute": 0, "moyenne": 1, "basse": 2, "info": 3}
     return sorted(out, key=lambda x: ordre[x["gravite"]])
+
+
+def etapes_avec_donnees(m: dict) -> list[str]:
+    """Étapes qui consomment une donnée du jeu (champ renseigné depuis la Discovery, donnée liée dans l'éditeur, ou texte
+    « … le jeu de données / la donnée … »)."""
+    return [e["texte"] for s in m.get("scenarios", []) for e in s["etapes"]
+            if e.get("jdd") or e.get("variable") or re.search(r"(?i)jeu de donn[ée]es|la donn[ée]e\b", e.get("texte", ""))]
 
 
 def statistiques(m: dict) -> dict:
@@ -587,6 +599,10 @@ def ecrire_generation(m: dict, g: dict, remplacer: bool = False, origine: str = 
     from atelier.generation import pom, studio
 
     refuser_doublons(m)  # étape proche d'un keyword existant : à trancher avant d'écrire
+    if not m.get("jdd") and etapes_avec_donnees(m):
+        raise ValueError(f"Le test {m['cle']} utilise des données (« {etapes_avec_donnees(m)[0]} ») mais aucun jeu de données n'est "
+                         "associé : le script échouerait au run (« Variable '${JDD}' not found »). Associer un jeu de données au "
+                         "test BDD (Tests BDD › le test › Jeu de données), puis régénérer.")
     cible = g["chemin"]
     if g.get("ajout_refuse"):
         raise FileExistsError(g["ajout_refuse"])

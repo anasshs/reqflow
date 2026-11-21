@@ -291,6 +291,9 @@ def style_robot(fichier: str, contenu: str) -> list[dict]:
         out.append({"gravite": "moyenne", "message": f"{sleeps} attente(s) fixe(s) « Sleep » : la remplacer par une attente "
                                                      "explicite (Wait For Elements State, Wait Until Element Is Visible)"})
     sec = _sections(contenu)
+    if re.search(r"(?mi)^\s*Suite Setup\s+Initialiser Le Test\b", sec.get("settings", "")):
+        out.append({"gravite": "haute", "message": "« Initialiser Le Test » en Suite Setup : ${JDD} n'existe pas dans les tests "
+                                                   "(Variable '${JDD}' not found). Le mettre en Test Setup, ou en première ligne de chaque test"})
     kws = sec.get("keywords") or sec.get("keyword") or ""
     if kws:
         blocs = re.split(r"(?m)^(?=\S)", kws)
@@ -335,7 +338,8 @@ def controles_script(fichier: str) -> list[dict]:
             + (" ; " if kw_suite and litteraux else "") + ("Locators écrits dans les tests : " + ", ".join(litteraux[:3]) if litteraux else "")
             or "Page Object Model respecté : la suite ne contient que des tests.")
     style = style_robot(fichier, contenu)
-    add("style", "moyenne" if any(s["gravite"] == "moyenne" for s in style) else "basse" if style else "ok",
+    add("style", "haute" if any(s["gravite"] == "haute" for s in style) else "moyenne" if any(s["gravite"] == "moyenne" for s in style)
+        else "basse" if style else "ok",
         " ; ".join(s["message"] for s in style[:3]) or "Style professionnel : attentes explicites, keywords documentés, teardown.")
     lint = editeur.lint(contenu, fichier)
     add("conventions", "haute" if any(p.get("gravite") == "erreur" for p in lint["problemes"]) else "moyenne" if lint["problemes"] else "ok",

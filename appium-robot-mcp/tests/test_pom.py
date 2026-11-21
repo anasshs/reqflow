@@ -74,3 +74,43 @@ def test_regenerer_un_test_deja_ecrit(projet, monkeypatch):
     pj.ecrire_fichier(g["chemin"], "*** Test Cases ***\nAutre Test\n    [Tags]    autre\n    Log    x\n", True)
     with pytest.raises(FileExistsError, match="contient d'autres tests"):
         bdd.ecrire_generation(bdd.charger("authentification"), g, remplacer=True)
+
+
+def test_donnees_sans_jeu_de_donnees_bloque(projet, monkeypatch):
+    """Étape qui consomme une donnée sans jeu de données associé : contrôle bloquant, écriture refusée, prochaine action."""
+    import pytest
+
+    from atelier.generation import bdd
+    from atelier.intelligence import chemin
+
+    for v in ("XRAY_CLIENT_ID", "JIRA_BASE_URL"):
+        monkeypatch.delenv(v, raising=False)
+    m = bdd.creer("login_failed", "Login Failed")
+    bdd.ajouter_etape("login_failed", m["scenarios"][0]["id"], "Quand", "je me connecte avec le jeu de données")
+    m = bdd.charger("login_failed")
+    assert any(c["code"] == "jdd_requis" and c["gravite"] == "haute" for c in bdd.controles(m))
+    with pytest.raises(ValueError, match="Variable '\\$\\{JDD\\}' not found"):
+        bdd.ecrire_generation(m, bdd.generer_robot(m))
+    assert chemin.etat()["suivante"]["bouton"] == "Associer un jeu de données"
+    m = bdd.associer_jdd("login_failed", "CLIENT_INVALIDE")
+    assert not any(c["code"] == "jdd_requis" for c in bdd.controles(m))
+    assert "Initialiser Le Test    &{JDD_CLIENT_INVALIDE}" in bdd.generer_robot(m)["contenu"]
+
+
+def test_pages_suivent_le_dossier_du_depot(monkeypatch):
+    """Pages déjà rangées par écran (resources/keywords/formulaire_connexion.resource) : les nouvelles vont à côté."""
+    from atelier.generation import pom
+
+    monkeypatch.setattr(pom, "_noms_ecrans", lambda: {"accueil", "formulaire_connexion"})
+    inv = {"fichiers": {"resources/keywords/formulaire_connexion.resource": {"keywords": ["x"]},
+                        "resources/keywords/accueil.resource": {"keywords": ["y"]},
+                        "resources/common.resource": {"keywords": ["Initialiser Le Test"]}}}
+    assert pom.chemin_page("tableau_de_bord", inv) == "resources/keywords/tableau_de_bord.resource"
+    assert pom.chemin_page("accueil", {"fichiers": {}}).startswith("resources/pages/")
+
+
+def test_initialiser_en_suite_setup_bloquant():
+    from atelier.generation import studio
+
+    s = studio.style_robot("tests/t.robot", "*** Settings ***\nSuite Setup       Initialiser Le Test    &{JDD_X}\n\n*** Test Cases ***\nT\n    Log    x\n")
+    assert s[0]["gravite"] == "haute" and "Test Setup" in s[0]["message"]

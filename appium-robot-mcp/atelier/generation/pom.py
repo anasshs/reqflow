@@ -23,14 +23,33 @@ _PAGES = re.compile(r"(?i)(^|/)(pages?|page_?objects?|po)(/|$)")
 _SECTION_KW = re.compile(r"(?mi)^\*+\s*keywords?\s*\*+\s*$")
 
 
-def racine_pages(inv: dict) -> str:
-    """Dossier des pages : celui du dépôt s'il existe (un dossier « pages » qui porte des keywords), sinon le défaut."""
-    for rel, info in sorted(inv.get("fichiers", {}).items()):
+def _noms_ecrans() -> set[str]:
+    from atelier.discovery import carte
+    from atelier.domain import projet
+
+    try:
+        return {projet.slug(e.get("nom") or "", 50, "") for e in carte.ecrans() if e.get("nom")} - {""}
+    except Exception:  # noqa: BLE001 — pas de carte : seule la convention de nommage des dossiers compte
+        return set()
+
+
+def dossier_pages_existant(inv: dict) -> str:
+    """Dossier où le dépôt range déjà ses pages : celui des .resource à keywords qui portent le nom d'un écran
+    (resources/keywords/formulaire_connexion.resource), ou d'un dossier « pages / page_objects ». Vide sinon."""
+    from collections import Counter
+
+    ecrans, dossiers = _noms_ecrans(), Counter()
+    for rel, info in inv.get("fichiers", {}).items():
         if rel.endswith(".resource") and info.get("keywords"):
-            m = _PAGES.search(rel)
-            if m:
-                return rel[:m.start(2)] + m.group(2)
-    return RACINE_DEFAUT
+            pp = PurePosixPath(rel)
+            if pp.stem in ecrans or _PAGES.search(str(pp.parent) + "/"):
+                dossiers[str(pp.parent)] += 1
+    return dossiers.most_common(1)[0][0] if dossiers else ""
+
+
+def racine_pages(inv: dict) -> str:
+    """Dossier des pages : celui du dépôt s'il existe, sinon le défaut (resources/pages)."""
+    return dossier_pages_existant(inv) or RACINE_DEFAUT
 
 
 def nom_page(ref: str) -> str:
@@ -59,7 +78,9 @@ def application() -> str:
 
 
 def chemin_page(page: str, inv: dict) -> str:
-    return f"{racine_pages(inv)}/{application()}/{page}.resource"
+    """Page d'un écran : à côté des pages existantes du dépôt, sinon resources/pages/<application>/<écran>.resource."""
+    existant = dossier_pages_existant(inv)
+    return f"{existant}/{page}.resource" if existant else f"{RACINE_DEFAUT}/{application()}/{page}.resource"
 
 
 def _rel(de: str, vers: str) -> str:

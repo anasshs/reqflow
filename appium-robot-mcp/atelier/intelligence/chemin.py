@@ -97,6 +97,7 @@ def _bdds() -> list[dict]:
     for b in bdd.lister():
         m = bdd.charger(b["cle"]) or {}
         out.append({**b, "parcours": m.get("parcours", ""), "session": m.get("session", ""), "cle_xray": m.get("cle_xray", ""),
+                    "sans_jdd": bool(not m.get("jdd") and bdd.etapes_avec_donnees(m)),
                     "discovery": str(m.get("source", "")).startswith("discovery")})
     return sorted(out, key=lambda x: x.get("maj") or "", reverse=True)
 
@@ -154,7 +155,10 @@ def etat() -> dict:
         for b in bdds:
             if sc(b):
                 continue
-            if b["statut"] != "validé":
+            if b.get("sans_jdd"):  # sinon le script échoue au run : « Variable '${JDD}' not found »
+                suivante = action("concevoir", f"« {b['titre']} » utilise des données : lui associer un jeu de données (identifiants…).",
+                                  "Associer un jeu de données", f"#bdd/{b['cle']}")
+            elif b["statut"] != "validé":
                 suivante = action("concevoir", f"« {b['titre']} » : relire les étapes du test BDD, puis le valider.", "Relire le test BDD", f"#bdd/{b['cle']}")
             else:
                 suivante = action("concevoir", f"« {b['titre']} » est validé : générer son script Robot.", "Générer le script Robot", f"#bdd/{b['cle']}")

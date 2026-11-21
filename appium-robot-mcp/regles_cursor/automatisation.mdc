@@ -51,6 +51,8 @@ Conventions du projet :
   reprendre le keyword existant proposé, jamais un second keyword pour la même action. Étapes d'un scénario BDD
   restées « à créer » : studio_keywords_a_juger(cle) puis studio_juger_keywords (un synonyme d'un keyword existant
   n'est pas un nouveau keyword).
+- « Initialiser Le Test » se fait PAR TEST (première ligne du test, ou Test Setup), JAMAIS en Suite Setup : il pose
+  ${JDD} comme variable de test ; en Suite Setup, les tests ne la voient pas (Variable '${JDD}' not found).
 - Données en dictionnaire. Chaque test = INITIALISATION (« Initialiser Le Test » avec &{JDD_<NOM>})
   puis SCÉNARIO Gherkin sans donnée littérale. Ne jamais inventer de données : list_jdd,
   get_jdd, check_jdd ; si aucun jeu ne convient, proposer la structure du jeu à créer.
