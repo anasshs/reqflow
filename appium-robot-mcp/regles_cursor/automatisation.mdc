@@ -14,10 +14,27 @@ Le .resource web contient &{LOC_<ECRAN>_WEB}. Keywords Browser : Click, Fill Tex
 Wait For Elements State… (réutiliser d'abord le socle générique du projet).
 
 Conventions du projet :
-- BDD en Gherkin français + Page Object Model : séparation stricte locators / keywords / scénarios.
-- Locators : capture_screen_locators puis generate_locators_resource, mêmes clés métier sur
-  Android et iOS (ex. champ_montant, bouton_valider). Préférer id / accessibility_id, signaler
-  les locators fragiles (XPath, texte).
+- BDD en Gherkin français + Page Object Model, TOUJOURS (même dans un dépôt vide) :
+  · suite de tests (tests/<application>/<module>/<parcours>.robot) : *** Settings *** (Resource des pages) et
+    *** Test Cases *** seulement ; aucun *** Keywords ***, aucun locator ni sélecteur dans un test ;
+  · une ressource par page / écran (resources/pages/<application>/<écran>.resource) : les keywords de l'écran
+    (étapes Gherkin implémentées), qui importent les locators de l'écran ;
+  · locators de l'écran (resources/locators/…, generate_locators_resource) : dictionnaires &{LOC_<ÉCRAN>_<PLATEFORME>} ;
+  · socle commun (Initialiser Le Test, Localiser) : resources/common.resource, ou le socle déjà présent.
+  studio_generer_depuis_bdd range déjà ainsi (« pages ») : écrire les keywords à implémenter dans la page indiquée.
+- Locators robustes (test livré non fragile et rejouable) : locator_robustesse(locators, platform) note chaque
+  locator (Stable / Reliable / Fragile) et rend les règles ; ne livrer un locator principal Fragile qu'avec un secours
+  et un signalement. Ordre de préférence :
+  · web : data-testid > id stable > name / placeholder > role[name] > zone bornée (css=nav a[href=…],
+    css=footer >> text=…) quand un texte se répète > text= unique et court ;
+  · Android : resource-id natif > testTag Compose exposé en resource-id (Modifier.testTag + testTagsAsResourceId :
+    le demander aux développeurs) > accessibility_id > UiSelector texte (bouton Compose sans testTag) > locator
+    relatif à un libellé (champ Compose sans testTag), en secours ;
+  · iOS : accessibility_id > nsp=label == … > chain=… ;
+  · jamais : XPath absolu ou indexé, position (nth, [2]), identifiant généré (mui-123, :r1:), bounds, texte long.
+  Chaque locator principal est vérifié sur l'écran : check_locator → nb_trouves == 1 ; sinon le borner à un conteneur
+  identifié. capture_screen_locators puis generate_locators_resource, mêmes clés métier sur Android, iOS et web
+  (ex. champ_montant, bouton_valider).
 - Keywords : réutiliser d'abord le socle générique du projet. Jamais de wrapper 1:1 par élément.
   Avant de créer un keyword ou de rédiger une étape : studio_rapprocher_etapes([textes]) ; statut « proche » →
   reprendre le keyword existant proposé, jamais un second keyword pour la même action. Étapes d'un scénario BDD

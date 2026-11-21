@@ -59,15 +59,13 @@ def _inv():
 # =========================================================================== Locators Repository
 def fiabilite(valeur: str) -> tuple[str, str]:
     """(stratégie, niveau) : stable (identifiant technique), fiable (css / rôle / prédicat), fragile (texte, xpath)."""
+    from atelier.generation import robustesse_locators  # politique unique (Discovery, revue, Cursor)
+
     v = valeur.strip()
     if v.startswith("android=") and ".resourceId(" in v:  # testTag Jetpack Compose lu par un sélecteur UiAutomator
         return "resource-id", "Stable"
-    strat = "xpath" if v.startswith("//") else v.split("=", 1)[0] if "=" in v else "css"
-    if strat in ("id", "accessibility_id", "data-testid", "resource-id"):
-        return strat, "Stable"
-    if strat == "xpath" or strat == "text" or re.search(r":nth|\[\d+\]", v):
-        return strat, "Fragile"
-    return strat, "Reliable"
+    e = robustesse_locators.evaluer(v)
+    return e["strategie"], e["niveau"]
 
 
 def locators() -> list[dict]:

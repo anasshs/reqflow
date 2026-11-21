@@ -8,7 +8,7 @@ from pathlib import Path
 
 NATURE = {
     # session et actions sur le device / navigateur
-    **dict.fromkeys(["list_devices", "screenshot", "get_screen_elements", "element_at", "get_page_source", "check_locator", "wait_for"], "L"),
+    **dict.fromkeys(["list_devices", "screenshot", "get_screen_elements", "element_at", "get_page_source", "check_locator", "wait_for", "locator_robustesse"], "L"),
     **dict.fromkeys(["start_session", "stop_session", "open_url", "tap", "type_text", "swipe", "press_back", "goto_screen", "explore",
                      "stop_exploration"], "A"),
     # carte et locators
@@ -58,7 +58,7 @@ def _outils() -> dict:
 def test_chaque_outil_est_classe():
     o = _outils()
     assert set(o) == set(NATURE), f"non classés : {sorted(set(o) - set(NATURE))} ; disparus : {sorted(set(NATURE) - set(o))}"
-    assert len(o) == 114
+    assert len(o) == 115
 
 
 def test_ecritures_externes_par_demande():

@@ -92,6 +92,18 @@ def get_page_source(max_chars: int = 60000) -> str:
 
 
 @outil
+def locator_robustesse(locators: list[str], platform: str = "") -> dict:
+    """Robustesse de locators selon la politique de l'atelier (web, Android natif ou Compose, iOS) : pour chacun
+    niveau (Stable / Reliable / Fragile), score 1 à 5, raisons et conseil ; « classes » du plus robuste au plus
+    fragile ; « regles » : ordre de préférence et interdits de la plateforme. Lecture seule. Vérifier ensuite le
+    principal sur l'écran avec check_locator (un seul élément trouvé)."""
+    from atelier.generation import robustesse_locators as r
+
+    evals = [r.evaluer(l, platform) for l in locators]
+    return {"evaluations": evals, "classes": r.classer(locators, platform), "regles": r.regles(platform)}
+
+
+@outil
 def check_locator(locator: str) -> dict:
     """Vérifie un locator : nombre d'éléments trouvés + texte/visibilité du premier."""
     return session.check_locator(locator)

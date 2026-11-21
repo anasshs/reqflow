@@ -61,6 +61,7 @@ def parse_elements(source: str, platform: str) -> list[dict]:
     for node in root.iter():
         a = node.attrib
         locs: list[str] = []
+        ancre, attr_lib = "", ("", "")
         if platform == "android":
             if a.get("displayed", "true") == "false":
                 continue
@@ -84,6 +85,11 @@ def parse_elements(source: str, platform: str) -> list[dict]:
                     locs.append(f"xpath=//*[@text={_xq(enfant)}]/ancestor-or-self::*[@clickable='true'][1]")
             label = text or desc or enfant or rid.split("/")[-1]
             base = rid.split("/")[-1] if rid else (desc or text or enfant)
+            attr_lib = ("text", text) if text else ("content-desc", desc) if desc else ("", "")
+            p = parents.get(node)  # conteneur identifié le plus proche : borne un libellé qui se répète
+            while p is not None and not ancre:
+                ancre = p.attrib.get("resource-id", "")
+                p = parents.get(p)
             bounds = a.get("bounds", "")
             nums = [int(n) for n in re.findall(r"-?\d+", bounds)]
             rect = [nums[0], nums[1], nums[2] - nums[0], nums[3] - nums[1]] if len(nums) == 4 else None
@@ -127,6 +133,7 @@ def parse_elements(source: str, platform: str) -> list[dict]:
             "locators": locs,
             "bounds": bounds,
             "rect": rect,
+            "_ancre": ancre, "_lib": attr_lib,
         })
 
     if platform == "android":
@@ -142,7 +149,29 @@ def parse_elements(source: str, platform: str) -> list[dict]:
         if n:
             e["key"] = f"{e['key']}_{n + 1}"
         e["locator_unique"] = primary_count[e["locators"][0]] == 1
+    _borner_ambigus(elements)
+    for e in elements:
+        e.pop("_ancre", None)
+        e.pop("_lib", None)
     return elements
+
+
+def _borner_ambigus(elements: list[dict]):
+    """Android : un libellé qui se répète (même texte dans deux cartes, Compose ou non) donne un locator principal
+    ambigu. S'il a un conteneur identifié (resource-id ou testTag) où il est seul, le locator borné à ce conteneur passe
+    en tête ; l'ancien reste en secours."""
+    groupes: dict[tuple, int] = {}
+    for e in elements:
+        if e.get("_ancre") and e.get("_lib", ("", ""))[0]:
+            groupes[(e["_ancre"], *e["_lib"])] = groupes.get((e["_ancre"], *e["_lib"]), 0) + 1
+    for e in elements:
+        attr, val = e.get("_lib") or ("", "")
+        if e.get("locator_unique", True) or not e.get("_ancre") or not attr or groupes.get((e["_ancre"], attr, val)) != 1:
+            continue
+        borne = f"xpath=//*[@resource-id={_xq(e['_ancre'])}]//*[@{attr}={_xq(val)}]"
+        if borne not in e["locators"]:
+            e["locators"].insert(0, borne)
+            e["locator_unique"] = True
 
 
 def _uia(text: str) -> str:
