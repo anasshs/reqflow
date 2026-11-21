@@ -98,3 +98,24 @@ def test_env_robot_garde_seulement_l_encodage():
     assert env_robot({"PYTHONIOENCODING": "utf-8:surrogateescape", "X": "1"}) == {"PYTHONIOENCODING": "utf-8", "X": "1"}
     assert env_robot({"PYTHONIOENCODING": "utf-8"})["PYTHONIOENCODING"] == "utf-8"
     assert "PYTHONIOENCODING" not in env_robot({})
+
+
+def test_environnement_des_donnees_deduit_ou_run_bloque(projet):
+    """Run lancé de l'atelier sans environnement de données : un seul environnement porte les jeux de la suite → il est
+    retenu ; plusieurs ou aucun → le run n'est pas lancé (au lieu de « Variable '&{JDD_…}' not found » dans Robot)."""
+    from atelier.execution.robot import environnement_des_jeux, run_robot
+
+    (projet / "tests").mkdir(exist_ok=True)
+    (projet / "tests" / "t.robot").write_text("*** Test Cases ***\nT\n    Initialiser Le Test    &{JDD_DEMO}\n", "utf-8")
+    (projet / "tests" / "sans.robot").write_text("*** Test Cases ***\nT\n    Log    x\n", "utf-8")
+    d = projet / "data" / "jdd"
+    d.mkdir(parents=True, exist_ok=True)
+    assert environnement_des_jeux("tests/sans.robot") == {}
+    assert "absent" in environnement_des_jeux("tests/t.robot")["bloque"]
+    (d / "prod.yaml").write_text("DEMO:\n  donnees:\n    nom: a\n", "utf-8")
+    (d / "recette.yaml").write_text("AUTRE:\n  donnees:\n    nom: b\n", "utf-8")
+    assert environnement_des_jeux("tests/t.robot") == {"env": "prod", "references": ["DEMO"]}
+    (d / "recette.yaml").write_text("DEMO:\n  donnees:\n    nom: b\n", "utf-8")
+    choix = environnement_des_jeux("tests/t.robot")
+    assert "choisir l'environnement" in choix["bloque"] and "prod, recette" in choix["bloque"]
+    assert run_robot("tests/t.robot")["statut"] == "bloqué données"  # rien n'est lancé

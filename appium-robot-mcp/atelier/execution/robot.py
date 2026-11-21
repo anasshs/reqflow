@@ -29,6 +29,27 @@ def env_robot(base: dict | None = None) -> dict:
     return env
 
 
+def environnement_des_jeux(target: str) -> dict:
+    """Run lancé sans environnement de données alors que la suite utilise &{JDD_<NOM>} : sans injection, Robot échoue
+    sur « Variable '&{JDD_…}' not found » avant la première étape. Un seul environnement porte tous les jeux référencés :
+    il est retenu ({"env"}). Aucun, ou plusieurs : le run n'est pas lancé ({"bloque": conseil}). Suite sans JDD : {}."""
+    import re
+
+    base = projet.safe_path(target)
+    fichiers = [base] if base.is_file() else list(base.rglob("*.robot"))
+    noms = sorted({n for f in fichiers for n in re.findall(r"JDD_([A-Z0-9_]+)", f.read_text("utf-8", errors="ignore"))})
+    if not noms:
+        return {}
+    complets = [e for e in jdd.environnements() if not jdd.detecter(target, e)["inconnus"]]
+    if len(complets) == 1:
+        return {"env": complets[0], "references": noms}
+    jeux = ", ".join(f"JDD_{n}" for n in noms)
+    return {"references": noms, "bloque": (
+        f"La suite utilise {jeux} : choisir l'environnement des données ({', '.join(complets)}) avant de lancer le run."
+        if complets else f"La suite utilise {jeux}, absent(s) de data/jdd : créer le jeu (Discovery › Données › Jeu de données "
+                         "des tests) ou corriger la suite.")}
+
+
 def arreter_run() -> str:
     """Demande l'arrêt du run en cours. Linux / macOS : SIGINT, Robot termine proprement et écrit output.xml.
     Windows : un sous-processus ne peut pas recevoir SIGINT ; le run est interrompu (rapport Robot possiblement absent)."""
@@ -127,6 +148,11 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     evenements.publier({"type": "run_lance", "suite": target})
     jdd_file = None
     jdd_info: dict | None = None
+    if not jdd_env and not jdd_jeux:  # aucun environnement choisi : celui des jeux référencés par la suite, s'il est seul
+        choix = environnement_des_jeux(target)
+        if choix.get("bloque"):
+            return {"statut": "bloqué données", "jdd": {"env": "", "references": choix["references"]}, "conseil": choix["bloque"]}
+        jdd_env = choix.get("env", "")
     if jdd_env and not jdd_jeux:  # environnement seul : jeux référencés (&{JDD_<NOM>}) par la suite
         jdd_jeux = jdd.detecter(target, jdd_env)["detectes"]
     if jdd_jeux:

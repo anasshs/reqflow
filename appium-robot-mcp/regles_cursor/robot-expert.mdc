@@ -39,7 +39,8 @@ bloquant empêche l'approbation. Avant d'écrire : studio_socle (keywords, locat
 
 ## Par bibliothèque
 - Browser (web, défaut de l'atelier) : New Browser / New Context / New Page dans le socle ; sélecteurs uniques
-  (role=, data-testid=, css= borné à une zone) ; une page par test (isolation) ; Take Screenshot dans le teardown si échec.
+  (role=, data-testid=, css= borné à une zone) ; une page par test (isolation) ; Take Screenshot dans le teardown si échec
+  ET si une page est ouverte (Get Page Ids) : un test qui échoue avant New Page ne doit pas faire échouer son teardown.
   · role=…[name="…"] compare le nom accessible ENTIER, casse comprise. Ce nom n'est pas toujours le texte affiché : le
     CSS (text-transform) change la casse affichée (« Lun. 23 Nov. » pour « lun. 23 nov. »), un libellé fait de plusieurs
     <span> n'a pas les espaces du rendu. Le lire dans l'arbre d'accessibilité, ou ajouter le drapeau i
