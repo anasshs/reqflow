@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Application fictive « com.exemple.banque » : écran de saisie d'un virement (vues Android classiques). -->
+<hierarchy rotation="0">
+  <android.widget.FrameLayout class="android.widget.FrameLayout" bounds="[0,0][1080,2340]" displayed="true">
+    <android.widget.TextView class="android.widget.TextView" text="Virement" resource-id="com.exemple.banque:id/titre" bounds="[40,100][600,180]" displayed="true" clickable="false"/>
+    <android.widget.EditText class="android.widget.EditText" text="" resource-id="com.exemple.banque:id/montant" bounds="[40,300][1040,400]" displayed="true" clickable="true"/>
+    <android.widget.EditText class="android.widget.EditText" text="" resource-id="com.exemple.banque:id/motif" bounds="[40,450][1040,550]" displayed="true" clickable="true"/>
+    <android.widget.TextView class="android.widget.TextView" text="L'opération est immédiate" bounds="[40,600][1040,660]" displayed="true" clickable="false"/>
+    <android.widget.Button class="android.widget.Button" text="Valider" resource-id="com.exemple.banque:id/valider" content-desc="Valider le virement" bounds="[40,2000][1040,2120]" displayed="true" clickable="true"/>
+    <android.widget.Button class="android.widget.Button" text="Annuler" bounds="[40,2150][1040,2270]" displayed="true" clickable="true"/>
+    <android.widget.TextView class="android.widget.TextView" text="Message caché" displayed="false"/>
+  </android.widget.FrameLayout>
+</hierarchy>

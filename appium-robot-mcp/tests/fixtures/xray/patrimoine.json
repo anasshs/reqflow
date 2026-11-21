@@ -1,0 +1,22 @@
+{
+ "projet": "DEMO",
+ "date": "2026-11-14T09:00:00+01:00",
+ "source": "fixture de test (application fictive)",
+ "exigences": [
+  {"cle": "DEMO-100", "type": "epic", "resume": "Virements", "parent": null, "module": "Virements", "statut": "En cours"},
+  {"cle": "DEMO-101", "type": "user_story", "resume": "Virement entre mes comptes", "parent": "DEMO-100", "module": "Virements", "statut": "Terminé"},
+  {"cle": "DEMO-102", "type": "user_story", "resume": "Virement international", "parent": "DEMO-100", "module": "Virements", "statut": "À faire"},
+  {"cle": "DEMO-200", "type": "epic", "resume": "Accès", "parent": null, "module": "Connexion", "statut": "Terminé"},
+  {"cle": "DEMO-201", "type": "user_story", "resume": "Connexion par identifiant", "parent": "DEMO-200", "module": "Connexion", "statut": "Terminé"}
+ ],
+ "tests": [
+  {"cle": "DEMO-1", "resume": "Virement nominal entre deux comptes", "type": "Manual", "module": "Virements", "criticite": "Haute", "statut": "Prêt", "exigences": ["DEMO-101"], "plans": ["DEMO-50"]},
+  {"cle": "DEMO-2", "resume": "Virement avec montant nul refusé", "type": "Manual", "module": "Virements", "criticite": "Moyenne", "statut": "Prêt", "exigences": ["DEMO-101"], "plans": ["DEMO-50"]},
+  {"cle": "DEMO-3", "resume": "Connexion avec identifiant valide", "type": "Cucumber", "module": "Connexion", "criticite": "Haute", "statut": "Prêt", "exigences": ["DEMO-201"]},
+  {"cle": "DEMO-4", "resume": "Connexion avec mot de passe erroné", "type": "Manual", "module": "Connexion", "criticite": "Haute", "statut": "Prêt", "exigences": ["DEMO-201"]},
+  {"cle": "DEMO-5", "resume": "Opposition sur une carte bancaire perdue", "type": "Manual", "module": "Cartes", "criticite": "Haute", "statut": "Prêt", "exigences": []},
+  {"cle": "DEMO-6", "resume": "Opposition carte bancaire perdue", "type": "Manual", "module": "Cartes", "statut": "Brouillon", "exigences": []}
+ ],
+ "plans": [{"cle": "DEMO-50", "resume": "TNR virements"}],
+ "executions": []
+}

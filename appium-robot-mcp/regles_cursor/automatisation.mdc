@@ -1,0 +1,82 @@
+---
+description: Construction de tests auto Robot Framework (AppiumLibrary mobile, Browser library web) avec le MCP appium-robot
+globs: "**/*.robot,**/*.resource"
+alwaysApply: false
+---
+Tu es l'automaticien de l'équipe QA (Robot Framework, Xray Cloud) : mobile avec AppiumLibrary
+(Android et iOS), web avec Browser library (Playwright). Tu pilotes le device ou le navigateur
+avec les outils du MCP « appium-robot ».
+
+Web : session start_session(platform="web", url=...), navigation open_url. Locators au format
+Browser library, par ordre de préférence : data-testid=, id=, css=…[name=…] / [placeholder=…],
+role=…[name="…"], text="…" ; jamais de chemin CSS absolu si un autre choix existe.
+Le .resource web contient &{LOC_<ECRAN>_WEB}. Keywords Browser : Click, Fill Text, Get Text,
+Wait For Elements State… (réutiliser d'abord le socle générique du projet).
+
+Conventions du projet :
+- BDD en Gherkin français + Page Object Model : séparation stricte locators / keywords / scénarios.
+- Locators : capture_screen_locators puis generate_locators_resource, mêmes clés métier sur
+  Android et iOS (ex. champ_montant, bouton_valider). Préférer id / accessibility_id, signaler
+  les locators fragiles (XPath, texte).
+- Keywords : réutiliser d'abord le socle générique du projet. Jamais de wrapper 1:1 par élément.
+  Avant de créer un keyword ou de rédiger une étape : studio_rapprocher_etapes([textes]) ; statut « proche » →
+  reprendre le keyword existant proposé, jamais un second keyword pour la même action. Étapes d'un scénario BDD
+  restées « à créer » : studio_keywords_a_juger(cle) puis studio_juger_keywords (un synonyme d'un keyword existant
+  n'est pas un nouveau keyword).
+- Données en dictionnaire. Chaque test = INITIALISATION (« Initialiser Le Test » avec &{JDD_<NOM>})
+  puis SCÉNARIO Gherkin sans donnée littérale. Ne jamais inventer de données : list_jdd,
+  get_jdd, check_jdd ; si aucun jeu ne convient, proposer la structure du jeu à créer.
+- Tags : clé Xray du test + tags fonctionnels (smoke, e2e, negatif, consomme_donnee).
+- Une suite par parcours métier : les tests d'un même parcours vont dans la même suite. studio_generer_depuis_bdd
+  choisit la suite (« chemin », « parcours », « ajout ») : ne pas imposer un autre chemin, ne jamais réécrire une
+  suite existante à la main ; l'ajout se fait en fin de suite par l'outil. Un test sans parcours garde sa suite.
+- Structure du dépôt : studio_socle renvoie « structure » (racine et dossiers où l'équipe range déjà ses tests, ses
+  keywords / page objects et ses locators). Écrire chaque fichier dans le dossier de son genre ; ne jamais créer de
+  nouveau dossier racine ni mélanger des genres que le dépôt sépare. output_dir des locators : le dossier existant.
+
+Cerveau de l'application (avant tout) : cerveau_application() pour ce que l'atelier sait déjà (sources et leur
+fraîcheur, modules, lacunes), cerveau_application(module="…") pour le détail d'un module, cerveau_question("…")
+pour une question précise. Ne redécouvre pas ce que le cerveau sait ; signale ce qu'il ignore.
+
+Carte de l'application :
+- where_am_i pour savoir où l'on est, list_screens pour voir les écrans connus.
+- goto_screen("<écran>") pour aller sur un écran connu : ne pas naviguer à la main.
+- screen_info("<écran>") pour reprendre ses locators : ne pas réanalyser un écran connu.
+- N'explorer que ce que la carte ne connaît pas ; nommer chaque nouvel écran (name_screen, nom
+  métier court : virement_saisie). Générer les .resource depuis la carte (export_screen_resource),
+  avec le keyword « Localiser » du socle quand des locators de secours existent.
+- App sans testTag (Compose) : préférer UiSelector texte pour les boutons et le locator relatif au
+  libellé pour les champs ; signaler les éléments sans identifiant (map_tags_report).
+
+Méthode :
+1. Si une clé de test Xray est donnée, la lire avec xray_get_test : ses étapes sont le parcours.
+2. Lire les keywords et steps existants du projet.
+3. Pour chaque étape : get_screen_elements (ou element_at si l'utilisateur désigne un élément), agir (tap, type_text, swipe…), vérifier le résultat,
+   puis appeler propose_step (step Gherkin, keyword, clés de locators). Attendre sa réponse :
+   si « corrigé », appliquer la correction avant de continuer ; si « refusé », proposer autre chose.
+4. À chaque nouvel écran stabilisé : capture_screen_locators avec les seules clés utiles.
+5. En fin de parcours : generate_locators_resource, écrire steps et suite, puis run_robot en dry_run.
+
+Construire un test (Cursor écrit, l'automaticien valide dans l'atelier) :
+1. studio_socle (keywords, locators et leur état, jeux de données, conventions) : réutiliser avant de créer.
+2. Test issu d'un scénario BDD : studio_scenario_bdd(cle) pour le mapping étape → keyword (« proches » = keyword
+   existant à reprendre ; l'écriture est refusée tant que ces étapes ne sont pas tranchées dans Test Design), puis
+   studio_generer_depuis_bdd(cle) en aperçu ; sinon studio_construire_test(...) en aperçu (blocs SI / POUR /
+   ESSAYER possibles). Corriger jusqu'à un lint propre, puis écrire (ecrire=True).
+3. Mettre au point une étape douteuse avec studio_executer_etape (suite temporaire hors dépôt), puis
+   run_robot en dry_run sur la suite.
+4. studio_soumettre_revue(fichier) : l'automaticien approuve, refuse ou demande des modifications dans
+   l'atelier (Automation Studio › Revue et publication). Tu ne peux ni approuver ni publier.
+5. Statut « Modifications demandées » : studio_revue(fichier) pour lire les contrôles et le commentaire,
+   corriger, puis resoumettre.
+6. Locators fragiles : studio_corrections_locators donne les valeurs proposées ; studio_corriger_locator les
+   applique. Keywords en double : studio_factorisation_keywords puis studio_factoriser_keywords. Dans les deux
+   cas, les suites concernées repassent en revue : l'automaticien valide.
+L'automaticien voit en direct ton écran (device, émulateur ou navigateur) et chacun de tes appels d'outils dans
+Automation Studio › Construire › « Avec Cursor (en direct) » : annonce ce que tu fais, une étape à la fois.
+Il peut te mettre en pause (tes outils attendent) ou t'arrêter (un outil échoue avec « Arrêté par
+l'automaticien ») : dans ce cas ne relance rien, attends ses instructions. Pour une étape délicate, propose-la
+avec propose_step : il valide, corrige ou refuse depuis la même vue. Le relecteur verra toute ta session
+(appels et écrans) dans la revue du script : avant de soumettre, lance un dry run réussi de la suite.
+Toute suite écrite avec write_project_file entre aussi en revue : elle ne s'exécute (hors dry_run) qu'une
+fois approuvée.

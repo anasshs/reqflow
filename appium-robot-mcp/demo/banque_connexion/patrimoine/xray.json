@@ -1,0 +1,210 @@
+{
+ "projet": "DEMO",
+ "date": "2026-11-14T09:00:00+01:00",
+ "source": "projet de démonstration (application fictive Banque Démo)",
+ "exigences": [
+  {
+   "cle": "DEMO-300",
+   "type": "epic",
+   "resume": "Accès à l'espace client",
+   "parent": null,
+   "module": "Connexion",
+   "statut": "En cours"
+  },
+  {
+   "cle": "DEMO-310",
+   "type": "user_story",
+   "resume": "Se connecter avec identifiant et mot de passe",
+   "parent": "DEMO-300",
+   "module": "Connexion",
+   "statut": "Terminé",
+   "criteres": [
+    "Lorsque l'identifiant et le mot de passe sont corrects, le client est redirigé vers l'accueil",
+    "Si un champ est vide, le système affiche « Veuillez saisir votre identifiant et votre mot de passe. »",
+    "Le message d'erreur ne doit pas indiquer si l'identifiant existe"
+   ],
+   "description": "Critères d'acceptation :\n- Lorsque l'identifiant et le mot de passe sont corrects, le client est redirigé vers l'accueil\n- Si un champ est vide, le système affiche « Veuillez saisir votre identifiant et votre mot de passe. »\n- Le message d'erreur ne doit pas indiquer si l'identifiant existe"
+  },
+  {
+   "cle": "DEMO-311",
+   "type": "user_story",
+   "resume": "Bloquer le compte après trois échecs",
+   "parent": "DEMO-300",
+   "module": "Connexion",
+   "statut": "Terminé",
+   "criteres": [
+    "Après trois échecs consécutifs, le compte doit être bloqué",
+    "Si le compte est bloqué, la connexion est refusée avec « Votre compte est bloqué. Contactez votre conseiller. »"
+   ],
+   "description": "Critères d'acceptation :\n- Après trois échecs consécutifs, le compte doit être bloqué\n- Si le compte est bloqué, la connexion est refusée avec « Votre compte est bloqué. Contactez votre conseiller. »"
+  },
+  {
+   "cle": "DEMO-312",
+   "type": "user_story",
+   "resume": "Réinitialiser un mot de passe oublié",
+   "parent": "DEMO-300",
+   "module": "Connexion",
+   "statut": "À faire",
+   "criteres": [
+    "Le client saisit son identifiant",
+    "Un lien de réinitialisation valable au plus 30 minutes est envoyé par e-mail"
+   ],
+   "description": "Critères d'acceptation :\n- Le client saisit son identifiant\n- Un lien de réinitialisation valable au plus 30 minutes est envoyé par e-mail"
+  },
+  {
+   "cle": "DEMO-313",
+   "type": "user_story",
+   "resume": "Se déconnecter",
+   "parent": "DEMO-300",
+   "module": "Connexion",
+   "statut": "Terminé",
+   "criteres": [
+    "Quand le client se déconnecte, il est redirigé vers la page de connexion avec « Vous êtes déconnecté. »"
+   ],
+   "description": "Critères d'acceptation :\n- Quand le client se déconnecte, il est redirigé vers la page de connexion avec « Vous êtes déconnecté. »"
+  }
+ ],
+ "tests": [
+  {
+   "cle": "DEMO-301",
+   "resume": "Connexion avec un compte valide",
+   "type": "Cucumber",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": [
+    "smoke"
+   ],
+   "gherkin": "Étant donné que je suis sur la page de connexion\nQuand je me connecte avec le jeu de données\nAlors la page d'accueil m'accueille par mon nom"
+  },
+  {
+   "cle": "DEMO-302",
+   "resume": "Connexion refusée avec un mot de passe invalide",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-303",
+   "resume": "Connexion refusée avec un identifiant inconnu",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Moyenne",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-304",
+   "resume": "Blocage du compte après trois échecs",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-311"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-305",
+   "resume": "Connexion refusée avec des champs vides",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Basse",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-306",
+   "resume": "Connexion refusée pour un compte bloqué",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-311"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-307",
+   "resume": "Déconnexion",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Moyenne",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-313"
+   ],
+   "plans": [
+    "DEMO-350"
+   ],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-308",
+   "resume": "Réinitialisation du mot de passe par e-mail",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Haute",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-312"
+   ],
+   "plans": [],
+   "libelles": []
+  },
+  {
+   "cle": "DEMO-309",
+   "resume": "Connexion après expiration de session",
+   "type": "Manual",
+   "module": "Connexion",
+   "criticite": "Moyenne",
+   "statut": "Prêt",
+   "exigences": [
+    "DEMO-310"
+   ],
+   "plans": [],
+   "libelles": []
+  }
+ ],
+ "plans": [
+  {
+   "cle": "DEMO-350",
+   "resume": "TNR Connexion"
+  }
+ ],
+ "executions": []
+}

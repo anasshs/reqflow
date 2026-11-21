@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La même application fictive en Jetpack Compose, APRÈS l'ajout des testTag (testTagsAsResourceId = true) :
+     le resource-id est le tag tel quel, sans « package:id/ ». Le libellé « Montant » et le solde n'ont pas de tag. -->
+<hierarchy rotation="0">
+  <android.view.View class="android.view.View" bounds="[0,0][1080,2340]" displayed="true">
+    <android.widget.TextView class="android.widget.TextView" text="Nouveau virement" resource-id="titre_virement" bounds="[40,100][700,180]" displayed="true"/>
+    <android.widget.TextView class="android.widget.TextView" text="Montant" bounds="[40,260][300,300]" displayed="true"/>
+    <android.widget.EditText class="android.widget.EditText" text="" resource-id="champ_montant" bounds="[40,310][1040,410]" displayed="true" clickable="true"/>
+    <android.widget.TextView class="android.widget.TextView" text="Solde : 1 250,00 DH" bounds="[40,450][1040,500]" displayed="true"/>
+    <android.view.View class="android.view.View" resource-id="continuer_virement" bounds="[40,2000][1040,2120]" displayed="true" clickable="true">
+      <android.widget.TextView class="android.widget.TextView" text="Continuer" bounds="[400,2030][680,2090]" displayed="true"/>
+    </android.view.View>
+  </android.view.View>
+</hierarchy>

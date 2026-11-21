@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- Application FICTIVE de démonstration (aucune donnée réelle).
+     Règles : champs obligatoires ; message unique pour identifiant inconnu ou mot de passe erroné ;
+     compte bloqué refusé ; blocage attendu au 3e échec consécutif (exigence DEMO-304).
+     ANOMALIE VOLONTAIRE : le blocage n'intervient qu'au 4e échec (comparaison « > 3 » au lieu de « >= 3 »),
+     pour que la démonstration montre un vrai échec analysable. -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banque Démo — Connexion</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #0f1a2e; color: #e8eef8; display: grid; place-items: center; min-height: 100vh; margin: 0; }
+  form { background: #142039; padding: 28px; border-radius: 12px; width: 320px; display: grid; gap: 12px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  input, button { font: inherit; padding: 9px 10px; border-radius: 8px; border: 1px solid #2a3b5e; }
+  button { background: #3b82f6; color: #fff; border: 0; cursor: pointer; }
+  .erreur { color: #fca5a5; min-height: 1.2em; } .info { color: #86efac; min-height: 1.2em; }
+  a { color: #8fb9ff; font-size: 13px; }
+</style>
+</head>
+<body>
+<form id="formulaire" novalidate>
+  <h1>Banque Démo</h1>
+  <label for="identifiant">Identifiant</label>
+  <input id="identifiant" autocomplete="off">
+  <label for="mot_de_passe">Mot de passe</label>
+  <input id="mot_de_passe" type="password">
+  <button id="bouton_connexion" type="submit">Se connecter</button>
+  <div id="message_erreur" class="erreur" role="alert"></div>
+  <div id="message_info" class="info"></div>
+  <a href="#" id="lien_mot_de_passe_oublie">Mot de passe oublié ?</a>
+</form>
+<script>
+  // Comptes fictifs de démonstration.
+  const COMPTES = {
+    "client.demo": {mdp: "Demo#2026", nom: "Client Démo", statut: "actif"},
+    "client.bloque": {mdp: "Bloque#2026", nom: "Client Bloqué", statut: "bloqué"},
+  };
+  const echecs = {};
+  const erreur = t => { document.getElementById("message_erreur").textContent = t; };
+  if (new URLSearchParams(location.search).get("deconnexion")) {
+    document.getElementById("message_info").textContent = "Vous êtes déconnecté.";
+  }
+  document.getElementById("formulaire").addEventListener("submit", e => {
+    e.preventDefault();
+    document.getElementById("message_info").textContent = "";
+    const id = document.getElementById("identifiant").value.trim();
+    const mdp = document.getElementById("mot_de_passe").value;
+    if (!id || !mdp) return erreur("Veuillez saisir votre identifiant et votre mot de passe.");
+    const c = COMPTES[id];
+    if (c && c.statut === "bloqué") return erreur("Votre compte est bloqué. Contactez votre conseiller.");
+    if (!c || c.mdp !== mdp) {
+      echecs[id] = (echecs[id] || 0) + 1;
+      if (c && echecs[id] > 3) { c.statut = "bloqué"; return erreur("Votre compte est bloqué. Contactez votre conseiller."); }  // anomalie volontaire
+      return erreur("Identifiant ou mot de passe incorrect.");
+    }
+    location.href = "accueil.html?nom=" + encodeURIComponent(c.nom);
+  });
+</script>
+</body>
+</html>

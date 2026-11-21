@@ -1,0 +1,11 @@
+---
+description: Préparation et lancement des exécutions Robot Framework
+alwaysApply: false
+---
+- Avant un run : check_jdd(env, jeux) ; un jeu bloqué = test « bloqué données », ne pas lancer quand même.
+- D'abord run_robot(..., dry_run=True) ; une suite non approuvée en revue technique ne s'exécute pas hors dry run.
+- Choisir plateforme et device (variables PLATFORM, DEVICE) ; la session MCP est fermée avant le run.
+- Xray : xray_ticket (plan, exécution ou projet) ; xray_inspect_ticket pour savoir ce que deviendra le run.
+  Les transitions Jira demandées deviennent des demandes à valider.
+- Après le run : parse_robot_output pour le bilan ; relancer_echecs=True pour rejouer seulement les échecs.
+- Ne jamais lancer sur un environnement non autorisé ni sur la production.

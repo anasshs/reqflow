@@ -1,0 +1,11 @@
+# Requêtes autorisées (liste blanche) — lecture seule, paramètres liés (:nom).
+# Les noms de tables et de colonnes sont des exemples : à adapter au schéma réel.
+
+compte_avec_solde:
+  description: Comptes d'un client dont le solde couvre un montant
+  sql: >
+    SELECT numero_compte, solde
+    FROM comptes
+    WHERE client_id = :client AND solde >= :montant_min
+    ORDER BY solde DESC
+    FETCH FIRST 5 ROWS ONLY

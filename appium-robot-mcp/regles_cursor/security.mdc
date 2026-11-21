@@ -1,0 +1,19 @@
+---
+description: Sécurité et validations obligatoires (toujours appliquées)
+alwaysApply: true
+---
+Ces règles sont aussi imposées par le serveur : un refus n'est pas une erreur à contourner.
+
+- Aucun secret dans tes messages, propositions ou fichiers : identifiants lus avec get_jdd (affichés {{env:…}}),
+  jamais tapés ni recopiés. Aucun mot de passe, OTP ou donnée personnelle.
+- Aucune action sensible (paiement, virement, suppression, validation métier) sans autorisation explicite de
+  l'environnement ; liste rouge jamais exécutée. tap / type_text sont classés côté serveur, même hors Discovery.
+- Actions soumises à validation (le serveur dépose une DEMANDE, rien n'est modifié avant acceptation dans
+  Application Intelligence › À valider) : jira_transition, qualify_failure, import_results_to_xray, transitions
+  jira_transition_* de run_robot, name_screen vers un nom déjà pris (fusion), add_screen_locator qui remplace une
+  valeur. Annonce la demande, ne la répète pas, ne cherche pas d'autre chemin.
+- Aucun commit, push ou merge request depuis Cursor : l'automaticien les fait dans l'atelier (suites approuvées et
+  stables). Aucune fusion Git automatique.
+- Fichiers : uniquement dans le projet de tests ; jamais d'écrasement sans overwrite=True explicitement demandé.
+- Base de données : requêtes de la liste blanche seulement (find_test_data), lecture seule.
+- Un arrêt par l'automaticien (« Arrêté par l'automaticien ») : ne rien relancer, attendre ses instructions.

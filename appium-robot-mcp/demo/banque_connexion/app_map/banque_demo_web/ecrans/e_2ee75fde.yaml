@@ -1,0 +1,48 @@
+id: e_2ee75fde
+nom: accueil
+module: Connexion
+alias: []
+titre: Bienvenue, Client Démo
+plateformes:
+  web:
+    signature:
+    - id:bouton_deconnexion
+    - id:titre_accueil
+    contexte: app/accueil.html
+    vu_build: ''
+    vu_le: '2026-11-14T13:16:41'
+    vignette: e_2ee75fde_web.png
+elements:
+  texte_titre_accueil:
+    type: texte
+    libelle: Bienvenue, Client Démo
+    locators:
+      web:
+      - id=titre_accueil
+      - text="Bienvenue, Client Démo"
+  bouton_bouton_deconnexion:
+    type: bouton
+    libelle: Se déconnecter
+    locators:
+      web:
+      - id=bouton_deconnexion
+      - role=button[name="Se déconnecter"]
+      - text="Se déconnecter"
+  titre:
+    type: titre
+    libelle: ''
+    locators:
+      web:
+      - id=titre_accueil
+  bouton_deconnexion:
+    type: bouton
+    libelle: ''
+    locators:
+      web:
+      - id=bouton_deconnexion
+etats: []
+changements: []
+utilise_par: []
+essayes: {}
+cree: '2026-11-14T13:16:40'
+maj: '2026-11-14T13:16:41'

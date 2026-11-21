@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Application fictive iOS (XCUITest) : écran de saisie d'un virement. -->
+<AppiumAUT>
+  <XCUIElementTypeApplication type="XCUIElementTypeApplication" name="Banque" label="Banque" x="0" y="0" width="390" height="844" visible="true">
+    <XCUIElementTypeWindow type="XCUIElementTypeWindow" x="0" y="0" width="390" height="844" visible="true">
+      <XCUIElementTypeOther type="XCUIElementTypeOther" x="0" y="0" width="390" height="844" visible="true">
+        <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" name="Virement" label="Virement" x="16" y="60" width="200" height="30" visible="true"/>
+        <XCUIElementTypeTextField type="XCUIElementTypeTextField" name="amountField" label="Montant" x="16" y="120" width="358" height="44" visible="true"/>
+        <XCUIElementTypeButton type="XCUIElementTypeButton" label="Valider" x="16" y="760" width="358" height="50" visible="true"/>
+        <XCUIElementTypeButton type="XCUIElementTypeButton" name="boutonCache" label="Caché" x="0" y="0" width="1" height="1" visible="false"/>
+      </XCUIElementTypeOther>
+    </XCUIElementTypeWindow>
+  </XCUIElementTypeApplication>
+</AppiumAUT>

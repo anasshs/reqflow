@@ -1,0 +1,783 @@
+"""Instantané du patrimoine Xray / Jira (exigences, tests, plans, exécutions).
+
+Les graphes de couverture se construisent sur un instantané daté, stocké dans le projet de tests
+(`patrimoine/xray.json`), jamais sur des appels en direct à chaque affichage. Règle de
+synchronisation explicite : l'instantané n'est remplacé que par une action « Synchroniser »
+(ou un import de fichier), et son en-tête dit d'où il vient et quand.
+
+Format (aussi accepté à l'import, ex. export préparé à la main ou par un script) :
+{
+  "date": "...", "source": "...", "projet": "DEMO",
+  "exigences": [{"cle", "type": "epic"|"user_story", "resume", "parent", "module", "statut"}],
+  "tests": [{"cle", "resume", "type", "module", "libelles", "statut", "criticite",
+             "exigences": [...], "plans": [...], "executions": [...]}],
+  "plans": [{"cle", "resume"}], "executions": [{"cle", "resume"}]
+}
+Champ absent = inconnu : il reste absent (jamais estimé).
+"""
+from __future__ import annotations
+
+import json
+import os
+import pickle
+import re
+import threading
+import zlib
+from datetime import datetime
+from pathlib import Path
+
+from atelier.domain import projet
+
+CHAMPS_TEST = ("cle", "resume", "type", "module", "libelles", "statut", "criticite", "exigences", "plans",
+               "executions", "type_jira", "issueId", "etapes", "gherkin", "definition", "dossier", "preconditions")
+
+
+def fichier() -> Path:
+    return projet.PROJECT_DIR / os.environ.get("PATRIMOINE_FICHIER", "patrimoine/xray.json")
+
+
+# Cache de l'instantané : un écran le relisait jusqu'à 50 fois par requête (2,3 Mo de JSON à chaque fois).
+# Clé = (chemin, taille, empreinte CRC32 du contenu) : relire les octets coûte ~2 ms, les décoder ~40 ms. Toute
+# écriture (enregistrer, ou une copie déposée à la main) change la clé, même deux écritures dans la même tranche de
+# 15 ms (pas de la date de modification sous Windows). Chaque appel reçoit sa propre copie (pickle), jamais l'objet
+# du cache : un appelant qui modifie ce qu'il a lu ne peut pas altérer les lectures suivantes.
+_CACHE: dict = {}
+_VERROU = threading.Lock()
+_VUES_MAX = 8  # vues filtrées gardées par instantané (une par application consultée)
+
+
+def _entree() -> dict | None:
+    f = fichier()
+    try:
+        brut = f.read_bytes()
+    except FileNotFoundError:
+        return None
+    cle = (str(f.resolve()), len(brut), zlib.crc32(brut))
+    with _VERROU:
+        e = _CACHE.get("courant")
+        if e is None or e["cle"] != cle:
+            data = valider(json.loads(brut.decode("utf-8")))
+            e = {"cle": cle, "octets": pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL),
+                 "marque": any(t.get("applications") for t in data.get("tests") or []), "vues": {}}
+            _CACHE["courant"] = e
+        return e
+
+
+def vider_cache():
+    with _VERROU:
+        _CACHE.clear()
+
+
+def charger() -> dict | None:
+    e = _entree()
+    return pickle.loads(e["octets"]) if e else None
+
+
+def valider(data: dict) -> dict:
+    """Contrôle de forme minimal ; normalise les listes absentes."""
+    if not isinstance(data, dict) or not isinstance(data.get("tests"), list):
+        raise ValueError("Instantané invalide : liste « tests » attendue.")
+    for t in data["tests"]:
+        if not t.get("cle"):
+            raise ValueError("Instantané invalide : chaque test a une « cle ».")
+        for k in ("libelles", "exigences", "plans", "executions"):
+            t.setdefault(k, [])
+    for k in ("exigences", "plans", "executions"):
+        data.setdefault(k, [])
+    for e in data["exigences"]:
+        if e.get("type") not in ("epic", "user_story", "bug"):
+            raise ValueError(f"Exigence {e.get('cle')} : type epic, user_story ou bug attendu.")
+    return data
+
+
+def enregistrer(data: dict, source: str) -> dict:
+    data = valider(dict(data))
+    data["date"] = data.get("date") or datetime.now().astimezone().isoformat(timespec="seconds")
+    data["source"] = source
+    f = fichier()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), "utf-8")
+    os.replace(tmp, f)
+    vider_cache()  # la clé change déjà avec le fichier ; on libère aussi la mémoire de l'ancien instantané
+    return etat()
+
+
+def etat() -> dict:
+    d = charger()
+    if not d:
+        return {"present": False, "fichier": str(fichier())}
+    return {"present": True, "fichier": str(fichier()), "date": d.get("date"), "source": d.get("source"),
+            "projet": d.get("projet"), "nb_tests": len(d["tests"]), "nb_exigences": len(d.get("exigences", [])),
+            "tronque": d.get("tronque", ""),
+            "definitions_xray": d.get("definitions_xray")}
+
+
+# =========================================================================== synchronisation Jira
+TYPES_XRAY = {"test", "test execution", "test plan", "test set", "precondition", "pre-condition", "précondition",
+              "sub test execution", "exécution de test", "plan de test"}
+
+
+def _objet_xray(issue: dict) -> bool:
+    """Ticket lié de type Xray (ou de type inconnu : prudence, il n'est pas compté comme exigence)."""
+    nom = (((issue.get("fields") or {}).get("issuetype") or {}).get("name") or "").strip().lower()
+    types = TYPES_XRAY | {t.strip().lower() for t in (os.environ.get("XRAY_TEST_ISSUE_TYPE") or "").split(",") if t.strip()}
+    return not nom or nom in types
+
+
+def limite_import() -> int:
+    """Plafond de sécurité d'un import (tickets) : PATRIMOINE_LIMITE, défaut 20 000. Un import tronqué est signalé."""
+    try:
+        return max(100, int(os.environ.get("PATRIMOINE_LIMITE") or 20000))
+    except ValueError:
+        return 20000
+
+
+def _par_lots(jira, cles: list[str], champs: list[str], taille: int = 100) -> list[dict]:
+    """« key in (…) » découpé par lots : un JQL avec des milliers de clés est refusé par Jira."""
+    out = []
+    for i in range(0, len(cles), taille):
+        out += jira.rechercher(f"key in ({', '.join(cles[i:i + taille])})", champs, taille)
+    return out
+
+
+def synchroniser_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: int | None = None) -> dict:
+    """Instantané complet (tout le résultat de la JQL remplace la copie locale) ; voir synchroniser_application pour
+    la synchronisation de l'application active (seule utilisée par l'interface)."""
+    data, source = lire_jira(projet_cle, jql_tests, jira, limite)
+    return enregistrer(data, source)
+
+
+def lire_jira(projet_cle: str, jql_tests: str = "", jira=None, limite: int | None = None) -> tuple[dict, str]:
+    """Lecture Jira Cloud (recherche JQL) : tests, exigences liées, epics parents.
+
+    Champs lus (à vérifier, voir docs/XRAY_API.md) : summary, issuetype, labels, status, components,
+    priority, issuelinks, parent. Module = premier composant, sinon libellé « module:<nom> ».
+    Lien test -> exigence : liens d'issue dont le type contient « test » (lien « Test » de Xray)."""
+    from atelier.integrations.jira import JiraClient
+
+    proteger_depot_outil()
+    jira = jira or JiraClient()
+    if not jira.enabled:
+        raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")
+    type_test = os.environ.get("XRAY_TEST_ISSUE_TYPE", "Test")
+    jql = jql_tests or f'project = "{projet_cle}" AND issuetype = "{type_test}"'
+    champs = ["summary", "issuetype", "labels", "status", "components", "priority", "issuelinks", "parent"]
+    regle = regle_application()
+    champ_app = regle.get("champ_jira") if regle.get("champ") == "personnalise" else ""
+    if champ_app:
+        champs.append(champ_app)
+    limite = limite or limite_import()
+    issues = jira.rechercher(jql, champs, limite)
+    tronque = bool(getattr(jira, "tronque", False))
+    if not issues:  # rien trouvé : diagnostic, et l'instantané existant n'est jamais écrasé par un résultat vide
+        types = sorted({(i["fields"].get("issuetype") or {}).get("name", "?")
+                        for i in jira.rechercher(f'project = "{projet_cle}"', ["issuetype"], 200)})
+        raise ValueError(f"Aucun ticket pour « {jql} » (instantané inchangé). "
+                         + (f"Types de tickets présents dans {projet_cle} : {', '.join(types)}. Si les tests Xray ont un autre nom de type, "
+                            f"le préciser dans XRAY_TEST_ISSUE_TYPE ou dans le JQL. Autre voie : Test Design › « Importer les définitions Xray », "
+                            "qui interroge directement Xray." if types else
+                            f"Aucun ticket visible dans {projet_cle} avec ce compte Jira : vérifier l'e-mail, le jeton et les droits « Parcourir les projets »."))
+    tests, ids_exigences = [], set()
+    for i in issues:
+        f = i["fields"]
+        liees = [lien.get("outwardIssue") or lien.get("inwardIssue") for lien in f.get("issuelinks") or []
+                 if "test" in ((lien.get("type") or {}).get("name") or "").lower()]
+        # une exigence est une US / epic / bug… jamais un objet Xray (Test, Test Execution, Test Plan, Test Set, précondition)
+        exig = sorted({x["key"] for x in liees if x and not _objet_xray(x)})
+        ids_exigences |= set(exig)
+        tests.append({"cle": i["key"], "resume": f.get("summary"), "type": (f.get("issuetype") or {}).get("name"),
+                      "module": _module(f), "libelles": f.get("labels") or [], "composants": _composants(f),
+                      **({"champ_application": valeurs_champ(f.get(champ_app))} if champ_app else {}),
+                      "statut": (f.get("status") or {}).get("name"),
+                      "criticite": (f.get("priority") or {}).get("name"), "exigences": exig})
+    exigences, epics = [], set()
+    champ_criteres = os.environ.get("JIRA_CHAMP_CRITERES", "").strip()  # ex. customfield_10050 (critères d'acceptation)
+    champs_exig = champs + ["description"] + ([champ_criteres] if champ_criteres else [])
+    if ids_exigences:
+        for i in _par_lots(jira, sorted(ids_exigences), champs_exig):
+            f = i["fields"]
+            parent = (f.get("parent") or {}).get("key")
+            exigences.append({"cle": i["key"], "type": _type_exigence(f), "type_jira": (f.get("issuetype") or {}).get("name"),
+                              "resume": f.get("summary"), "composants": _composants(f), "libelles": f.get("labels") or [],
+                              **({"champ_application": valeurs_champ(f.get(champ_app))} if champ_app else {}),
+                              "parent": parent, "module": _module(f), "statut": (f.get("status") or {}).get("name"),
+                              **_description_et_criteres(f, champ_criteres)})
+            if parent:
+                epics.add(parent)
+        connues = {e["cle"] for e in exigences}
+        manquants = sorted(epics - connues)
+        if manquants:
+            for i in _par_lots(jira, manquants, champs):
+                f = i["fields"]
+                exigences.append({"cle": i["key"], "type": _type_exigence(f) if f.get("issuetype") else "epic",
+                                  "type_jira": (f.get("issuetype") or {}).get("name"), "resume": f.get("summary"), "parent": None,
+                                  "module": _module(f), "statut": (f.get("status") or {}).get("name")})
+    return ({"projet": projet_cle, "tests": tests, "exigences": exigences,
+             "tronque": f"limite de {limite} tickets atteinte (PATRIMOINE_LIMITE)" if tronque else ""}, f"Jira : {jql}")
+
+
+def synchroniser_application(slug: str = "", jira=None, limite: int | None = None) -> dict:
+    """Synchronise les tests de l'application (sa JQL, Paramètres › Configuration) dans la copie locale du projet :
+    chaque test porte les applications qui l'ont synchronisé ; les tests des autres applications sont conservés,
+    les tests sortis de la JQL perdent cette application (supprimés s'ils n'en ont plus). Définitions Xray, plans,
+    exécutions déjà importés sont conservés pour les tests restants."""
+    from atelier.discovery import carte
+    from atelier.domain import projets
+    from atelier.intelligence import source_tests
+
+    slug = slug or carte.app_courante()
+    if not slug:
+        raise ValueError("Aucune application sélectionnée (header).")
+    src = source_tests.source(slug)
+    if not src["jql"]:
+        raise ValueError("Aucune JQL de tests pour l'application : la définir dans Paramètres › Configuration.")
+    cle = (carte.config_app(slug).get("projet_xray") or projets.cle_xray() or "").upper()
+    nouveau, _ = lire_jira(cle, src["jql"], jira, limite)
+    base = charger()
+    if not base or (base.get("projet") and cle and base["projet"].upper() != cle):
+        base = {"projet": cle, "tests": [], "exigences": []}
+    anciens = {t["cle"]: t for t in base["tests"] if t.get("applications")}  # tests non marqués : ancienne synchro globale, remplacés
+    lus = {t["cle"] for t in nouveau["tests"]}
+    tests = []
+    for t in nouveau["tests"]:
+        a = anciens.get(t["cle"], {})
+        tests.append({**a, **t, "applications": sorted(set(a.get("applications") or []) | {slug})})
+    for k, a in anciens.items():
+        if k in lus:
+            continue
+        apps = [x for x in a.get("applications") or [] if x != slug]
+        if apps:
+            tests.append({**a, "applications": apps})
+    exigences = {e["cle"]: e for e in base.get("exigences") or []}
+    exigences.update({e["cle"]: e for e in nouveau["exigences"]})
+    utiles = {k for t in tests for k in t.get("exigences") or []}
+    parents = {exigences[k].get("parent") for k in utiles if k in exigences} - {None}
+    while parents - utiles:
+        utiles |= parents
+        parents = {exigences[k].get("parent") for k in utiles if k in exigences} - {None}
+    data = {**base, "projet": cle, "tests": tests, "exigences": [e for k, e in exigences.items() if k in utiles],
+            "tronque": nouveau.get("tronque", "")}
+    etat_ = enregistrer(data, f"Jira, application {carte.config_app(slug).get('nom', slug)} : {src['jql']}")
+    return {**etat_, "application": slug, "jql": src["jql"], "tests_application": len(lus)}
+
+
+CHAMPS_DEFINITION = ("type", "type_genre", "issueId", "etapes", "gherkin", "definition", "dossier", "preconditions")
+
+
+def proteger_depot_outil():
+    """Aucune donnée client dans le dépôt de l'outil : un import réel vers un dossier situé dans le dépôt de
+    l'atelier (ex. le projet de démonstration) est refusé."""
+    if projet.PROJECT_DIR == projet.RACINE_OUTIL or projet.RACINE_OUTIL in projet.PROJECT_DIR.parents:
+        raise PermissionError(f"Le projet actif ({projet.PROJECT_DIR}) est dans le dépôt de l'atelier (démonstration) : "
+                              "aucune donnée Xray / Jira réelle n'y est importée. Choisir le repository de tests réel "
+                              "(Paramètres › Projets, ou ROBOT_PROJECT_DIR).")
+
+
+def completer_depuis_xray(projet_cle: str = "", jql: str = "", xray=None) -> dict:
+    """Mode A (import) réel : complète l'instantané avec les définitions Xray de chaque test (type Xray Manual /
+    Cucumber / Generic, étapes, Gherkin, définition, dossier du Test Repository, préconditions, issueId).
+    Sans instantané, les tests viennent du JQL (défaut : tous les tests du projet). Lecture seule dans Xray.
+    Le type Jira d'origine est conservé (type_jira) ; un champ que le schéma n'expose pas reste absent."""
+    from atelier.integrations.xray import XrayClient
+
+    from atelier.domain import projets
+
+    proteger_depot_outil()
+    projet_cle = (projet_cle or projets.cle_xray()).upper()
+    base = charger()
+    if base and not base.get("tests"):
+        base = {**base, "tests": []}
+    if base and projet_cle and base.get("projet") and base["projet"].upper() != projet_cle and not jql:
+        raise ValueError(f"L'instantané de ce repository est celui du projet {base['projet']}, pas {projet_cle} : "
+                         f"vérifier le projet actif (ROBOT_PROJECT_DIR = {projet.PROJECT_DIR}).")
+    xray = xray or XrayClient()
+    completer = bool(base and base["tests"] and not jql)  # compléter les tests connus, sinon lister ceux du projet dans Xray
+    if completer:
+        d = xray.definitions_tests(cles=[t["cle"] for t in base["tests"]])
+    else:
+        if not (jql or projet_cle):
+            raise ValueError("Projet ou JQL requis (aucun instantané à compléter).")
+        from atelier.discovery import carte
+        from atelier.intelligence import source_tests
+
+        app = carte.app_courante()
+        jql = jql or (source_tests.source(app)["jql"] if app else "") or f'project = "{projet_cle}"'
+        d = xray.definitions_tests(jql=jql, limite=limite_import())
+        if app:
+            for t in d["tests"]:
+                t["applications"] = [app]
+    defs = {t["cle"]: t for t in d["tests"] if t.get("cle")}
+    if not defs:  # rien trouvé : l'instantané n'est pas modifié
+        if not completer:
+            raise ValueError(f"Aucun test Xray pour « {jql or 'project = ' + projet_cle} » : instantané inchangé.")
+        raise ValueError(f"Aucun des {len(base['tests'])} tests de l'instantané n'existe dans Xray : instantané inchangé.")
+    if completer:
+        data, introuvables = base, []
+        for t in data["tests"]:
+            x = defs.get(t["cle"])
+            if not x:
+                introuvables.append(t["cle"])
+                continue
+            if t.get("type") and t.get("type") != x.get("type"):
+                t["type_jira"] = t["type"]
+            t.update({k: x[k] for k in CHAMPS_DEFINITION if k in x})
+            for k in ("composants", "libelles"):
+                if not t.get(k) and x.get(k):
+                    t[k] = x[k]
+    else:
+        data = {**(base or {}), "projet": projet_cle or (base or {}).get("projet"), "tests": list(defs.values())}
+        data.setdefault("exigences", [])
+        introuvables = []
+    source = (data.get("source") or "").split(" + Xray")[0] if completer else ""
+    data["date"] = None
+    data["definitions_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "importes": len(defs),
+                                "introuvables": introuvables, "champs_absents": d["champs_absents"], "tronque": d.get("tronque", False)}
+    try:  # organisation du Test Repository : best effort, n'empêche jamais l'import des définitions
+        org = xray.conteneurs(projet_cle or data.get("projet") or "")
+        data["plans"] = [{k: p[k] for k in ("cle", "resume", "statut", "tests", "tests_total")} for p in org["plans"]]
+        data["test_sets"] = [{k: p[k] for k in ("cle", "resume", "statut", "tests", "tests_total")} for p in org["test_sets"]]
+        par_test: dict = {}
+        for genre in ("plans", "test_sets"):
+            for p in data[genre]:
+                for k in p["tests"]:
+                    par_test.setdefault(k, {}).setdefault(genre, []).append(p["cle"])
+        for t in data["tests"]:
+            t["plans"] = sorted(set(t.get("plans") or []) | set(par_test.get(t["cle"], {}).get("plans", [])))
+            t["test_sets"] = par_test.get(t["cle"], {}).get("test_sets", [])
+        data["definitions_xray"]["organisation"] = {"plans": len(data["plans"]), "test_sets": len(data["test_sets"]), "absents": org["absents"]}
+    except Exception as e:  # noqa: BLE001
+        data["definitions_xray"]["organisation"] = {"erreur": str(e)[:300]}
+    try:  # Test Executions : best effort, n'empêche jamais l'import des définitions
+        _fusionner_executions(data, xray.executions(projet_cle or data.get("projet") or "", limite_executions()))
+    except Exception as e:  # noqa: BLE001
+        data["executions_xray"] = {"erreur": str(e)[:300]}
+    etat_ = enregistrer(data, (source + " + Xray (définitions)") if source else f"Xray : {jql or 'project = ' + projet_cle}")
+    return {**etat_, **data["definitions_xray"]}
+
+
+def limite_executions() -> int:
+    """Nombre de Test Executions importées (les plus récentes), XRAY_EXECUTIONS_LIMITE (défaut 200)."""
+    try:
+        return max(1, int(os.environ.get("XRAY_EXECUTIONS_LIMITE", "200")))
+    except ValueError:
+        return 200
+
+
+def _fusionner_executions(data: dict, r: dict, conserver: bool = False):
+    """Exécutions dans l'instantané ; sur chaque test : ses exécutions et son dernier statut Xray (exécution la
+    plus récente qui le contient avec un statut). conserver : les exécutions déjà importées absentes de cette lecture
+    (hors période demandée) sont gardées, celles relues sont mises à jour."""
+    lues = [{k: e.get(k) for k in ("cle", "resume", "statut", "cree", "environnements", "tests", "tests_total", "runs", "incomplete", "applications",
+                                   "assigne", "resolu", "plans", "bugs") if k not in ("applications", "plans", "bugs") or e.get(k) is not None} for e in r["executions"]]
+    if conserver:
+        cles = {e["cle"] for e in lues}
+        avant = {e["cle"]: e.get("applications") or [] for e in data.get("executions") or []}
+        for e in lues:  # une exécution lue par l'application A puis B garde les deux
+            if avant.get(e["cle"]) or e.get("applications"):
+                e["applications"] = sorted(set(avant.get(e["cle"]) or []) | set(e.get("applications") or []))
+        lues += [e for e in data.get("executions") or [] if e.get("cle") not in cles]
+    execs = sorted(lues, key=lambda e: e.get("cree") or "", reverse=True)
+    data["executions"] = execs
+    par_test: dict = {}
+    for e in execs:  # du plus récent au plus ancien
+        for k in e["tests"]:
+            par_test.setdefault(k, []).append(e["cle"])
+    for t in data["tests"]:
+        t["executions"] = par_test.get(t["cle"], [])
+        dernier = next(((e["cle"], e["runs"][t["cle"]]) for e in execs if t["cle"] in e["runs"] and e["runs"][t["cle"]].get("statut")), None)
+        t["statut_xray"] = {"execution": dernier[0], **dernier[1]} if dernier else None
+    data["executions_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "nombre": len(execs),
+                               "lues": len(r["executions"]), "periode": r.get("periode") or {},
+                               "absents": r.get("absents", []), "limite": limite_executions()}
+
+
+def resoudre_bugs(executions: list[dict], jira=None) -> str:
+    """Bugs (défauts) liés aux test runs de chaque exécution (TestRun.defects : identifiants Jira) : clé, résumé, statut
+    et ouvert / fermé (catégorie de statut Jira « Terminé »). Lecture seule ; Jira indisponible : message renvoyé,
+    les exécutions gardent leurs bugs connus."""
+    from atelier.integrations.jira import JiraClient
+
+    ids = sorted({d for e in executions for r in (e.get("runs") or {}).values() for d in r.get("defauts") or []})
+    if not ids:
+        for e in executions:
+            e["bugs"] = []
+        return ""
+    jira = jira or JiraClient()
+    if not getattr(jira, "enabled", True):
+        return "Jira non configuré : bugs des exécutions non lus."
+    infos: dict = {}
+    try:
+        for i in range(0, len(ids), 100):
+            for t in jira.rechercher(f"id in ({', '.join(ids[i:i + 100])})", ["summary", "status", "priority", "assignee", "created", "resolutiondate"], 100):
+                c = t.get("fields") or {}
+                st = c.get("status") or {}
+                infos[str(t.get("id"))] = {"id": str(t.get("id")), "cle": t.get("key"), "resume": c.get("summary") or "", "statut": st.get("name", ""),
+                                           "ferme": (st.get("statusCategory") or {}).get("key") == "done",
+                                           # pilotage : priorité (bugs critiques), responsable, délai de résolution
+                                           "priorite": (c.get("priority") or {}).get("name", ""), "assigne": (c.get("assignee") or {}).get("displayName", ""),
+                                           "cree": c.get("created") or "", "resolu": c.get("resolutiondate") or ""}
+    except Exception as ex:  # noqa: BLE001 — Jira ne bloque jamais la lecture des exécutions
+        return f"Bugs non lus (Jira : {str(ex)[:200]})."
+    for e in executions:
+        vus = dict.fromkeys(d for r in (e.get("runs") or {}).values() for d in r.get("defauts") or [])
+        e["bugs"] = [infos[d] for d in vus if d in infos]
+    return ""
+
+
+def statuts_runs(projet_cle: str = "", xray=None) -> list[str]:
+    """Statuts de test run du projet Xray (getStatuses) : PASSED, FAILED, TO DO, EXECUTING… et statuts personnalisés."""
+    from atelier.domain import projets
+    from atelier.integrations.xray import XrayClient
+
+    xray = xray or XrayClient()
+    cle = (projet_cle or projets.cle_xray() or (charger() or {}).get("projet") or "").upper()
+    return [s["name"] for s in xray.statuts(xray.id_projet(cle))]
+
+
+def changer_statut_run(execution: str, test: str, statut: str, xray=None) -> dict:
+    """Change dans Xray le statut du test run (execution, test), puis dans la copie locale (dernier statut du test
+    recalculé). Écriture explicite depuis le tableau de bord ; jamais automatique."""
+    from atelier.integrations.xray import XrayClient
+
+    data = charger() or {}
+    e = next((x for x in data.get("executions") or [] if x["cle"] == execution), None)
+    if not e:
+        raise KeyError(f"Exécution {execution} absente de la copie locale : « Actualiser depuis Xray ».")
+    run = (e.get("runs") or {}).get(test)
+    if not run:
+        raise KeyError(f"{test} n'a pas de test run dans {execution}.")
+    if not run.get("id"):
+        raise ValueError("Identifiant du test run inconnu (import ancien) : « Actualiser depuis Xray » puis recommencer.")
+    if not statut.strip():
+        raise ValueError("Statut obligatoire.")
+    (xray or XrayClient()).set_status(run["id"], statut.strip())
+    avant = run.get("statut")
+    run["statut"] = statut.strip()
+    meta = dict(data.get("executions_xray") or {})
+    _fusionner_executions(data, {"executions": data["executions"]})  # recalcule le dernier statut de chaque test
+    data["executions_xray"] = meta  # date et volume de la dernière lecture Xray inchangés
+    enregistrer(data, data.get("source") or "Xray")
+    return {"execution": execution, "test": test, "avant": avant, "statut": statut.strip()}
+
+
+def maj_statut_execution(execution: str, statut: str):
+    """Statut Jira de l'exécution dans la copie locale, après une transition faite depuis le tableau de bord."""
+    data = charger() or {}
+    for e in data.get("executions") or []:
+        if e["cle"] == execution:
+            e["statut"] = statut
+    enregistrer(data, data.get("source") or "Xray")
+
+
+def importer_executions(projet_cle: str = "", xray=None, depuis: str = "", jusqu: str = "") -> dict:
+    """Actualise seulement les Test Executions de la copie locale (plus rapide que l'import des définitions)."""
+    from atelier.domain import projets
+    from atelier.integrations.xray import XrayClient
+
+    proteger_depot_outil()
+    data = charger()
+    if not data:
+        raise ValueError("Aucune copie locale Xray : synchroniser Jira ou importer les définitions d'abord.")
+    projet_cle = (projet_cle or projets.cle_xray() or data.get("projet") or "").upper()
+    if not projet_cle:
+        raise ValueError("Projet Xray inconnu (Paramètres › Projets).")
+    for d in (depuis, jusqu):
+        if d and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+            raise ValueError("Dates attendues au format AAAA-MM-JJ.")
+    from atelier.discovery import carte
+    from atelier.intelligence import source_tests
+
+    slug = carte.app_courante() if carte.app_courante() else ""
+    src = source_tests.source() if slug else {}
+    jql = source_tests.jql_pour_xray(src["jql_executions"]) if slug and not src.get("executions_deduite") else ""
+    args = (projet_cle, limite_executions()) + ((depuis, jusqu) if (depuis or jusqu or jql) else ()) + ((jql,) if jql else ())
+    r = (xray or XrayClient()).executions(*args)
+    if slug:  # chaque exécution porte les applications qui l'ont lue (filtre du tableau de bord)
+        for e in r["executions"]:
+            e["applications"] = [slug]
+    avert_bugs = resoudre_bugs(r["executions"])
+    r["periode"] = {"depuis": depuis, "jusqu": jusqu}
+    _fusionner_executions(data, r, conserver=True)
+    data["executions_xray"]["bugs"] = avert_bugs
+    enregistrer(data, data.get("source") or f"Xray : project = {projet_cle}")
+    return data["executions_xray"]
+
+
+def plans_application(xray=None) -> dict:
+    """Test Plans de l'application (sa JQL des Test Plans ; à défaut tout le projet Xray), les plus récents d'abord."""
+    from atelier.domain import projets
+    from atelier.intelligence import source_tests
+    from atelier.integrations.xray import XrayClient
+
+    src = source_tests.source()
+    cle = (projets.cle_xray() or (charger() or {}).get("projet") or "").upper()
+    if not cle and src.get("plans_deduite"):
+        raise ValueError("Projet Xray inconnu (Paramètres › Projets).")
+    jql = "" if src.get("plans_deduite") else source_tests.jql_pour_xray(src["jql_plans"])
+    r = (xray or XrayClient()).conteneurs(cle, 300, jql_plans=jql, seulement=("plans",), avec_executions=True)
+    return {"plans": sorted(r["plans"], key=lambda p: p.get("cle") or "", reverse=True), "absents": r["absents"], "jql": jql or f'project = "{cle}"'}
+
+
+def importer_plans(xray=None) -> dict:
+    """Test Plans de l'application (sa JQL) avec leurs tests et leurs Test Executions, puis lecture des exécutions
+    de ces plans absentes de la copie locale (pour calculer l'avancement et la réussite de chaque plan)."""
+    from atelier.discovery import carte
+    from atelier.integrations.xray import XrayClient
+
+    proteger_depot_outil()
+    data = charger()
+    if not data:
+        raise ValueError("Aucune copie locale Xray : synchroniser Jira ou importer les définitions d'abord.")
+    x = xray or XrayClient()
+    r = plans_application(x)
+    slug = carte.app_courante() if carte.app_courante() else ""
+    connues = {e["cle"] for e in data.get("executions") or []}
+    manquantes = sorted({k for p in r["plans"] for k in p.get("executions") or [] if k and k not in connues})
+    lues = 0
+    cle = (data.get("projet") or "").upper()
+    for i in range(0, len(manquantes), 100):
+        bloc = manquantes[i:i + 100]
+        ex = x.executions(cle, len(bloc), "", "", "key in (" + ", ".join(bloc) + ")")
+        for e in ex["executions"]:
+            if slug:
+                e["applications"] = [slug]
+        resoudre_bugs(ex["executions"])
+        lues += len(ex["executions"])
+        meta = data.get("executions_xray")
+        _fusionner_executions(data, ex, conserver=True)
+        if meta:
+            data["executions_xray"] = meta  # la période lue par le tableau de bord ne change pas
+    data["plans_xray"] = {"date": datetime.now().astimezone().isoformat(timespec="seconds"), "jql": r["jql"], "absents": r["absents"],
+                          "application": slug, "executions_lues": lues,
+                          "plans": [{k: p.get(k) for k in ("cle", "resume", "statut", "ferme", "cree", "tests", "tests_total", "executions", "executions_total")}
+                                    for p in r["plans"]]}
+    enregistrer(data, data.get("source") or "Xray")
+    return {k: v for k, v in data["plans_xray"].items() if k != "plans"} | {"nombre": len(r["plans"])}
+
+
+def dossiers_repository() -> dict:
+    """Dossiers du Test Repository Xray du projet (copie locale, tout le projet : définitions importées), parents
+    compris, avec le nombre de tests (sous-dossiers inclus) et l'application qui les a déclarés."""
+    from atelier.discovery import carte
+
+    pat = charger() or {"tests": []}
+    compte: dict = {}
+    for t in pat["tests"]:
+        if t.get("dossier") is None:
+            continue
+        parties = [x for x in (t["dossier"] or "/").split("/") if x]
+        for i in range(len(parties) + 1):
+            chemin = "/" + "/".join(parties[:i])
+            compte[chemin] = compte.get(chemin, 0) + 1
+    apps = {}
+    try:
+        for a in carte.apps():
+            for d in (a.get("tests_xray") or {}).get("dossiers") or []:
+                apps.setdefault(d, []).append(a.get("nom", a["slug"]))
+    except Exception:  # noqa: BLE001
+        pass
+    return {"dossiers": [{"chemin": c, "tests": n, "profondeur": c.strip("/").count("/") + (1 if c != "/" else 0),
+                          "applications": apps.get(c, [])} for c, n in sorted(compte.items())],
+            "definitions_importees": bool((pat.get("definitions_xray") or {}).get("date")),
+            "tests_sans_dossier": sum(1 for t in pat["tests"] if t.get("dossier") is None), "tests": len(pat["tests"])}
+
+
+def organisation() -> dict:
+    """Suites de test côté Xray : dossiers du Test Repository (depuis les définitions), Test Plans et Test Sets."""
+    pat = charger_vue() or {"tests": [], "plans": [], "executions": []}
+    dossiers: dict = {}
+    for t in pat["tests"]:
+        if t.get("dossier") is not None:
+            d = t["dossier"] or "/"
+            dossiers.setdefault(d, []).append(t["cle"])
+    arbre = []
+    for chemin in sorted(dossiers):
+        arbre.append({"chemin": chemin, "profondeur": 0 if chemin == "/" else chemin.strip("/").count("/") + 1,
+                      "nom": chemin.rstrip("/").split("/")[-1] or "Racine", "tests": sorted(dossiers[chemin])})
+    defs = pat.get("definitions_xray") or {}
+    def normaliser(conteneurs: list[dict], champ: str) -> list[dict]:
+        """Format ancien (clé et titre seulement) : tests retrouvés depuis le champ plans / test_sets des tests."""
+        out = []
+        for c in conteneurs:
+            tests = c.get("tests") if isinstance(c.get("tests"), list) else sorted(t["cle"] for t in pat["tests"] if c["cle"] in (t.get(champ) or []))
+            out.append({"cle": c["cle"], "resume": c.get("resume", ""), "statut": c.get("statut", ""), "tests": tests,
+                        "tests_total": c.get("tests_total", len(tests))})
+        return out
+
+    return {"dossiers": arbre, "plans": normaliser(pat.get("plans") or [], "plans"), "test_sets": normaliser(pat.get("test_sets") or [], "test_sets"),
+            "definitions_importees": bool(defs.get("date")), "date": defs.get("date"), "organisation": defs.get("organisation"),
+            "tests_sans_dossier": sum(1 for t in pat["tests"] if t.get("dossier") is None)}
+
+
+def _description_et_criteres(f: dict, champ_criteres: str = "") -> dict:
+    """Description (ADF -> texte) et critères d'acceptation : champ dédié s'il est configuré, sinon les puces
+    qui suivent un titre « Critères d'acceptation » / « Acceptance criteria » dans la description."""
+    import re as _re
+
+    from atelier.integrations.jira import adf_vers_texte
+
+    desc = adf_vers_texte(f.get("description"))
+    brut = adf_vers_texte(f.get(champ_criteres)) if champ_criteres and f.get(champ_criteres) else ""
+    if not brut:
+        m = _re.search(r"(?is)(crit[eè]res? d.acceptation|acceptance criteria)\s*:?\s*\n(.*)", desc)
+        brut = m.group(2) if m else ""
+    criteres = [_re.sub(r"^\s*[-*•]\s*", "", l).strip() for l in brut.splitlines() if _re.match(r"^\s*[-*•]\s+\S", l)]
+    out = {"description": desc[:4000]} if desc else {}
+    if criteres:
+        out["criteres"] = criteres
+    return out
+
+
+def _module(f: dict) -> str | None:
+    comps = f.get("components") or []
+    if comps:
+        return comps[0].get("name")
+    return next((lb.split(":", 1)[1] for lb in f.get("labels") or [] if lb.lower().startswith("module:")), None)
+
+
+def _composants(f: dict) -> list[str]:
+    return [c.get("name") for c in f.get("components") or [] if c.get("name")]
+
+
+# =========================================================================== vue par application
+def regle_application() -> dict:
+    """Champ Jira qui désigne l'application d'un test (Test Design › Xray Mapping) : composant, libellé ou
+    champ personnalisé (customfield_<n>)."""
+    try:
+        from atelier.generation import conception
+
+        return conception.mapping().get("application") or {"champ": "composant", "champ_jira": ""}
+    except Exception:  # noqa: BLE001
+        return {"champ": "composant", "champ_jira": ""}
+
+
+def filtre_application() -> dict:
+    """Règle de l'application active : champ du mapping + valeurs de l'application (vide = tout le projet).
+    Compatibilité : une application décrite par « composant » / « libelle » garde sa propre règle."""
+    from atelier.discovery import carte
+
+    try:
+        a = carte.config_app() if carte.app_courante() else {}
+    except Exception:  # noqa: BLE001 - carte illisible : aucune restriction
+        a = {}
+    if a and charger_brut_marque():  # copie locale marquée par application : la source de l'application fait foi
+        from atelier.intelligence import source_tests
+
+        src = source_tests.source(a.get("slug"))
+        return {"app": a.get("nom", ""), "champ": "application", "valeurs": [a.get("slug")], "dossiers": src["dossiers"]}
+    tx = a.get("tests_xray") or {}
+    regle = regle_application()
+    if tx.get("dossiers"):  # dossiers du Test Repository : prioritaires sur le champ Jira
+        return {"app": a.get("nom", ""), "champ": "dossier", "valeurs": list(tx["dossiers"]), "dossiers": list(tx["dossiers"])}
+    if tx.get("valeurs"):
+        return {"app": a.get("nom", ""), "champ": regle["champ"], "champ_jira": regle.get("champ_jira", ""), "valeurs": list(tx["valeurs"])}
+    for champ in ("composant", "libelle"):
+        if tx.get(champ):
+            return {"app": a.get("nom", ""), "champ": champ, "champ_jira": "", "valeurs": [tx[champ]], champ: tx[champ]}
+    return {"app": a.get("nom", "")}
+
+
+def valeurs_champ(v) -> list[str]:
+    """Valeur(s) d'un champ Jira (texte, option {value}, objet {name}, liste) en liste de textes."""
+    if v in (None, "", []):
+        return []
+    if isinstance(v, list):
+        return [x for e in v for x in valeurs_champ(e)]
+    if isinstance(v, dict):
+        return [str(v.get("value") or v.get("name") or "")] if (v.get("value") or v.get("name")) else []
+    return [str(v)]
+
+
+def appliquer_filtre(pat: dict | None, f: dict) -> dict | None:
+    """Tests de l'application (composant ou libellé Jira), leurs exigences et epics parents, plans / sets restreints.
+    Sans règle : instantané inchangé. Le module (premier composant) sert de repli si les composants sont absents."""
+    valeurs = {str(v).strip().lower() for v in f.get("valeurs") or [] if str(v).strip()}
+    if not pat or not valeurs:
+        return pat
+    if f.get("champ") == "application":
+        valeurs = set(f["valeurs"])
+    champ = f.get("champ", "composant")
+
+    def sous(d: str | None, racine: str) -> bool:
+        d = (d or "").rstrip("/").lower()
+        racine = racine.rstrip("/").lower()
+        return d == racine or d.startswith(racine + "/")
+
+    dossiers_app = [d.lower() for d in f.get("dossiers") or []] if champ == "application" else []
+
+    def concerne(x: dict) -> bool:
+        if champ == "application":  # tests synchronisés pour l'application (+ dossiers en option) ; exigences : par leurs tests
+            if f.get("valeurs", [""])[0] not in (x.get("applications") or []):
+                return False
+            return not dossiers_app or (x.get("dossier") is not None and any(sous(x["dossier"], r) for r in dossiers_app))
+        if champ == "dossier":  # tests du dossier et de ses sous-dossiers ; les exigences suivent leurs tests
+            return x.get("dossier") is not None and any(sous(x["dossier"], r) for r in valeurs)
+        if champ == "libelle":
+            vus = x.get("libelles") or []
+        elif champ == "personnalise":
+            vus = x.get("champ_application") or []
+        else:
+            vus = x.get("composants") or ([x["module"]] if x.get("module") else [])
+        return any(str(v).lower() in valeurs for v in vus)
+
+    tests = [t for t in pat["tests"] if concerne(t)]
+    cles = {t["cle"] for t in tests}
+    liees = {e for t in tests for e in t.get("exigences") or []}
+    exig = [e for e in pat.get("exigences") or [] if e["cle"] in liees or concerne(e)]
+    parents = {e.get("parent") for e in exig} - {e["cle"] for e in exig}
+    exig += [e for e in pat.get("exigences") or [] if e["cle"] in parents]
+
+    def restreindre(conteneurs):
+        out = []
+        for c in conteneurs or []:
+            if isinstance(c.get("tests"), list):
+                garde = [k for k in c["tests"] if k in cles]
+                if garde:
+                    out.append({**c, "tests": garde, "tests_total": len(garde)})
+            elif any(c["cle"] in (t.get("plans") or []) for t in tests):
+                out.append(c)
+        return out
+
+    return {**pat, "tests": tests, "exigences": exig, "plans": restreindre(pat.get("plans")),
+            "test_sets": restreindre(pat.get("test_sets")),
+            "filtre_application": {**f, "tests": len(tests), "tests_projet": len(pat["tests"])}}
+
+
+def charger_brut_marque() -> bool:
+    """La copie locale a-t-elle été synchronisée par application (tests marqués) ?"""
+    e = _entree()
+    return bool(e and e["marque"])
+
+
+def charger_vue() -> dict | None:
+    """Instantané vu par les écrans (lecture seule) : restreint à l'application active si elle a une règle.
+    Les écritures (synchronisation, import des définitions) utilisent toujours charger() : tout le projet.
+    La vue filtrée est gardée en cache par instantané et par filtre (appliquer_filtre ne dépend que des deux)."""
+    filtre = filtre_application()
+    e = _entree()
+    if e is None:
+        return appliquer_filtre(None, filtre)
+    k = json.dumps(filtre, sort_keys=True, ensure_ascii=False, default=str)
+    octets = e["vues"].get(k)
+    if octets is None:
+        vue = appliquer_filtre(pickle.loads(e["octets"]), filtre)
+        octets = pickle.dumps(vue, protocol=pickle.HIGHEST_PROTOCOL)
+        with _VERROU:
+            if len(e["vues"]) >= _VUES_MAX:
+                e["vues"].clear()
+            e["vues"][k] = octets
+    return pickle.loads(octets)
+
+
+def _type_exigence(f: dict) -> str:
+    """Catégorie d'une exigence. Le niveau hiérarchique Jira (1 = Epic) prime sur le nom du type, qui dépend de la
+    langue du site (« Epic », « Épopée »…) ; le nom exact reste conservé dans « type_jira »."""
+    it = f.get("issuetype") or {}
+    nom = (it.get("name") or "").lower()
+    niveau = it.get("hierarchyLevel")
+    if (isinstance(niveau, int) and niveau >= 1) or any(m in nom for m in ("epic", "épopée", "epopee")):
+        return "epic"
+    if any(m in nom for m in ("bug", "bogue", "anomalie", "défaut")):
+        return "bug"
+    return "user_story"

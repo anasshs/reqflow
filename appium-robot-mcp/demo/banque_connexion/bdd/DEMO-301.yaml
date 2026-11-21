@@ -1,0 +1,96 @@
+langue: en
+feature: Connexion avec un compte valide
+description: []
+contexte: []
+scenarios:
+- id: sda3b868
+  nom: Connexion avec un compte valide
+  type: principal
+  tags: []
+  etapes:
+  - id: s3906fbd
+    mot: Étant donné
+    type: given
+    texte: que je suis sur la page de connexion
+    ecran: ''
+    locator: ''
+    jdd: ''
+    api: ''
+    assertion: false
+    valide: false
+    resultat_attendu: ''
+    type_effectif: given
+  - id: s226314c
+    mot: Quand
+    type: when
+    texte: je me connecte avec le jeu de données
+    ecran: ''
+    locator: ''
+    jdd: ''
+    api: ''
+    assertion: false
+    valide: false
+    resultat_attendu: ''
+    type_effectif: when
+  - id: sd24ed36
+    mot: Alors
+    type: then
+    texte: la page d'accueil m'accueille par mon nom
+    ecran: ''
+    locator: ''
+    jdd: ''
+    api: ''
+    assertion: true
+    valide: false
+    resultat_attendu: ''
+    type_effectif: then
+  depuis: ''
+- id: s9567a0f
+  nom: Mot de passe invalide
+  type: negatif
+  tags: []
+  depuis: s226314c
+  etapes:
+  - id: s00d3a08
+    mot: Étant donné
+    type: given
+    texte: que je suis sur la page de connexion
+    ecran: ''
+    locator: ''
+    jdd: ''
+    api: ''
+    assertion: false
+    valide: false
+    resultat_attendu: ''
+    type_effectif: given
+  - id: s10b2b3a
+    mot: Quand
+    type: when
+    texte: je me connecte avec le jeu de données
+    ecran: ''
+    locator: ''
+    jdd: ''
+    api: ''
+    assertion: false
+    valide: false
+    resultat_attendu: ''
+    type_effectif: when
+  - id: s1a1ac67
+    mot: Alors
+    type: then
+    texte: le message d'erreur attendu s'affiche
+    ecran: ''
+    locator: ''
+    jdd: ''
+    api: ''
+    assertion: true
+    valide: false
+    resultat_attendu: ''
+    type_effectif: then
+tags: []
+source: xray (gherkin)
+cle: DEMO-301
+titre: Connexion avec un compte valide
+jdd: CLIENT_ACTIF
+statut: brouillon
+maj: '2026-11-14T13:17:08+00:00'

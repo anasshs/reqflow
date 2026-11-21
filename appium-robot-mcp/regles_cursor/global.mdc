@@ -1,0 +1,18 @@
+---
+description: Principes de l'atelier d'automatisation (toujours appliqués)
+alwaysApply: true
+---
+Tu travailles avec l'atelier d'automatisation des tests (MCP « appium-robot »). L'atelier est la source de vérité :
+Xray pour les tests, Git pour les scripts Robot Framework, le Knowledge Graph pour la connaissance de l'application.
+Tu assistes l'automaticien ; il garde les décisions importantes.
+
+- Commencer par ce que l'atelier sait déjà : cerveau_application() (et cerveau_application(module="…")).
+  Ne redécouvre pas ce qui est connu ; signale ce qui manque.
+- Réutiliser avant de créer : écrans et locators de la carte, keywords du socle, jeux de données, tests Xray existants.
+- N'inventer ni donnée, ni écran, ni règle, ni lien : uniquement ce qui est observé ou lu ; un doute = une question.
+- Tout ce que tu produis est une proposition, un brouillon ou une demande : l'automaticien valide dans l'atelier.
+- Une fonctionnalité de bout en bout se suit dans un parcours : parcours_initialiser (ou parcours_lister) puis
+  parcours_etat ; relier ce que tu produis avec parcours_etape(..., action="referencer", …), puis soumettre ou valider.
+  « validation », « qualification » et « synchronisation » se valident uniquement dans l'atelier.
+- Annonce ce que tu fais, une étape à la fois : l'automaticien voit ton écran et tes appels d'outils en direct.
+- Réponses en français.

@@ -1,0 +1,43 @@
+{"date": "2026-11-14T13:33:43", "auteur": "root", "op": "creation", "version": 1, "nom": "Stratégie de test — Espace client"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "import_perimetre", "version": 1, "ajoutes": 6, "source": "projet de démonstration (application fictive Banque Démo)"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "modification", "version": 1, "rubrique": "perimetre", "element": "per_96ea7b"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "perimetre", "element": "per_af8cfd"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "perimetre", "element": "per_9e03de"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "perimetre", "element": "per_d3e67c"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "niveaux", "element": "niv_8af115"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "niveaux", "element": "niv_0b4686"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "niveaux", "element": "niv_a65ae1"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "niveaux", "element": "niv_316fcd"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "niveaux", "element": "niv_ab6b42"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "types_tests", "element": "typ_0e7c9a"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "types_tests", "element": "typ_78e53b"}
+{"date": "2026-11-14T13:33:44", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "types_tests", "element": "typ_3352dd"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "environnements", "element": "env_c17fcd"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "environnements", "element": "env_1d9aa5"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "verification_environnement", "version": 1, "element": "env_c17fcd", "resultat": "disponible"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "objectifs", "element": "obj_2940a0"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "objectifs", "element": "obj_442eaa"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "objectifs", "element": "obj_6c0f39"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "objectifs", "element": "obj_0ce95f"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "criteres", "element": "cri_00553d"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "criteres", "element": "cri_07e6ae"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "criteres", "element": "cri_612de6"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "criteres", "element": "cri_8c0fee"}
+{"date": "2026-11-14T13:33:45", "auteur": "root", "op": "validation_critere", "version": 1, "element": "cri_07e6ae"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "risques", "element": "ris_989710"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "risques", "element": "ris_83f119"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "risques", "element": "ris_556fc2"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "donnees", "element": "don_8dcb07"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "donnees", "element": "don_ec09ce"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "donnees", "element": "don_b8db8a"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "outils", "element": "out_161ca8"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "outils", "element": "out_bee2e3"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "outils", "element": "out_c4dfd0"}
+{"date": "2026-11-14T13:33:46", "auteur": "root", "op": "ajout", "version": 1, "rubrique": "outils", "element": "out_2510c9"}
+{"date": "2026-11-14T13:33:47", "auteur": "root", "op": "decision_plan", "version": 1, "cle": "DEMO-308", "statut": "Approuvé"}
+{"date": "2026-11-14T13:33:47", "auteur": "root", "op": "decision_plan", "version": 1, "cle": "DEMO-309", "statut": "Rejeté"}
+{"date": "2026-11-14T13:33:47", "auteur": "root", "op": "soumettre", "version": 1, "commentaire": "Première version pour revue"}
+{"date": "2026-11-14T13:33:47", "auteur": "root", "op": "approuver", "version": 1, "commentaire": "Validée en comité qualité"}
+{"date": "2026-11-14T13:33:47", "auteur": "root", "op": "publier", "version": 1, "commentaire": "Version initiale"}
+{"date": "2026-11-14T13:33:47", "auteur": "root", "op": "nouvelle_version", "version": 2, "raison": "objectifs:ajout", "depuis": 1}
+{"date": "2026-11-14T13:33:47", "auteur": "root", "op": "ajout", "version": 2, "rubrique": "objectifs", "element": "obj_cf5de2"}

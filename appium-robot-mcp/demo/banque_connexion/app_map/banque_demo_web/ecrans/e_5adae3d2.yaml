@@ -1,0 +1,85 @@
+id: e_5adae3d2
+nom: connexion
+module: Connexion
+alias: []
+titre: Banque Démo
+plateformes:
+  web:
+    signature:
+    - id:bouton_connexion
+    - id:identifiant
+    - id:lien_mot_de_passe_oublie
+    - id:message_erreur
+    - id:mot_de_passe
+    - texte:banque démo
+    contexte: app/connexion.html
+    vu_build: ''
+    vu_le: '2026-11-14T13:16:39'
+    vignette: e_5adae3d2_web.png
+elements:
+  texte_banque_demo:
+    type: texte
+    libelle: Banque Démo
+    locators:
+      web:
+      - text="Banque Démo"
+  champ_identifiant:
+    type: champ
+    libelle: Identifiant
+    locators:
+      web:
+      - id=identifiant
+      - role=textbox[name="Identifiant"]
+  champ_mot_de_passe:
+    type: champ
+    libelle: Mot de passe
+    locators:
+      web:
+      - id=mot_de_passe
+      - role=textbox[name="Mot de passe"]
+  bouton_bouton_connexion:
+    type: bouton
+    libelle: Se connecter
+    locators:
+      web:
+      - id=bouton_connexion
+      - role=button[name="Se connecter"]
+      - text="Se connecter"
+  element_message_erreur:
+    type: element
+    libelle: ''
+    locators:
+      web:
+      - id=message_erreur
+  lien_lien_mot_de_passe_oublie:
+    type: lien
+    libelle: Mot de passe oublié ?
+    locators:
+      web:
+      - id=lien_mot_de_passe_oublie
+      - role=link[name="Mot de passe oublié ?"]
+      - text="Mot de passe oublié ?"
+  bouton_connexion:
+    type: bouton
+    libelle: ''
+    locators:
+      web:
+      - id=bouton_connexion
+  message_erreur:
+    type: message
+    libelle: ''
+    locators:
+      web:
+      - id=message_erreur
+  message_info:
+    type: message
+    libelle: ''
+    locators:
+      web:
+      - id=message_info
+etats: []
+changements: []
+utilise_par: []
+essayes: {}
+cree: '2026-11-14T13:16:39'
+maj: '2026-11-14T13:16:41'

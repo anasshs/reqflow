@@ -1,0 +1,78 @@
+---
+description: Découverte d'une application (Discovery) avec le MCP appium-robot : explorer, comprendre, proposer au Knowledge Graph
+alwaysApply: false
+---
+Tu explores l'application avec l'automaticien pour construire sa connaissance (écrans, parcours, règles,
+liens avec les exigences Jira). L'atelier observe et enregistre la mécanique (écrans, transitions, locators,
+appels réseau) ; ton rôle est d'apporter le SENS, toujours sous forme de propositions que l'automaticien valide.
+
+Démarrage :
+0. cerveau_application() : modules déjà connus, non explorés, lacunes ; explorer en priorité ce que le cerveau ignore.
+1. start_session (plateforme et device ou URL indiqués par l'automaticien), puis map_select_app si besoin.
+2. Connexion AVANT la session Discovery : identifiants lus avec get_jdd (jeu de données indiqué par l'automaticien,
+   jamais tapés dans le chat ni recopiés dans tes messages) ; l'OTP / la validation forte est faite par l'automaticien.
+3. discovery_demarrer(environnement="recette", mode="assistee") : sans session Discovery, rien n'est rattaché.
+   Si l'automaticien a préparé un parcours utilisateur (identifiant « PU-… » dans sa demande) : lis d'abord
+   discovery_parcours_cadre("PU-…") (objectif, point de départ, résultat attendu, exigences et critères, données prêtes),
+   puis discovery_demarrer(parcours="PU-…"). Reste dans ce parcours ; à la fin, les écrans traversés lui sont proposés.
+   Tu ne modifies jamais le cadrage : s'il manque une exigence ou une donnée, dis-le à l'automaticien.
+   Si l'automaticien donne un périmètre d'exploration (« module:… » ou « parcours:… »), passe-le dans « perimetre » :
+   quand discovery_ecran_courant indique « dans_le_perimetre: false », n'essaie rien sur cet écran et reviens en arrière.
+   Un menu ou un lien vers un sujet sensible (« Virements », « Bénéficiaires ») est de la navigation : autorisé ;
+   une action sur ce sujet (« Nouveau virement », « Ajouter un bénéficiaire ») est sensible : refusée à l'agent, sauf si
+   l'automaticien a autorisé l'agent sur cet environnement (Discovery › Settings) ; chaque action sensible est tracée.
+
+Boucle d'exploration :
+- discovery_ecran_courant() après chaque action : écran (nouveau ou connu), éléments avec leur classe
+  (safe, controlled, sensitive, forbidden) et « autorise », textes affichés, actions jamais essayées, pistes.
+- N'agis que sur un élément « autorise: true ». Préfère les actions « safe » de « a_essayer », puis les pistes
+  (impasses, écrans isolés, transitions instables). press_back pour revenir.
+- Ne contourne jamais un refus : une action sensible ou interdite est faite par l'automaticien (fenêtre Discovery
+  de l'atelier, avec confirmation, ou à la main sur le device). Dis-le-lui et continue ailleurs.
+- Saisie (type_text) uniquement si l'environnement l'autorise, avec des données du référentiel (ci-dessous) ou d'un JDD
+  (get_jdd), jamais inventées ni réelles. Aucun mot de passe, OTP ou donnée personnelle dans tes messages ou propositions.
+
+Données d'un formulaire (référentiel universel, Discovery › Données) — avant de remplir un écran :
+1. Relève les champs (libellé, type technique, contraintes visibles : longueur, format, liste de valeurs).
+2. discovery_donnees_pour_champs([{libelle, type, contraintes}], ecran) — ecran = nom de l'écran dans la carte
+   (discovery_ecran_courant), pour que le graphe et les parcours sachent où la donnée a servi : pour chaque champ, la nature de la donnée, la
+   variable retenue et une valeur COHÉRENTE avec le reste de la session (la date de fin suit la date de début, le TTC
+   suit le HT, la même adresse e-mail revient d'un écran à l'autre).
+3. Saisis avec type_text(locator, "{{var:CLE}}") : l'atelier pose la valeur. Une valeur « •••• » est sensible : tu ne la
+   vois jamais, la référence suffit. Ne recopie pas une valeur dans le chat.
+4. statut « manquante » : n'invente rien. Dis à l'automaticien quel champ, quel type, quelles contraintes, et continue
+   ailleurs ; il crée la variable dans l'atelier. statut « générée » : un générateur était autorisé pour ce type.
+5. Une valeur produite par l'application (référence de dossier, numéro de commande, date choisie) :
+   discovery_donnee_definir(cle, valeur, description) pour la retrouver sur les écrans suivants (discovery_donnee(cle)).
+- discovery_donnees_catalogue(recherche, type, profil) pour voir ce qui existe ; discovery_donnees_contexte() pour ce
+  que la session a déjà utilisé ; discovery_donnees_contexte(profil="…") si l'automaticien indique un profil.
+- Tu ne crées, ne modifies et ne supprimes aucune variable du catalogue : tu lis, tu demandes, tu enrichis le contexte.
+- goto_screen pour retourner sur un écran connu plutôt que de renaviguer à la main.
+
+Ce que tu proposes (discovery_proposer), écran par écran :
+- nom_ecran : nom métier en snake_case (virement_saisie, compte_detail) et module (Virements, Comptes).
+- fonctionnalite / parcours : ce que l'écran permet de faire, l'enchaînement d'écrans d'un parcours métier.
+- regle : une règle visible à l'écran (« montant obligatoire », « bouton Continuer inactif tant que… »),
+  avec dans la description ce qui l'a montrée (message affiché, état d'un bouton).
+- action, role, entite : action métier, rôle utilisateur, objet métier (compte, bénéficiaire, carte).
+- lien_exigence : si une exigence de la copie locale Jira correspond à l'écran (knowledge_graph pour chercher).
+Corrélation écran ↔ exigence pour toute la carte : discovery_correlations_a_juger (écrans, éléments observés,
+exigences ; d'abord les écrans sans exigence), puis discovery_juger_correlations avec concerne | ne_concerne_pas |
+incertain, une justification, les preuves (éléments de l'écran, phrases de l'exigence) et ta confiance (faible,
+moyenne, forte). Un mot commun ne suffit pas : l'exigence peut porter sur un autre écran du parcours ; un test qui
+traverse l'écran (« verifiees_par_tests ») ne prouve pas non plus que l'écran réalise l'exigence.
+N'invente rien : uniquement ce que tu as vu à l'écran ou lu dans une exigence. Un doute = une question à
+l'automaticien, pas une proposition.
+
+Plan de test d'un module : plan_de_test("Virements") donne écrans, parcours, règles, exigences et leurs tests
+(automatisés ou non, dernier statut), ce qui n'est pas couvert, actions sensibles et pistes : s'en servir plutôt que du
+graphe brut pour proposer le plan (US sans test d'abord, puis parcours sans test, puis tests manuels à automatiser).
+
+Du parcours au test : pour un parcours validé (ou une suite d'écrans), discovery_parcours_vers_bdd crée dans Test Design
+un brouillon de scénario BDD relié aux écrans, locators et données du jeu ; l'automaticien le relit et le valide avant
+la génération Robot, les exécutions stables, la merge request et la publication Xray.
+
+Fin : discovery_terminer(), puis résume à l'automaticien les écrans découverts, les propositions déposées et
+les actions refusées qu'il doit faire lui-même. Il valide ou rejette dans l'atelier (fenêtre Discovery ou
+Application Intelligence › À valider) ; une proposition rejetée n'est jamais reproposée. Tout ce qui est validé apparaît
+dans le Knowledge Graph avec sa provenance.

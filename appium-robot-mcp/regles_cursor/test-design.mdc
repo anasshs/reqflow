@@ -1,0 +1,49 @@
+---
+description: Conception des scénarios de test (Test Design, US, règles, couverture manquante)
+alwaysApply: false
+---
+- Partir des exigences : testabilite_us_a_traiter (US à couvrir), xray_search_tests / xray_get_test (tests existants),
+  plan_de_test(module) (écrans, parcours, règles, exigences et ce qui n'est pas couvert).
+- Avant de proposer un scénario : test_design_doublons(titre, etapes, gherkin) ; « réutiliser » ou « faire évoluer »
+  → proposer le test existant plutôt qu'un doublon.
+- Avant d'écrire les étapes d'un scénario (Gherkin, cas proposé, brouillon BDD) : studio_rapprocher_etapes([textes]).
+  « existant » → garder ce libellé ; « proche » → reprendre le libellé EXACT du keyword proposé (ne pas reformuler :
+  un autre libellé crée un keyword en double) ; « à créer » → seulement si aucun keyword du socle ne convient, et le
+  dire dans la réponse. L'atelier refuse de générer le script tant qu'une étape proche d'un keyword n'est pas tranchée.
+- studio_rapprocher_etapes ne compare que des mots (présélection) : il ne voit pas un synonyme. Pour un scénario BDD
+  (demande « vérifie les keywords du scénario … ») : studio_keywords_a_juger(cle), puis studio_juger_keywords(cle,
+  jugements) avec, pour chaque étape sans keyword, verdict reutiliser | creer, le nom exact du keyword existant et la
+  justification (ce qui est identique, ce qui diffère). Même action formulée autrement = même keyword ; action opposée,
+  autre écran ou autre résultat = keyword différent ; en cas de doute, creer. Lire le corps des candidats et la liste
+  « socle » avant de conclure « creer ». Aucune étape n'est réécrite par l'agent : l'automaticien reprend ou confirme.
+- test_design_proposer(cle, categories) génère les cas par catégorie (source, confiance, manques, observé / déduit,
+  doublon) dans À concevoir : compléter ensuite ce qui manque, ne pas valider à la place de l'automaticien.
+- Couvrir, selon la fonctionnalité : nominal, alternatifs, négatifs, limites, validation des champs, erreurs,
+  navigation, permissions, règles métier.
+- Granularité : un test = un objectif. Proposer le MINIMUM de tests qui couvre TOUS les comportements de l'US, jamais
+  un test par phrase de l'US ni un nombre de tests « pour l'image » :
+  - même chemin, seules les données ou les résultats changent -> UN test, une variante par donnée (étapes « Variante n »
+    ou plan du scénario avec un tableau d'exemples) ;
+  - un détail (libellé, affichage, valeur) d'un écran déjà traversé -> point de contrôle (« Vérifier : … ») dans ce test ;
+  - résultat métier différent (accepté / refusé, éligible / non éligible), criticité ou niveau différents (API, mobile)
+    -> tests séparés ; un test trop long qui mélange plusieurs objectifs se découpe.
+- Dans testabilite_deposer_proposition, chaque cas porte « couvre » : la liste des comportements de l'US qu'il vérifie
+  (ex. ["pack non éligible : pas de choix du mode", "tarif affiché"]) ; l'atelier mesure les comportements couverts
+  par test. Expliquer dans la réponse pourquoi tel cas est regroupé ou séparé.
+- Consolider les cas déjà proposés d'une US (demande « consolide les cas de l'US … ») : test_design_cas_us(cle) pour
+  lire l'US et les cas avec leurs identifiants, puis test_design_proposer_regroupements(cle, propositions) : chaque
+  regroupement donne cas (au moins deux id), mode (donnees | controle), titre, justification (pourquoi c'est le même
+  objectif) et couvre. C'est un jugement sur le sens du texte : en cas de doute, ne pas regrouper. Rien n'est regroupé
+  par l'agent : l'automaticien applique ou écarte. Lire les « refusees » renvoyées et corriger si besoin.
+- Doublons : test_design_doublons ne compare que des mots (présélection). Pour les cas d'une US :
+  test_design_doublons_a_juger(cle), puis test_design_juger_doublons(cle, jugements) avec, pour chaque cas, verdict
+  reutiliser | faire_evoluer | creer, le test cité et la justification (ce qui est identique, ce qui diffère). Un
+  résultat opposé n'est jamais un doublon ; une reformulation du même contrôle en est un ; en cas de doute,
+  faire_evoluer. Tests Xray redondants entre eux : xray_redondances_a_juger puis xray_juger_redondances.
+- Chaque proposition dit sa source (US, critère, écran observé, règle), sa justification, sa confiance et ce qui
+  manque ; distinguer ce qui est observé de ce qui est déduit.
+- Analyser une US précise (demande « analyse l'US … ») : test_design_cas_us(cle) pour lire son texte, ses cas existants
+  et les réponses de l'équipe ; ne reproposer aucun cas déjà présent.
+- Dépôt : testabilite_deposer_proposition (cas proposés pour une US) ; scénario BDD depuis un parcours :
+  discovery_parcours_vers_bdd. Gherkin en français, sans donnée littérale (jeux de données).
+- Sans US : coverage_intelligence("reconstruction") puis coverage_proposer_story (Story reconstruite, à valider).
