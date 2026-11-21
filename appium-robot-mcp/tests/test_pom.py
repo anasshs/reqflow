@@ -50,3 +50,27 @@ def test_style_professionnel():
     propre = ("*** Settings ***\nTest Teardown    Terminer Le Test\n\n*** Test Cases ***\nT\n    Valider\n\n"
               "*** Keywords ***\nValider\n    [Documentation]    Valide.\n    Log    x\n")
     assert studio.style_robot("tests/t.robot", propre) == []
+
+
+def test_regenerer_un_test_deja_ecrit(projet, monkeypatch):
+    """Suite qui ne porte que ce test : remplacement explicite seulement, ancienne version sauvegardée ; jamais si
+    d'autres tests y vivent."""
+    import pytest
+
+    from atelier.domain import projet as pj
+    from atelier.generation import bdd
+
+    for v in ("XRAY_CLIENT_ID", "JIRA_BASE_URL"):
+        monkeypatch.delenv(v, raising=False)
+    m = bdd.creer("authentification", "Authentification")
+    m = bdd.ajouter_etape("authentification", m["scenarios"][0]["id"], "Alors", "le formulaire de connexion est affiché")
+    g = bdd.generer_robot(bdd.charger("authentification"))
+    pj.ecrire_fichier(g["chemin"], "*** Test Cases ***\nAuthentification\n    [Tags]    authentification\n    Log    ancien\n")
+    with pytest.raises(FileExistsError, match="remplacer=True"):
+        bdd.ecrire_generation(bdd.charger("authentification"), g)
+    r = bdd.ecrire_generation(bdd.charger("authentification"), g, remplacer=True)
+    assert r["ecrit"] == g["chemin"] and r["sauvegarde"].startswith("studio/remplaces/")
+    assert "Log    ancien" in pj.lire_fichier(r["sauvegarde"]) and "*** Keywords ***" not in pj.lire_fichier(g["chemin"])
+    pj.ecrire_fichier(g["chemin"], "*** Test Cases ***\nAutre Test\n    [Tags]    autre\n    Log    x\n", True)
+    with pytest.raises(FileExistsError, match="contient d'autres tests"):
+        bdd.ecrire_generation(bdd.charger("authentification"), g, remplacer=True)

@@ -743,13 +743,15 @@ def studio_scenario_bdd(cle: str) -> dict:
 
 
 @outil
-def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "") -> dict:
+def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "", remplacer: bool = False) -> dict:
     """Génère la suite Robot d'un scénario BDD en Page Object Model : la suite (tests seulement) et, dans « pages », la
     ressource de chaque écran où ajouter les keywords à implémenter (stubs). ecrire=False :
     aperçu seulement ; « keywords_proches » liste les étapes qui ressemblent à un keyword existant. ecrire=True : écrit
     le fichier (jamais d'écrasement) ; il entre en revue technique « Généré » et ne s'exécute qu'après approbation de
     l'automaticien dans l'atelier. L'écriture est refusée tant qu'une étape proche d'un keyword existant n'est pas
-    tranchée dans Test Design (reprendre le keyword, ou confirmer un nouveau keyword) : aucun doublon silencieux."""
+    tranchée dans Test Design (reprendre le keyword, ou confirmer un nouveau keyword) : aucun doublon silencieux.
+    remplacer=True : régénère un test déjà écrit (ex. passage en Page Object Model) quand sa suite ne contient que lui ;
+    l'ancienne version est sauvegardée (studio/remplaces/). Une suite qui porte d'autres tests n'est jamais remplacée."""
     from atelier.generation import bdd, structure_depot, studio
 
     m = bdd._exiger(cle)
@@ -757,18 +759,8 @@ def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "") 
     if chemin and chemin.replace("\\", "/") != g["chemin"]:  # chemin imposé : suite à part, jamais un ajout
         g = bdd.generer_robot(m, cible=chemin)
     g["structure"] = structure_depot.controler(g["chemin"], g["contenu"])  # rangé comme le reste du dépôt ?
-    if ecrire:
-        bdd.refuser_doublons(m)
-        cible = g["chemin"]
-        if g.get("ajout_refuse"):
-            raise FileExistsError(g["ajout_refuse"])
-        # une suite par parcours métier : « ajout » complète la suite existante du parcours, sans rien y réécrire
-        projet.ecrire_fichier(cible, g["contenu"], bool(g.get("ajout")))
-        from atelier.generation import pom
-
-        g["pages_ecrites"] = pom.ecrire(g.get("pages") or [])  # Page Object Model : les keywords vont dans les pages
-        studio.entrer_en_revue(cible, "cursor")
-        g["ecrit"] = cible
+    if ecrire:  # suite (création, ajout au parcours, ou remplacement explicite si elle ne porte que ce test) + pages
+        g = bdd.ecrire_generation(m, g, remplacer, "cursor")
     return g
 
 

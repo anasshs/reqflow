@@ -576,6 +576,45 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
     return out
 
 
+def ecrire_generation(m: dict, g: dict, remplacer: bool = False, origine: str = "cursor") -> dict:
+    """Écrit ce que generer_robot a préparé : la suite (création, ajout à la suite du parcours, ou remplacement) et
+    les pages (Page Object Model), puis met la suite en revue.
+
+    Une suite existante n'est jamais écrasée implicitement. Elle n'est remplacée que si l'appelant le demande
+    (remplacer=True) ET qu'elle ne contient que ce test (régénération, ex. passage en Page Object Model) ; l'ancienne
+    version est alors sauvegardée dans studio/remplaces/. Si elle contient d'autres tests, elle n'est jamais remplacée."""
+    from atelier.execution import depot_robot
+    from atelier.generation import pom, studio
+
+    refuser_doublons(m)  # étape proche d'un keyword existant : à trancher avant d'écrire
+    cible = g["chemin"]
+    if g.get("ajout_refuse"):
+        raise FileExistsError(g["ajout_refuse"])
+    existe = projet.safe_path(cible).exists()
+    g["sauvegarde"] = ""
+    if existe and not g.get("ajout"):
+        inv = depot_robot.lire_depot()
+        cles = {m["cle"], g.get("cle_xray") or ""} - {""}
+        autres = [t["nom"] for t in inv["tests"].values() if t["fichier"] == cible and not cles & set(t.get("tags") or [])]
+        if autres:
+            raise FileExistsError(f"{cible} existe et contient d'autres tests ({', '.join(autres[:4])}) : elle n'est pas remplacée. "
+                                  "Choisir un autre chemin, ou rattacher le test au parcours métier de cette suite pour l'y ajouter.")
+        if not remplacer:
+            raise FileExistsError(f"Le test {m['cle']} existe déjà dans {cible} (généré avant). Pour le régénérer (Page Object "
+                                  "Model compris) : remplacer=True (studio_generer_depuis_bdd), ou « Remplacer s'il existe » dans "
+                                  "l'atelier ; l'ancienne version est sauvegardée.")
+        dossier = studio._dossier() / "remplaces"
+        dossier.mkdir(parents=True, exist_ok=True)
+        copie = dossier / f"{datetime.now():%Y%m%d-%H%M%S}__{cible.replace('/', '__')}"
+        copie.write_text(projet.lire_fichier(cible), "utf-8")
+        g["sauvegarde"] = copie.relative_to(projet.PROJECT_DIR).as_posix()
+    projet.ecrire_fichier(cible, g["contenu"], existe)  # ajout (contenu complété) ou remplacement autorisé ci-dessus
+    g["pages_ecrites"] = pom.ecrire(g.get("pages") or [])
+    studio.entrer_en_revue(cible, origine)  # validation humaine avant exécution
+    g["ecrit"] = cible
+    return g
+
+
 def associer_module(cle: str, module: str) -> dict:
     """Module du scénario : range le test Robot (tests/{application}/{module}/) et le test Xray (dossier du module)."""
     m = _exiger(cle)

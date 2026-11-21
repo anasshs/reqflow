@@ -2346,18 +2346,8 @@ async def bdd_generer(cle: str, req: Request):
     from atelier.generation import structure_depot
 
     g["structure"] = await asyncio.to_thread(_call, structure_depot.controler, g["chemin"], g["contenu"])
-    if b.get("ecrire"):
-        _call(bdd.refuser_doublons, m)  # étape proche d'un keyword existant : à trancher avant d'écrire
-        chemin = g["chemin"]
-        if g.get("ajout_refuse"):
-            raise HTTPException(400, g["ajout_refuse"])
-        # une suite par parcours métier : « ajout » complète la suite existante du parcours, sans rien y réécrire
-        _call(outils.write_project_file, chemin, g["contenu"], bool(b.get("ecraser")) or bool(g.get("ajout")))
-        from atelier.generation import pom
-
-        g["pages_ecrites"] = _call(pom.ecrire, g.get("pages") or [])  # Page Object Model : keywords dans les pages
-        _call(studio.entrer_en_revue, chemin, "bdd")  # validation humaine avant exécution
-        g["ecrit"] = chemin
+    if b.get("ecrire"):  # suite + pages (Page Object Model) ; « Remplacer s'il existe » : seulement une suite qui ne porte que ce test
+        g = _call(bdd.ecrire_generation, m, g, bool(b.get("ecraser")), "bdd")
     return g
 
 
