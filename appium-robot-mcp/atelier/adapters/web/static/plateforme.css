@@ -782,6 +782,8 @@ body.sans-lanceur .df-lanceur { display: none; }
 .rel-change { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .rel-pied { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
 .rel-delta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); }
+.rel-filtres { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.rel-pagination { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; }
 .rel-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 6px 0 10px; }
 @media (max-width: 900px) { .rel-change { grid-template-columns: minmax(0, 1fr); } .rel-etapes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .rel-remplace { padding: 8px 12px; border-radius: 10px; background: var(--surface-3); color: var(--ink-2); margin: 0 0 8px; }

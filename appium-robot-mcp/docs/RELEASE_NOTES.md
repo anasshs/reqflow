@@ -70,7 +70,9 @@ non-régression → Test Executions → résultats de qualification. Moteur : `a
    pour la première fois (hors périmètre initial signalé), contenu du build et rattachements.
 2. **Périmètre** : situé par rapport au build précédent — *nouveau*, *à rejouer* (échec ou blocage sur le build
    précédent), *déjà réussi* (réussi sur le build précédent et non touché de nouveau), *reconduit* ; « Écarter les N déjà
-   réussis » en un clic (motif tracé). Puis « Valider le périmètre ».
+   réussis » en un clic (motif tracé). Puis « Valider le périmètre ». Le tableau des tests se **recherche par ID ou par titre** (sans tenir
+   compte des accents) et se **filtre** (catégorie, retenus / écartés, automatisés / manuels, situation par rapport au
+   build précédent) ; il est **paginé** (25, 50 ou 100 par page), avec une case pour sélectionner les tests de la page.
 3. **Exécution** : exécutions Xray du build (créer, dupliquer pour un autre environnement, statuts par test), campagnes
    des tests automatisés — **une par exécution Xray**, dont le run écrit ses résultats dans cette exécution (mode
    « réutiliser » d'Execution Center) ; elles se préparent d'office à la validation du périmètre ou à la création

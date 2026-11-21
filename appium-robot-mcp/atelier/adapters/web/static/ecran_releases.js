@@ -368,6 +368,8 @@
      1 Ce qui change · 2 Périmètre · 3 Exécution · 4 Verdict. Une seule étape dépliée, un seul bouton principal. */
   const ETAPES = [["change", "Ce qui change"], ["perimetre", "Périmètre"], ["execution", "Exécution"], ["verdict", "Verdict"]];
   const ETAPE = {};  // build -> étape choisie par l'utilisateur
+  const FILTRES = {};  // build -> {q, cat, dec, type, delta, page, taille} du tableau des tests
+  const filtres = bid => (FILTRES[bid] = FILTRES[bid] || {q: "", cat: "", dec: "", type: "", delta: "", page: 1, taille: 25});
   const etapeDuStatut = s => ({"Reçu": "change", "Périmètre validé": "execution", "En exécution": "execution"})[s] || "verdict";
   const DELTA = {nouveau: ["nouveau", "ok"], a_rejouer: ["à rejouer", "ko"], deja_reussi: ["déjà réussi", ""], reconduit: ["reconduit", "info"]};
 
@@ -446,18 +448,51 @@
           : x.decision === "ajoutée" ? pill("ajouté", "ok") + (ouvert ? ` <button class="lien" data-dec="${esc(x.test)}" data-v="">retirer</button>` : "")
           : ouvert ? `<button class="btn petit" data-dec="${esc(x.test)}" data-v="rejetée">Écarter</button>` : '<span class="lib">retenu</span>'}</td></tr>`;
       const dejaReussis = B.perimetre.filter(x => x.delta === "deja_reussi" && x.decision !== "rejetée");
+      const F = filtres(B.id);
+      const sansAccent = t => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const q = sansAccent(F.q.trim());
+      const filtres_ = B.perimetre.filter(x => (!q || sansAccent(x.test).includes(q) || sansAccent(x.resume).includes(q))
+        && (!F.cat || x.categorie === F.cat) && (!F.delta || x.delta === F.delta)
+        && (!F.dec || (F.dec === "ecartes") === (x.decision === "rejetée"))
+        && (!F.type || (F.type === "auto" ? x.automatise : !x.automatise)));
+      const pages = Math.max(1, Math.ceil(filtres_.length / F.taille));
+      F.page = Math.min(Math.max(1, F.page), pages);
+      const page = filtres_.slice((F.page - 1) * F.taille, F.page * F.taille);
+      const actif = F.q || F.cat || F.dec || F.type || F.delta;
+      const choix = (cle, lib, opts) => `<select class="in" data-f="${cle}" style="width:auto" aria-label="${esc(lib)}"><option value="">${esc(lib)}</option>${opts.map(([v, l]) => `<option value="${v}" ${F[cle] === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+      const barre = `<div class="rel-filtres"><input class="in" id="rf-q" type="search" placeholder="Rechercher un test : ID ou titre" value="${esc(F.q)}" aria-label="Rechercher un test par ID ou titre" style="flex:1;min-width:220px">
+          ${choix("cat", "Toutes catégories", Object.entries(CAT).map(([k, [l]]) => [k, l]))}
+          ${choix("dec", "Retenus et écartés", [["retenus", "Retenus"], ["ecartes", "Écartés"]])}
+          ${choix("type", "Automatisés et manuels", [["auto", "Automatisés"], ["manuel", "Manuels"]])}
+          ${d ? choix("delta", `Tous (depuis ${d.precedent})`, Object.entries(DELTA).map(([k, [l]]) => [k, l])) : ""}
+          ${actif ? '<button class="lien" id="rf-raz">effacer les filtres</button>' : ""}</div>`;
+      const pagination = `<div class="rel-pagination"><span class="lib">${filtres_.length ? `${(F.page - 1) * F.taille + 1}–${Math.min(F.page * F.taille, filtres_.length)} sur ${filtres_.length} test(s)${actif ? ` (filtrés parmi ${B.perimetre.length})` : ""}` : `Aucun test ne correspond${actif ? " aux filtres" : ""}.`}</span>
+          ${pages > 1 ? `<button class="btn petit" data-page="${F.page - 1}" ${F.page === 1 ? "disabled" : ""} aria-label="Page précédente">‹</button><span class="lib">page ${F.page} / ${pages}</span><button class="btn petit" data-page="${F.page + 1}" ${F.page === pages ? "disabled" : ""} aria-label="Page suivante">›</button>` : ""}
+          <select class="in" id="rf-taille" style="width:auto" aria-label="Tests par page">${[25, 50, 100].map(n => `<option value="${n}" ${F.taille === n ? "selected" : ""}>${n} par page</option>`).join("")}</select></div>`;
       ez.innerHTML = `${d ? `<div class="rel-delta"><b>Par rapport au build ${esc(d.precedent)}</b>
           ${Object.entries(DELTA).map(([k, [lib, cls]]) => d[k] ? `${pill(`${d[k]} ${lib}`, cls)}` : "").join(" ")}
           ${ouvert && dejaReussis.length ? `<button class="btn petit" id="rb-ecarter-reussis" title="${esc(dejaReussis.map(x => x.test).join(", "))}">Écarter les ${dejaReussis.length} déjà réussis sur ${esc(d.precedent)}</button>` : ""}</div>` : ""}
         <p class="lib" style="margin:8px 0">${B.perimetre_valide ? `Périmètre validé le ${date(B.perimetre_valide.date)} par ${esc(B.perimetre_valide.par)} · ` : "Les tests proposés sont retenus par défaut : écarter ce qui ne concerne pas ce build. "}
           <b>${r.retenus} test(s) retenu(s)</b> : ${r.par_categorie.retest} retest · ${r.par_categorie.ciblee} non-régression ciblée · ${r.par_categorie.qualification} qualification.</p>
         ${ouvert ? `<div class="btns rel-selection" id="rb-sel" ${SEL.size ? "" : "hidden"}><b id="rb-sel-n">${SEL.size} test(s) sélectionné(s)</b><input class="in" id="rb-sel-motif" placeholder="Pourquoi les écarter ?" style="flex:1;min-width:220px"><button class="btn" id="rb-sel-ok">Écarter la sélection</button><button class="lien" id="rb-sel-non">tout désélectionner</button></div>` : ""}
-        ${Object.entries(CAT).map(([k, [lib, cls]]) => { const l = B.perimetre.filter(x => x.categorie === k); return l.length ? `<h4 style="margin:12px 0 4px">${pill(lib, cls)} <span class="lib">${l.length} test(s)</span></h4>
-          <table class="table-strat"><tr>${ouvert ? "<th></th>" : ""}<th>Test</th><th>Module</th><th>Impact</th><th>Raison</th>${d ? `<th>Depuis ${esc(d.precedent)}</th>` : ""}<th>Criticité</th><th></th></tr>${l.map(ligne).join("")}</table>` : ""; }).join("")
-          || '<p class="lib">Aucun test : rattacher les évolutions au Knowledge Graph (étape 1), ou ajouter des tests.</p>'}
+        ${barre}
+        ${Object.entries(CAT).map(([k, [lib, cls]]) => { const l = page.filter(x => x.categorie === k), tot = filtres_.filter(x => x.categorie === k).length; return l.length ? `<h4 style="margin:12px 0 4px">${pill(lib, cls)} <span class="lib">${tot} test(s)${tot > l.length ? `, ${l.length} sur cette page` : ""}</span></h4>
+          <table class="table-strat"><tr>${ouvert ? `<th><input type="checkbox" data-sel-tout="${k}" ${l.some(x => x.decision !== "rejetée") && l.every(x => x.decision === "rejetée" || SEL.has(x.test)) ? "checked" : ""} aria-label="Sélectionner les tests ${esc(lib)} de cette page"></th>` : ""}<th>Test</th><th>Module</th><th>Impact</th><th>Raison</th>${d ? `<th>Depuis ${esc(d.precedent)}</th>` : ""}<th>Criticité</th><th></th></tr>${l.map(ligne).join("")}</table>` : ""; }).join("")
+          || (B.perimetre.length ? "" : '<p class="lib">Aucun test : rattacher les évolutions au Knowledge Graph (étape 1), ou ajouter des tests.</p>')}
+        ${B.perimetre.length ? pagination : ""}
         ${ouvert ? `<div class="btns" style="margin-top:8px"><input class="in" id="rb-ajout" placeholder="Ajouter un test (clé Xray)" style="width:200px"><input class="in" id="rb-ajout-motif" placeholder="Raison" style="flex:1;min-width:200px"><button class="btn" id="rb-ajouter">Ajouter au périmètre</button></div>` : ""}
         <div class="rel-pied">${ouvert ? `<button class="btn primaire" id="rb-valider" title="Fige les tests retenus ; les exécutions Xray existantes reçoivent leurs campagnes d'automatisés">Valider le périmètre (${r.retenus} test(s))</button>`
           : remplace ? "" : suivante("execution", "Passer à l'exécution")}</div>`;
+      const refaire = (focus = false) => { etapePerimetre(ez); if (focus) { const i = $("#rf-q", ez); i.focus(); i.setSelectionRange(i.value.length, i.value.length); } };
+      let tempo = null;
+      $("#rf-q", ez).oninput = e => { clearTimeout(tempo); tempo = setTimeout(() => { F.q = e.target.value; F.page = 1; refaire(true); }, 250); };
+      $$("[data-f]", ez).forEach(sel => sel.onchange = () => { F[sel.dataset.f] = sel.value; F.page = 1; refaire(); });
+      if ($("#rf-raz", ez)) $("#rf-raz", ez).onclick = () => { Object.assign(F, {q: "", cat: "", dec: "", type: "", delta: "", page: 1}); refaire(); };
+      $$("[data-page]", ez).forEach(b => b.onclick = () => { F.page = +b.dataset.page; refaire(); });
+      $("#rf-taille", ez).onchange = e => { F.taille = +e.target.value; F.page = 1; refaire(); };
+      $$("[data-sel-tout]", ez).forEach(cb => cb.onchange = () => {
+        page.filter(x => x.categorie === cb.dataset.selTout && x.decision !== "rejetée").forEach(x => cb.checked ? SEL.add(x.test) : SEL.delete(x.test));
+        refaire(); });
       const majSel = () => { const bar = $("#rb-sel", ez); if (!bar) return; bar.hidden = !SEL.size; $("#rb-sel-n", ez).textContent = `${SEL.size} test(s) sélectionné(s)`; };
       $$("[data-sel]", ez).forEach(cb => cb.onchange = () => { cb.checked ? SEL.add(cb.dataset.sel) : SEL.delete(cb.dataset.sel); majSel(); });
       if ($("#rb-sel-non", ez)) $("#rb-sel-non", ez).onclick = () => { SEL.clear(); $$("[data-sel]", ez).forEach(cb => { cb.checked = false; }); majSel(); };
