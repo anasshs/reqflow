@@ -66,7 +66,12 @@ bloquant empêche l'approbation. Avant d'écrire : studio_socle (keywords, locat
 - Donnée que chaque run consomme (créneau réservé, inscription, numéro unique) : le jeu donne la valeur souhaitée ; si
   l'application ne la propose plus, le keyword prend la suivante disponible (Log … WARN), la retient
   (Set Test Variable) et la vérifie dans le résultat. Rien de disponible : échec explicite (Fail), jamais masqué.
-- Chaque test vérifie un résultat métier à la fin ; un cas négatif vérifie le message d'erreur exact attendu.
+- Chaque test vérifie un résultat métier à la fin ; un cas négatif vérifie le message d'erreur exact attendu QUAND
+  L'APPLICATION L'AFFICHE. Champ obligatoire refusé par le navigateur (attribut required, bulle native) : vérifier
+  l'état du formulaire (Get Property <champ> required == True, Evaluate JavaScript <champ> (e) => e.validity.valueMissing)
+  et l'absence de confirmation, jamais validationMessage : ce texte vient du navigateur et suit sa langue (« Please fill
+  out this field. » en run, « Veuillez renseigner ce champ. » sur un poste français), pas l'application. Un champ
+  pré-rempli (indicatif +212) n'est pas « vide » : relever required / valueMissing sur l'écran avant d'écrire l'assertion.
 - Nommage : test = phrase métier ; variables constantes en ${MAJUSCULES}, locales en ${minuscules}.
 
 ## Avant de soumettre
