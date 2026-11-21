@@ -777,6 +777,7 @@ body.sans-lanceur .df-lanceur { display: none; }
 .rel-etapes .rel-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--surface-3); font-size: 12px; flex: none; }
 .rel-etapes button.faite .rel-num { background: var(--ok-soft); color: var(--ok); }
 .rel-etapes button[aria-current="step"] .rel-num { background: var(--accent); color: #fff; }
+.rel-build { margin-bottom: 64px; }  /* le bouton flottant Discovery ne recouvre pas l'action principale du build */
 .rel-build h4 { margin: 14px 0 6px; font-size: 13px; letter-spacing: .02em; color: var(--ink-2); }
 .rel-change { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .rel-pied { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }

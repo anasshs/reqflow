@@ -77,6 +77,7 @@
     const z = $("#rl-corps");
     if (!ID) { z.innerHTML = vide("Aucune release", "Créer une release, puis lui rattacher ses builds au fil des livraisons."); return; }
     try { T = await api(`/api/releases/${ID}/tableau`); } catch (e) { z.innerHTML = vide("Release indisponible", esc(e.message)); return; }
+    if (!document.body.contains(z)) return;  // l'utilisateur a changé de release pendant le chargement
     const i = T.indicateurs, q = T.qualification;
     const onglet = ["initial", "journal", "plan"].includes(BID) ? BID : "builds";
     if (onglet === "builds" && !BID && T.courant) { BID = T.courant; history.replaceState(null, "", `#releases/${ID}/${BID}`); }
@@ -373,6 +374,7 @@
   async function vueBuild() {
     const z = $("#rb-vue");
     try { B = await api(`/api/releases/${ID}/builds/${BID}`); } catch (e) { z.innerHTML = vide("Build indisponible", esc(e.message)); return; }
+    if (!document.body.contains(z)) return;
     if (B.id !== SEL.build) { SEL.clear(); SEL.build = B.id; }
     const c = B.comparaison, r = B.resultats, a = B.anomalies, ouvert = B.statut === "Reçu", remplace = B.statut === "Remplacé";
     const etape = ETAPE[B.id] || etapeDuStatut(B.statut);
