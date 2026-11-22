@@ -172,7 +172,13 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       $("#kg-module").onchange = e => { S.params.module = e.target.value; delete S.params.test; adresseCouverture(); charger(); };
       $("#kg-afficher").onchange = e => { S.params.afficher = e.target.value; charger(); };
     } else {
-      o.innerHTML = `<select class="in" id="kg-cible" style="width:auto;max-width:280px" aria-label="Test"><option value="">Tout le patrimoine automatisé</option></select>`;
+      o.innerHTML = `<span class="segments" role="group" aria-label="Liens suivis"><button class="btn petit" data-mode="verifie" aria-pressed="${(S.params.mode || "verifie") === "verifie"}"
+          title="Liens confirmés seulement (source, déclaration ou validation)">Vérifié</button><button class="btn petit" data-mode="exploratoire" aria-pressed="${S.params.mode === "exploratoire"}"
+          title="Liens confirmés et probables (déduits de faits observés), distingués à l'affichage">Exploratoire</button></span>
+        <select class="in" id="kg-fmod" style="width:auto;max-width:200px" aria-label="Module"><option value="">Tous les modules</option></select>
+        <select class="in" id="kg-cible" style="width:auto;max-width:280px" aria-label="Test"><option value="">Vue d'ensemble (tests et suites)</option></select>`;
+      $$("[data-mode]", o).forEach(b => b.onclick = () => { S.params.mode = b.dataset.mode; $$("[data-mode]", o).forEach(x => x.setAttribute("aria-pressed", x === b)); charger(); });
+      $("#kg-fmod").onchange = e => { S.params.module = e.target.value; charger(); };
       $("#kg-cible").onchange = e => { S.params.cible = e.target.value; charger(); };
     }
   }
@@ -272,7 +278,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     }
     if (S.vue === "flux") {
       const sel = $("#kg-cible");
-      if (sel && sel.options.length === 1) for (const c of S.data.cibles || []) sel.add(new Option(c.libelle + (c.id.startsWith("test:") ? " (Xray)" : ""), c.id));
+      if (sel && sel.options.length === 1) for (const c of S.data.cibles || []) sel.add(new Option(c.libelle + (c.id.startsWith("test:") ? " (Xray)" : c.id.startsWith("scenario:") ? " (BDD)" : ""), c.id));
+      const fm = $("#kg-fmod");
+      if (fm && fm.options.length === 1) for (const m of S.data.modules || []) fm.add(new Option(m, m));
     }
     if (garder) G?.garderPositions();
     if (S.direct) {  // nouveautés depuis le début du suivi : mises en avant, compteur dans le bouton
@@ -616,14 +624,24 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     detail("Analyse d'impact", "<p class='lib'>Analyse en cours…</p>");
     let r;
     try { r = await api("/api/graphes/impact?id=" + encodeURIComponent(id)); } catch (e) { return detail("Analyse d'impact", esc(e.message)); }
-    G?.surligner(r.tests_robot.map(t => t.id).concat(r.tests_xray.map(t => t.id), r.keywords.map(k => k.id), [id]));
+    G?.surligner(r.tests_robot.map(t => t.id).concat(r.tests_xray.map(t => t.id), r.keywords.map(k => k.id), (r.indirect?.tests_robot || []), [id]));
+    const liste = (titre, l) => l && l.length ? `<h3 class="lib" style="margin:10px 0 4px">${titre} (${l.length})</h3><div class="btns">${l.slice(0, 20).map(x =>
+      `<button class="pill lien" data-sel="${esc(x.id)}">${esc(x.libelle)}</button>`).join("")}</div>` : "";
+    const dim = r.dimensions || {}, ind = r.indirect || {}, pot = r.potentiel || {};
     detail("Analyse d'impact", `<p><b>${esc(r.element.libelle)}</b> <span class="lib">${esc(r.element.type)}</span></p>
       <div class="kpis" style="margin:8px 0"><div class="kpi"><div class="v info">${r.tests_robot.length}</div><div class="l">tests Robot</div></div>
         <div class="kpi"><div class="v violet">${r.tests_xray.length}</div><div class="l">tests Xray</div></div></div>
       <ul class="liste">${r.tests_robot.map(t => `<li><button class="lien item ellipse" data-sel="${esc(t.id)}">${esc(t.nom)}</button><span class="mono lib">${esc(t.cles_xray.join(", "))}</span></li>`).join("") || "<li class='lib'>Aucun test concerné</li>"}</ul>
       <dl class="props" style="margin-top:8px"><dt>Keywords</dt><dd>${esc(r.keywords.map(k => k.nom).join(", ") || "—")}</dd>
         <dt>Modules</dt><dd>${esc(r.modules.join(", ") || "—")}</dd><dt>Plateformes</dt><dd>${esc(r.plateformes.join(", ") || "—")}</dd></dl>
-      <p class="lib">${esc(r.tnr.explication)}${r.tnr.tests_sans_cle_xray.length ? ` Sans clé Xray : ${esc(r.tnr.tests_sans_cle_xray.join(", "))}.` : ""}</p>
+      ${liste("Écrans concernés", dim.utilisateur?.ecrans)}${liste("Actions utilisateur", dim.utilisateur?.actions)}${liste("Parcours traversés", dim.utilisateur?.parcours_traverses)}
+      ${liste("Fonctionnalités et exigences", dim.fonctionnel?.elements)}
+      ${liste("Impact indirect : tests BDD (navigation, parcours)", ind.tests_bdd)}
+      ${pot.tests_bdd?.length || pot.ecrans_voisins?.length ? `<details style="margin-top:8px"><summary class="lib">Impact potentiel (suggestions à examiner, hors TNR)</summary>
+        ${liste("Écrans voisins", pot.ecrans_voisins)}${liste("Tests BDD", pot.tests_bdd)}</details>` : ""}
+      <p class="lib" style="margin-top:10px">${esc(r.tnr.explication)}</p>
+      ${r.tnr.tests_bdd_manuels?.length ? `<p class="lib">Tests BDD concernés sans script (à exécuter à la main) : ${esc(r.tnr.tests_bdd_manuels.join(", "))}.</p>` : ""}
+      ${r.tnr.tests_xray_manuels?.length ? `<p class="lib">Tests Xray manuels concernés : ${esc(r.tnr.tests_xray_manuels.join(", "))}.</p>` : ""}
       ${r.tnr.possible ? `<code style="display:block;margin-bottom:8px">robot --include ${esc(r.tnr.include_tags.join(" --include "))} ${esc(r.tnr.target)}</code>
         <div class="btns"><button class="btn" id="tnr-dry">${ico("play")}Dry run de la TNR</button><button class="btn primaire" id="tnr-run">${ico("play")}Lancer la TNR ciblée</button></div>` : ""}`);
     const lancer = async dry => {

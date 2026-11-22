@@ -93,7 +93,8 @@ def test_impact_d_un_locator(avec_carte):
     assert imp["plateformes"] == ["android"]
     assert imp["modules"] == ["Virements"]
     assert imp["tnr"] == {"possible": True, "target": "tests/virement.robot", "include_tags": ["DEMO-1"],
-                          "tests_sans_cle_xray": [], "explication": imp["tnr"]["explication"]}
+                          "tests_sans_cle_xray": [], "explication": imp["tnr"]["explication"],
+                          "tests_bdd_manuels": [], "tests_xray_manuels": []}
 
 
 def test_impact_d_un_keyword_partage(depot):

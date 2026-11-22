@@ -871,9 +871,12 @@ def analyser_impact(g: Graphe, noeud_id: str) -> dict:
         plateformes = sorted(depart.plateformes)
     else:
         plateformes = sorted({p for t in tests_robot for p in g.noeuds[t].plateformes})
+    ext = _impact_etendu(g, noeud_id, sources | dependants)
+    tous_robot = sorted(set(tests_robot) | set(ext["indirect"]["tests_robot"]))  # direct + indirect, liens confirmés
     sans_cle = [t for t in tests_robot if not g.noeuds[t].proprietes.get("cles_xray")]
     cles = sorted({c for t in tests_robot for c in g.noeuds[t].proprietes.get("cles_xray") or []})
-    fichiers = sorted({g.noeuds[t].proprietes.get("fichier", "") for t in tests_robot})
+    tags_tnr = _tags_tnr(g, tous_robot)
+    fichiers = sorted({g.noeuds[t].proprietes.get("fichier", "") for t in tous_robot})
     cible = posixpath.commonpath(fichiers) if fichiers else ""  # chemins du projet : toujours « / »
     if cible in fichiers and len(fichiers) > 1:
         cible = posixpath.dirname(cible)
@@ -886,10 +889,70 @@ def analyser_impact(g: Graphe, noeud_id: str) -> dict:
         "keywords": [{"id": k, "nom": g.noeuds[k].libelle} for k in keywords],
         "modules": sorted(g.noeuds[m].libelle for m in modules),
         "plateformes": plateformes,
-        "tnr": {"possible": bool(cles), "target": cible or ".", "include_tags": cles,
+        # TNR, même sans Xray : 1. test Robot relié à un test BDD (son identifiant en tag), 2. relié à un test Xray (clé),
+        # 3. tests BDD concernés sans script (à exécuter à la main), 4. tests Xray manuels. Liens confirmés seulement.
+        "tnr": {"possible": bool(tags_tnr), "target": cible or ".", "include_tags": tags_tnr,
                 "tests_sans_cle_xray": [g.noeuds[t].libelle for t in sans_cle],
-                "explication": ("TNR ciblée : tests Robot qui portent les clés Xray concernées."
-                                if cles else "Aucun test concerné ne porte de clé Xray : TNR par tag impossible.")},
+                "tests_bdd_manuels": ext["tests_bdd_manuels"], "tests_xray_manuels": ext["tests_xray_manuels"],
+                "explication": (f"TNR ciblée : {len(tous_robot)} test(s) Robot concernés, par l'identifiant de leur test BDD ou leur clé Xray."
+                                if tags_tnr else "Aucun test automatisé concerné ; voir les tests à exécuter à la main.")},
+        "dimensions": ext["dimensions"], "direct": {"tests_robot": tests_robot}, "indirect": ext["indirect"],
+        "potentiel": ext["potentiel"],
+    }
+
+
+def _tags_tnr(g: Graphe, tests_robot: list[str]) -> list[str]:
+    """Tags qui sélectionnent ces tests Robot : identifiants des tests BDD qu'ils implémentent (lien confirmé), sinon
+    leurs clés Xray."""
+    tags = set()
+    for t in tests_robot:
+        bdd = [r.de.split(":", 1)[1] for r in g.entrants(t) if r.type == "implemente_par" and r.de.startswith("scenario:") and r.confirmee]
+        tags |= set(bdd) or set(g.noeuds[t].proprietes.get("cles_xray") or [])
+    return sorted(tags)
+
+
+def _impact_etendu(g: Graphe, noeud_id: str, touches: set) -> dict:
+    """Impact fonctionnel et utilisateur d'une modification. Direct : ce qui dépend techniquement de l'élément (calculé
+    par analyser_impact). Indirect (liens confirmés) : les tests BDD qui couvrent un écran touché ou qui vérifient un
+    parcours passant par lui, et leurs tests Robot. Potentiel (suggestions, jamais dans la TNR) : écrans qui mènent à
+    un écran touché ou en partent, et les tests BDD qui les couvrent ; liens probables ou non vérifiés."""
+    c = g.confirme()
+    ecrans = {i for i in touches | {noeud_id} if g.noeuds.get(i) and g.noeuds[i].type == "ecran"}
+    for i in list(touches):  # un locator ou un composant touché : son écran
+        if g.noeuds.get(i) and g.noeuds[i].type in ("locator", "composant", "action"):
+            ecrans |= {r.de for r in c.entrants(i) if r.type in ("contient", "permet") and g.noeuds[r.de].type == "ecran"}
+    parcours = {r.de for e in ecrans for r in c.entrants(e) if r.type == "contient" and g.noeuds[r.de].type == "parcours"}
+    actions = {r.vers for e in ecrans for r in c.sortants(e) if r.type == "permet"}
+    actions |= {r.de for e in ecrans for r in c.entrants(e) if r.type == "aboutit_a"}
+    transitions = [{"de": r.de, "vers": r.vers, "action": r.proprietes.get("action", "")}
+                   for r in c.relations.values() if r.type == "navigue_vers" and (r.de in ecrans or r.vers in ecrans)]
+    fonct = {r.de for e in ecrans for r in c.entrants(e) if g.noeuds[r.de].type in ("fonctionnalite", "user_story", "epic", "regle")}
+    fonct |= {r.vers for e in ecrans for r in c.sortants(e) if g.noeuds[r.vers].type in ("fonctionnalite", "user_story", "epic", "regle")}
+    fonct |= {r.de for p in parcours for r in c.entrants(p) if g.noeuds[r.de].type in ("fonctionnalite", "user_story", "epic")}
+    scen = {r.de for e in ecrans for r in c.entrants(e) if r.type == "couvre" and r.de.startswith("scenario:")}
+    scen |= {r.de for p in parcours for r in c.entrants(p) if r.type == "verifie" and r.de.startswith("scenario:")}
+    scen |= {r.de for f in fonct for r in c.entrants(f) if r.type == "verifie" and r.de.startswith("scenario:")}
+    robots = {r.vers for s in scen for r in c.sortants(s) if r.type == "implemente_par"}
+    voisins = {r.de for e in ecrans for r in g.entrants(e) if r.type == "navigue_vers"} | \
+              {r.vers for e in ecrans for r in g.sortants(e) if r.type == "navigue_vers"}
+    voisins -= ecrans
+    scen_pot = {r.de for v in voisins for r in g.entrants(v) if r.type == "couvre" and r.de.startswith("scenario:")} - scen
+    scen_pot |= {r.de for e in ecrans for r in g.entrants(e) if r.type == "couvre" and r.de.startswith("scenario:") and not r.confirmee}
+    xray_manuels = sorted({r.de for s in scen for r in c.entrants(s) if r.type == "formalise_par"
+                           and not g.noeuds[r.de].proprietes.get("automatise")})
+    lib = lambda ids: [{"id": i, "libelle": g.noeuds[i].libelle} for i in sorted(ids) if i in g.noeuds]  # noqa: E731
+    return {
+        "dimensions": {
+            "technique": {"elements": lib(i for i in touches if g.noeuds[i].type in ("locator", "keyword", "resource", "composant",
+                                                                                     "endpoint", "jdd", "variable", "module"))},
+            "fonctionnel": {"elements": lib(fonct), "parcours": lib(parcours)},
+            "utilisateur": {"ecrans": lib(ecrans), "actions": lib(actions), "transitions": transitions[:50], "parcours_traverses": lib(parcours)},
+        },
+        "indirect": {"tests_bdd": lib(scen), "tests_robot": sorted(robots)},
+        "potentiel": {"ecrans_voisins": lib(voisins), "tests_bdd": lib(scen_pot),
+                      "explication": "Suggestions à examiner : écrans qui mènent à l'élément ou en partent, liens non confirmés. Jamais dans la TNR."},
+        "tests_bdd_manuels": [x["libelle"] for x in lib(s for s in scen if not any(r.type == "implemente_par" for r in c.sortants(s)))],
+        "tests_xray_manuels": [g.noeuds[i].libelle for i in xray_manuels],
     }
 
 

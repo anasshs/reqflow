@@ -47,5 +47,5 @@ couverture / flux / impact sans Xray). Règle : un seul graphe, un seul moteur ;
 | 2 | Mise à jour ciblée (sources relues seulement si elles changent, empreinte sans captures), cohérence (assemblage refait, aucune relation orpheline), remplacement atomique, parcours incomplets (lot 1) | fait |
 | 3 | Perspectives graphiques (Fonctionnelle, Utilisateur, Technique, Tests & Qualité, Tout ; filtres provenance / confiance / statut ; « Voir dans » une autre perspective) | fait |
 | 4 | Couverture indépendante de Xray (couverture_atelier : parcours, écrans, fonctionnalités, tests BDD automatisés, liens confirmés seulement) | fait |
-| 5 | Flux (vérifié / exploratoire) et Impact (technique, fonctionnel, utilisateur ; TNR sans Xray) | à faire |
+| 5 | Flux vérifié / exploratoire, vue d'ensemble limitée ; Impact technique / fonctionnel / utilisateur, direct / indirect / potentiel ; TNR sans Xray (identifiant BDD, puis clé Xray) | fait |
 | 6 | Doublons sémantiques, qualité du graphe, sélection d'affichage | à faire |

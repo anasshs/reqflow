@@ -157,3 +157,41 @@ def test_couverture_ignore_les_liens_non_confirmes():
     g.relier("scenario:s", "ecran:e", "couvre", provenance="déduit", proprietes={"calcul": True})  # probable
     a = couverture.couverture_atelier(g)
     assert a["parcours"]["couverts"] == 0 and a["ecrans"]["couverts"] == 0
+
+
+def test_impact_navigation_et_tnr_sans_xray(projet, monkeypatch):
+    """Test 4 du cahier : un écran modifié ; tests qui le traversent (indirect), écrans voisins (potentiel, hors TNR),
+    TNR construite par l'identifiant BDD, sans Xray."""
+    from atelier.discovery import connaissance
+    from atelier.generation import bdd, parcours_bdd
+
+    acc, con, vide = _projet(projet, monkeypatch)
+    r = parcours_bdd.brouillon([acc["id"], con["id"]], titre="Aller à la connexion")
+    seul_accueil = bdd.creer("accueil_seul", "Accueil seul")
+    m = bdd.ajouter_etape("accueil_seul", seul_accueil["scenarios"][0]["id"], "Étant donné", "que je suis sur l'écran accueil")
+    m["scenarios"][0]["etapes"][0]["ecran"] = "accueil"
+    bdd.sauver(m)
+    (projet / "tests").mkdir()
+    (projet / "tests" / "c.robot").write_text(f"*** Test Cases ***\nAller à la connexion\n    [Tags]    {r['cle']}\n    Log    x\n", "utf-8")
+    connaissance.vider_cache()
+    g = connaissance.construire()
+    imp = connaissance.analyser_impact(g, "ecran:connexion")
+    assert [x["id"] for x in imp["indirect"]["tests_bdd"]] == [f"scenario:{r['cle']}"]
+    assert imp["tnr"]["possible"] and imp["tnr"]["include_tags"] == [r["cle"]]               # sans Xray
+    assert "ecran:accueil" in [x["id"] for x in imp["potentiel"]["ecrans_voisins"]]
+    assert "scenario:accueil_seul" in [x["id"] for x in imp["potentiel"]["tests_bdd"]]           # suggestion, hors TNR
+    assert [x["id"] for x in imp["dimensions"]["utilisateur"]["ecrans"]] == ["ecran:connexion"]
+    assert "action:accueil.lien_connexion" in [x["id"] for x in imp["dimensions"]["utilisateur"]["actions"]]
+
+
+def test_flux_verifie_et_exploratoire():
+    from atelier.domain.graphe import Graphe
+    from atelier.execution import flux
+
+    g = Graphe("t")
+    for i, t in [("test_robot:a", "test_robot"), ("keyword:k", "keyword"), ("keyword:p", "keyword")]:
+        g.noeud(i, t, i)
+    g.relier("test_robot:a", "keyword:k", "appelle")
+    g.relier("test_robot:a", "keyword:p", "appelle", provenance="déduit", proprietes={"calcul": True})
+    assert set(flux.vue(g, "test_robot:a").noeuds) == {"test_robot:a", "keyword:k"}
+    assert set(flux.vue(g, "test_robot:a", "exploratoire").noeuds) == {"test_robot:a", "keyword:k", "keyword:p"}

@@ -211,6 +211,13 @@ class Graphe:
             return True
         return self.sous_graphe(i for i, n in self.noeuds.items() if garde(n))
 
+    def confirme(self) -> "Graphe":
+        """Copie sans les liens qui ne sont pas confirmés (probables et non vérifiés) : base des calculs officiels."""
+        g = Graphe(self.nom)
+        g.noeuds = dict(self.noeuds)
+        g.relations = {i: r for i, r in self.relations.items() if r.confirmee}
+        return g
+
     def atteignables(self, depart: str, sens: str, types_relations: set[str] | None = None,
                      fiables: bool = True) -> set[str]:
         """Nœuds atteignables depuis `depart` en suivant les relations (sens « aval » ou « amont »)."""

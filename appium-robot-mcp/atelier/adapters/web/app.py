@@ -1457,8 +1457,8 @@ async def graphe_candidats(module: str = ""):
 
 
 @app.get("/api/graphes/flux")
-async def graphe_flux(cible: str = ""):
-    return await asyncio.to_thread(_call, espaces.vue_flux, cible)
+async def graphe_flux(cible: str = "", mode: str = "verifie", module: str = ""):
+    return await asyncio.to_thread(_call, espaces.vue_flux, cible, mode, module)
 
 
 @app.get("/api/graphes/noeud")

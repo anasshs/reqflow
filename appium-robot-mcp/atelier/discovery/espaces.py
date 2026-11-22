@@ -223,14 +223,15 @@ def candidats(module: str = "") -> list[dict]:
     return couverture.candidats(_graphe(), patrimoine_xray.charger_vue(), module)
 
 
-def vue_flux(cible: str = "") -> dict:
+def vue_flux(cible: str = "", mode: str = "verifie", module: str = "") -> dict:
     from atelier.execution import flux
 
     g = _graphe()
     tests = sorted(({"id": i, "libelle": n.libelle} for i, n in g.noeuds.items()
-                    if n.type == "test_robot" or (n.type == "test" and n.proprietes.get("automatise"))),
+                    if n.type == "test_robot" or n.type == "scenario" or (n.type == "test" and n.proprietes.get("automatise"))),
                    key=lambda x: x["id"])
-    return {**_limiter(flux.vue(g, cible)), "cibles": tests}
+    return {**_limiter(flux.vue(g, cible, mode, module)), "cibles": tests, "mode": mode,
+            "modules": sorted({n.libelle for n in g.noeuds.values() if n.type == "module"})}
 
 
 def impact(noeud: str) -> dict:
@@ -359,7 +360,7 @@ def _vue_graphe(nom: str, cible: str = "", module: str = "") -> Graphe:
     if nom == "couverture":
         return couverture.vue(g, module)
     if nom == "flux":
-        return flux.vue(g, cible if cible in g.noeuds else "")
+        return flux.vue(g, cible if cible in g.noeuds else "", "exploratoire", ensemble=True)
     if nom == "connaissance":
         return g
     raise KeyError(f"Graphe inconnu : {nom}")
