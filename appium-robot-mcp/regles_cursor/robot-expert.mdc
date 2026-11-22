@@ -36,6 +36,13 @@ bloquant empêche l'approbation. Avant d'écrire : studio_socle (keywords, locat
   · AppiumLibrary : Wait Until Element Is Visible, Wait Until Page Contains Element, Wait Until Page Does Not Contain
     (spinner) ; timeouts par paramètre, pas de pause.
 - Une action = son attente puis son assertion (l'écran suivant est affiché, le message attendu est visible).
+- L'assertion doit pouvoir ÉCHOUER si l'action n'a rien fait. « visible » (Browser) veut dire « non masqué », pas « à
+  l'écran » : un titre déjà présent sur la page avant le clic ne prouve pas la navigation. Lien vers une section de la même
+  page (ancre « /page#agenda ») : vérifier l'adresse (Get Url    contains    \#agenda ; « # » en début de cellule est un
+  commentaire Robot, l'échapper), puis le titre. Autre page : vérifier l'adresse ou un titre propre à la page d'arrivée.
+- L'assertion finale vérifie le RÉSULTAT ATTENDU du parcours (discovery_parcours_cadre), pas un élément voisin : « la page
+  Tarifs affiche ses offres » se vérifie sur les offres (nombre de cartes, nom de chaque offre), pas sur un sélecteur de
+  devise. Texte attendu : le titre exact ou une phrase qui n'appartient qu'à cette page, jamais un mot isolé (« plan »).
 
 ## Par bibliothèque
 - Browser (web, défaut de l'atelier) : New Browser / New Context / New Page dans le socle ; sélecteurs uniques

@@ -140,37 +140,67 @@ def test_outil_run_tests_garde_la_donnee_reelle(demo):
 
 
 def test_routes_web_verifier_passe_par_la_file_d_execution(demo, monkeypatch, tmp_path):
-    """« Vérifier » met un run de tests précis dans la file de l'Execution Center ; la file l'exécute (moteur, --test)."""
-    import json
-    import time
-
+    """« Vérifier » met un run de tests précis dans la file de l'Execution Center ; le job de la file l'exécute (moteur,
+    --test). Le job est intercepté puis exécuté ici par la même fonction que la file : le fil de la file, partagé entre
+    les tests, rendait ce test instable."""
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
     from web_app_loader import charger_app_web, module_web
 
-    from atelier.execution import historique
+    from atelier.execution import centre
     from atelier.generation import studio
 
-    from atelier.execution import centre
-
-    fin = time.time() + 120  # file d'exécution partagée entre les tests : attendre qu'un run d'un test précédent soit fini
-    while (centre.FILE.en_cours or centre.FILE.attente()) and time.time() < fin:
-        time.sleep(0.5)
     monkeypatch.setattr(module_web(), "CONFIG_PATH", tmp_path / "atelier.json")
     c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
     c.get("/plateforme")
+    jobs = []
+    monkeypatch.setattr(centre.FILE, "ajouter", lambda params, priorite="Normal", run_id="", campagne="", nom="", retry=False:
+                        jobs.append({"id": run_id, "params": params, "contexte": {}, "campagne": campagne, "priorite": priorite,
+                                     "retry": retry}) or jobs[-1])
     studio.entrer_en_revue(SUITE, "cursor")
-    v = c.get("/api/tests-automatises").json()
-    assert v["compte"]["À valider"] == 7
+    assert c.get("/api/tests-automatises").json()["compte"]["À valider"] == 7
     r = c.post("/api/tests-automatises/verifier", json={"tests": [INVALIDE]}).json()
     assert r["revue"]["verification"], r
-    fin = time.time() + 120
-    lire = lambda: json.loads((historique.dossier(r["run_id"]) / "bilan.json").read_text("utf-8"))         if (historique.dossier(r["run_id"]) / "bilan.json").exists() else {}  # noqa: E731
-    while time.time() < fin and not lire().get("bilan"):
-        time.sleep(0.5)
-    bilan = lire()["bilan"]
-    assert bilan["resultat"]["passes"] == 1 and bilan["resultat"]["echecs"] == 0, bilan
+    job = jobs[0]
+    assert job["params"]["tests"] == [INVALIDE] and job["params"]["target"] == SUITE and job["priorite"] == "High"
+    bilans = []
+    monkeypatch.setattr(module_web(), "emit", lambda ev: bilans.append(ev["bilan"]) if ev.get("type") == "run_bilan" else None)
+    module_web()._executer_job(job)  # ce que fait la file : moteur avec tests (l'outil MCP run_robot n'a pas ce paramètre)
+    assert bilans[0]["resultat"]["passes"] == 1 and bilans[0]["resultat"]["echecs"] == 0, bilans
     m = c.post("/api/tests-automatises/maintenance", json={"tests": [INVALIDE], "consigne": "x"}).json()
     assert m["titre"] == "Maintenance : 1 test(s)"
     assert c.post("/api/tests-automatises/inconnue", json={"tests": [INVALIDE]}).status_code == 404
     assert c.post("/api/tests-automatises/valider", json={"tests": []}).status_code == 400
+
+
+def test_run_reel_reconnu_meme_quand_les_keywords_ecrivent_au_journal(projet):
+    """Browser écrit des messages dans le journal de chaque keyword : un keyword exécuté reste un keyword exécuté
+    (régression : le test de Cursor, réellement passé, était compté comme un dry run)."""
+    from atelier.execution.robot import derniers_resultats, run_robot
+
+    (projet / "tests").mkdir(exist_ok=True)
+    (projet / "tests" / "t.robot").write_text("*** Test Cases ***\nT\n    Log    bonjour\n    Should Be Equal    1    1\n", "utf-8")
+    run_robot("tests/t.robot", dry_run=True, output_dir="results/dry", xray_mode="aucun")
+    assert derniers_resultats("results")["tests/t.robot::T"]["reel"] is False
+    assert "tests/t.robot::T" not in derniers_resultats("results", reels=True)
+    run_robot("tests/t.robot", output_dir="results/reel", xray_mode="aucun")
+    assert derniers_resultats("results", reels=True)["tests/t.robot::T"]["statut"] == "PASS"
+
+
+def test_controle_donnees_ignore_un_test_de_consultation(projet):
+    """Contrôle « donnees » de la revue : un test qui ne lit aucune donnée (consultation) n'a pas besoin de jeu ; un test
+    qui lit ${JDD} sans jeu associé reste signalé. « Initialiser Le Test » pose &{JDD} : ce n'est pas une lecture."""
+    from atelier.generation import studio
+
+    (projet / "tests").mkdir(exist_ok=True)
+    (projet / "resources").mkdir(exist_ok=True)
+    (projet / "resources" / "socle.resource").write_text(
+        "*** Keywords ***\nInitialiser Le Test\n    [Documentation]    x\n    [Arguments]    &{jdd}\n    Set Test Variable    &{JDD}    &{jdd}\n\n"
+        "je consulte la page\n    [Documentation]    x\n    Log    page\n\nje saisis le nom\n    [Documentation]    x\n    Log    ${JDD}[nom]\n", "utf-8")
+    (projet / "tests" / "consultation.robot").write_text(
+        "*** Settings ***\nResource    ../resources/socle.resource\n\n*** Test Cases ***\nConsulter\n    Initialiser Le Test\n    je consulte la page\n", "utf-8")
+    (projet / "tests" / "saisie.robot").write_text(
+        "*** Settings ***\nResource    ../resources/socle.resource\n\n*** Test Cases ***\nSaisir\n    Initialiser Le Test\n    je saisis le nom\n", "utf-8")
+    donnees = lambda f: next(c for c in studio.controles_script(f) if c["code"] == "donnees")  # noqa: E731
+    assert donnees("tests/consultation.robot")["gravite"] == "ok"
+    assert donnees("tests/saisie.robot") == {"code": "donnees", "gravite": "basse", "message": "Utilise ${JDD} sans jeu de données : Saisir"}

@@ -329,11 +329,14 @@ def derniers_resultats(dossier: str = "results", reels: bool = False) -> dict:
 def _execute(element) -> bool:
     """Au moins un keyword réellement exécuté. Un dry run ne lance aucun keyword de bibliothèque (tous « NOT RUN ») :
     un test « PASS » en dry run n'a vérifié ni écran ni assertion."""
-    for x in [*(getattr(element, "setup", None) and [element.setup] or []), *(getattr(element, "body", None) or [])]:
-        if getattr(x, "type", "") not in ("KEYWORD", "SETUP", "TEARDOWN", "IF/ELSE ROOT", "IF", "ELSE IF", "ELSE", "FOR", "ITERATION",
-                                          "TRY/EXCEPT ROOT", "TRY", "EXCEPT", "FINALLY", "WHILE", "GROUP"):
+    structure = ("KEYWORD", "SETUP", "TEARDOWN", "IF/ELSE ROOT", "IF", "ELSE IF", "ELSE", "FOR", "ITERATION",
+                 "TRY/EXCEPT ROOT", "TRY", "EXCEPT", "FINALLY", "WHILE", "GROUP")
+    setup = getattr(element, "setup", None)
+    for x in [*([setup] if setup and getattr(setup, "name", "") else []), *(getattr(element, "body", None) or [])]:
+        if getattr(x, "type", "") not in structure:
             continue
-        if getattr(x, "body", None):
+        # un keyword de bibliothèque peut avoir un corps de messages de log : seuls les enfants structurels comptent
+        if any(getattr(y, "type", "") in structure for y in (getattr(x, "body", None) or [])):
             if _execute(x):
                 return True
         elif getattr(x, "type", "") in ("KEYWORD", "SETUP", "TEARDOWN") and getattr(x, "status", "NOT RUN") != "NOT RUN":

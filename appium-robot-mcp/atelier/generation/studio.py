@@ -368,6 +368,30 @@ def style_robot(fichier: str, contenu: str) -> list[dict]:
     return out
 
 
+def _lit_le_jdd(inv: dict, test: dict) -> bool:
+    """Le test, ou un keyword qu'il appelle (transitivement), lit-il ${JDD} ? Lu dans le corps des keywords."""
+    from atelier.execution.depot_robot import fermeture_keywords
+
+    lignes_de: dict = {}
+    for kid in fermeture_keywords(inv, test.get("keywords") or []):
+        k = inv["keywords"].get(kid)
+        if not k:
+            continue
+        if k["fichier"] not in lignes_de:
+            try:
+                lignes_de[k["fichier"]] = projet.safe_path(k["fichier"]).read_text("utf-8").splitlines()
+            except OSError:
+                lignes_de[k["fichier"]] = []
+        corps = []
+        for l in lignes_de[k["fichier"]][k.get("ligne", 1):]:
+            if l.strip() and not l[:1].isspace():
+                break
+            corps.append(l)
+        if re.search(r"\$\{JDD\}", "\n".join(corps)):  # lecture (${JDD}[cle]) ; &{JDD} est la pose par Initialiser Le Test
+            return True
+    return False
+
+
 def controles_script(fichier: str) -> list[dict]:
     from atelier.execution.depot_robot import fermeture_keywords
     from atelier.generation import editeur
@@ -434,8 +458,10 @@ def controles_script(fichier: str) -> list[dict]:
     utilises = {f"{e}.{c}" for k in kws if k in inv["keywords"] for e, c in inv["keywords"][k].get("locators") or []}
     fragiles = sorted(u for u in utilises if (fiab.get(u) or {}).get("etat") in ("Fragile", "Obsolete", "Missing"))
     add("locators", "moyenne" if fragiles else "ok", f"Locators fragiles / obsolètes : {', '.join(fragiles)}" if fragiles else "Locators stables ou fiables.")
-    sans_jdd = [t["nom"] for t in tests if not t.get("jdd")]
-    add("donnees", "basse" if sans_jdd else "ok", f"Sans jeu de données : {', '.join(sans_jdd)}" if sans_jdd else "Données via JDD.")
+    # un test de consultation n'a besoin d'aucune donnée : seul un test qui lit ${JDD} sans jeu associé est un écart
+    sans_jdd = [t["nom"] for t in tests if not t.get("jdd") and _lit_le_jdd(inv, t)]
+    add("donnees", "basse" if sans_jdd else "ok", f"Utilise ${{JDD}} sans jeu de données : {', '.join(sans_jdd)}" if sans_jdd
+        else "Données via JDD." if any(t.get("jdd") for t in tests) else "Aucune donnée utilisée (consultation).")
     from atelier.generation import structure_depot
 
     importes = [r for r in (inv["fichiers"].get(fichier) or {}).get("resources", []) if r in inv["fichiers"]]
