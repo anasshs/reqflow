@@ -2784,6 +2784,22 @@ async def chemin_utilisateur():
     return await asyncio.to_thread(_call, chemin.etat)
 
 
+@app.get("/api/accueil")
+async def accueil_application():
+    """Accueil de l'application : six étapes de qualification, prochaine action, parcours fonctionnels, informations, activités."""
+    from atelier.intelligence import qualification
+
+    return await asyncio.to_thread(_call, qualification.accueil)
+
+
+@app.get("/api/activites")
+async def activites_recentes(limite: int = 100):
+    """Activités récentes du projet (scénarios, scripts, modèles, Discovery, runs, releases), la plus récente d'abord."""
+    from atelier.intelligence import qualification
+
+    return await asyncio.to_thread(_call, qualification.activites, max(1, min(limite, 500)))
+
+
 @app.get("/api/livrables")
 async def livrables_produits():
     """Livrables réellement produits (Discovery, modèle MBT, BDD, automatisations, campagnes, anomalies) : volumes et date."""

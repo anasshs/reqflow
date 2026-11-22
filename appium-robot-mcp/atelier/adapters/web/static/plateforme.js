@@ -22,6 +22,7 @@ async function api(url, opt = {}) {
 
 /* icônes (traits simples, couleur courante) */
 const ICONES = {
+  grille: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z", activite: "M3 12h4l3-8 4 16 3-8h4",
   dashboard: "M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z",
   graphe: "M4 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M16 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M10 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 6h8M7 8l4 8M17 8l-4 8",
   bdd: "M5 4h10l4 4v12H5zM9 10h6M9 14h6M9 18h3",
@@ -206,29 +207,41 @@ const vide = (titre, texte = "") => `<div class="vide"><b>${esc(titre)}</b>${tex
 /* ======================================================================== application */
 const Atelier = {
   ctx: {}, ecrans: {}, ecranCourant: null, ws: null, abonnes: new Map(), plateforme: "", env: "",
-  ONGLETS: [["dashboard", "Dashboard", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"], ["parcours", "Suivi des fonctionnalités", "historique"],
+  ONGLETS: [["dashboard", "Accueil", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"], ["parcours", "Suivi des fonctionnalités", "historique"],
     ["conception", "Test Design", "assertion"], ["bdd", "Tests BDD", "bdd"], ["studio", "Automation Studio", "editeur"], ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
-    ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]],
-  /* barre latérale : [adresse, libellé, icône], par groupe. Seules des destinations qui existent ; « parametres » couvre
-     les rubriques de Paramètres qui n'ont pas leur propre entrée */
-  NAV: [["", [["dashboard", "Accueil", "maison"]]],
-    ["Plateforme", [["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "cible"], ["parcours", "Suivi des fonctionnalités", "historique"],
-      ["conception", "Test Design", "assertion"], ["comportement", "Analyse comportementale", "branche"], ["bdd", "Tests BDD", "bdd"], ["studio", "Automation Studio", "editeur"], ["tests", "Tests automatisés", "check"],
-      ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
-      ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]]],
-    ["Ressources", [["graphe", "Knowledge Graph", "graphe"], ["editeur", "Éditeur de code", "fichier"],
-      ["discovery/donnees", "Jeux de données", "donnee"]]],
-    ["Paramètres", [["parametres/projets", "Projets", "dossier"], ["parametres/applications", "Applications", "mobile"],
-      ["parametres/connexions", "Connexions", "lien"], ["ia", "Pilotage IA", "ia"], ["parametres", "Paramètres", "parametres"]]]],
+    ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"], ["pilotage", "Tableaux de bord", "dashboard"],
+    ["activites", "Activités", "activite"], ["comportement", "Analyse comportementale", "branche"], ["tests", "Tests automatisés", "check"],
+    ["graphe", "Knowledge Graph", "graphe"], ["ia", "Pilotage IA", "ia"], ["rapports", "Rapports", "rapports"], ["operations", "Suivi des runs", "execution"],
+    ["editeur", "Éditeur de code", "fichier"]],
+  /* barre latérale, par groupe : l'Accueil, les six étapes du parcours de qualification, les référentiels, le pilotage,
+     les paramètres. Seules des destinations qui existent ; tout écran reste joignable (sous l'étape à laquelle il sert).
+     Entrée : [adresse, libellé, icône, {num : étape du parcours de qualification, sl : sous-libellé, sous : écrans de
+     l'entrée, affichés sous elle quand on y est}]. */
+  NAV: [["", [["dashboard", "Accueil", "maison", {sl: "Vue d'ensemble"}]]],
+    ["Applications", [["parametres/applications", "Applications", "grille"]]],
+    ["Parcours de qualification", [
+      ["discovery", "Comprendre l'application", "recherche", {num: 1, sous: [["discovery", "Discovery"], ["intelligence", "Application Intelligence"]]}],
+      ["comportement", "Comprendre le comportement", "branche", {num: 2, sous: [["comportement", "Analyse comportementale (MBT)"]]}],
+      ["conception", "Concevoir les tests", "bdd", {num: 3, sous: [["conception", "Test Design"], ["bdd", "Tests BDD"], ["parcours", "Suivi des fonctionnalités"]]}],
+      ["studio", "Automatiser les tests", "editeur", {num: 4, sous: [["studio", "Automation Studio"], ["tests", "Tests automatisés"], ["editeur", "Éditeur de code"]]}],
+      ["centre", "Exécuter et qualifier", "execution", {num: 5, sous: [["centre", "Execution Center"], ["echecs", "Failure Analysis"]]}],
+      ["releases", "Évolutions & non-régression", "calque", {num: 6, sous: [["releases", "Releases"]]}]]],
+    ["Référentiels", [["graphe", "Knowledge Graph", "graphe"], ["bdd", "Scénarios BDD", "bdd"], ["studio/keywords", "Composants & Keywords", "editeur"],
+      ["discovery/donnees", "Données de test", "donnee"]]],
+    ["Pilotage", [["pilotage", "Tableaux de bord", "dashboard", {sous: [["pilotage", "Pilotage"], ["gouvernance", "Quality Governance"], ["operations", "Suivi des runs"]]}],
+      ["rapports", "Rapports", "rapports"], ["activites", "Activités", "historique"]]],
+    ["", [["parametres", "Paramètres", "parametres", {sous: [["parametres/configuration", "Configuration"], ["parametres/projets", "Projets"],
+      ["parametres/connexions", "Connexions"], ["ia", "Pilotage IA"]]}]]]],
   /* écrans de travail rattachés à un module, quand ils n'ont pas leur propre entrée dans la barre latérale */
-  PARENT: {editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance"},
+  PARENT: {editeur: "studio", execution: "centre"},
 
   /* entrées qui n'ont de sens qu'avec Jira (suivi d'une fonctionnalité par ses US) : cachées sinon */
   SI_JIRA: ["parcours"],
   /* le chemin de l'utilisateur : chaque écran qui en fait partie affiche le repère d'étape */
-  CHEMIN: [["decouvrir", "Découvrir", "#discovery/cadrage"], ["concevoir", "Concevoir le test", "#bdd"], ["automatiser", "Automatiser", "#studio/direct"],
-    ["executer", "Exécuter", "#centre/lancer"]],
-  ETAPE_DE: {discovery: "decouvrir", conception: "concevoir", comportement: "concevoir", bdd: "concevoir", studio: "automatiser", editeur: "automatiser", centre: "executer", execution: "executer"},
+  CHEMIN: [["comprendre", "Application", "#discovery/cadrage"], ["comportement", "Comportement", "#comportement"], ["concevoir", "Conception", "#bdd"],
+    ["automatiser", "Automatisation", "#studio/direct"], ["executer", "Exécution", "#centre/lancer"], ["evoluer", "Évolutions", "#releases"]],
+  ETAPE_DE: {discovery: "comprendre", intelligence: "comprendre", comportement: "comportement", conception: "concevoir", bdd: "concevoir", parcours: "concevoir",
+    studio: "automatiser", editeur: "automatiser", tests: "automatiser", centre: "executer", execution: "executer", echecs: "executer", releases: "evoluer"},
   integrations() { return this.ctx.integrations || {xray: true, jira: true}; },
 
   /* repère « étape n/4 » : où l'on est sur le chemin, les autres étapes à un clic, et la prochaine action */
@@ -267,8 +280,12 @@ const Atelier = {
 
   async demarrer() {
     this._theme();
-    $("#onglets").innerHTML = this.NAV.map(([groupe, entrees]) => (groupe ? `<div class="groupe">${esc(groupe)}</div>` : "")
-      + entrees.map(([adresse, lib, i]) => `<button data-ecran="${adresse}" title="${esc(lib)}"${this.SI_JIRA.includes(adresse) ? " data-si-jira" : ""}>${ico(i)}<span>${esc(lib)}</span></button>`).join("")).join("");
+    const jira = a => this.SI_JIRA.includes(a) ? " data-si-jira" : "";
+    const sous = (de, [adresse, lib]) => `<button class="nav-sous" data-ecran="${adresse}" data-de="${de}" title="${esc(lib)}"${jira(adresse)} hidden><span>${esc(lib)}</span></button>`;
+    $("#onglets").innerHTML = this.NAV.map(([groupe, entrees], g) => (groupe ? `<div class="groupe">${esc(groupe)}</div>` : g ? '<div class="groupe vide"></div>' : "")
+      + entrees.map(([adresse, lib, i, o = {}]) => `<button data-ecran="${adresse}" title="${esc(lib)}"${jira(adresse)}${o.sous ? ` data-etape="${adresse}"` : ""}>`
+        + `${o.num ? `<b class="nav-num" aria-hidden="true">${o.num}</b>` : ico(i)}<span>${esc(lib)}${o.sl ? `<small>${esc(o.sl)}</small>` : ""}</span></button>`
+        + (o.sous || []).map(s => sous(adresse, s)).join("")).join("")).join("");
     $("#onglets").onclick = e => { const b = e.target.closest("[data-ecran]"); if (b) location.hash = b.dataset.ecran === "parametres" ? "parametres/configuration" : b.dataset.ecran; };
     this._navigation();
     $("#b-alertes").innerHTML = ico("cloche");
@@ -316,10 +333,17 @@ const Atelier = {
     let actif = null;
     for (const b of boutons) {
       const a = b.dataset.ecran;
-      if ((adresse === a || adresse.startsWith(a + "/") || (a.includes("/") && adresse.startsWith(a))) && (!actif || a.length > actif.dataset.ecran.length)) actif = b;
+      if ((adresse === a || adresse.startsWith(a + "/") || (a.includes("/") && adresse.startsWith(a)))
+          && (!actif || a.length > actif.dataset.ecran.length || (a.length === actif.dataset.ecran.length && b.dataset.de && !actif.dataset.de))) actif = b;
     }
     actif = actif || boutons.find(b => b.dataset.ecran === (this.PARENT[nom] || nom));
-    boutons.forEach(b => b === actif ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+    /* l'entrée d'une étape ouvre ses écrans dessous ; l'écran affiché y est marqué */
+    const ouverte = actif ? actif.dataset.de || actif.dataset.etape || "" : "";
+    boutons.forEach(b => {
+      b === actif ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current");
+      if (b.dataset.de) b.hidden = b.dataset.de !== ouverte || (b.hasAttribute("data-si-jira") && !this.integrations().jira);
+      b.classList.toggle("ouverte", !!b.dataset.etape && b.dataset.etape === ouverte);
+    });
   },
 
   /* Réduite aux icônes : par choix (mémorisé), ou d'office sur un écran de travail dense quand la fenêtre est étroite.
@@ -386,7 +410,7 @@ const Atelier = {
     if (!this.plateforme || !plats.includes(this.plateforme)) this.plateforme = c.session || c.flux?.platform || plats[0];
     if (!this.env || !(c.environnements || []).includes(this.env)) this.env = (c.environnements || [])[0] || "";
     const integ = this.integrations();
-    $$("#onglets [data-si-jira]").forEach(b => { b.hidden = !integ.jira; });
+    $$("#onglets [data-si-jira]:not(.nav-sous)").forEach(b => { b.hidden = !integ.jira; });
     const xray = !c.xray?.configure ? ["", "Non configuré"] : c.xray.connecte === true ? ["ok", "Connecté"]
       : c.xray.connecte === false ? ["ko", "Erreur"] : ["warn", "Configuré"];
     $("#ctx").innerHTML = `
