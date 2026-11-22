@@ -229,7 +229,7 @@ async def ws_endpoint(ws: WebSocket):
 async def events(req: Request):
     """Reçoit les événements du listener Robot et du MCP (Cursor, Claude Desktop)."""
     ev = await req.json()
-    if ev.get("source") == "mcp":
+    if ev.get("source") == "mcp" and ev.get("type") != "mcp_connexion":  # se connecter n'est pas agir
         state["dernier_mcp"] = time.time()
     if ev.get("type") == "mcp_outil":  # activité de l'agent, gardée pour la vue « Cursor en direct » et pour la revue
         ev = {**ev, "heure": time.strftime("%H:%M:%S"), **_expliquer_appel(ev)}
@@ -248,12 +248,47 @@ async def events(req: Request):
         state.setdefault("activite_mcp", collections.deque(maxlen=300)).append(ev)
     if ev.get("type") == "session" and ev.get("etat") == "ouverte":
         state["flux"] = {"platform": ev.get("platform"), "udid": ev.get("udid") or None}
+    if ev.get("type") == "mcp_connexion":  # quel agent est connecté au MCP (poignée de main, flux, fin de session)
+        _noter_connexion(ev)
+        ev = {**ev, "connexions": _connexions()}
     emit(ev)
     _call_silencieux(sessions_discovery.observer_evenement, ev)  # MCP / listener : timeline de la session Discovery
     return {"ok": True}
 
 
 _DOCS_OUTILS = {f.__name__: f.__doc__ or "" for f in outils.OUTILS}
+
+
+INACTIF_APRES_S = 600  # sans requête ni flux ouvert depuis 10 min : session gardée, agent « inactif »
+
+
+def _noter_connexion(ev: dict):
+    sessions = state.setdefault("connexions_mcp", {})
+    s = sessions.setdefault(ev.get("session", ""), {"depuis": time.time(), "flux": 0})
+    s.update(client=ev.get("client", ""), agent=ev.get("agent", ""), vu=time.time())
+    if ev["etat"] == "connecte":
+        s.update(depuis=time.time(), ferme=False, flux=0)
+        state.setdefault("agent", {})["client"] = ev.get("client", "")
+    elif ev["etat"] == "flux":
+        s["flux"] = max(0, s.get("flux", 0) + (1 if ev.get("ouvert") else -1))
+    elif ev["etat"] == "deconnecte":
+        s["ferme"] = True
+
+
+def _connexions() -> list[dict]:
+    """Un agent par client déclaré (le plus récent l'emporte) : connecté (flux ouvert, ou requête depuis moins de 10 min),
+    inactif (session ouverte, silencieuse depuis), déconnecté (session fermée)."""
+    par_agent: dict = {}
+    for sid, s in (state.get("connexions_mcp") or {}).items():
+        age = time.time() - s.get("vu", 0)
+        etat = "deconnecte" if s.get("ferme") else "connecte" if s.get("flux", 0) > 0 or age < INACTIF_APRES_S else "inactif"
+        x = {"agent": s.get("agent") or "Agent MCP", "client": s.get("client", ""), "etat": etat, "session": sid,
+             "depuis": time.strftime("%H:%M", time.localtime(s.get("depuis", 0))), "vu_il_y_a_s": int(age)}
+        cle = x["client"].split(" ")[0] or sid
+        if cle not in par_agent or s.get("vu", 0) >= par_agent[cle][0]:
+            par_agent[cle] = (s.get("vu", 0), x)
+    rang = {"connecte": 0, "inactif": 1, "deconnecte": 2}
+    return sorted((x for _, x in par_agent.values()), key=lambda x: (rang[x["etat"]], x["vu_il_y_a_s"]))
 
 
 def _regles_outils() -> dict:
@@ -511,7 +546,7 @@ def agents_ia_etat():
     from atelier.integrations import agents_ia
 
     age = time.time() - state["dernier_mcp"] if state["dernier_mcp"] else None
-    return {**_call(agents_ia.etat, PORT), "derniere_activite_s": int(age) if age is not None else None}
+    return {**_call(agents_ia.etat, PORT), "derniere_activite_s": int(age) if age is not None else None, "connexions": _connexions()}
 
 
 @app.post("/api/agents-ia/installer")
@@ -765,7 +800,7 @@ async def mcp_activite(depuis: int = 0):
     return {"actif": actif, "dernier": state.get("dernier_mcp"), "evenements": l[-max(1, min(300, depuis or 150)):],
             "agent": state.get("agent") or {}, "regles_toujours": r["toujours"], "regles_version": r["version"],
             "controle": state.get("controle_agent", "actif"), "attente": _attente_courante(),
-            "flux": state["flux"], "image_agent": {"t": im["t"], "outil": im["outil"]} if im else None}
+            "flux": state["flux"], "image_agent": {"t": im["t"], "outil": im["outil"]} if im else None, "connexions": _connexions()}
 
 
 @app.get("/api/frame.png")

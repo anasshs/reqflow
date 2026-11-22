@@ -622,6 +622,7 @@ body.nav-reduite .ca-pastille .ca-point { position: absolute; top: 7px; right: 9
 .ca-pastille[hidden] { display: none; }
 .ca-point { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
 .ca-point.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ca-point.connecte { background: var(--ok); } /* agent connecté au MCP, sans action depuis 2 min */
 .ca-der { color: var(--nav-muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .console-agent { position: fixed; left: calc(var(--nav-w) + 16px); bottom: 16px; z-index: 47; width: 500px; height: 560px; min-width: 340px; min-height: 260px;
   max-width: 98vw; max-height: 94vh; resize: both; overflow: hidden; box-shadow: 0 18px 50px #0007; display: flex; flex-direction: column; }

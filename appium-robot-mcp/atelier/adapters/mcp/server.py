@@ -249,6 +249,85 @@ def _prises_locales(port: int) -> list:
     return prises
 
 
+class SuiviConnexions:
+    """Couche ASGI devant le serveur MCP HTTP : quel agent est connecté, et depuis quand.
+
+    Le protocole ne dit qui est le client qu'à la poignée de main (initialize : clientInfo « claude-code 2.1 »,
+    « cursor-vscode 1.9 »…) ; la session porte ensuite l'en-tête Mcp-Session-Id. On publie, sans jamais bloquer une
+    requête : « connecte » (initialize), « flux » (flux d'événements GET ouvert / fermé : le client attend le serveur),
+    « vu » (une requête, au plus une fois par minute) et « deconnecte » (DELETE de la session). L'interface en déduit
+    « Claude Code connecté », même s'il n'a encore appelé aucun outil."""
+
+    def __init__(self, app, publier=None):
+        self.app = app
+        self.publier = publier or (lambda ev: evenements.publier(ev))
+        self.sessions: dict[str, dict] = {}  # Mcp-Session-Id -> {client, vu}
+
+    def _signaler(self, etat: str, sid: str, client: str, **extra):
+        from atelier.domain import agent_mcp
+
+        try:
+            self.publier({"type": "mcp_connexion", "etat": etat, "session": sid[:12], "client": client,
+                          "agent": agent_mcp.libelle_de(client) or "Agent MCP", **extra})
+        except Exception:  # noqa: BLE001 — le suivi ne fait jamais échouer une requête
+            pass
+
+    async def __call__(self, scope, receive, send):
+        import json
+        import time
+
+        if scope.get("type") != "http":
+            return await self.app(scope, receive, send)
+        entetes = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
+        sid, methode = entetes.get("mcp-session-id", ""), scope.get("method", "")
+        connu = self.sessions.get(sid)
+        if methode == "POST":
+            morceaux, encore = [], True
+            while encore:
+                m = await receive()
+                morceaux.append(m.get("body", b""))
+                encore = m.get("more_body", False)
+            corps, rendu = b"".join(morceaux), {"fait": False}
+
+            async def rejouer():
+                if not rendu["fait"]:
+                    rendu["fait"] = True
+                    return {"type": "http.request", "body": corps, "more_body": False}
+                return await receive()
+            client, nouvelle = "", {"sid": ""}
+            try:
+                msg = json.loads(corps or b"{}")
+                if isinstance(msg, dict) and msg.get("method") == "initialize":
+                    info = (msg.get("params") or {}).get("clientInfo") or {}
+                    client = f"{info.get('name', '')} {info.get('version', '')}".strip()
+            except ValueError:
+                pass
+
+            async def envoyer(m):
+                if client and m.get("type") == "http.response.start":
+                    nouvelle["sid"] = next((v.decode("latin-1") for k, v in m.get("headers") or [] if k.decode("latin-1").lower() == "mcp-session-id"), "")
+                await send(m)
+            await self.app(scope, rejouer, envoyer)
+            if client:
+                s = nouvelle["sid"] or sid
+                self.sessions[s] = {"client": client, "vu": time.time()}
+                self._signaler("connecte", s, client)
+            elif connu and time.time() - connu["vu"] > 60:
+                connu["vu"] = time.time()
+                self._signaler("vu", sid, connu["client"])
+            return
+        if methode == "GET" and connu:  # flux d'événements du serveur : ouvert tant que le client écoute
+            self._signaler("flux", sid, connu["client"], ouvert=True)
+            try:
+                return await self.app(scope, receive, send)
+            finally:
+                self._signaler("flux", sid, connu["client"], ouvert=False)
+        if methode == "DELETE" and connu:
+            self.sessions.pop(sid, None)
+            self._signaler("deconnecte", sid, connu["client"])
+        return await self.app(scope, receive, send)
+
+
 def _servir_http(port: int):
     """Serveur MCP en HTTP streamable sur http://localhost:<port>/mcp (127.0.0.1 et ::1 seulement)."""
     import asyncio
@@ -260,7 +339,7 @@ def _servir_http(port: int):
     except RuntimeError as e:  # message clair dans le journal, que l'atelier montre à l'utilisateur
         print(f"ÉCHEC : {e}", flush=True)
         raise SystemExit(1) from None
-    config = uvicorn.Config(mcp.streamable_http_app(), host="127.0.0.1", port=port, log_level=mcp.settings.log_level.lower())
+    config = uvicorn.Config(SuiviConnexions(mcp.streamable_http_app()), host="127.0.0.1", port=port, log_level=mcp.settings.log_level.lower())
     print(f"Serveur MCP de l'atelier : http://localhost:{port}/mcp ({', '.join(s.getsockname()[0] for s in prises)})", flush=True)
     asyncio.run(uvicorn.Server(config).serve(sockets=prises))
 

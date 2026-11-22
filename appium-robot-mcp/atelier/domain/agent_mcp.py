@@ -31,6 +31,11 @@ def _identifier(nom_client: str) -> tuple[str, str]:
     return next(((cle, lib) for motif, cle, lib in CONNUS if motif in n), DEFAUT)
 
 
+def libelle_de(nom_client: str) -> str:
+    """Libellé d'un client déclaré (« claude-code 2.1.3 » → « Claude Code ») : console de l'agent, état de connexion."""
+    return _identifier(nom_client)[1] if (nom_client or "").strip() else ""
+
+
 def cle() -> str:
     """« cursor », « claude_code » ou « claude » (Claude Desktop)."""
     return _identifier(_courant.get())[0]
