@@ -71,6 +71,12 @@ def test_regenerer_un_test_deja_ecrit(projet, monkeypatch):
     r = bdd.ecrire_generation(bdd.charger("authentification"), g, remplacer=True)
     assert r["ecrit"] == g["chemin"] and r["sauvegarde"].startswith("studio/remplaces/")
     assert "Log    ancien" in pj.lire_fichier(r["sauvegarde"]) and "*** Keywords ***" not in pj.lire_fichier(g["chemin"])
+    # suite d'un parcours métier qui porte déjà ce test (mode ajout refusé) : remplacer=True la régénère quand même
+    ajout = {**g, "ajout": True, "ajout_refuse": "Le test « Authentification » est déjà dans la suite : rien n'est ajouté."}
+    with pytest.raises(FileExistsError, match="déjà dans la suite"):
+        bdd.ecrire_generation(bdd.charger("authentification"), ajout)
+    r = bdd.ecrire_generation(bdd.charger("authentification"), ajout, remplacer=True)
+    assert r["ecrit"] == g["chemin"] and r["sauvegarde"].startswith("studio/remplaces/")
     pj.ecrire_fichier(g["chemin"], "*** Test Cases ***\nAutre Test\n    [Tags]    autre\n    Log    x\n", True)
     with pytest.raises(FileExistsError, match="contient d'autres tests"):
         bdd.ecrire_generation(bdd.charger("authentification"), g, remplacer=True)

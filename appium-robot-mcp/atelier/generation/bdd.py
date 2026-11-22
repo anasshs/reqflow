@@ -477,8 +477,8 @@ def controles(m: dict) -> list[dict]:
         if donnees:  # sans jeu de données, ${JDD} n'existe pas au run : « Variable '${JDD}' not found »
             c("haute", "jdd_requis", f"{len(donnees)} étape(s) utilisent des données (« {donnees[0]} »…) mais aucun jeu de données "
               "n'est associé : l'associer (Jeu de données, à gauche) avant de valider et de générer le script.")
-        else:
-            c("moyenne", "jdd_absent", "Aucun jeu de données associé (bloc INITIALISATION).")
+        else:  # aucune étape ne lit de donnée (consultation) : rien ne manque, c'est une information
+            c("info", "jdd_absent", "Aucun jeu de données associé : aucune étape n'en utilise (consultation).")
     nv = sum(1 for s in m.get("scenarios", []) for e in s["etapes"] if not e.get("valide"))
     if nv:
         c("info", "non_valide", f"{nv} étape(s) non validée(s).")
@@ -528,8 +528,9 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
         tags = list(dict.fromkeys([cle_xray or m["cle"]] + (["negatif"] if s["type"] == "negatif" else [])
                                   + [t for t in [*(m.get("tags") or []), *(s.get("tags") or [])] if t not in TAGS_PROVENANCE]))
         lignes_tests += ["", s["nom"], f"    [Tags]    {'    '.join(tags)}"]
-        if m.get("jdd"):
-            lignes_tests.append(f"    Initialiser Le Test    &{{JDD_{m['jdd'].upper()}}}")
+        # bloc INITIALISATION de chaque test (convention) : avec le jeu de données s'il y en a un, sans argument sinon
+        # (test de consultation) : sans lui, le navigateur du socle (headless, contexte) n'est pas ouvert proprement
+        lignes_tests.append(f"    Initialiser Le Test    &{{JDD_{m['jdd'].upper()}}}" if m.get("jdd") else "    Initialiser Le Test")
         for e in s["etapes"]:
             prefixe = MOTS_EN[e["type"]]
             x = rapprochement[e["id"]]
@@ -544,11 +545,10 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
             if x.get("confirme"):
                 confirmes.add(e["texte"])
             lignes_tests.append(f"    {prefixe} {e['texte']}")
-    if m.get("jdd"):
-        if "initialiserletest" in kws:
-            resources.add(kws["initialiserletest"]["fichier"])
-        else:
-            a_creer.insert(0, "Initialiser Le Test")
+    if "initialiserletest" in kws:
+        resources.add(kws["initialiserletest"]["fichier"])
+    else:
+        a_creer.insert(0, "Initialiser Le Test")
     from atelier.generation import suites_parcours
 
     # la suite du parcours métier du test (existante : ajout), sinon tests/{application}/{module}/{scenario}.robot (réglable)
@@ -610,7 +610,11 @@ def ecrire_generation(m: dict, g: dict, remplacer: bool = False, origine: str = 
                          "associé : le script échouerait au run (« Variable '${JDD}' not found »). Associer un jeu de données au "
                          "test BDD (Tests BDD › le test › Jeu de données), puis régénérer.")
     cible = g["chemin"]
-    if g.get("ajout_refuse"):
+    if g.get("ajout_refuse") and remplacer:
+        # suite du parcours qui porte déjà ce test : la régénérer en entier à son chemin ; le contrôle ci-dessous ne la
+        # remplace que si elle ne contient que ce test (sinon refus, comme avant)
+        g = {**generer_robot(m, None, cible), "structure": g.get("structure")}
+    elif g.get("ajout_refuse"):
         raise FileExistsError(g["ajout_refuse"])
     existe = projet.safe_path(cible).exists()
     g["sauvegarde"] = ""

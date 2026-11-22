@@ -30,7 +30,9 @@ bloquant empêche l'approbation. Avant d'écrire : studio_socle (keywords, locat
 ## Synchronisation (la première cause de tests instables)
 - Jamais Sleep. Attendre un état observable :
   · Browser : les keywords attendent déjà (auto-wait) ; Wait For Elements State <loc> visible|enabled|detached,
-    Wait For Load State, assertions intégrées (Get Text <loc> == …, Get Element Count <loc> == 1) ;
+    Wait For Load State, assertions intégrées (Get Text <loc> == …, Get Element Count <loc> == 1). Une assertion
+    intégrée ne relance que 1 s par défaut : après une navigation (site Next.js, page lourde), attendre l'état avec un
+    délai explicite : Wait For Condition    Url    $=    /fr/tarifs    timeout=15s (même syntaxe que Get Url) ;
   · SeleniumLibrary : Wait Until Element Is Visible / Enabled, Wait Until Page Contains Element, timeouts explicites,
     jamais Set Selenium Speed ni attente implicite longue ;
   · AppiumLibrary : Wait Until Element Is Visible, Wait Until Page Contains Element, Wait Until Page Does Not Contain

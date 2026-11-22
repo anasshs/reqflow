@@ -99,6 +99,7 @@ def test_controles_qualite(projet):
     assert codes["assertion_manquante"]["gravite"] == "haute"
     assert codes["donnee_litterale"]["gravite"] == "moyenne"
     assert {"ecran_non_relie", "branche_negative", "jdd_absent", "non_valide"} <= set(codes)
+    assert codes["jdd_absent"]["gravite"] == "info"  # aucune étape ne lit de donnée : rien ne manque
     with pytest.raises(ValueError):
         bdd.valider("DEMO-4")
 
@@ -173,3 +174,13 @@ def test_donnee_litterale_et_apostrophes(texte, litteral):
     from atelier.generation import bdd
 
     assert bool(bdd.LITTERAL.search(texte)) is litteral
+
+
+def test_generation_sans_jeu_de_donnees_garde_le_bloc_initialisation(depot):
+    """Test de consultation (aucune donnée) : le bloc INITIALISATION reste, sans argument (convention de l'atelier)."""
+    from atelier.generation import bdd
+
+    m = bdd.creer("DEMO-18", depuis_xray={"gherkin": GHERKIN})
+    g = bdd.generer_robot(m)
+    assert "\n    [Tags]    DEMO-18\n    Initialiser Le Test\n    Given Se Connecter" in g["contenu"]
+    assert "Initialiser Le Test" not in g["keywords_a_creer"]  # celui du socle est importé
