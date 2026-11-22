@@ -11,7 +11,7 @@
   const lire = z => api(`/api/pilotage/${z}${qs() ? "?" + qs() : ""}`);
   /* Icônes : une par bloc (discrète, dans le titre) et une par indicateur. La couleur dit la nature de la mesure, pas une
      alerte : un indicateur de défaut (bugs, tests instables, éléments sans…) reste neutre tant que sa valeur est nulle. */
-  const ICO_BLOC = {"Ton chemin": "historique", "Application Discovery": "recherche", "Vue globale": "dashboard", "État de préparation de la livraison": "bouclier", "Alertes prioritaires": "cloche",
+  const ICO_BLOC = {"Ton chemin": "historique", "Livrables": "calque", "Application Discovery": "recherche", "Vue globale": "dashboard", "État de préparation de la livraison": "bouclier", "Alertes prioritaires": "cloche",
     "Couverture des exigences": "cible", "Application Discovery et rapprochement avec Jira": "recherche", "Qualité de la conception": "assertion",
     "Couverture par sprint": "rapports", "Résultats des campagnes": "execution", "Bugs et anomalies": "alerte",
     "Responsabilités et charge de travail": "equipe", "TNR au fil de l'eau": "rejouer", "Aide à la décision : que faire maintenant ?": "ia"};
@@ -245,6 +245,33 @@
         : "Ni Jira ni Xray : le chemin se fait entièrement dans l'atelier. Les brancher plus tard ajoute exigences, couverture et publication (Paramètres › Connexions)."}</p></div>`);
   }
 
+  /* Livrables : ce qui a réellement été produit (volumes réels, créé / validé / en attente, date de mise à jour). Indépendant
+     des étapes du chemin ; jamais de pourcentage ni de volume cible : le nombre de livrables n'est pas une mesure de qualité. */
+  const quand = iso => {
+    if (!iso) return "jamais";
+    const d = new Date(iso);
+    if (isNaN(d)) return esc(iso);
+    const h = d.toLocaleTimeString("fr-FR", {hour: "2-digit", minute: "2-digit"}), j = new Date(); j.setHours(0, 0, 0, 0);
+    const ecart = Math.round((j - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5);
+    return ecart === 0 ? `Aujourd'hui à ${h}` : ecart === 1 ? `Hier à ${h}` : `${d.toLocaleDateString("fr-FR")} à ${h}`;
+  };
+  async function livrables(j) {
+    const l = await api("/api/livrables").catch(e => ({erreur: e.message}));
+    if (j !== jeton) return;
+    if (l.erreur) return poser("pz-livrables", `${titre("Livrables")}<div class="corps-carte">${vide("Indisponible", esc(l.erreur))}</div>`);
+    const app = l.application && l.application.nom ? l.application.nom : "";
+    const carte = c => `<div class="liv-carte">
+        <a class="liv-tete" href="${esc(c.lien)}" title="Ouvrir ${esc(c.titre)}">${ico(c.icone)}<b>${esc(c.titre)}</b>
+          <span class="liv-portee" title="${c.portee === "application" ? "Application active seulement" : "Tout le projet"}">${c.portee === "application" ? esc(app || "application") : "projet"}</span></a>
+        ${c.disponible ? `<div class="liv-chiffres">${c.indicateurs.map(i => `<a href="${esc(i.lien)}" class="${i.valeur ? esc(i.ton) : ""}" title="${esc(i.definition)}">
+            <span class="v">${i.valeur}</span><span class="l">${esc(i.libelle)}</span></a>`).join("")}</div>
+          ${c.note ? `<div class="lib liv-note">${esc(c.note)}</div>` : ""}`
+        : `<div class="lib liv-note" title="${esc(c.raison || "")}">Indisponible : ${esc(c.raison || "source illisible")}</div>`}
+        <div class="liv-pied lib">MAJ : ${quand(c.maj)}</div></div>`;
+    poser("pz-livrables", `${titre("Livrables")}<div class="corps-carte"><div class="liv-grille">${l.cartes.map(carte).join("")}</div>
+      <p class="lib" style="margin:8px 0 0">Ce qui a réellement été produit, en volumes. Chaque chiffre ouvre les éléments correspondants ; un volume n'est pas une mesure de qualité.</p></div>`);
+  }
+
   Atelier.enregistrer("dashboard", {
     async afficher(z, sous) {
       zone = z; jeton = Symbol("pilotage");
@@ -255,6 +282,7 @@
           <p>État du projet <b>${esc(c.projet || "—")}</b>${appli ? ` · application ${esc(appli.nom)}` : ""}. Chaque indicateur vient d'une source réelle.</p></div>
           <div class="btns"><a class="btn primaire" href="#discovery/cadrage/nouveau" title="Nommer un parcours de l'application, puis y naviguer : l'atelier enregistre les écrans">${ico("plus")}Découvrir un parcours</a></div></header>
         <section class="carte s12" id="pz-chemin">${titre("Ton chemin")}${attente()}</section>
+        <section class="carte s12" id="pz-livrables">${titre("Livrables")}${attente("Lecture des livrables…")}</section>
         <section class="carte s12" ${ji ? "" : "hidden"}><div class="corps-carte" id="pz-filtres">${vide("Chargement…")}</div></section>
         <section class="carte s12" id="pz-synthese" ${ji ? "" : "hidden"}>${titre("Vue globale")}${attente()}</section>
         <section class="carte s5" id="pz-preparation" ${jira ? "" : "hidden"}>${titre("État de préparation de la livraison")}${attente()}</section>
@@ -279,6 +307,7 @@
       };
       poserFiltres();
       chemin(j);
+      livrables(j);
       charger();
       releases();
       comportement();

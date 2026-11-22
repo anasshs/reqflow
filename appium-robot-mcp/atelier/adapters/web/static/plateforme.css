@@ -970,3 +970,21 @@ body.fenetre-graphe > #ecran { grid-row: 1 / -1; }
 .rel-bout.rel-ecran { border-left-color: var(--ok); }
 .rel-composant { border-left-color: var(--accent); }
 .rel-exigence, .rel-parcours { border-left-color: var(--ok); }
+
+/* Accueil : livrables (volumes réels par module) */
+.liv-grille { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.liv-carte { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; background: var(--surface); }
+.liv-tete { display: flex; align-items: center; gap: 6px; color: var(--ink); text-decoration: none; font-size: 13px; min-width: 0; }
+.liv-tete .i { width: 16px; height: 16px; color: var(--accent-ink); flex: none; }
+.liv-tete b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.liv-portee { margin-left: auto; font-size: 10.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.liv-chiffres { display: grid; grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); gap: 4px; }
+.liv-chiffres a { display: flex; flex-direction: column; text-decoration: none; color: var(--ink); border-radius: 6px; padding: 2px 4px; }
+.liv-chiffres a:hover { background: var(--surface-3); }
+.liv-chiffres .v { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.liv-chiffres .l { font-size: 10.5px; color: var(--muted); }
+.liv-chiffres a.ok .v { color: var(--ok); } .liv-chiffres a.warn .v { color: var(--warn); } .liv-chiffres a.ko .v { color: var(--ko); }
+.liv-note { font-size: 11px; }
+.liv-pied { margin-top: auto; border-top: 1px solid var(--line); padding-top: 6px; font-size: 10.5px; }
+@media (max-width: 1300px) { .liv-grille { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .liv-grille { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

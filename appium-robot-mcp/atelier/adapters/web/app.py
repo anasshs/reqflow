@@ -2784,6 +2784,14 @@ async def chemin_utilisateur():
     return await asyncio.to_thread(_call, chemin.etat)
 
 
+@app.get("/api/livrables")
+async def livrables_produits():
+    """Livrables réellement produits (Discovery, modèle MBT, BDD, automatisations, campagnes, anomalies) : volumes et date."""
+    from atelier.intelligence import livrables
+
+    return await asyncio.to_thread(_call, livrables.livrables)
+
+
 def _utilisateur() -> str:
     """Compte du poste (l'interface est locale, sans authentification) : affiché tel quel, jamais inventé."""
     import getpass
