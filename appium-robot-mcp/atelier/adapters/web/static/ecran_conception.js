@@ -382,6 +382,7 @@
           ${ia.fournisseur === "cursor" ? `<button class="btn" id="pu-dbl-cursor" title="Cursor compare chaque cas aux tests existants en comprenant le texte (résultat opposé = pas un doublon) et justifie ; vous décidez">Doublons : demander à Cursor</button>`
             : ia.appel_direct ? `<button class="btn" id="pu-dbl-ia" title="L'IA ${esc(ia.fournisseur)} compare chaque cas aux tests existants (texte masqué) et justifie ; vous décidez">Doublons : avis de l'IA</button>` : ""}
           <button class="btn" id="pu-dbl" title="Comparer chaque cas aux tests Xray existants par ressemblance des mots (sans compréhension du texte) : réutiliser, faire évoluer ou créer">${AvecIA(ia) ? "Doublons par règles (secours)" : "Vérifier les doublons"}</button>
+          <a class="btn" href="#comportement/user_story/${encodeURIComponent("user_story:" + cle)}" title="Mode avancé : modèle comportemental de l'US (états, transitions, conditions), chemins et scénarios BDD qui manquent">${ico("branche")}Analyser le comportement</a>
           <button class="btn danger" id="pu-nt">Non testable</button></div></div>
       <div class="sous-onglets" role="tablist">${ONGLETS.map(([id, lib]) => `<button role="tab" data-pu-onglet="${id}" aria-selected="${ONGLET_US === id}">${esc(lib)}</button>`).join("")}</div>
       <div class="corps-carte">
@@ -520,9 +521,16 @@
       ["testabilite_deposer_proposition"]);
     $("#pu-cat").onclick = () => {
       const m = modale("Proposer par catégories", `<p class="lib">Un cas par critère, règle, champ, message, transition ou rôle trouvé ; chaque cas dit sa source, sa confiance et ce qui manque.</p>
-        ${Object.entries(CAT).map(([k, l]) => `<label class="lib" style="display:block"><input type="checkbox" data-cat="${k}" checked> ${esc(l)}</label>`).join("")}`,
+        ${Object.entries(CAT).map(([k, l]) => `<label class="lib" style="display:block"><input type="checkbox" data-cat="${k}" checked> ${esc(l)}</label>`).join("")}
+        <div class="champ" style="margin-top:10px"><label for="pc-mbt" title="Écrans, actions et transitions connus de l'US explorés en arrière-plan : chemins alternatifs et négatifs non couverts ajoutés, scénarios existants réutilisables signalés">Analyse comportementale</label>
+          <select class="in" id="pc-mbt"><option value="auto">Automatique</option><option value="desactive">Désactivée</option></select></div>`,
         `<button class="btn primaire" id="pc-ok">Proposer</button>`);
-      $("#pc-ok", m.el).onclick = () => { m.fermer(); ok(act("proposer-categories", {categories: $$("[data-cat]", m.el).filter(x => x.checked).map(x => x.dataset.cat)}), "Cas proposés par catégorie (doublons vérifiés)."); };
+      $("#pc-ok", m.el).onclick = () => { m.fermer(); const mbt = $("#pc-mbt", m.el).value;
+        ok(act("proposer-categories", {categories: $$("[data-cat]", m.el).filter(x => x.checked).map(x => x.dataset.cat), comportement: mbt}).then(r => {
+          const c = r.comportement || {};
+          if (c.active) toast(`Analyse comportementale : ${c.cas || 0} cas ajouté(s)${(c.reutilisables || []).length ? `, ${c.reutilisables.length} scénario(s) existant(s) réutilisable(s)` : ""}${(c.manquant || []).length ? `, ${c.manquant.length} information(s) manquante(s)` : ""}.`);
+          return r;
+        }), "Cas proposés par catégorie (doublons vérifiés)."); };
     };
     $("#pu-dbl").onclick = () => ok(act("doublons"), "Doublons vérifiés.");
     if ($("#pu-dbl-ia")) $("#pu-dbl-ia").onclick = () => ok(act("doublons-ia"), "Doublons jugés par l'IA : verdict et justification sur chaque cas.");

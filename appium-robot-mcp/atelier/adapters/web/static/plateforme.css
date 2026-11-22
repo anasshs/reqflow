@@ -896,3 +896,20 @@ tr.sel td { background: var(--accent-soft); }
 body.fenetre-graphe { grid-template-columns: 0 minmax(0, 1fr); }
 body.fenetre-graphe .nav-lat, body.fenetre-graphe .entete, body.fenetre-graphe #fil-chemin, body.fenetre-graphe #alerte-projet { display: none; }
 body.fenetre-graphe > #ecran { grid-row: 1 / -1; }
+
+/* Analyse comportementale (Model-Based Test Designer) */
+.g-mbt { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.mbt-tete { padding: 12px 14px 0; }
+.mbt-titre { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.mbt-titre h1 { margin: 0; font-size: 17px; font-weight: 650; }
+.mbt-titre p { margin: 2px 0 8px; max-width: 760px; }
+.mbt-tete .sous-onglets { padding: 0; }
+.mbt-corps { padding: 14px; overflow: auto; min-height: 0; }
+.mbt-2col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.mbt-modele { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; height: 100%; min-height: 480px; }
+.mbt-zone { position: relative; border: 1px solid var(--line); border-radius: 10px; min-height: 460px; overflow: hidden; }
+.mbt-cote { overflow-y: auto; }
+.mbt-strat { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
+.mbt-chemins td { vertical-align: top; }
+.mbt-chemins summary { cursor: pointer; }
+@media (max-width: 900px) { .mbt-2col, .mbt-modele { grid-template-columns: 1fr; } }

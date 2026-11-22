@@ -246,7 +246,14 @@ def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = ""
     if focus and focus not in v.noeuds:  # filtre manuels / automatisés qui l'excluait : on garde le test demandé
         v = couverture.vue_test(g, focus)
     v = v.filtrer(recherche=recherche)
-    return {**_limiter(v), "indicateurs": couverture.indicateurs(g, pat), "instantane": patrimoine_xray.etat(),
+    ind = couverture.indicateurs(g, pat)
+    try:  # indicateurs comportementaux (MBT) : parcours identifiés et couverts, transitions et conditions non vérifiées
+        from atelier.intelligence import mbt
+
+        ind["comportement"] = mbt.couverture_globale()
+    except Exception:  # noqa: BLE001
+        ind["comportement"] = {"modeles": 0}
+    return {**_limiter(v), "indicateurs": ind, "instantane": patrimoine_xray.etat(),
             "modules": sorted({n.libelle for n in g.noeuds.values() if n.type == "module"}), "module": module, "focus": focus}
 
 
@@ -321,7 +328,15 @@ def vue_flux(cible: str = "", mode: str = "verifie", module: str = "") -> dict:
 
 
 def impact(noeud: str) -> dict:
-    return connaissance.analyser_impact(_graphe(), noeud)
+    g = _graphe()
+    r = connaissance.analyser_impact(g, noeud)
+    try:  # comportement : modèles, transitions et scénarios générés concernés (MBT)
+        from atelier.intelligence import mbt
+
+        r["comportement"] = mbt.impact_element(g, noeud)
+    except Exception:  # noqa: BLE001
+        r["comportement"] = {"modeles": [], "transitions": 0, "scenarios": []}
+    return r
 
 
 # =========================================================================== détail

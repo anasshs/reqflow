@@ -19,19 +19,20 @@ const ICONE_TYPE = {ecran: "ecran", module: "dossier", fonctionnalite: "conditio
   role: "graphe", epic: "bdd", user_story: "bdd", bug: "x", test: "assertion", test_plan: "rapports", test_set: "rapports",
   test_execution: "execution", test_robot: "play", suite: "fichier", keyword: "editeur", locator: "cible", resource: "fichier",
   jdd: "donnee", requete: "donnee", variable: "donnee", bibliotheque: "graphe", plateforme: "mobile", application: "mobile", version: "historique",
-  endpoint: "api", entite: "donnee", composant: "graphe", feature: "bdd", scenario: "bdd", step: "check", resultat: "assertion"};
+  endpoint: "api", entite: "donnee", composant: "graphe", feature: "bdd", scenario: "bdd", step: "check", resultat: "assertion",
+  modele_comportement: "graphe", etat: "cible", transition: "branche", condition: "condition", chemin: "branche"};
 const court = (t, n = 26) => (t && t.length > n ? t.slice(0, n - 1) + "…" : t || "");
 
 /* Familles de nœuds (maquette « Graphe de connaissances ») : titre de région, types, disposition et place
    autour de l'élément central. La couleur vient de la variable CSS --f-<famille> (thèmes sombre et clair). */
 const FAMILLES = [
-  {id: "exigences", titre: "EXIGENCES & FONCTIONNALITÉS", nom: "Exigence / Fonctionnalité", types: ["epic", "user_story", "bug", "fonctionnalite", "regle", "role"], dispo: "colonne", place: "NO"},
-  {id: "parcours", titre: "PARCOURS & ÉCRANS", nom: "Parcours / Écran", types: ["parcours", "module", "ecran"], dispo: "flux", place: "N"},
+  {id: "exigences", titre: "EXIGENCES & FONCTIONNALITÉS", nom: "Exigence / Fonctionnalité", types: ["epic", "user_story", "bug", "fonctionnalite", "regle", "role", "condition"], dispo: "colonne", place: "NO"},
+  {id: "parcours", titre: "PARCOURS & ÉCRANS", nom: "Parcours / Écran", types: ["parcours", "module", "ecran", "modele_comportement", "etat", "transition"], dispo: "flux", place: "N"},
   {id: "application", titre: "APPLICATION", nom: "Application / Plateforme", types: ["application", "plateforme", "environnement", "version"], dispo: "colonne", place: "NE"},
   {id: "actions", titre: "ACTIONS UTILISATEUR", nom: "Action / Keyword", types: ["action", "keyword", "step"], dispo: "colonne", place: "O"},
   {id: "donnees", titre: "DONNÉES DE TEST", nom: "Donnée de test", types: ["jdd", "requete", "variable", "entite"], dispo: "colonne", place: "E"},
   {id: "locators", titre: "LOCATORS & COMPOSANTS", nom: "Locator / Composant", types: ["locator", "composant", "bibliotheque", "resource", "endpoint"], dispo: "colonne", place: "E"},
-  {id: "tests", titre: "TESTS & PLANS (XRAY)", nom: "Test / Plan", types: ["test", "test_plan", "test_set", "test_robot", "suite", "feature", "scenario"], dispo: "grille", place: "SO"},
+  {id: "tests", titre: "TESTS & PLANS (XRAY)", nom: "Test / Plan", types: ["test", "test_plan", "test_set", "test_robot", "suite", "feature", "scenario", "chemin"], dispo: "grille", place: "SO"},
   {id: "execution", titre: "EXÉCUTION", nom: "Exécution", types: ["test_execution"], dispo: "colonne", place: "S"},
   {id: "resultats", titre: "RÉSULTATS & PREUVES", nom: "Résultat", types: ["resultat"], dispo: "grille", place: "E"},
 ];

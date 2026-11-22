@@ -536,6 +536,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     bug: "Anomalies", composant: "Composants", endpoint: "Endpoints", suite: "Suites"};
   const ICONE_TYPE_DETAIL = {module: "rapports", parcours: "branche", scenario: "bdd", ecran: "ecran", action: "play", fonctionnalite: "assertion",
     locator: "cible", keyword: "editeur", test: "assertion", test_robot: "play", jdd: "donnee", variable: "donnee", user_story: "bdd", epic: "bdd"};
+  const PERIMETRES_MBT = ["application", "module", "fonctionnalite", "parcours", "user_story", "ecran", "regle"];
   const dateCourte = t => t ? String(t).slice(0, 10).split("-").reverse().join("/") : "";
   const detail = (titre, html) => { $("#kg-titre-detail").textContent = titre; $("#kg-detail").innerHTML = html; lierSelections($("#kg-detail")); };
 
@@ -582,9 +583,19 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       <p class="lib">Couvert = vérifié par un test BDD (lien confirmé) ; automatisé = un test Robot porte l'identifiant du test BDD.</p>`;
   }
 
+  /* couverture comportementale (MBT) : parcours identifiés et couverts, transitions et conditions non vérifiées */
+  function blocComportement(c) {
+    if (!c || !c.modeles) return "";
+    return `<h3 class="lib" style="margin:12px 0 4px">COMPORTEMENT (${c.modeles} modèle${c.modeles > 1 ? "s" : ""})</h3>
+      <table><tr><td>Parcours identifiés</td><td>${c.parcours_identifies}</td></tr><tr><td>Parcours couverts</td><td>${c.parcours_couverts}</td></tr>
+        <tr><td>Transitions couvertes</td><td>${c.transitions_couvertes}/${c.transitions}</td></tr><tr><td>Transitions non couvertes</td><td>${c.transitions_non_couvertes}</td></tr>
+        <tr><td>Conditions non vérifiées</td><td>${c.conditions_non_verifiees}</td></tr><tr><td>Scénarios manquants</td><td>${c.scenarios_manquants}</td></tr></table>
+      <p class="lib">${(c.modeles_detail || []).map(m => `<a class="lien" href="#comportement/m/${encodeURIComponent(m.id)}">${esc(m.nom)}</a>`).join(" · ")}</p>`;
+  }
+
   function indicateurs(ind) {
     if (!ind) return;
-    if (!ind.disponible) return detail("Couverture", `${blocAtelier(ind.atelier)}<p class="lib" style="margin-top:10px">${esc(ind.raison)}</p><a class="btn petit" href="#rapports/patrimoine">Importer le patrimoine Xray</a>`);
+    if (!ind.disponible) return detail("Couverture", `${blocAtelier(ind.atelier)}${blocComportement(ind.comportement)}<p class="lib" style="margin-top:10px">${esc(ind.raison)}</p><a class="btn petit" href="#rapports/patrimoine">Importer le patrimoine Xray</a>`);
     const g = ind.global;
     detail("Couverture", `<div style="display:flex;gap:14px;align-items:center;margin-bottom:10px"><div class="anneau" style="--p:${Math.round((g.couverture_automatisee || 0) * 100)}"><span>${pct(g.couverture_automatisee)}</span></div>
       <div><b>${g.automatises}/${g.tests}</b> tests automatisés<br><span class="lib">${g.exigences_couvertes}/${g.exigences} exigences couvertes · ${g.exigences_couvertes_auto} en automatique</span></div></div>
@@ -596,6 +607,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       <h3 class="lib" style="margin:12px 0 4px">TESTS REDONDANTS (CANDIDATS)</h3>
       <ul class="liste">${ind.redondances.map(r => `<li><button class="lien" data-sel="test:${esc(r.tests[0])}">${esc(r.tests[0])}</button>≈<button class="lien" data-sel="test:${esc(r.tests[1])}">${esc(r.tests[1])}</button>${r.similarite !== null && r.similarite !== undefined ? `<span class="compte">${pct(r.similarite)}</span>` : ""}${PastilleJugement(r.jugement, {redondants: "ko", distincts: "ok"})}</li>`).join("") || "<li class='lib'>Aucun</li>"}</ul>
       ${ind.atelier && ind.atelier.tests_bdd.total ? `<div style="margin-top:12px">${blocAtelier(ind.atelier)}</div>` : ""}
+      ${blocComportement(ind.comportement)}
       <details style="margin-top:10px"><summary class="lib">Définitions utilisées</summary><ul class="lib">${Object.values(ind.definitions).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>`);
     $$("#kg-detail [data-module]").forEach(b => b.onclick = () => {
       S.params.module = b.dataset.module;
@@ -658,6 +670,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
         ${p.fichier ? `<a class="btn petit" href="#editeur/${encodeURIComponent(p.fichier)}">${ico("fichier")}Ouvrir le fichier</a>` : ""}
         ${n.type === "locator" && p.valeur ? `<button class="btn petit" id="kd-tester">${ico("mobile")}Tester sur le device</button>` : ""}
         ${n.type === "test" ? `<a class="btn petit" href="#bdd/${encodeURIComponent(n.id.slice(5))}">${ico("bdd")}Scénario BDD</a>` : ""}
+        ${PERIMETRES_MBT.includes(n.type) ? `<a class="btn petit" href="#comportement/${n.type}/${encodeURIComponent(n.id)}" title="Modèle comportemental de cet élément (états, transitions, conditions), chemins et scénarios BDD qui manquent">${ico("branche")}Analyser le comportement</a>` : ""}
+        ${n.type === "modele_comportement" ? `<a class="btn petit" href="#comportement/m/${encodeURIComponent(n.id.split(":")[1])}">${ico("branche")}Ouvrir le modèle</a>` : ""}
         ${n.type === "scenario" ? `<a class="btn petit" href="#bdd/${encodeURIComponent(n.id.slice(9))}">${ico("bdd")}Ouvrir le test BDD</a>` : ""}
         ${p.completude === "déclaré" ? `<a class="btn petit" href="#discovery/cadrage">Dérouler le parcours</a>` : ""}
         <button class="btn petit" id="kd-relier">${ico("lien")}Relier</button>
@@ -855,6 +869,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       ${liste("Impact indirect : tests BDD (navigation, parcours)", ind.tests_bdd)}
       ${pot.tests_bdd?.length || pot.ecrans_voisins?.length ? `<details style="margin-top:8px"><summary class="lib">Impact potentiel (suggestions à examiner, hors TNR)</summary>
         ${liste("Écrans voisins", pot.ecrans_voisins)}${liste("Tests BDD", pot.tests_bdd)}</details>` : ""}
+      ${r.comportement?.modeles?.length ? `<h3 class="lib" style="margin:10px 0 4px">COMPORTEMENT</h3><p class="lib">${r.comportement.transitions} transition(s) dans
+        ${r.comportement.modeles.map(m => `<a class="lien" href="#comportement/m/${encodeURIComponent(m.id)}">${esc(m.nom)}</a>`).join(", ")}${r.comportement.scenarios.length
+        ? ` · scénarios générés concernés : ${r.comportement.scenarios.map(s => `<a class="lien" href="#bdd/${encodeURIComponent(s)}">${esc(s)}</a>`).join(", ")}` : ""}</p>` : ""}
       <p class="lib" style="margin-top:10px">${esc(r.tnr.explication)}</p>
       ${r.tnr.tests_bdd_manuels?.length ? `<p class="lib">Tests BDD concernés sans script (à exécuter à la main) : ${esc(r.tnr.tests_bdd_manuels.join(", "))}.</p>` : ""}
       ${r.tnr.tests_xray_manuels?.length ? `<p class="lib">Tests Xray manuels concernés : ${esc(r.tnr.tests_xray_manuels.join(", "))}.</p>` : ""}

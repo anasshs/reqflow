@@ -26,6 +26,7 @@ PAR_MODULE = {
     "assistant": ("impact.assistant", "Impact Analysis", "auto"),
     "echecs": ("echecs.analyse", "Defect Analysis", "auto"),
     "agent": ("agent.integre", "Agent intégré", "avance"),
+    "mbt": ("conception.mbt", "Test Design", "avance"),
 }
 INTERMEDIAIRES = {"orchestrateur", "fournisseur_ia", "jugement_ia", "operations", "routeur", "simulateur"}
 
@@ -34,7 +35,7 @@ PREFIXES_MCP = [("release_", "Non-Regression"), ("discovery_", "Discovery"), ("c
                 ("testabilite_", "Requirement Analysis"), ("test_design_", "Test Design"), ("studio_", "Test Design"),
                 ("xray_", "Requirement Analysis"), ("failure_", "Defect Analysis"), ("qualify_", "Defect Analysis"),
                 ("impact_", "Impact Analysis"), ("knowledge_", "Impact Analysis"), ("parcours_", "Discovery"),
-                ("run_", "Execution Analysis"), ("parse_robot", "Execution Analysis"), ("plan_de_test", "QA Decision"),
+                ("run_", "Execution Analysis"), ("parse_robot", "Execution Analysis"), ("plan_de_test", "QA Decision"), ("mbt_", "Test Design"),
                 ("cerveau_", "QA Decision")]
 
 
@@ -57,6 +58,8 @@ TRAITEMENTS = {
     "impact.assistant": ("Assistant des graphes", "Impact Analysis", False, "anomalies calculées"),
     "echecs.analyse": ("Analyse des échecs", "Defect Analysis", False, "classement des échecs par règles"),
     "agent.integre": ("Agent intégré de l'interface", "Agent intégré", False, "aucun : sans IA, pas d'agent"),
+    "conception.mbt": ("Analyse comportementale (MBT)", "Test Design", False,
+                       "modèle construit depuis la Discovery, les critères et les règles ; chemins et couverture calculés"),
 }
 # Toujours le modèle applicatif : calculs déterministes, jamais confiés à l'IA (backend first).
 DETERMINISTES = ("Couverture, taux de réussite, agrégation des anomalies", "Analyse d'impact par le Knowledge Graph",

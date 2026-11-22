@@ -292,6 +292,7 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
         declarations.appliquer(g)
     _depuis_donnees(g)  # après les déclarations : les parcours déclarés reçoivent les variables de leurs écrans
     _relations_fonctionnelles(g)  # le « quoi » relié entre lui : modules, parcours (depuis la Discovery)
+    _depuis_comportement(g)  # modèles comportementaux (MBT) : états, transitions, conditions, chemins générés
     _verifiees_sur(g, set(declarations.charger()["relations_masquees"]) if avec_declarations else set())
     _enrichir_champs(g)
     _depuis_anomalies(g)
@@ -301,6 +302,91 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
     DERNIERE_CONSTRUCTION.update(duree_s=round(time.perf_counter() - debut, 3), noeuds=len(g.noeuds), relations=len(g.relations),
                                  date=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return g
+
+
+def _depuis_comportement(g: Graphe):
+    """Modèles comportementaux (comportement/*.yaml, MBT) : un nœud par modèle, état, transition, condition, et par
+    chemin qui a donné un scénario BDD. Relations du cahier (CONTAINS_STATE, STARTS_FROM, LEADS_TO, TRIGGERED_BY,
+    GUARDED_BY, ASSOCIATED_WITH, TRAVERSES, DERIVED_FROM, VERIFIES) avec la provenance et la validation de l'élément :
+    un élément déduit non validé reste une proposition (jamais dans la couverture ni l'impact officiels)."""
+    try:
+        from atelier.domain import comportement as cm
+
+        d = cm.dossier()
+        fichiers = sorted(d.glob("*.yaml")) if d.exists() else []
+    except Exception:  # noqa: BLE001
+        return
+    import yaml as _yaml
+
+    for f in fichiers:
+        try:
+            m = _lu("modèles comportementaux", [f], lambda f=f: _yaml.safe_load(f.read_text("utf-8")) or {})
+        except Exception:  # noqa: BLE001 — un modèle illisible ne bloque pas le graphe
+            continue
+        if not m.get("id"):
+            continue
+        mid = f"modele_comportement:{m['id']}"
+        g.noeud(mid, "modele_comportement", m.get("nom") or m["id"], provenance="déclaré" if m.get("statut") == "Validated" else "observé",
+                source=f"comportement/{f.name}", proprietes={"version": m.get("version"), "statut": m.get("statut"), "perimetre": m.get("perimetre")})
+        per = (m.get("perimetre") or {}).get("id")
+        if per in g.noeuds:
+            g.relier(per, mid, "associe_a", source="modèle comportemental (périmètre)")
+
+        def st(el):
+            v = el.get("validation", "à valider")
+            return ("déduit" if el.get("provenance") == "déduit" else "observé" if el.get("provenance") == "observé" else "déclaré",
+                    "validé" if v == "validé" else "à valider")
+        for k, e in (m.get("etats") or {}).items():
+            if e.get("validation") == "rejeté":
+                continue
+            prov, statut = st(e)
+            eid = f"etat:{m['id']}/{k}"
+            g.noeud(eid, "etat", e.get("nom") or k, provenance=prov, source=e.get("source", ""), statut=statut,
+                    proprietes={"genre": e.get("type"), "initial": e.get("initial"), "final": e.get("final"), "confiance_mbt": e.get("confiance")})
+            g.relier(mid, eid, "contient_etat", provenance=prov, statut=statut, source="modèle comportemental")
+            if e.get("ecran") in g.noeuds:
+                g.relier(eid, e["ecran"], "associe_a", provenance=prov, statut=statut, source="modèle comportemental")
+        for k, c in (m.get("conditions") or {}).items():
+            if c.get("validation") == "rejeté":
+                continue
+            prov, statut = st(c)
+            g.noeud(f"condition:{m['id']}/{k}", "condition", c.get("libelle") or k, provenance=prov, source=c.get("source", ""), statut=statut,
+                    proprietes={"regle": c.get("regle", ""), "confiance_mbt": c.get("confiance")})
+            if c.get("regle") in g.noeuds:
+                g.relier(f"condition:{m['id']}/{k}", c["regle"], "associe_a", provenance=prov, statut=statut, source="modèle comportemental")
+        for k, t in (m.get("transitions") or {}).items():
+            de, vers = f"etat:{m['id']}/{t.get('de')}", f"etat:{m['id']}/{t.get('vers')}"
+            if t.get("validation") == "rejeté" or de not in g.noeuds or vers not in g.noeuds:
+                continue
+            prov, statut = st(t)
+            a = (m.get("actions") or {}).get(t.get("action")) or {}
+            tid = f"transition:{m['id']}/{k}"
+            g.noeud(tid, "transition", f"{g.noeuds[de].libelle} → {g.noeuds[vers].libelle}" + (f" ({a.get('libelle')})" if a.get("libelle") else ""),
+                    provenance=prov, source=t.get("source", ""), statut=statut,
+                    proprietes={"priorite": t.get("priorite"), "issue": t.get("issue", ""), "confiance_mbt": t.get("confiance")})
+            for typ, x, y in (("contient_transition", mid, tid), ("part_de", tid, de), ("conduit_a", tid, vers)):
+                g.relier(x, y, typ, provenance=prov, statut=statut, source="modèle comportemental")
+            if a.get("noeud") in g.noeuds:
+                g.relier(tid, a["noeud"], "declenchee_par", provenance=prov, statut=statut, source="modèle comportemental")
+            cond = f"condition:{m['id']}/{t.get('garde')}"
+            if t.get("garde") and cond in g.noeuds:
+                g.relier(tid, cond, "gardee_par", provenance=prov, statut=statut, source="modèle comportemental")
+        for pid, c in (m.get("chemins_generes") or {}).items():
+            sc = f"scenario:{c.get('scenario')}"
+            if sc not in g.noeuds:
+                continue
+            ch = f"chemin:{m['id']}/{pid}"
+            g.noeud(ch, "chemin", f"Chemin {pid}", provenance="déduit", statut="validé", source=f"comportement/{f.name}",
+                    proprietes={"calcul": True, "strategie": c.get("strategie"), "version_modele": c.get("version")})
+            g.relier(sc, ch, "derive_de", provenance="déduit", statut="validé", source="génération MBT", proprietes={"calcul": True})
+            for t in c.get("transitions") or []:
+                if f"transition:{m['id']}/{t}" in g.noeuds:
+                    g.relier(ch, f"transition:{m['id']}/{t}", "parcourt", provenance="déduit", statut="validé", source="génération MBT",
+                             proprietes={"calcul": True})
+                    g.relier(sc, f"transition:{m['id']}/{t}", "verifie", source="génération MBT (traçabilité du scénario)")
+            for e in c.get("etats") or []:
+                if f"etat:{m['id']}/{e}" in g.noeuds:
+                    g.relier(sc, f"etat:{m['id']}/{e}", "verifie", source="génération MBT (traçabilité du scénario)")
 
 
 def _id_ecran(e: dict) -> str:

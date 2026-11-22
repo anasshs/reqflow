@@ -28,13 +28,15 @@ De l'US au test automatisé (un seul fil dans un périmètre : couverture des US
 Knowledge Graph : vue fonctionnelle reliée (module → mène à → module, parcours → traverse → module, parcours → s'enchaîne
 avec, déduits de la Discovery ; liens « via » dans une vue filtrée), suivi en direct pendant une Discovery et fenêtre à part
 (#graphe/connaissance/<angle>/direct) : atelier/discovery/connaissance.py, espaces.py, ecran_graphe.js.
+Model-Based Testing (modèle comportemental versionné comportement/, moteur de chemins et stratégies, BDD depuis un chemin,
+couverture comportementale, mode automatique dans la génération des cas d'US, écran #comportement) : docs/MBT.md.
 Agents : Cursor, Claude Code (.mcp.json du projet + règles en CLAUDE.md / skills : atelier/integrations/claude_code.py),
 Claude Desktop ; règles du projet mises à niveau automatiquement quand l'atelier en livre de nouvelles (personnalisées gardées).
 Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
 fonctionnalité, demandes d'action validées côté serveur, 12 règles Cursor versionnées (dont « robot-expert » : qualité du code), couverture parcours / UI, Test
 Design par catégories et doublons, Champ / Anomalie, échecs reliés à la connaissance, jugements délégués à Cursor (granularité, doublons, redondances, liens
-exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 116 outils MCP (76 historiques
+exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 120 outils MCP (76 historiques
 inchangés) ; classement de sécurité de chaque outil : tests/test_securite_outils.py (à compléter pour tout nouvel outil) ;
 client MCP de test : tests/client_mcp.py.
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).

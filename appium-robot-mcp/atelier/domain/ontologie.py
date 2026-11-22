@@ -62,6 +62,10 @@ TYPES_CIBLES = {
     "DiscoveredJourney": ("APPLICATION", "Parcours découvert", False), "ApplicationRule": ("APPLICATION", "Règle observée", False),
     "Platform": ("APPLICATION", "Plateforme", True), "Environment": ("APPLICATION", "Environnement", True),
     "ApplicationVersion": ("APPLICATION", "Version", True),
+    # Model-Based Testing
+    "BehaviorModel": ("TESTING", "Modèle comportemental", True), "BehaviorState": ("TESTING", "État", True),
+    "BehaviorTransition": ("TESTING", "Transition", True), "BehaviorCondition": ("TESTING", "Condition", True),
+    "TestPath": ("TESTING", "Chemin de test", True),
 }
 
 # relation -> (famille, libellé lu de la source vers la cible, extension hors spécification)
@@ -97,6 +101,12 @@ RELATIONS = {
     "FORMALIZED_BY": ("extension", "Formalisé par", True),
     # preuve issue des tests : un test de l'exigence passe par l'écran (à ne pas confondre avec REALIZED_BY)
     "VERIFIED_ON": ("extension", "Vérifiée sur", True),
+    # Model-Based Testing
+    "CONTAINS_STATE": ("extension", "Contient l'état", True), "CONTAINS_TRANSITION": ("extension", "Contient la transition", True),
+    "STARTS_FROM": ("extension", "Part de", True), "LEADS_TO": ("extension", "Conduit à", True),
+    "TRIGGERED_BY": ("extension", "Déclenchée par", True), "GUARDED_BY": ("extension", "Gardée par", True),
+    "ASSOCIATED_WITH": ("extension", "Associé à", True), "TRAVERSES": ("extension", "Parcourt", True),
+    "DERIVED_FROM": ("extension", "Dérivé de", True),
 }
 
 _CLE_JIRA = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
@@ -112,6 +122,8 @@ _SIMPLES = {
     "feature": "BDDFeature", "scenario": "BDDScenario", "step": "BDDStep",
     "suite": "RobotSuite", "test_robot": "AutomationScript", "jdd": "TestDataSet", "requete": "DataQuery",
     "variable": "DataVariable", "resultat": "ExecutionResult",
+    "modele_comportement": "BehaviorModel", "etat": "BehaviorState", "transition": "BehaviorTransition", "condition": "BehaviorCondition",
+    "chemin": "TestPath",
 }
 
 
@@ -231,6 +243,7 @@ REGLES = [
     ("implemente_par", ("BDDScenario",), ("AutomationScript",), "IMPLEMENTS_SCENARIO", True, "", ""),
     ("implemente_par", None, None, "AUTOMATED_BY", False, "", "« implémenté par » hors Test → script"),
     ("verifie", ("XrayTest",), _EXIGENCES + ("JiraBug",), "VERIFIES", False, "", ""),
+    ("verifie", ("BDDScenario",), ("BehaviorState", "BehaviorTransition"), "VERIFIES", False, "", ""),
     ("verifie", None, None, "COVERS", False, "", ""),
     ("couvre", None, None, "COVERS", False, "", ""),
     # application
@@ -269,6 +282,16 @@ REGLES = [
     ("concerne", None, None, "AFFECTS", False, "", ""),
     ("detecte_par", None, None, "DETECTED_BY", False, "", ""),
     ("associe_a", _EXIGENCES + ("JiraBug",), _PARCOURS, "HAS_JOURNEY", False, "", ""),  # cadrage d'un parcours utilisateur
+    ("associe_a", ("BehaviorState",), ("Screen",), "ASSOCIATED_WITH", False, "", ""),
+    # Model-Based Testing
+    ("contient_etat", None, None, "CONTAINS_STATE", False, "", ""),
+    ("contient_transition", None, None, "CONTAINS_TRANSITION", False, "", ""),
+    ("part_de", None, None, "STARTS_FROM", False, "", ""),
+    ("conduit_a", None, None, "LEADS_TO", False, "", ""),
+    ("declenchee_par", None, None, "TRIGGERED_BY", False, "", ""),
+    ("gardee_par", None, None, "GUARDED_BY", False, "", ""),
+    ("parcourt", None, None, "TRAVERSES", False, "", ""),
+    ("derive_de", None, None, "DERIVED_FROM", False, "", ""),
     ("associe_a", None, None, "RELATED_TO", False, "", ""),
 ]
 

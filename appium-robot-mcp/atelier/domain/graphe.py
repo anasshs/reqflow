@@ -26,6 +26,9 @@ TYPES_NOEUDS = {
     "suite": "AUTOMATION", "test_robot": "AUTOMATION", "jdd": "AUTOMATION", "requete": "AUTOMATION",
     "variable": "AUTOMATION",  # variable du référentiel de données Discovery (définition, jamais de valeur)
     "resultat": "AUTOMATION",
+    # Model-Based Testing : le modèle comportemental et ses chemins (distincts des écrans et des tests)
+    "modele_comportement": "FONCTIONNEL", "etat": "FONCTIONNEL", "transition": "FONCTIONNEL", "condition": "FONCTIONNEL",
+    "chemin": "BDD",
 }
 CATEGORIES = ["APPLICATION", "FONCTIONNEL", "TECHNIQUE", "JIRA", "XRAY", "BDD", "AUTOMATION"]
 
@@ -46,6 +49,10 @@ TYPES_RELATIONS = {
     "permet": "Permet", "aboutit_a": "Aboutit à", "declenche": "Déclenche",
     # ponts Tests & Qualité : test Xray formalisé par un scénario BDD
     "formalise_par": "Est formalisé par",
+    # Model-Based Testing
+    "contient_etat": "Contient l'état", "contient_transition": "Contient la transition", "part_de": "Part de",
+    "conduit_a": "Conduit à", "declenchee_par": "Déclenchée par", "gardee_par": "Gardée par", "parcourt": "Parcourt",
+    "derive_de": "Dérivé de",
 }
 PROVENANCES = ("observé", "déclaré", "déduit")
 
