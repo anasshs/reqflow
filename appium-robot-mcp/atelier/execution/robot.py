@@ -148,8 +148,8 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     evenements.publier({"type": "run_lance", "suite": target})
     jdd_file = None
     jdd_info: dict | None = None
-    if not jdd_env and not jdd_jeux:  # aucun environnement choisi : celui des jeux référencés par la suite, s'il est seul
-        choix = environnement_des_jeux(target)
+    if not jdd_env and not jdd_jeux and not dry_run:  # aucun environnement choisi : celui des jeux de la suite, s'il est seul
+        choix = environnement_des_jeux(target)  # (un dry run contrôle la syntaxe : ni données ni prérequis)
         if choix.get("bloque"):
             return {"statut": "bloqué données", "jdd": {"env": "", "references": choix["references"]}, "conseil": choix["bloque"]}
         jdd_env = choix.get("env", "")
