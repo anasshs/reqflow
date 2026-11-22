@@ -32,11 +32,11 @@
         <button class="btn primaire" id="cad-new">${ico("plus")}Préparer un parcours</button>`)}
       <div class="corps-carte"><p class="lib" style="margin-bottom:10px">Avant de dérouler l'application <b>${esc(O.application.nom)}</b> sur un device ou un navigateur, préparer le parcours :
         son nom, les exigences Jira qu'il réalise, les données à utiliser, la cible. Le parcours est enregistré ; chaque déroulé est une session Discovery qui lui est rattachée.</p>
-      ${l.length ? `<table class="table-strat"><tr><th>Parcours</th><th>Exigences</th><th>Données</th><th>Cible</th><th>Qui navigue</th><th>Statut</th><th>Déroulés</th><th>Écrans</th><th>Modifié</th></tr>
+      ${l.length ? `<table class="table-strat"><tr><th>Parcours</th><th>Exigences</th><th>Données</th><th>Cible</th><th>Qui navigue</th><th>Statut</th><th>Déroulés</th><th>Écrans</th><th>Test</th><th>Modifié</th></tr>
         ${l.map(p => `<tr class="cliquable" data-p="${esc(p.id)}"><td><b>${esc(p.nom)}</b><div class="lib mono">${esc(p.id)}</div></td>
           <td>${p.exigences.map(cleJira).join(" ") || '<span class="lib">aucune</span>'}</td><td>${p.profil_donnees ? `<span class="mono">${esc(p.profil_donnees)}</span>` : '<span class="lib">aucun profil</span>'}</td>
           <td>${esc(p.plateforme || "—")}${p.environnement ? ` · ${esc(p.environnement)}` : ""}</td><td>${esc(O.pilotes[p.pilote] || p.pilote)}</td><td>${pillStatut(p.statut)}</td>
-          <td>${p.sessions}</td><td>${p.ecrans}</td><td class="mono">${date(p.modifie)}</td></tr>`).join("")}</table>`
+          <td>${p.sessions}</td><td>${p.ecrans}</td><td>${avancement(p.bdd || [])}</td><td class="mono">${date(p.modifie)}</td></tr>`).join("")}</table>`
         : vide("Aucun parcours préparé", "« Préparer un parcours » demande un nom, les exigences, les données et la cible, puis lance le déroulé.")}
       <p class="lib" style="margin-top:10px">Ce que les parcours ne traversent pas se voit et s'explore dans <a href="#discovery/studio">Exploration libre</a>.</p></div>`;
     $("#cad-new").onclick = () => { location.hash = "discovery/cadrage/nouveau"; };
@@ -195,14 +195,15 @@
       ${k.bloquants.map(x => `<p><span class="pill ko">À faire avant de lancer</span> ${esc(x)}</p>`).join("")}${k.avertissements.filter(x => Atelier.integrations().jira || !/exigence/i.test(x)).map(x => `<p><span class="pill warn">À savoir</span> ${esc(x)}</p>`).join("")}
       ${P.session_active ? `<p><span class="pill ok">Déroulé en cours</span> session <span class="mono">${esc(P.session_active)}</span></p>` : ""}
       ${pied("donnees", `<button class="btn" id="cad-ok">${ico("disque")}Enregistrer</button>
-        <button class="btn primaire" id="cad-go" ${archive ? "disabled" : ""}>${ico("play")}<span id="cad-go-l"></span></button>`)}
+        <button class="btn ${P.sessions.length && !P.session_active ? "" : "primaire"}" id="cad-go" ${archive ? "disabled" : ""}>${ico("play")}<span id="cad-go-l"></span></button>`)}
       <p class="lib" id="cad-go-aide"></p>`;
     brancherPrecedent(c);
     const champs = () => ({plateforme: $("input[name=cad-plat]:checked", c)?.value || "", pilote: $("input[name=cad-pil]:checked", c)?.value || "moi"});
     const libelle = () => {
       const cursor = champs().pilote === "cursor";
-      $("#cad-go-l").textContent = P.session_active ? "Reprendre le déroulé" : cursor ? "Demander à Cursor de dérouler" : "Dérouler le parcours";
-      $("#cad-go-aide").textContent = cursor ? "Cursor reçoit ce cadrage (parcours, exigences et critères, données prêtes) au lieu d'une demande générique ; vous suivez et gardez les actions sensibles."
+      const nom = window.NomAgentIA || "Cursor";
+      $("#cad-go-l").textContent = P.session_active ? "Reprendre le déroulé" : cursor ? `Demander à ${nom} de dérouler${P.sessions.length ? " à nouveau" : ""}` : P.sessions.length ? "Dérouler à nouveau" : "Dérouler le parcours";
+      $("#cad-go-aide").textContent = cursor ? `${nom} reçoit ce cadrage (parcours, exigences et critères, données prêtes) au lieu d'une demande générique ; vous suivez et gardez les actions sensibles.`
         : "La fenêtre Discovery s'ouvre sur la cible : vous naviguez, les écrans traversés sont rattachés au parcours à la fin de la session.";
     };
     $$("input[name=cad-pil]", c).forEach(r => r.onchange = libelle);
@@ -233,12 +234,10 @@
         <ol class="cad-ecrans">${P.ecrans.map(e => `<li><label><input type="checkbox" data-ecran="${esc(e.id)}" checked ${e.connu ? "" : "disabled"}> <b>${esc(e.nom)}</b></label>
           ${e.module ? `<span class="lib">${esc(e.module)}</span>` : ""}${e.connu && !e.nomme ? `<a class="lib" href="#intelligence/ecrans" title="Donner un nom métier à cet écran">à nommer</a>` : ""}
           <span class="pill ${LIEN[e.lien] || ""}">${esc(e.lien)}</span>${e.au_dernier_deroule ? "" : '<span class="lib">pas vu au dernier déroulé</span>'}</li>`).join("")}</ol>
-        <div class="btns"><button class="btn primaire" id="cad-val">${ico("check")}${P.valide && !aValider ? "Mettre à jour la validation" : "Valider les écrans du parcours"}</button>
-          ${P.valide ? `<span class="lib">Validé par ${esc(P.valide.par)} le ${date(P.valide.date)}${aValider ? ` · ${aValider} nouvel(aux) écran(s) à valider` : ""}</span>` : ""}</div>`
+        <div class="btns"><button class="btn ${P.valide && !aValider ? "" : "primaire"}" id="cad-val">${ico("check")}${P.valide && !aValider ? "Mettre à jour la validation" : "Valider les écrans du parcours"}</button>
+          ${P.valide ? `<span class="pill ok">écrans validés</span> <span class="lib">par ${esc(P.valide.par)} le ${date(P.valide.date)}${aValider ? ` · ${aValider} nouvel(aux) écran(s) à valider` : ""}</span>` : ""}</div>`
         : `<p class="lib">Les écrans apparaîtront ici à la fin du premier déroulé.</p>`}
-      ${P.id && P.ecrans.length ? `<div class="alerte-projet" style="margin-top:14px;background:var(--bg2,transparent)"><b>Étape suivante : créer le test BDD de ce parcours.</b>
-        <span class="lib">L'atelier écrit le brouillon Gherkin à partir des écrans parcourus (sans Cursor, sans Jira ni Xray). Ensuite, dans Scénarios BDD : relire, puis « Générer le script Robot ».</span>
-        <div class="btns" style="margin-top:6px"><button class="btn primaire" id="cad-bdd">${ico("bdd")}Créer le test BDD</button></div></div>` : ""}
+      ${P.id && P.ecrans.length ? blocTests() : ""}
       ${P.id ? `<h3 class="lib" style="margin-top:14px">ENSUITE</h3><div class="btns">
         <button class="btn" id="cad-graphe" title="Le parcours, ses exigences et ses écrans dans le Knowledge Graph">${ico("graphe")}Voir dans le graphe</button>
         <a class="btn" id="cad-corr" href="#discovery/correlation" title="Confirmer, écran par écran, les exigences du parcours proposées en priorité. La Corrélation s'ouvre sur les écrans de ce parcours une fois validé">Corrélation des écrans</a>
@@ -257,10 +256,48 @@
     if ($("#cad-corr")) $("#cad-corr").onclick = () => { try { P.valide ? sessionStorage.setItem("di-perimetre", JSON.stringify({noeud: P.noeud, libelle: P.nom})) : sessionStorage.removeItem("di-perimetre"); } catch (e) { /* facultatif */ } };
     if ($("#cad-graphe")) $("#cad-graphe").onclick = () => { try { sessionStorage.setItem("kg-perimetre", P.noeud); } catch (e) { /* facultatif */ } location.hash = "graphe/connaissance/parcours"; };
     if ($("#cad-encore")) $("#cad-encore").onclick = () => { etape = "cible"; rendre(); };
+    $$("[data-suite-bdd]", c).forEach(b => b.onclick = () => allerA(b.dataset.suiteBdd, b.dataset.etape));
     if ($("#cad-bdd")) $("#cad-bdd").onclick = async () => {
+      const deja = (P.bdd || []).length;
+      if (deja && !confirm(`Ce parcours a déjà ${deja} test(s) BDD. En créer un autre (variante) ?`)) return;
       try { const r = await api("/api/discovery/parcours-bdd", {method: "POST", body: {parcours: P.noeud, titre: P.nom}}); toast(`Test BDD ${r.cle} créé (brouillon). Relire, puis « Générer le script Robot ».`, "ok"); location.hash = "bdd/" + encodeURIComponent(r.cle); }
       catch (e) { toast(e.message, "ko"); }
     };
+  }
+
+  /* Avancement du test d'un parcours : une seule action proposée, celle de l'étape suivante (créer, valider le scénario,
+     générer le script, vérifier, valider) ; rien à refaire quand tout est fait. */
+  const ETAPES_TEST = {valider_bdd: ["warn", "scénario à valider", "Relire et valider le scénario"], generer: ["info", "script à générer", "Générer le script Robot"],
+    verifier: ["warn", "à vérifier", "Vérifier le test"], valider_test: ["warn", "à valider", "Valider le test automatisé"], fait: ["ok", "automatisé", ""]};
+  const RANG = {fait: 0, valider_test: 1, verifier: 2, generer: 3, valider_bdd: 4};
+  function avancement(l) {
+    if (!l.length) return '<span class="lib">aucun</span>';
+    const b = [...l].sort((x, y) => RANG[x.suivante.etape] - RANG[y.suivante.etape])[0], [cls, lib] = ETAPES_TEST[b.suivante.etape];
+    return `<span class="pill ${cls}">${lib}</span>${l.length > 1 ? ` <span class="lib">+${l.length - 1}</span>` : ""}`;
+  }
+  function blocTests() {
+    const l = P.bdd || [];
+    if (!l.length) return `<div class="alerte-projet" style="margin-top:14px;background:var(--bg2,transparent)"><b>Étape suivante : créer le test BDD de ce parcours.</b>
+        <span class="lib">L'atelier écrit le brouillon Gherkin à partir des écrans parcourus (sans IA, sans Jira ni Xray). Ensuite : relire, valider, puis générer le script Robot.</span>
+        <div class="btns" style="margin-top:6px"><button class="btn primaire" id="cad-bdd">${ico("bdd")}Créer le test BDD</button></div></div>`;
+    const ligne = b => {
+      const [cls, lib, action] = ETAPES_TEST[b.suivante.etape], c = b.cycle;
+      return `<tr><td><a href="#bdd/${encodeURIComponent(b.cle)}" class="mono">${esc(b.cle)}</a><div class="lib">${esc(b.titre || "")}</div></td>
+        <td><span class="pill ${b.statut === "validé" ? "ok" : ""}">${esc(b.statut)}</span></td>
+        <td>${c ? `<span class="pill ok">écrit</span> <span class="lib mono">${esc(c.suites.join(", "))}</span>` : '<span class="lib">—</span>'}</td>
+        <td>${c ? (c.verifie ? '<span class="pill ok">vérifié</span>' : `<span class="pill warn">${c.verifies}/${c.tests}</span>`) : '<span class="lib">—</span>'}</td>
+        <td>${c ? `<span class="pill ${c.etat === "Validé" ? "ok" : c.etat === "Écarté" ? "ko" : "warn"}">${esc(c.etat)}</span>` : '<span class="lib">—</span>'}</td>
+        <td>${action ? `<button class="btn petit primaire" data-suite-bdd="${esc(b.cle)}" data-etape="${b.suivante.etape}">${esc(action)}</button>` : `<span class="pill ${cls}">${esc(lib)}</span>`}</td></tr>`;
+    };
+    const tousFaits = l.every(b => b.suivante.etape === "fait");
+    return `<h3 class="lib" style="margin-top:14px">TEST${l.length > 1 ? "S" : ""} DU PARCOURS ${tousFaits ? '<span class="pill ok">automatisé, vérifié, validé</span>' : ""}</h3>
+      <table class="table-strat"><tr><th>Test BDD</th><th>Scénario</th><th>Script Robot</th><th>Run réel</th><th>Test automatisé</th><th>Étape suivante</th></tr>${l.map(ligne).join("")}</table>
+      <div class="btns" style="margin-top:6px"><button class="btn petit" id="cad-bdd" title="Un autre scénario pour ce parcours (variante, cas d'erreur). Le test existant n'est pas touché.">${ico("plus")}Créer un autre test BDD</button></div>`;
+  }
+  function allerA(cle, etape) {
+    if (etape === "valider_bdd") location.hash = "bdd/" + encodeURIComponent(cle);
+    else if (etape === "generer") location.hash = "studio/mapping/" + encodeURIComponent(cle);
+    else location.hash = "tests";  // vérifier / valider : écran Tests automatisés
   }
 
   window.DiscoveryParcours = {afficher};

@@ -423,12 +423,17 @@
     SESSION = SESSION && l.some(s => s.id === SESSION) ? SESSION : l[0]?.id;
     if (!SESSION) { z.innerHTML = entete("Synthèse des résultats") + pas("Aucune session"); return; }
     const s = await api("/api/discovery/sessions/" + SESSION), r = s.resultats;
+    const tests = (await api("/api/bdd").catch(() => [])).filter(b => b.session === SESSION);  // tests BDD déjà écrits depuis cette session
+    const ETAPE = {valider_bdd: "scénario à valider", generer: "script à générer", verifier: "à vérifier", valider_test: "à valider", fait: "automatisé, vérifié, validé"};
     z.innerHTML = `${entete("Synthèse des résultats", `<select class="in" id="rs-s" style="width:auto">${l.map(x => `<option ${x.id === SESSION ? "selected" : ""}>${esc(x.id)}</option>`).join("")}</select>`)}<div class="corps-carte">
       <p>${esc(s.config.app_nom)} ${esc(s.config.build || "")} · ${esc(s.config.plateforme)} · ${esc(MODES[s.config.mode])} · <span class="pill ${ST[s.statut]}">${esc(s.statut)}</span> · ${date(s.debut)} → ${date(s.fin)}</p>
       ${r ? `${kpis([[r.ecrans_visites, "écrans visités"], [r.nouveaux_ecrans, "nouveaux écrans"], [r.ecrans_modifies, "écrans modifiés"], [r.composants_ajoutes, "composants ajoutés"], [r.nouvelles_transitions, "nouvelles transitions"], [r.actions, "actions"], [r.comportements ?? 0, "comportements"], [(r.endpoints || []).length, "endpoints observés"]])}
         <div class="grille-2"><section class="bloc-strat"><h3>Nouveaux écrans</h3><ul class="liste">${r.nouveaux.map(e => `<li><button class="lien item" data-e="${esc(e.id)}">${esc(e.nom)}</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul></section>
           <section class="bloc-strat"><h3>Écrans modifiés</h3><ul class="liste">${r.modifies.map(e => `<li><button class="lien item" data-e="${esc(e.id)}">${esc(e.nom)}</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul></section></div>
-        <div class="btns" style="margin:8px 0"><button class="btn primaire" id="rs-bdd">Créer le test BDD de ce parcours</button> <span class="lib">brouillon écrit par l'atelier, sans Cursor ni Xray ; ensuite « Générer le script Robot »</span></div>
+        <div class="btns" style="margin:8px 0">${tests.length ? `${tests.map(b => `<a class="btn ${b.suivante?.etape === "fait" ? "" : "primaire"}" href="#bdd/${encodeURIComponent(b.cle)}">${esc(b.cle)}</a>
+            <span class="pill ${b.suivante?.etape === "fait" ? "ok" : "warn"}">${esc(ETAPE[b.suivante?.etape] || b.statut)}</span>`).join(" ")}
+            <button class="btn petit" id="rs-bdd" title="Un autre scénario depuis cette session (variante) ; le test existant n'est pas touché">Créer un autre test BDD</button>`
+          : `<button class="btn primaire" id="rs-bdd">Créer le test BDD de ce parcours</button> <span class="lib">brouillon écrit par l'atelier, sans IA ni Xray ; ensuite « Générer le script Robot »</span>`}</div>
         <p class="lib">Annotations : ${r.annotations} · étapes sensibles : ${r.sensibles}. Les éléments découverts arrivent dans le Knowledge Graph avec leur provenance ; les noms et rapprochements se valident dans <a href="#discovery/validation">Discovery Validation</a>.</p>`
         : vide("Session pas encore démarrée")}</div>`;
     $("#rs-s").onchange = e => { SESSION = e.target.value; resultats(z); };

@@ -2221,7 +2221,31 @@ def discovery_cadrage(archives: bool = False):
     """Parcours utilisateur préparés (initiation de Discovery) et ce que l'écran de cadrage propose."""
     from atelier.discovery import parcours_utilisateur
 
-    return {"parcours": _call(parcours_utilisateur.lister, archives), "options": _call(parcours_utilisateur.options)}
+    from atelier.generation import maintenance
+
+    l = _call(parcours_utilisateur.lister, archives)
+    tous = _bdd_avec_cycle() if l else []
+    l = [{**x, "bdd": [b for b in tous if maintenance.du_parcours(b, _reperes_parcours(x))]} if isinstance(x, dict) else x for x in l]
+    return {"parcours": l, "options": _call(parcours_utilisateur.options)}
+
+
+def _reperes_parcours(p: dict) -> dict:
+    """Ce qui relie un parcours à ses tests BDD : identifiant, nœud, nom, sessions de Discovery."""
+    s = p.get("sessions")
+    if not isinstance(s, list):  # la liste des parcours ne donne que leur nombre : lu dans le fichier du parcours
+        try:
+            from atelier.discovery import parcours_utilisateur
+
+            s = parcours_utilisateur._lire(p["id"]).get("sessions", [])
+        except Exception:  # noqa: BLE001
+            s = []
+    return {"id": p.get("id"), "noeud": p.get("noeud"), "nom": p.get("nom"),
+            "sessions_ids": [x if isinstance(x, str) else x.get("id") for x in s]}
+
+
+def _avec_bdd(p):
+    """Un parcours avec ses tests BDD et leur avancement : l'écran n'offre que l'étape suivante."""
+    return {**p, "bdd": _bdd_avec_cycle(parcours=_reperes_parcours(p))} if isinstance(p, dict) and p.get("id") else p
 
 
 @app.post("/api/discovery/cadrage")
@@ -2233,14 +2257,14 @@ async def discovery_cadrage_enregistrer(req: Request):
     r = await asyncio.to_thread(_call, parcours_utilisateur.enregistrer, b.get("id", ""),
                                 {k: b[k] for k in parcours_utilisateur.LIBELLES if k in b})
     emit({"type": "carte_change"})
-    return r
+    return _avec_bdd(r)
 
 
 @app.get("/api/discovery/cadrage/{pid}")
 def discovery_cadrage_detail(pid: str):
     from atelier.discovery import parcours_utilisateur
 
-    return _call(parcours_utilisateur.obtenir, pid)
+    return _avec_bdd(_call(parcours_utilisateur.obtenir, pid))
 
 
 @app.post("/api/discovery/cadrage/{pid}/{action}")
@@ -2255,7 +2279,7 @@ async def discovery_cadrage_action(pid: str, action: str, req: Request):
         raise HTTPException(404, f"Action inconnue : {action}")
     r = await asyncio.to_thread(_call, actions[action])
     emit({"type": "carte_change"})
-    return r
+    return _avec_bdd(r)
 
 
 @app.get("/api/discovery/comparer")
@@ -2431,7 +2455,21 @@ async def execution_test(run_id: str, id: str):
 # --------------------------------------------------------------------------- construction BDD
 @app.get("/api/bdd")
 def bdd_liste():
-    return _call(bdd.lister)
+    return _bdd_avec_cycle()
+
+
+def _bdd_avec_cycle(parcours: dict | None = None, session: str = "") -> list[dict]:
+    """Tests BDD (d'un parcours ou d'une session si précisé) avec leur avancement : script, vérifié, validé, étape suivante."""
+    from atelier.generation import maintenance
+
+    l = _call(bdd.lister)
+    if parcours is not None or session:
+        l = [b for b in l if (parcours is not None and maintenance.du_parcours(b, parcours)) or (session and b.get("session") == session)]
+    try:
+        cyc = maintenance.cycle_bdd() if l else {}
+    except Exception:  # noqa: BLE001 — dépôt illisible : la liste reste servie, sans avancement
+        cyc = {}
+    return [{**b, "cycle": cyc.get(b["cle"]), "suivante": maintenance.etape_bdd(b, cyc.get(b["cle"]))} for b in l]
 
 
 def _vue_bdd(m: dict) -> dict:
@@ -2447,8 +2485,14 @@ def _vue_bdd(m: dict) -> dict:
         reut = {}
     from atelier.intelligence import fournisseur_ia
 
+    from atelier.generation import maintenance
+
+    try:
+        cyc = maintenance.cycle_bdd().get(m.get("cle", ""))
+    except Exception:  # noqa: BLE001
+        cyc = None
     return {"scenario": m, "gherkin": bdd.serialiser(m), "controles": bdd.controles(m), "statistiques": bdd.statistiques(m), "rangement": rang,
-            "reutilisation": reut, "ia": fournisseur_ia.etat()}
+            "reutilisation": reut, "ia": fournisseur_ia.etat(), "cycle": cyc, "suivante": maintenance.etape_bdd(m, cyc)}
 
 
 @app.get("/api/conception/rangement")

@@ -89,12 +89,66 @@ def vue() -> dict:
             verifie = bool(dernier and dernier["statut"] == "PASS" and _date(dernier["fin"]) >= modifie - 1)
             tests.append({"id": tid, "nom": t["nom"], "tags": [x for x in t.get("tags", []) if x not in t.get("cles_xray", []) and x not in cles_bdd],
                           "cles": t.get("cles_xray", []), "consomme": CONSOMME in (t.get("tags") or []), "verifie": verifie,
+                          "bdd": [x for x in t.get("tags", []) if x in cles_bdd],
                           "dernier": {k: dernier[k] for k in ("statut", "fin", "message")} if dernier else None,
                           "perime": bool(dernier) and _date(dernier["fin"]) < modifie - 1})
         suites.append({"fichier": f, "etat": etat, "statut": r.get("statut", ""), "en_workflow": bool(r.get("en_workflow")),
                        "modifie_depuis_validation": bool(r.get("modifie_depuis_validation")) or pages_modifiees, "tests": tests})
     compte = {e: sum(1 for s in suites for _ in s["tests"] if s["etat"] == e) for e in ("À valider", "Validé", "Écarté", "Existant")}
     return {"suites": suites, "compte": compte}
+
+
+def cycle_bdd(v: dict | None = None) -> dict:
+    """Où en est chaque test BDD après sa conception : script écrit (un test du dépôt porte sa clé en tag), suite, état de la
+    suite (À valider / Validé / Écarté), tests vérifiés par un run réel. Sert aux écrans à n'offrir que l'action suivante
+    (créer le BDD, générer le script, vérifier, valider) au lieu de toutes, toujours."""
+    v = v or vue()
+    out: dict = {}
+    for s in v["suites"]:
+        for t in s["tests"]:
+            for cle in t.get("bdd") or []:
+                c = out.setdefault(cle, {"script": True, "suites": [], "etat": s["etat"], "tests": 0, "verifies": 0})
+                if s["fichier"] not in c["suites"]:
+                    c["suites"].append(s["fichier"])
+                c["tests"] += 1
+                c["verifies"] += bool(t["verifie"])
+                if s["etat"] != "Validé":  # une suite encore à valider l'emporte sur une suite validée
+                    c["etat"] = s["etat"] if c["etat"] == "Validé" else c["etat"]
+    for c in out.values():
+        c["verifie"] = c["tests"] > 0 and c["verifies"] == c["tests"]
+    return out
+
+
+def etape_bdd(b: dict, c: dict | None) -> dict:
+    """Étape suivante d'un test BDD (b : statut du scénario ; c : cycle_bdd) : une seule action proposée. Dès qu'un script
+    existe, c'est lui qui compte (un scénario resté « brouillon » mais déjà automatisé n'est pas à refaire)."""
+    if not c:
+        if (b.get("statut") or "brouillon") != "validé":
+            return {"etape": "valider_bdd", "libelle": "Relire et valider le scénario BDD"}
+        return {"etape": "generer", "libelle": "Générer le script Robot"}
+    if c["etat"] == "Validé" and c["verifie"]:
+        return {"etape": "fait", "libelle": "Automatisé, vérifié et validé"}
+    if not c["verifie"]:
+        return {"etape": "verifier", "libelle": "Vérifier le test (run réel)"}
+    return {"etape": "valider_test", "libelle": "Valider le test automatisé"}
+
+
+def du_parcours(b: dict, parcours: dict) -> bool:
+    """Le test BDD b vient-il de ce parcours ? Relié par l'identifiant (PU-…), le nœud (parcours:…), une de ses sessions de
+    Discovery, ou à défaut par la clé que l'atelier lui a donnée à la création (parcours_<nom>, parcours_<nom>_2…)."""
+    import re
+
+    from atelier.generation import bdd
+
+    lien = b.get("parcours") or ""
+    if lien and lien in (parcours.get("id"), parcours.get("noeud")):
+        return True
+    if b.get("session") and b["session"] in (parcours.get("sessions_ids") or []):
+        return True
+    if lien or b.get("session"):
+        return False
+    base = bdd._slug(f"parcours_{parcours.get('nom') or ''}")
+    return bool(parcours.get("nom")) and re.fullmatch(re.escape(base) + r"(_\d+)?", b.get("cle", "")) is not None
 
 
 def _suites(ids: list[str]) -> list[str]:

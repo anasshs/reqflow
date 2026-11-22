@@ -93,7 +93,7 @@
       $("#b-q").onkeydown = e => { if (e.key === "Enter") analyserIA($("#b-q").value.trim()); };
       $("#b-analyser").onclick = () => analyserIA("");
       $("#b-couv").onclick = () => { S.ongletIA = "qualite"; $$(".panneau-ia [data-o]").forEach(x => x.setAttribute("aria-selected", x.dataset.o === "qualite")); reco(); toast("Contrôles de couverture recalculés."); };
-      $("#b-generer").onclick = () => { location.hash = "studio/mapping/" + encodeURIComponent(S.cle); };  // la génération se fait dans Automation Studio
+      $("#b-generer").onclick = () => { location.hash = S.vue?.cycle ? "tests" : "studio/mapping/" + encodeURIComponent(S.cle); };  // génération dans Automation Studio ; script déjà écrit : Tests automatisés
       $("#b-valider").onclick = () => operation({op: "valider"}, "Scénario validé.");
       window.addEventListener("resize", liens);
       charger();
@@ -124,7 +124,7 @@
       <section class="carte s12" ${xray || cand.length ? "" : "hidden"}><h2 class="titre-carte">Tests Xray de l'instantané</h2><div class="corps-carte" style="max-height:360px">
         ${cand.length ? `<table><tr><th>Clé</th><th>Test</th><th>Module</th><th>Type</th><th>Automatisé</th><th></th></tr>${cand.map(c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume)}</td>
           <td>${esc(c.module || "—")}</td><td>${esc(c.type || "—")}</td><td>${c.automatise ? '<span class="pill ok">oui</span>' : '<span class="pill">non</span>'}</td>
-          <td><button class="btn" data-prendre="${esc(c.cle)}" data-titre="${esc(c.resume || "")}">Construire</button></td></tr>`).join("")}</table>`
+          <td>${c.automatise ? "" : `<button class="btn" data-prendre="${esc(c.cle)}" data-titre="${esc(c.resume || "")}">Construire</button>`}</td></tr>`).join("")}</table>`
           : vide("Aucun instantané Xray", "Rapports › Patrimoine Xray pour l'importer.")}</div></section>`;
     $$("[data-cle]", zone).forEach(tr => tr.onclick = () => { location.hash = "bdd/" + encodeURIComponent(tr.dataset.cle); });
     $$("[data-prendre]", zone).forEach(b => b.onclick = () => { $("#n-cle").value = b.dataset.prendre; $("#n-titre").value = b.dataset.titre; $("#n-cle").focus(); });
@@ -169,11 +169,21 @@
     coloriser();
     $("#b-statut").innerHTML = `<span class="pill ${m.statut === "validé" ? "ok" : "warn"}">${esc(m.statut)}</span>`;
     const valide = m.statut === "validé";  // le bouton mis en avant est la prochaine étape
-    $("#b-valider").classList.toggle("succes", !valide);
-    $("#b-valider").title = valide ? "Déjà validé ; une modification le repasse en brouillon" : "Étape 1 : relire les étapes, puis valider le scénario";
-    $("#b-generer").classList.toggle("primaire", valide);
-    $("#b-generer").title = valide ? "Étape 2 : écrire le script Robot (Automation Studio), puis Cursor implémente les keywords manquants"
-      : "Valider d'abord le scénario ; la génération reste possible pour un aperçu";
+    const cyc = S.vue.cycle, etapeSuivante = S.vue.suivante?.etape || "";
+    $("#b-valider").classList.toggle("succes", !valide && !cyc);
+    $("#b-valider").hidden = valide;  // déjà validé : rien à refaire (une modification le repasse en brouillon, et le bouton revient)
+    $("#b-valider").title = cyc ? "Le script est déjà écrit : valider le scénario met seulement sa fiche à jour" : "Étape 1 : relire les étapes, puis valider le scénario";
+    $("#b-generer").classList.toggle("primaire", valide && !cyc);
+    const lg = $("#b-generer span");
+    if (cyc) {  // script déjà écrit : la suite se passe dans Tests automatisés (vérifier, valider), pas en régénérant
+      lg.innerHTML = `${etapeSuivante === "fait" ? "Automatisé, vérifié, validé" : etapeSuivante === "verifier" ? "Script écrit : à vérifier" : "Script écrit : à valider"}<small>Tests automatisés</small>`;
+      $("#b-generer").title = `Script : ${cyc.suites.join(", ")} · ${cyc.verifies}/${cyc.tests} test(s) vérifié(s) · ${cyc.etat}. Ouvre Tests automatisés.`;
+      $("#b-generer").classList.toggle("primaire", etapeSuivante !== "fait");
+    } else {
+      lg.innerHTML = "Générer le script Robot<small>Automation Studio</small>";
+      $("#b-generer").title = valide ? `Étape 2 : écrire le script Robot (Automation Studio), puis ${window.NomAgentIA || "Cursor"} implémente les keywords manquants`
+        : "Valider d'abord le scénario ; la génération reste possible pour un aperçu";
+    }
     graphe(); parcours(); stats(); reco(); proprietes(); bulle();
   }
 

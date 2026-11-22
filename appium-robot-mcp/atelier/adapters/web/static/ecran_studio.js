@@ -285,6 +285,15 @@
         ${Object.entries(TP).map(([t, lib]) => { const l = d.perimetres.filter(p => p.type === t); return l.length ? `<optgroup label="${lib}">${l.map(p =>
           `<option value="${esc(p.noeud)}" ${p.noeud === d.perimetre?.noeud ? "selected" : ""}>${esc(p.libelle.length > 70 ? p.libelle.slice(0, 69) + "…" : p.libelle)} · ${p.tests} test(s)</option>`).join("")}</optgroup>` : ""; }).join("")}</select>`;
     const decide = c => ["Approuvé", "En construction"].includes(c.statut_plan);  // la prochaine action de la ligne est mise en avant
+    /* une seule action : celle de l'étape suivante du test (scénario à valider, script à écrire, à vérifier, à valider, fait) */
+    const prochaineEtape = b => {
+      const e = b.suivante?.etape || (b.statut === "validé" ? "generer" : "valider_bdd"), c = b.cycle;
+      if (e === "valider_bdd") return `<a class="btn petit primaire" href="#bdd/${encodeURIComponent(b.cle)}" title="Relire les étapes du brouillon, puis « Valider le scénario »">Relire et valider</a>`;
+      if (e === "generer") return `<a class="btn petit primaire" href="#studio/direct/${encodeURIComponent(b.cle)}" title="L'agent écrit le script Robot en réutilisant le socle, puis le soumet en revue">${ico("ia")}Construire avec Cursor</a>`;
+      if (e === "fait") return `<span class="pill ok">automatisé, vérifié, validé</span>`;
+      return `<a class="btn petit primaire" href="#tests" title="Script écrit (${esc((c?.suites || []).join(", "))}) : ${c ? `${c.verifies}/${c.tests} test(s) vérifié(s), ${esc(c.etat)}` : ""}">${e === "verifier" ? "Vérifier le test" : "Valider le test"}</a>
+        <span class="lib">script écrit</span>`;
+    };
     const ligneTest = c => `<tr><td class="cle-xray">${esc(c.cle)}</td><td>${esc(c.resume || "")}</td>
           <td><span class="pill ${REVUE_PILL[c.revue] || ""}" title="Revue du cas de test dans Test Design">${esc(c.revue_libelle)}</span></td><td>${esc(c.criticite || "—")}</td>
           <td title="${esc([...(c.justification || []), ...(c.donnees_manquantes || []).map(x => "manque : " + x)].join(" · "))}">${pill(c.statut_plan === "Automatisé" ? "Published" : "", c.statut_plan)}</td>
@@ -312,8 +321,7 @@
     const blocAtelier = atelier.length ? `<section class="bloc-strat"><h3>Tests conçus dans l'atelier <span class="lib">(Discovery ou saisis à la main, sans test Xray)</span></h3>
         <table class="table-strat"><tr><th>Test BDD</th><th>Statut</th><th>Prochaine étape</th></tr>${atelier.map(b => `<tr><td><a href="#bdd/${encodeURIComponent(b.cle)}">${esc(b.titre || b.cle)}</a> <span class="lib mono">${esc(b.cle)}</span></td>
           <td>${pill(b.statut === "validé" ? "Approved" : "", b.statut)}</td>
-          <td>${b.statut === "validé" ? `<a class="btn petit primaire" href="#studio/direct/${encodeURIComponent(b.cle)}" title="Cursor écrit le script Robot en réutilisant le socle, puis le soumet en revue">${ico("ia")}Construire avec Cursor</a>`
-            : `<a class="btn petit primaire" href="#bdd/${encodeURIComponent(b.cle)}" title="Relire les étapes du brouillon, puis « Valider le scénario »">Relire et valider</a>`}</td></tr>`).join("")}</table></section>` : "";
+          <td>${prochaineEtape(b)}</td></tr>`).join("")}</table></section>` : "";
     const ix = Atelier.integrations(), seul = !ix.jira && !ix.xray && !d.total;  // sans Jira ni Xray : seuls les tests conçus dans l'atelier
     z.innerHTML = `${entete(ix.jira ? "De l'US au test automatisé" : "À automatiser", seul ? "" : menu)}<div class="corps-carte">
       ${blocAtelier}
@@ -426,8 +434,8 @@
     }
     const etatsLoc = x => `<span class="pill ${PILL[x.etat] || ""}" title="${esc(x.etat)}">${esc(x.id)}</span>`;
     z.innerHTML = `${entete("BDD to Automation", `<select class="in" id="mp-cle" style="width:auto">${l.map(b => `<option ${b.cle === cle ? "selected" : ""}>${esc(b.cle)}</option>`).join("")}</select>
-        <button class="btn primaire" id="mp-cursor" title="Copie la demande à coller dans Cursor : il construit le test avec les outils du MCP, l'écrit et le soumet en revue ; vous l'approuvez ici">${ico("ia")}Faire construire par Cursor</button>
-        <a class="btn" href="#bdd/${encodeURIComponent(cle)}" title="Ouvre le scénario dans Construction BDD pour corriger les étapes ou le mapping (propositions IA par étape)">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn" id="mp-gen" title="Aperçu du test Robot généré depuis le mapping, puis écriture dans le projet (jamais d'écrasement implicite) ; le script entre en revue">${ico("editeur")}Générer le script Robot</button>`)}
+        <button class="btn ${m.a_creer ? "primaire" : ""}" id="mp-cursor" title="Copie la demande à coller dans Cursor : il construit le test avec les outils du MCP, l'écrit et le soumet en revue ; vous l'approuvez ici">${ico("ia")}Faire construire par Cursor</button>
+        <a class="btn" href="#bdd/${encodeURIComponent(cle)}" title="Ouvre le scénario dans Construction BDD pour corriger les étapes ou le mapping (propositions IA par étape)">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn ${m.a_creer ? "" : "primaire"}" id="mp-gen" title="Aperçu du test Robot généré depuis le mapping, puis écriture dans le projet (jamais d'écrasement implicite) ; le script entre en revue">${ico("editeur")}Générer le script Robot</button>`)}
       <div class="corps-carte"><div id="mp-demande"></div><p><b>${esc(m.cle)}</b> · ${esc(m.titre)} · JDD <span class="mono">${esc(m.jdd || "—")}</span> · BDD ${esc(m.statut_bdd)} ·
         <span class="pill ok">${m.existants} étape(s) reliée(s) au socle</span> <span class="pill ${m.a_creer ? "warn" : ""}">${m.a_creer} keyword(s) à créer</span></p>
       ${m.scenarios.map(s => `<h3 class="lib" style="margin:12px 0 6px">${esc(s.type === "principal" ? "SCÉNARIO" : "BRANCHE " + s.type.toUpperCase())} · ${esc(s.nom)}</h3>

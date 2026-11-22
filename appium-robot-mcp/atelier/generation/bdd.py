@@ -198,7 +198,8 @@ def lister() -> list[dict]:
     for f in sorted(d.glob("*.yaml")) if d.exists() else []:
         m = charger_yaml(f.read_text("utf-8")) or {}
         out.append({"cle": m.get("cle", f.stem), "titre": m.get("titre", ""), "statut": m.get("statut", "brouillon"),
-                    "scenarios": len(m.get("scenarios", [])), "maj": m.get("maj", "")})
+                    "scenarios": len(m.get("scenarios", [])), "maj": m.get("maj", ""), "parcours": m.get("parcours", ""),
+                    "session": m.get("session", "")})
     return out
 
 

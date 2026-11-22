@@ -112,6 +112,12 @@
     $$("tr[data-e]").forEach(tr => tr.classList.toggle("sel", tr.dataset.e === eid));
     pn.hidden = false;
     const ferme = p.suspendu || p.statut === "Abandoned";
+    /* actions possibles selon l'état de l'étape ; la première est l'étape suivante (mise en avant) */
+    const actionsEtape = st => ({"À faire": [["demarrer", "primaire"], ["sauter", ""]],
+      "En cours": [["soumettre", "primaire"], ["valider", ""], ["echouer", ""], ["sauter", ""]],
+      "En attente de validation": [["valider", "succes"], ["echouer", ""], ["revenir", ""]],
+      "Échouée": [["revenir", "primaire"], ["sauter", ""]], "Bloquée": [["sauter", ""]],
+      "Validée": [["revenir", ""]], "Sautée": [["revenir", ""]]})[st] || [["demarrer", ""], ["soumettre", ""], ["valider", ""], ["sauter", ""], ["echouer", ""], ["revenir", ""]];
     const btn = (a, lib, cls = "", titre = "") => `<button class="btn petit ${cls}" data-a="${a}" title="${esc(titre)}" ${ferme ? "disabled" : ""}>${lib}</button>`;
     pn.innerHTML = `${entete(`${e.numero}. ${e.titre}`, `<button class="icone" id="pe-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">
       <p>${esc(e.role)}</p><p><span class="pill ${PE[e.statut]}">${esc(e.statut)}</span>${e.a_revoir ? ' <span class="pill warn">à revoir</span>' : ""}</p>
@@ -120,10 +126,14 @@
       ${p.indices[e.id] ? `<p class="lib">Constaté : ${esc(p.indices[e.id])}</p>` : ""}
       ${e.validation ? `<p class="lib">Validée par ${esc(e.validation.par)} le ${date(e.validation.date)}${e.validation.commentaire ? ` : « ${esc(e.validation.commentaire)} »` : ""}</p>` : ""}
       <div class="champ"><label for="pe-c">Commentaire / résultat / justification</label><textarea class="in" id="pe-c" rows="2">${esc(e.resultat || "")}</textarea></div>
-      <div class="btns">${btn("demarrer", "Démarrer", "", "Passer l'étape en cours (prérequis validés ou sautés)")}${btn("soumettre", "Soumettre", "", "Demander la validation de l'étape")}
-        ${btn("valider", "Valider", "succes", e.validation_humaine ? "Décision humaine (rôle relecteur si les rôles sont actifs)" : "Valider l'étape")}
-        ${btn("sauter", "Sauter", "", "Étape sans objet : justification de 10 caractères minimum")}${btn("echouer", "Échec", "danger", "Motif obligatoire")}
-        ${btn("revenir", "Reprendre l'étape", "", "Relancer cette étape ; les suivantes déjà faites sont gardées et marquées à revoir")}</div>
+      <div class="btns">${actionsEtape(e.statut).map(([act, cls]) => ({
+        demarrer: () => btn("demarrer", "Démarrer", cls, "Passer l'étape en cours (prérequis validés ou sautés)"),
+        soumettre: () => btn("soumettre", "Soumettre", cls, "Demander la validation de l'étape"),
+        valider: () => btn("valider", "Valider", cls || "succes", e.validation_humaine ? "Décision humaine (rôle relecteur si les rôles sont actifs)" : "Valider l'étape"),
+        sauter: () => btn("sauter", "Sauter", cls, "Étape sans objet : justification de 10 caractères minimum"),
+        echouer: () => btn("echouer", "Échec", cls || "danger", "Motif obligatoire"),
+        revenir: () => btn("revenir", "Reprendre l'étape", cls, "Relancer cette étape ; les suivantes déjà faites sont gardées et marquées à revoir")})[act]()).join("")}
+        ${["Validée", "Sautée"].includes(e.statut) ? `<span class="pill ok">${esc(e.statut.toLowerCase())}</span>` : ""}</div>
       <h3 class="lib" style="margin-top:12px">RELIER UN OBJET</h3>
       <div class="btns"><select class="in" id="pe-rt" style="width:auto">${["session_discovery", "exigence", "proposition", "scenario_bdd", "suite", "revue", "run", "echec", "execution_xray", "autre"].map(t => `<option>${t}</option>`).join("")}</select>
         <input class="in mono" id="pe-ri" placeholder="identifiant (ex. RUN-…, TAM-12)" style="flex:1"><button class="btn petit" id="pe-rok" ${ferme ? "disabled" : ""}>Relier</button></div>

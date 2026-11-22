@@ -36,6 +36,8 @@
     const suites = d.suites.filter(s => FILTRE === "tous" || (FILTRE === "avalider" ? s.etat === "À valider" : FILTRE === "echecs"
       ? s.tests.some(t => t.dernier && t.dernier.statut !== "PASS") : s.etat === "Validé"));
     const n = SEL.size;
+    const choisis = d.suites.flatMap(s => s.tests.filter(x => SEL.has(x.id)).map(x => ({...x, etat: s.etat})));
+    const tousVerifies = n > 0 && choisis.every(x => x.verifie), tousValides = n > 0 && choisis.every(x => x.etat === "Validé");
     zone.innerHTML = `<section class="carte"><h2 class="titre-carte">Tests automatisés<span class="actions-titre">
         <button class="btn petit contour" id="ta-rafraichir">Rafraîchir</button></span></h2>
       <div class="corps-carte ta-entete">
@@ -47,8 +49,8 @@
       </div></section>
       ${suites.length ? suites.map(suite).join("") : `<section class="carte"><div class="corps-carte">${vide("Aucun test ici.")}</div></section>`}
       <div class="ta-barre carte" ${n ? "" : "hidden"}><b>${n} test(s) choisi(s)</b>
-        <button class="btn primaire" id="ta-verifier" title="Run réel des seuls tests choisis">Vérifier</button>
-        <button class="btn succes" id="ta-valider" title="Rend les suites choisies exécutables partout">Valider</button>
+        <button class="btn ${tousVerifies ? "contour" : "primaire"}" id="ta-verifier" title="${tousVerifies ? "Déjà vérifiés par un run réel depuis leur dernière modification : relancer seulement pour contrôler" : "Run réel des seuls tests choisis"}">${tousVerifies ? "Vérifier à nouveau" : "Vérifier"}</button>
+        ${tousValides ? '<span class="pill ok">déjà validés</span>' : `<button class="btn ${tousVerifies ? "succes" : "contour"}" id="ta-valider" title="Rend les suites choisies exécutables partout${tousVerifies ? "" : " (à faire après la vérification)"}">Valider</button>`}
         <button class="btn violet" id="ta-maintenance" title="Une seule demande à l'agent pour toute la sélection">Lancer la maintenance</button>
         <button class="btn contour" id="ta-ecarter">Écarter…</button>
         <button class="btn contour" id="ta-vider">Tout décocher</button></div>`;
@@ -65,7 +67,7 @@
     const ids = () => [...SEL];
     $("#ta-vider", zone).onclick = () => { SEL.clear(); dessiner(zone); };
     $("#ta-verifier", zone).onclick = () => verifier(ids()).catch(e => toast(e.message, "ko"));
-    $("#ta-valider", zone).onclick = () => valider(zone, ids()).catch(e => toast(e.message, "ko"));
+    if ($("#ta-valider", zone)) $("#ta-valider", zone).onclick = () => valider(zone, ids()).catch(e => toast(e.message, "ko"));
     $("#ta-maintenance", zone).onclick = () => maintenance(ids()).catch(e => toast(e.message, "ko"));
     $("#ta-ecarter", zone).onclick = async () => {
       const motif = prompt("Pourquoi écarter ces tests ? (motif gardé dans l'historique)");
