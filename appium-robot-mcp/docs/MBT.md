@@ -140,3 +140,17 @@ vérifiés avant création ; aucune fusion automatique. Un résultat attendu non
 
 Limites assumées : Playwright et Cypress ne sont pas encore générés par l'atelier (la préparation à l'automatisation
 l'indique : cible Robot seule) ; l'édition du modèle se fait par formulaires (pas de glisser-déposer de transitions).
+
+## 7. Évolution « moteur d'analyse comportementale »
+
+| Cahier | Réalisation |
+|---|---|
+| § 2 Niveaux | `comportement.niveau` : Confirmé (exigence, règle explicite, décision du QA), Observé, Déduit, À confirmer, Rejeté. Établis = Confirmé + Observé (seuls dans les indicateurs officiels). Un rejet n'est jamais reproposé (éléments et hypothèses). États métier distincts des écrans (types métier, système, erreur rattachés à un écran). |
+| § 3 Transition | état initial, événement (« clic sur … »), condition, action, état résultant, résultat attendu (et celui de l'exigence), source, niveau, exigences liées. Conditions mutualisées (`condition_commune`). Le critère « Si X, refus » donne la condition X (Confirmé), sa transition de refus (issue vraie) et, sur la transition nominale, l'issue contraire. Issue contraire non décrite : hypothèse « à confirmer ». |
+| § 4 Exceptions | `mbt._hypotheses` : session expirée, perte de connexion, double soumission, retour arrière, annulation, interruption, reprise, accès non autorisé, formulaire invalide, issue contraire. Seulement si non documentées ; accepter = élément À confirmer sans résultat inventé ; rejeter = jamais reproposée. |
+| § 5 Chemins | cibles établies d'abord ; ce que les scénarios existants couvrent n'est pas reciblé (« réutilisés ») ; minimisation gloutonne (le minimum de chemins) ; « valeur ajoutée » par chemin ; drapeau « hypothèse ». |
+| § 6 Traçabilité | `mbt.tracabilite(cle)` : exigence → Knowledge Graph → modèle → transitions → chemin → scénario → automatisation → exécution ; tag `a_confirmer` sur le scénario. |
+| § 7 Automatisation | `preparation` : locators, keywords existants, Page Object, données (champs sans variable ni jeu), préconditions, environnements ; « prêt » seulement si tout est là. |
+| § 8 Incrémental | `actualiser_tous` (au changement du projet), `evolutions` (états, transitions, conditions, chemins, scénarios, automatisations, révisions proposées) ; TNR : scénarios touchés par des éléments établis ; les autres « à examiner ». |
+| § 9 Dashboard | section « Couverture comportementale » (états, transitions, issues vérifiés / établis ; chemins couverts / retenus ; inconnus ; réutilisés ; générés ; impactés) et cinq niveaux : conception, scénarios BDD, automatisation, exécution, validée. |
+| § 10 Modes | automatique (cas d'une US), assisté (Synthèse de l'écran Analyse comportementale), expert (Modèle, Analyse, Comportements manquants, Stratégie, Chemins, Génération, Évolutions et impact). |

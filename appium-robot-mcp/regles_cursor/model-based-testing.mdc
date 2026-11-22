@@ -13,6 +13,14 @@ se comporter ; les chemins disent comment le vérifier. Ne pas confondre les tro
   critères des US, informations manquantes, éléments rejetés. Ne jamais reproposer un élément rejeté.
 - Un écran n'est pas un état métier : un même écran peut porter plusieurs états (formulaire vide, renseigné, invalide,
   opération en attente, refusée). Les proposer comme états « metier » ou « erreur » rattachés à l'écran.
+- Niveaux de confiance de chaque élément : Confirmé (exigence ou règle explicite, ou décision du QA), Observé (découvert
+  dans l'application), Déduit (proposé), À confirmer (information insuffisante), Rejeté (jamais reproposé). Seuls
+  Confirmé et Observé sont établis : ils seuls comptent dans la couverture, l'impact et la TNR officiels.
+- Chaque transition : état initial, événement, condition éventuelle, action, état résultant, résultat attendu, source,
+  niveau. L'issue contraire d'une condition est toujours étudiée ; son résultat n'est donné que si une règle le décrit.
+- Comportements exceptionnels (session expirée, perte de connexion, double soumission, retour arrière, annulation,
+  interruption, reprise, accès non autorisé) : l'atelier les propose comme HYPOTHÈSES dans « hypotheses » ; ne jamais
+  les présenter comme des exigences ni leur inventer un résultat attendu.
 
 2. Enrichir (propositions, jamais des décisions)
 - mbt_deposer_propositions(modele, propositions) : états manquants, transitions possibles, conditions et leur issue
@@ -30,8 +38,9 @@ se comporter ; les chemins disent comment le vérifier. Ne pas confondre les tro
 - Lire pour chaque chemin : justification, manquant, scenarios_existants, automatisation. Un chemin déjà couvert par
   un scénario existant se réutilise, il ne se regénère pas. Expliquer dans la réponse pourquoi chaque chemin retenu
   apporte une couverture nouvelle (transition, issue de condition, état d'erreur jamais vérifiés).
-- Préférer le minimum de chemins qui couvre la stratégie : pas un scénario par variante de données (les données vont
-  dans les jeux de données), pas de chemin redondant contenu dans un autre.
+- mbt_chemins renvoie déjà le MINIMUM de chemins, sans recibler ce que les scénarios existants couvrent
+  (« reutilises ») : ne pas en ajouter d'autres, pas un scénario par variante de données (les données vont dans les jeux
+  de données). Citer la « valeur_ajoutee » de chaque chemin ; un chemin « hypothese » le dit explicitement.
 
 4. Générer les scénarios BDD
 - mbt_generer_bdd(modele, chemins, strategie) crée des brouillons dans le référentiel BDD existant (même éditeur), avec
@@ -46,7 +55,11 @@ se comporter ; les chemins disent comment le vérifier. Ne pas confondre les tro
 - Ne jamais présenter un scénario généré comme une preuve : couverture de conception ≠ automatisation ≠ exécution ≠
   validée (exécution réussie d'éléments confirmés). Les éléments non confirmés n'entrent ni dans la couverture, ni
   dans l'impact, ni dans la TNR officiels.
-- Après une évolution (nouvelle version du modèle, écran modifié) : impact_analysis(element) cite les modèles et
-  scénarios générés concernés ; proposer de relire ou de compléter, jamais de supprimer un scénario.
+- Après une évolution (nouvelle version d'une US, d'un écran, d'une règle) : mbt_modele actualise le modèle ; sa
+  lecture donne « evolutions » (états, transitions, conditions changés, scénarios concernés). Proposer la mise à jour
+  du modèle et les révisions de scénarios par mbt_deposer_propositions (« revisions ») ; jamais de suppression.
+  impact_analysis(element) cite les modèles et scénarios générés concernés.
+- Trois modes : automatique (génération des cas d'une US), assisté (synthèse d'un périmètre), expert (écran Analyse
+  comportementale complet). Ne pas imposer le mode expert au QA.
 - Le MBT fonctionne sans Xray. La génération des cas d'une US (test_design_proposer) l'utilise déjà en arrière-plan :
   inutile de refaire l'analyse si l'utilisateur n'a demandé que les cas de l'US.

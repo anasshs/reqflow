@@ -913,3 +913,5 @@ body.fenetre-graphe > #ecran { grid-row: 1 / -1; }
 .mbt-chemins td { vertical-align: top; }
 .mbt-chemins summary { cursor: pointer; }
 @media (max-width: 900px) { .mbt-2col, .mbt-modele { grid-template-columns: 1fr; } }
+.mbt-onglets { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mbt-chaine { padding-left: 18px; } .mbt-chaine li { margin: 6px 0; }

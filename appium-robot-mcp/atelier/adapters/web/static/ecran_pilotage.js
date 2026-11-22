@@ -202,6 +202,28 @@
         : `<p class="lib" style="margin:0">Aucune release. Créer une release, coller sa Release Note, puis recevoir ses builds : chaque build a son périmètre de non-régression (retest, ciblée, qualification). <a href="#releases">Ouvrir les releases</a>.</p>`}</div>`);
   }
 
+  /* couverture comportementale (MBT) : dénominateurs établis (confirmés, observés) ; conçu ≠ vérifié */
+  async function comportement() {
+    if (!zone || !zone.isConnected) return;
+    let c;
+    try { c = await api("/api/mbt/couverture"); } catch (e) { return poser("pz-comportement", `${titre("Couverture comportementale")}<div class="corps-carte">${vide("Indisponible", esc(e.message))}</div>`); }
+    if (!c.modeles) return poser("pz-comportement", `${titre("Couverture comportementale")}<div class="corps-carte"><p class="lib" style="margin:0">Aucun modèle comportemental.
+      La génération des cas d'une US l'utilise déjà en arrière-plan ; pour un module ou un parcours : <a href="#comportement">Analyser le comportement</a>.</p></div>`);
+    const r = (a, b) => `<b>${a}</b>/${b}`, N = c.niveaux, tot = c.transitions || 0;
+    const barre = (l, v) => `<tr><td>${l}</td><td>${v}/${tot}</td><td><div class="barre"><i style="width:${tot ? v / tot * 100 : 0}%"></i></div></td></tr>`;
+    poser("pz-comportement", `${titre("Couverture comportementale", `<a class="btn petit" href="#comportement">${ico("branche")}Analyser</a>`)}<div class="corps-carte">
+      <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+        <div class="kpi" title="États vérifiés (dernière exécution réussie) / états établis"><div class="v">${r(c.etats_verifies, c.etats_etablis)}</div><div class="l">états vérifiés</div></div>
+        <div class="kpi" title="Transitions vérifiées / transitions établies"><div class="v">${r(c.transitions_verifiees, c.transitions)}</div><div class="l">transitions vérifiées</div></div>
+        <div class="kpi" title="Issues de conditions vérifiées / issues établies"><div class="v">${r(c.issues_verifiees, c.issues_etablies)}</div><div class="l">issues vérifiées</div></div>
+        <div class="kpi" title="Chemins couverts par un scénario / chemins retenus"><div class="v">${r(c.parcours_couverts, c.parcours_identifies)}</div><div class="l">chemins couverts</div></div></div>
+      <table style="margin-top:10px"><tr><th>Niveau</th><th>Transitions</th><th></th></tr>${barre("Conception", N.conception)}${barre("Scénarios BDD", N.bdd)}
+        ${barre("Automatisation", N.automatisation)}${barre("Exécution", N.execution)}${barre("Validée", N.validee)}</table>
+      <p class="lib">${c.inconnus} comportement(s) à confirmer · ${c.scenarios_reutilises} scénario(s) réutilisé(s) · ${c.scenarios_generes} généré(s)
+        · ${c.chemins_impactes} chemin(s) impacté(s) par les dernières évolutions. Conçu n'est pas vérifié : seule une exécution réussie compte.</p>
+      ${(c.evolutions || []).length ? `<p class="warn-t">Modèles actualisés après une évolution : ${c.evolutions.map(e => `<a class="lien" href="#comportement/m/${encodeURIComponent(e.id)}">${esc(e.nom)}</a> (v${e.de} → v${e.vers})`).join(", ")}.</p>` : ""}</div>`);
+  }
+
   /* ------------------------------------------------------------------ chargement progressif */
   const RENDU = {synthese: rendreSynthese, decision: rendreDecision, conception: rendreConception, execution: rendreExecution, tnr: rendreTnr};
   const CIBLES = {synthese: ["pz-synthese"], decision: ["pz-preparation", "pz-alertes", "pz-recos"], conception: ["pz-couverture", "pz-discovery", "pz-qualite", "pz-sprints"],
@@ -240,6 +262,7 @@
         <section class="carte s6" id="pz-couverture" ${jira ? "" : "hidden"}>${titre("Couverture des exigences")}${attente()}</section>
         <section class="carte s6" id="pz-discovery">${titre(jira ? "Application Discovery et rapprochement avec Jira" : "Application Discovery")}${attente("Lecture de la carte…")}</section>
         <section class="carte s6" id="pz-qualite">${titre("Qualité de la conception")}${attente()}</section>
+        <section class="carte s6" id="pz-comportement">${titre("Couverture comportementale")}${attente("Analyse des modèles…")}</section>
         <section class="carte s6" id="pz-sprints" ${jira ? "" : "hidden"}>${titre("Couverture par sprint")}${attente()}</section>
         <section class="carte s7" id="pz-activite">${titre("Résultats des campagnes")}${attente()}</section>
         <section class="carte s5" id="pz-anomalies">${titre("Bugs et anomalies")}${attente()}</section>
@@ -258,6 +281,7 @@
       chemin(j);
       charger();
       releases();
+      comportement();
       const ancre = {releases: "pz-releases", tnr: "pz-tnr", execution: "pz-activite", decision: "pz-recos", conception: "pz-couverture"}[sous];
       if (ancre) setTimeout(() => $("#" + ancre, zone)?.scrollIntoView({behavior: "smooth"}), 600);
     },

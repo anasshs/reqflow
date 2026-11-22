@@ -1492,9 +1492,36 @@ async def mbt_modele(id: str):
 
 @app.get("/api/mbt/analyse")
 async def mbt_analyse(id: str, strategie: str = "transitions", mode: str = "exploratoire", profondeur: int = 0, chemins: int = 0,
-                      transitions: int = 0, boucles: int = 0):
+                      transitions: int = 0, boucles: int = 0, inclure_couverts: bool = False):
     lim = {"profondeur": profondeur, "chemins": chemins, "transitions_par_scenario": transitions, "passages_boucle": boucles}
-    return await asyncio.to_thread(_call, lambda: _mbt().analyser(id, strategie, lim, mode))
+    return await asyncio.to_thread(_call, lambda: _mbt().analyser(id, strategie, lim, mode, inclure_couverts))
+
+
+@app.post("/api/mbt/hypothese")
+async def mbt_hypothese(req: Request):
+    """Accepter (comportement à confirmer dans le modèle) ou rejeter (jamais reproposée) une hypothèse."""
+    from atelier.domain import comportement
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, comportement.decider_hypothese, b.get("id", ""), b.get("hypothese", ""), b.get("decision", ""), b.get("motif", ""))
+    _mbt().vider_cache()
+    return r
+
+
+@app.get("/api/mbt/evolutions")
+async def mbt_evolutions(id: str, de: str = ""):
+    return await asyncio.to_thread(_call, lambda: _mbt().evolutions(id, int(de) if de else None))
+
+
+@app.post("/api/mbt/actualiser")
+async def mbt_actualiser():
+    """Reconstruit les modèles dont les sources ont changé (US, écrans, règles) et renvoie leurs évolutions."""
+    return await asyncio.to_thread(_call, lambda: _mbt().actualiser_tous(forcer=True))
+
+
+@app.get("/api/mbt/tracabilite")
+async def mbt_tracabilite(cle: str):
+    return await asyncio.to_thread(_call, lambda: _mbt().tracabilite(cle))
 
 
 @app.post("/api/mbt/element")
@@ -1554,7 +1581,7 @@ async def mbt_generer(req: Request):
 
     b = await req.json()
     return await asyncio.to_thread(_call, mbt_bdd.generer, b.get("id", ""), b.get("chemins") or None, b.get("strategie") or "transitions",
-                                   bool(b.get("forcer")), "MBT", b.get("limites") or None)
+                                   bool(b.get("forcer")), "MBT", b.get("limites") or None, "automaticien", bool(b.get("inclure_couverts")))
 
 
 @app.post("/api/mbt/ia")

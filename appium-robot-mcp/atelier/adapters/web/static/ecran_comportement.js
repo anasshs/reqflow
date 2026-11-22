@@ -4,7 +4,11 @@
    Six vues : périmètre, modèle, analyse, stratégie, chemins, génération BDD (référentiel et éditeur BDD existants). */
 "use strict";
 (() => {
-  const VUES = [["perimetre", "Périmètre"], ["modele", "Modèle"], ["analyse", "Analyse"], ["strategie", "Stratégie"], ["chemins", "Chemins"], ["generation", "Génération BDD"]];
+  /* mode assisté : périmètre et synthèse ; mode expert : toutes les vues */
+  const VUES = [["perimetre", "Périmètre", 0], ["synthese", "Synthèse", 0], ["modele", "Modèle", 1], ["analyse", "Analyse", 1], ["hypotheses", "Comportements manquants", 1],
+    ["strategie", "Stratégie", 1], ["chemins", "Chemins", 1], ["generation", "Génération BDD", 1], ["evolutions", "Évolutions et impact", 1]];
+  const NIV = {"Confirmé": "ok", "Observé": "info", "Déduit": "warn", "À confirmer": "warn", "Rejeté": "ko"};
+  const lireExpert = () => { try { return localStorage.getItem("mbt-expert") === "1"; } catch (e) { return false; } };
   const TYPES = [["application", "Application"], ["module", "Module"], ["fonctionnalite", "Fonctionnalité"], ["parcours", "Parcours utilisateur"],
     ["user_story", "User Story"], ["ecran", "Écran"], ["regle", "Règle métier"]];
   const TYPES_ETAT = {metier: "État métier", ecran: "État d'écran", systeme: "État système", erreur: "État d'erreur"};
@@ -19,17 +23,20 @@
 
   const E = {
     afficher(zone, sous) {
-      S = {vue: "perimetre", m: null, analyse: null, strategie: "transitions", mode: "exploratoire", limites: {}, choix: new Set(), sel: null};
+      S = {vue: "perimetre", m: null, analyse: null, strategie: "transitions", mode: "exploratoire", limites: {}, choix: new Set(), sel: null, expert: lireExpert()};
       zone.className = "g-mbt";
       zone.innerHTML = `
         <section class="carte mbt-tete">
           <div class="mbt-titre"><div><h1>Analyse comportementale</h1>
             <p class="lib" id="mb-sous">Comprendre le comportement, explorer les chemins, proposer les scénarios BDD qui manquent. Mode avancé, facultatif :
               la génération des cas d'une US l'utilise déjà automatiquement.</p></div><div id="mb-etat"></div></div>
-          <div class="sous-onglets" role="tablist">${VUES.map(([id, l]) => `<button role="tab" data-v="${id}" aria-selected="${id === S.vue}">${l}</button>`).join("")}</div>
+          <div class="mbt-onglets"><div class="sous-onglets" role="tablist" id="mb-onglets"></div>
+            <button class="btn petit" id="mb-expert" title="Mode expert : modèle complet, états, transitions, conditions, hypothèses, chemins, couverture et impacts"></button></div>
         </section>
         <section class="carte mbt-corps" id="mb-corps"></section>`;
-      $$("[data-v]", zone).forEach(b => b.onclick = () => aller(b.dataset.v));
+      onglets();
+      $("#mb-expert").onclick = () => { S.expert = !S.expert; try { localStorage.setItem("mbt-expert", S.expert ? "1" : "0"); } catch (e) { /* stockage indisponible */ }
+        onglets(); if (!S.expert && !["perimetre", "synthese"].includes(S.vue)) aller(S.m ? "synthese" : "perimetre"); };
       const [t, ...reste] = (sous || "").split("/");
       const id = decodeURIComponent(reste.join("/"));
       if (t === "m" && id) ouvrir(id);
@@ -40,11 +47,17 @@
   };
   Atelier.enregistrer("comportement", E);
 
+  function onglets() {
+    $("#mb-onglets").innerHTML = VUES.filter(v => S.expert || !v[2]).map(([id, l]) => `<button role="tab" data-v="${id}" aria-selected="${id === S.vue}">${l}</button>`).join("");
+    $$("#mb-onglets [data-v]").forEach(b => b.onclick = () => aller(b.dataset.v));
+    $("#mb-expert").textContent = S.expert ? "Mode assisté" : "Mode expert";
+  }
+
   function aller(v) {
     if (v !== "perimetre" && !S.m) { toast("Choisir d'abord un périmètre.", "ko"); v = "perimetre"; }
     S.vue = v;
     $$("[data-v]").forEach(b => b.setAttribute("aria-selected", b.dataset.v === v));
-    ({perimetre, modele, analyse, strategie, chemins, generation})[v]();
+    ({perimetre, synthese, modele, analyse, hypotheses, strategie, chemins, generation, evolutions})[v]();
   }
 
   function entete() {
@@ -61,12 +74,12 @@
     S.analyse = null; S.choix.clear();
     history.replaceState(null, "", "#comportement/m/" + encodeURIComponent(id));
     entete();
-    aller(S.vue === "perimetre" ? "modele" : S.vue);
+    aller(S.vue === "perimetre" ? "synthese" : S.vue);
   }
 
   async function analyserPerimetre(type, id) {
     corps(`<p class="lib">Construction du modèle depuis la Discovery, le Knowledge Graph, les critères des US et les règles…</p>`);
-    try { const r = await api("/api/mbt/construire", {method: "POST", body: {type, id}}); S.vue = "modele"; ouvrir(r.id); }
+    try { const r = await api("/api/mbt/construire", {method: "POST", body: {type, id}}); S.vue = "synthese"; ouvrir(r.id); }
     catch (e) { toast(e.message, "ko"); aller("perimetre"); }
   }
 
@@ -94,12 +107,13 @@
   /* ------------------------------------------------------------------ 2. modèle (graphe des états et transitions) */
   function donneesGraphe(m) {
     const noeuds = Object.entries(m.etats).filter(([, e]) => e.validation !== "rejeté").map(([k, e]) => ({id: k, type: e.type === "ecran" ? "ecran" : "etat",
-      libelle: e.nom + (e.initial ? " ▶" : "") + (e.final ? " ■" : ""), categorie: "FONCTIONNEL", provenance: e.provenance,
-      statut: e.validation === "validé" ? "validé" : "à valider", plateformes: [], proprietes: {genre: e.type}}));
+      libelle: e.nom + (e.initial ? " ▶" : "") + (e.final ? " ■" : ""), categorie: "FONCTIONNEL", provenance: e.niveau || e.provenance,
+      statut: ["Confirmé", "Observé"].includes(e.niveau) ? "validé" : "à valider", plateformes: [], proprietes: {genre: e.type}}));
     const ids = new Set(noeuds.map(n => n.id));
     const relations = Object.entries(m.transitions).filter(([, t]) => t.validation !== "rejeté" && ids.has(t.de) && ids.has(t.vers)).map(([k, t]) => {
       const a = m.actions[t.action]?.libelle || t.evenement || "", c = m.conditions[t.garde]?.libelle;
-      return {id: k, de: t.de, vers: t.vers, type: "conduit_a", provenance: t.provenance, statut: t.validation === "validé" ? "validé" : "à valider",
+      return {id: k, de: t.de, vers: t.vers, type: "conduit_a", provenance: t.niveau === "Déduit" || t.niveau === "À confirmer" ? "déduit" : t.provenance,
+        statut: ["Confirmé", "Observé"].includes(t.niveau) ? "validé" : "à valider",
         libelle: (a || "→") + (c ? ` [${t.issue === "fausse" ? "non " : ""}${c.slice(0, 30)}]` : ""), proprietes: {}};
     });
     return {noeuds, relations};
@@ -120,6 +134,7 @@
     corps(`<div class="mbt-modele"><div class="mbt-zone" id="mb-zone"></div><div class="mbt-cote" id="mb-cote"></div></div>`);
     G = new GrapheVue($("#mb-zone"), {onSelection: n => detailElement("etats", n.id), onRelation: r => detailElement("transitions", r.id), onDevelopper: () => {}});
     G.afficher(donneesGraphe(m), "couches", rangs(donneesGraphe(m)));
+    $("#mb-zone .gv-svg")?.classList.add("gv-avec-prov");  // niveau de confiance affiché sur chaque état
     coteParDefaut();
   }
 
@@ -128,13 +143,15 @@
     $("#mb-cote").innerHTML = `<h3 class="lib">MODÈLE</h3>
       <p>${n("etats")} état(s) · ${n("transitions")} transition(s) · ${n("conditions")} condition(s) · ${n("actions")} action(s)</p>
       <p class="lib">Version ${m.version}${m.version_application ? ` · application build ${esc(m.version_application)}` : ""} · mis à jour ${esc((m.maj || "").slice(0, 16).replace("T", " "))}</p>
-      <p class="lib">Cliquer un état ou une transition pour le valider, le rejeter ou le corriger. ▶ initial · ■ final · pointillés : à valider.</p>
+      <p class="lib">Cliquer un état ou une transition pour le valider, le rejeter ou le corriger. ▶ initial · ■ final · traits pleins : établi (Confirmé,
+        Observé) · pointillés : hypothèse (Déduit, À confirmer). Le niveau est écrit au-dessus de chaque état.</p>
+      ${aValiderListe(m)}
       <div class="btns" style="margin:8px 0"><button class="btn petit" id="mb-ae">${ico("plus")}État</button><button class="btn petit" id="mb-at">${ico("plus")}Transition</button>
         <button class="btn petit" id="mb-ac">${ico("plus")}Condition</button><button class="btn petit" id="mb-reco">${ico("rejouer")}Reconstruire</button></div>
       <div class="champ"><label for="mb-st">Statut du modèle</label><select class="in" id="mb-st">${[["Draft", "Brouillon"], ["In Review", "En revue"], ["Validated", "Validé"], ["Deprecated", "Obsolète"]]
         .map(([k, l]) => `<option value="${k}" ${m.statut === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
       <h3 class="lib" style="margin-top:12px">CONDITIONS</h3><ul class="liste">${Object.entries(m.conditions).filter(([, c]) => c.validation !== "rejeté").map(([k, c]) =>
-        `<li><button class="lien" data-cond="${esc(k)}">${esc(c.libelle)}</button><span class="pill ${CONF[c.confiance] || ""}">${esc(c.confiance)}</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul>
+        `<li><button class="lien" data-cond="${esc(k)}">${esc(c.libelle)}</button><span class="pill ${NIV[c.niveau] || ""}">${esc(c.niveau || "")}</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul>
       <h3 class="lib" style="margin-top:12px">VERSIONS</h3><div id="mb-vers" class="lib">…</div>`;
     $("#mb-ae").onclick = formEtat; $("#mb-at").onclick = formTransition; $("#mb-ac").onclick = formCondition;
     $("#mb-reco").onclick = () => analyserPerimetre(m.perimetre.type, m.perimetre.id);
@@ -160,17 +177,28 @@
     };
   }
 
+  /* propositions à décider, en un endroit : valider ou rejeter sans ouvrir chaque élément */
+  function aValiderListe(m) {
+    const l = ["etats", "transitions", "conditions"].flatMap(c => Object.entries(m[c]).filter(([, e]) => e.validation === "à valider").map(([k, e]) => [c, k, e]));
+    if (!l.length) return "";
+    setTimeout(() => $$("[data-av]").forEach(b => b.onclick = () => detailElement(b.dataset.av, b.dataset.k)), 0);
+    return `<h3 class="lib">À DÉCIDER (${l.length})</h3><ul class="liste">${l.slice(0, 12).map(([c, k, e]) => `<li><button class="lien" data-av="${c}" data-k="${esc(k)}">${esc(c === "transitions"
+      ? `${m.etats[e.de]?.nom || e.de} → ${m.etats[e.vers]?.nom || e.vers}` : e.nom || e.libelle)}</button><span class="pill ${NIV[e.niveau] || ""}">${esc(e.niveau || "")}</span></li>`).join("")}</ul>`;
+  }
+
   function detailElement(coll, id) {
     const m = S.m, e = m[coll][id];
     if (!e) return;
     const titre = coll === "etats" ? e.nom : coll === "conditions" ? e.libelle : coll === "transitions"
       ? `${m.etats[e.de]?.nom || e.de} → ${m.etats[e.vers]?.nom || e.vers}` : e.libelle;
     const champs = coll === "etats" ? [["Type", TYPES_ETAT[e.type] || e.type], ["Écran", e.ecran], ["Initial / final", `${e.initial ? "initial" : ""} ${e.final ? "final" : ""}`], ["Description", e.description]]
-      : coll === "transitions" ? [["Action", m.actions[e.action]?.libelle || e.evenement], ["Condition", m.conditions[e.garde] ? `${m.conditions[e.garde].libelle} (issue ${e.issue})` : ""],
+      : coll === "transitions" ? [["État initial", m.etats[e.de]?.nom], ["Événement", e.evenement], ["Action", m.actions[e.action]?.libelle],
+        ["Condition", m.conditions[e.garde] ? `${m.conditions[e.garde].libelle} (issue ${e.issue})` : ""], ["État résultant", m.etats[e.vers]?.nom],
+        ["Exigences", (e.exigences || []).join(", ")], ["Attendu de l'exigence", e.attendu_exigence],
         ["Résultat attendu", (e.postconditions || "") + (e.postconditions_a_confirmer ? " (à confirmer)" : "")], ["Priorité", e.priorite]]
         : [["Règle", e.regle]];
     $("#mb-cote").innerHTML = `<button class="lien" id="mb-ret">← Modèle</button><h3 style="margin:8px 0">${esc(titre)}</h3>
-      <div class="btns"><span class="pill">${esc(e.provenance)}</span><span class="pill ${CONF[e.confiance] || ""}">${esc(e.confiance)}</span><span class="pill">${esc(e.validation)}</span></div>
+      <div class="btns"><span class="pill ${NIV[e.niveau] || ""}" title="Niveau de confiance">${esc(e.niveau || "")}</span><span class="pill">${esc(e.provenance)}</span><span class="pill">${esc(e.validation)}</span></div>
       <dl class="props">${champs.filter(([, v]) => v && String(v).trim()).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}
         <dt>Source</dt><dd>${esc(e.source)}</dd>${e.justification ? `<dt>Justification</dt><dd>${esc(e.justification)}</dd>` : ""}${e.motif_rejet ? `<dt>Rejet</dt><dd>${esc(e.motif_rejet)}</dd>` : ""}</dl>
       <div class="btns" style="margin-top:8px">${e.validation !== "validé" ? `<button class="btn petit succes" id="mb-val">${ico("check")}Valider</button>` : ""}
@@ -305,14 +333,19 @@
     const TYPE = {principal: ["", "nominal"], alternatif: ["info", "alternatif"], negatif: ["ko", "négatif"]};
     corps(`<p><b>${a.chemins.length}</b> chemin(s) · ${esc(a.libelle_strategie)} · mode ${a.mode === "verifie" ? "vérifié" : "exploratoire"}.
         Cochés : ceux qui n'ont pas encore de scénario. <button class="btn petit" id="mb-gen">${ico("bdd")}Générer les scénarios cochés</button></p>
-      <table class="table-strat mbt-chemins"><tr><th></th><th>Chemin</th><th>Type</th><th>Priorité</th><th>Justification</th><th>À confirmer</th><th>Scénario existant</th><th>Automatisation</th></tr>
+      <table class="table-strat mbt-chemins"><tr><th></th><th>Chemin</th><th>Type</th><th>Priorité</th><th>Valeur ajoutée</th><th>À confirmer</th><th>Scénario existant</th><th>Automatisation</th></tr>
       ${a.chemins.map(p => `<tr><td><input type="checkbox" data-ch="${esc(p.id)}" ${S.choix.has(p.id) ? "checked" : ""}></td>
         <td><details><summary><b>${esc(p.titre)}</b> <span class="lib mono">${esc(p.id)}</span></summary><ol class="lib">${p.description.map(x => `<li>${esc(x)}</li>`).join("")}</ol></details></td>
-        <td><span class="pill ${TYPE[p.type]?.[0] || ""}">${TYPE[p.type]?.[1] || p.type}</span></td><td>${esc(p.priorite)}</td><td class="lib">${esc(p.justification)}</td>
+        <td><span class="pill ${TYPE[p.type]?.[0] || ""}">${TYPE[p.type]?.[1] || p.type}</span>${p.hypothese ? '<span class="pill warn" title="Repose sur une hypothèse (Déduit ou À confirmer) : pas une exigence">hypothèse</span>' : ""}</td>
+        <td>${esc(p.priorite)}</td><td class="lib"><b>${esc(p.valeur_ajoutee || "")}</b><br>${esc(p.justification)}</td>
         <td>${p.manquant.length ? `<span class="pill warn" title="${esc(p.manquant.join("\n"))}">${p.manquant.length}</span>` : '<span class="pill ok">confirmé</span>'}</td>
         <td>${p.scenarios_existants.map(c => `<a class="lien" href="#bdd/${encodeURIComponent(c)}">${esc(c)}</a>`).join(", ") || "—"}</td>
-        <td><span class="pill ${p.automatisation.statut === "prêt" ? "ok" : p.automatisation.statut === "partiel" ? "info" : "warn"}" title="${esc(p.automatisation.manquant.join("\n"))}">${esc(p.automatisation.statut)}</span></td></tr>`).join("")
-        || `<tr><td colspan="8" class="lib">Aucun chemin : modèle vide ou états initiaux absents (voir Analyse).</td></tr>`}</table>`);
+        <td><span class="pill ${p.automatisation.statut === "prêt" ? "ok" : p.automatisation.statut === "partiel" ? "info" : "warn"}" title="${esc(p.automatisation.manquant.join("\n"))}">${esc(p.automatisation.statut)}</span>
+          ${p.automatisation.manquant.length ? `<details><summary class="lib">${p.automatisation.manquant.length} à compléter</summary><ul class="lib">${p.automatisation.manquant.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}</td></tr>`).join("")
+        || `<tr><td colspan="8" class="lib">Aucun chemin à ajouter : tout est couvert pour cette stratégie (ou modèle vide : voir Analyse).</td></tr>`}</table>
+      ${a.reutilises.length ? `<h3 class="lib" style="margin-top:12px">SCÉNARIOS EXISTANTS RÉUTILISÉS (${a.reutilises.length})</h3><p>${a.reutilises.map(r =>
+        `<a class="lien" href="#bdd/${encodeURIComponent(r.scenario)}">${esc(r.scenario)}</a> <span class="lib">(${r.transitions} transition(s))</span>`).join(" · ")}</p>
+        <p class="lib">Ce qu'ils couvrent déjà n'est pas reciblé : seuls les angles morts produisent des chemins.</p>` : ""}`);
     $$("[data-ch]").forEach(c => c.onchange = () => c.checked ? S.choix.add(c.dataset.ch) : S.choix.delete(c.dataset.ch));
     $("#mb-gen").onclick = () => aller("generation");
   }
@@ -334,11 +367,109 @@
     if (resultat) afficherResultat(resultat);
     function afficherResultat(r) {
       $("#mb-res").innerHTML = `<h3 class="lib">CRÉÉS (${r.crees.length})</h3><ul class="liste">${r.crees.map(c => `<li><a class="lien" href="#bdd/${encodeURIComponent(c.cle)}">${esc(c.titre)}</a>
-          <span class="pill">${esc(c.comparaison.classe)}</span>${c.a_confirmer ? `<span class="pill warn">${c.a_confirmer} à confirmer</span>` : ""}</li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul>
+          <span class="pill">${esc(c.comparaison.classe)}</span>${c.a_confirmer ? `<span class="pill warn">${c.a_confirmer} à confirmer</span>` : ""}
+          <button class="btn petit" data-trace="${esc(c.cle)}">Traçabilité</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul>
         ${r.ignores.length ? `<h3 class="lib">NON CRÉÉS : DOUBLONS (${r.ignores.length})</h3><ul class="liste">${r.ignores.map(x => `<li>${esc(x.titre)} ≈ <a class="lien" href="#bdd/${encodeURIComponent(x.scenario)}">${esc(x.scenario)}</a> <span class="lib">${esc(x.raison)}</span></li>`).join("")}</ul>
           <button class="btn petit" id="mb-forcer">Créer quand même</button>` : ""}`;
       if ($("#mb-forcer")) $("#mb-forcer").onclick = () => confirm("Créer ces scénarios malgré les doublons ?") && go(true);
+      $$("[data-trace]").forEach(b => b.onclick = () => tracabilite(b.dataset.trace));
       S.choix.clear();
     }
+  }
+
+  /* ------------------------------------------------------------------ traçabilité d'un scénario */
+  async function tracabilite(cle) {
+    let t;
+    try { t = await api("/api/mbt/tracabilite?cle=" + encodeURIComponent(cle)); } catch (e) { return toast(e.message, "ko"); }
+    modale(`Traçabilité · ${t.titre || cle}`, `<ol class="mbt-chaine">${t.chaine.map(x => `<li><b>${esc(x.maillon)}</b> ${x.elements.length
+      ? x.elements.map(e => `<span class="pill ${NIV[e.niveau] || ""}">${esc(e.libelle || e.id)}</span>`).join(" ") : '<span class="lib">— absent</span>'}</li>`).join("")}</ol>
+      ${t.a_confirmer.length ? `<h3 class="lib">À CONFIRMER</h3><ul class="liste">${t.a_confirmer.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+      <p class="lib">${esc(t.remarque)}</p>`);
+  }
+
+  /* ------------------------------------------------------------------ synthèse (mode assisté) */
+  async function synthese() {
+    corps(`<p class="lib">Analyse du comportement…</p>`);
+    let a, c;
+    try { [a, c] = await Promise.all([charger(), api("/api/mbt/couverture?id=" + encodeURIComponent(S.m.id))]); } catch (e) { return corps(vide("Erreur", esc(e.message))); }
+    const niv = a.structure.niveaux, i = c.indicateurs;
+    if (!S.choix.size) a.chemins.forEach(p => S.choix.add(p.id));
+    corps(`<div class="mbt-2col"><div>
+        <h3 class="lib">CE QUE L'ATELIER A COMPRIS</h3>
+        <p>${a.structure.etats} état(s), ${a.structure.transitions} transition(s), ${a.structure.conditions} condition(s).</p>
+        <div class="btns">${Object.entries(niv).filter(([, n]) => n).map(([k, n]) => `<span class="pill ${NIV[k] || ""}">${n} ${esc(k.toLowerCase())}</span>`).join("")}</div>
+        <h3 class="lib" style="margin-top:14px">ANGLES MORTS</h3><ul class="liste">
+          <li><b>${a.structure.transitions_non_couvertes.length}</b> transition(s) sans scénario</li>
+          <li><b>${a.structure.issues_non_modelisees.length}</b> issue(s) de condition non modélisée(s)</li>
+          <li><b>${a.hypotheses.length}</b> comportement(s) exceptionnel(s) non documenté(s) ${a.hypotheses.length ? `<button class="lien" id="sy-hyp">à examiner</button>` : ""}</li>
+          <li><b>${a.manquant.length}</b> information(s) manquante(s)</li></ul>
+        ${a.manquant.length ? `<details><summary class="lib">Informations manquantes</summary><ul class="liste">${a.manquant.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}
+        <h3 class="lib" style="margin-top:14px">COUVERTURE (TRANSITIONS ÉTABLIES)</h3>
+        <p>${["conception", "bdd", "automatisation", "execution", "validee"].map(k => `${{conception: "Conception", bdd: "Scénarios", automatisation: "Automatisation", execution: "Exécution", validee: "Validée"}[k]}
+          <b>${c[k].transitions}/${c.modele.transitions}</b>`).join(" · ")}</p>
+        <p class="lib">${i.scenarios_reutilises} scénario(s) existant(s) réutilisé(s) · ${i.inconnus} élément(s) à confirmer. Conçu n'est pas vérifié.</p></div>
+      <div><h3 class="lib">CHEMINS PROPOSÉS (${a.chemins.length}) — LE MINIMUM POUR COUVRIR LES TRANSITIONS</h3>
+        ${a.chemins.length ? `<ul class="liste">${a.chemins.map(p => `<li><label><input type="checkbox" data-sy="${esc(p.id)}" checked> <b>${esc(p.titre)}</b></label>
+          ${p.hypothese ? '<span class="pill warn">hypothèse</span>' : ""}<br><span class="lib">${esc(p.valeur_ajoutee)}</span></li>`).join("")}</ul>
+          <button class="btn primaire" id="sy-gen" style="margin-top:8px">${ico("bdd")}Générer les scénarios BDD cochés</button>`
+          : "<p class='lib'>Rien à ajouter : les transitions connues sont déjà couvertes par des scénarios.</p>"}
+        <div id="sy-res" style="margin-top:10px"></div>
+        <p class="lib" style="margin-top:12px">Pour voir et corriger le modèle, les hypothèses, les stratégies et les impacts : <button class="lien" id="sy-expert">mode expert</button>.</p></div></div>`);
+    if ($("#sy-hyp")) $("#sy-hyp").onclick = () => { if (!S.expert) $("#mb-expert").click(); aller("hypotheses"); };
+    $("#sy-expert").onclick = () => { if (!S.expert) $("#mb-expert").click(); aller("modele"); };
+    $$("[data-sy]").forEach(c => c.onchange = () => c.checked ? S.choix.add(c.dataset.sy) : S.choix.delete(c.dataset.sy));
+    if ($("#sy-gen")) $("#sy-gen").onclick = async () => {
+      try { const r = await api("/api/mbt/generer", {method: "POST", body: {id: S.m.id, chemins: [...S.choix], strategie: S.strategie}});
+        $("#sy-res").innerHTML = `<p><b>${r.crees.length}</b> scénario(s) brouillon(s) créé(s) dans Tests BDD : ${r.crees.map(c => `<a class="lien" href="#bdd/${encodeURIComponent(c.cle)}">${esc(c.titre)}</a>`).join(", ") || "aucun"}.
+          ${r.ignores.length ? `${r.ignores.length} doublon(s) non recréé(s).` : ""}</p>`;
+        S.choix.clear();
+      } catch (e) { toast(e.message, "ko"); }
+    };
+  }
+
+  /* ------------------------------------------------------------------ comportements manquants (hypothèses) */
+  async function hypotheses() {
+    const m = S.m = await api("/api/mbt/modele?id=" + encodeURIComponent(S.m.id));
+    const l = Object.values(m.hypotheses || {});
+    const ST = {"proposée": "warn", "acceptée": "info", "rejetée": "ko"};
+    const groupes = {};
+    for (const h of l) (groupes[h.categorie_libelle] ||= []).push(h);
+    corps(`<p class="lib">Comportements exceptionnels ou issues contraires que ni les exigences ni les règles ne décrivent. Ce sont des hypothèses :
+        accepter en fait un comportement « à confirmer » du modèle (sans résultat attendu inventé) ; rejeter l'écarte définitivement (jamais reproposée).</p>
+      ${l.length ? Object.entries(groupes).map(([g, hs]) => `<h3 class="lib" style="margin-top:12px">${esc(g.toUpperCase())} (${hs.length})</h3>
+        <ul class="liste">${hs.map(h => `<li><span class="pill ${ST[h.statut] || ""}">${esc(h.statut)}</span> <b>${esc(h.libelle)}</b>
+          <span class="lib">depuis « ${esc(m.etats[h.de]?.nom || h.de)} »${h.description ? ` · ${esc(h.description)}` : ""}${h.motif_rejet ? ` · rejet : ${esc(h.motif_rejet)}` : ""}</span>
+          ${h.statut === "proposée" ? `<span class="btns"><button class="btn petit succes" data-acc="${esc(h.id)}">Accepter (à confirmer)</button><button class="btn petit danger" data-rej="${esc(h.id)}">Rejeter</button></span>` : ""}</li>`).join("")}</ul>`).join("")
+        : "<p class='lib'>Aucune hypothèse : les comportements connus sont documentés.</p>"}`);
+    const decider = async (hid, decision, motif = "") => {
+      try { S.m = await api("/api/mbt/hypothese", {method: "POST", body: {id: S.m.id, hypothese: hid, decision, motif}}); toast(decision === "accepter" ? "Ajouté au modèle, à confirmer." : "Rejetée : ne sera plus proposée.", "ok"); entete(); hypotheses(); }
+      catch (e) { toast(e.message, "ko"); }
+    };
+    $$("[data-acc]").forEach(b => b.onclick = () => decider(b.dataset.acc, "accepter"));
+    $$("[data-rej]").forEach(b => b.onclick = () => { const motif = prompt("Motif du rejet (obligatoire) :"); if (motif) decider(b.dataset.rej, "rejeter", motif); });
+  }
+
+  /* ------------------------------------------------------------------ évolutions et impact */
+  async function evolutions() {
+    corps(`<p class="lib">Lecture des évolutions…</p>`);
+    let e;
+    try { e = await api("/api/mbt/evolutions?id=" + encodeURIComponent(S.m.id)); } catch (x) { return corps(vide("Erreur", esc(x.message))); }
+    const liste = (titre, l, f = x => esc(typeof x === "string" ? x : x.id)) => `<h3 class="lib" style="margin-top:10px">${titre} (${l.length})</h3>${l.length ? `<ul class="liste">${l.map(x => `<li>${f(x)}</li>`).join("")}</ul>` : "<p class='lib'>Aucun.</p>"}`;
+    corps(`<div class="btns"><button class="btn" id="ev-act">${ico("rejouer")}Actualiser depuis les US, écrans et règles</button></div>
+      ${e.de ? `<p>Version ${e.de} → ${e.vers} : ${e.nombre} changement(s).</p><div class="mbt-2col"><div>
+        ${liste("NOUVEAUX ÉTATS", e.nouveaux_etats)}${liste("ÉTATS SUPPRIMÉS", e.etats_supprimes)}${liste("ÉTATS MODIFIÉS", e.etats_modifies, x => `${esc(x.id)} <span class="lib">${esc(x.champs.join(", "))}</span>`)}
+        ${liste("NOUVELLES TRANSITIONS", e.nouvelles_transitions)}${liste("TRANSITIONS MODIFIÉES", e.transitions_modifiees, x => `${esc(x.id)} <span class="lib">${esc(x.champs.join(", "))}</span>`)}
+        ${liste("TRANSITIONS RETIRÉES", e.transitions_retirees)}${liste("CONDITIONS AJOUTÉES", e.conditions_ajoutees)}${liste("CONDITIONS SUPPRIMÉES", e.conditions_supprimees)}</div>
+      <div>${liste("CHEMINS IMPACTÉS", e.chemins_impactes, x => `${esc(x.chemin)} → <a class="lien" href="#bdd/${encodeURIComponent(x.scenario || "")}">${esc(x.scenario || "")}</a>`)}
+        ${liste("SCÉNARIOS BDD CONCERNÉS", e.scenarios, x => `<a class="lien" href="#bdd/${encodeURIComponent(x)}">${esc(x)}</a>`)}
+        ${liste("AUTOMATISATIONS POTENTIELLEMENT IMPACTÉES", e.automatisations, x => `${esc(x.libelle)} <span class="lib">(${esc(x.scenario)})</span>`)}
+        ${liste("RÉVISIONS PROPOSÉES", e.revisions, x => `${x.scenario ? `<b>${esc(x.scenario)}</b> : ` : ""}${esc(x.proposition)}${x.source ? ` <span class="lib">(${esc(x.source)})</span>` : ""}`)}
+        <p class="lib">Aucun scénario n'est supprimé automatiquement ; les éléments non confirmés n'alimentent ni la couverture ni la TNR officielles.</p></div></div>`
+        : "<p class='lib'>Une seule version du modèle : aucune évolution à comparer. Après un changement d'US, d'écran ou de règle, « Actualiser » crée une nouvelle version et l'analyse d'impact.</p>"}`);
+    $("#ev-act").onclick = async () => {
+      try { const r = await api("/api/mbt/actualiser", {method: "POST", body: {}}); toast(r.length ? `${r.length} modèle(s) mis à jour.` : "Aucun changement.", "ok");
+        S.m = await api("/api/mbt/modele?id=" + encodeURIComponent(S.m.id)); entete(); evolutions(); }
+      catch (x) { toast(x.message, "ko"); }
+    };
   }
 })();

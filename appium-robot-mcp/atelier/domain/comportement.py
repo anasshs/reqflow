@@ -30,6 +30,17 @@ COLLECTIONS = ("etats", "transitions", "actions", "conditions")
 PROVENANCES = ("observé", "déclaré", "déduit")
 VALIDATIONS = ("validé", "à valider", "rejeté")
 PRIORITES = ("haute", "normale", "basse")
+# niveau de confiance d'un élément (cahier d'évolution § 2) : seuls « Confirmé » et « Observé » sont ÉTABLIS (couverture,
+# impact et TNR officiels) ; « Déduit » et « À confirmer » restent des hypothèses ; « Rejeté » n'est jamais reproposé.
+NIVEAUX = ("Confirmé", "Observé", "Déduit", "À confirmer", "Rejeté")
+ETABLIS = ("Confirmé", "Observé")
+CATEGORIES_HYPOTHESE = {
+    "session_expiree": "Session expirée pendant une opération", "perte_connexion": "Perte de connexion",
+    "double_soumission": "Double soumission", "retour_arriere": "Retour arrière pendant un traitement",
+    "annulation": "Annulation d'une opération", "interruption": "Interruption pendant une transaction",
+    "reprise": "Reprise après interruption", "acces_non_autorise": "Accès à une fonctionnalité non autorisée",
+    "condition_inverse": "Issue contraire d'une condition", "formulaire_invalide": "Formulaire invalide",
+}
 _HORODATAGE = ("cree", "maj", "auteur")
 
 
@@ -63,6 +74,25 @@ def confiance(el: dict) -> str:
     return "non vérifiée"
 
 
+def niveau(el: dict) -> str:
+    """Confirmé : exigence ou règle métier explicite, déclaration ou validation du QA ; Observé : découvert dans
+    l'application ; Déduit : proposé (calcul ou IA) ; À confirmer : information insuffisante (résultat inconnu,
+    hypothèse) ; Rejeté : refusé par le QA."""
+    if el.get("validation") == "rejeté":
+        return "Rejeté"
+    if el.get("valide_par") or el.get("provenance") == "déclaré" or (el.get("exigence") and el.get("validation") == "validé"):
+        return "Confirmé"
+    if el.get("a_confirmer") or el.get("postconditions_a_confirmer") or el.get("hypothese"):
+        return "À confirmer"
+    if el.get("provenance") == "observé":
+        return "Observé"
+    return "Déduit"
+
+
+def etabli(el: dict) -> bool:
+    return niveau(el) in ETABLIS
+
+
 def element(provenance: str, source: str, validation: str = "", justification: str = "", auteur: str = "atelier", **champs) -> dict:
     if provenance not in PROVENANCES:
         raise ValueError(f"Provenance inconnue : {provenance}")
@@ -73,6 +103,7 @@ def element(provenance: str, source: str, validation: str = "", justification: s
     el = {**champs, "provenance": provenance, "validation": validation, "source": source, "justification": justification,
           "cree": t, "maj": t, "auteur": auteur}
     el["confiance"] = confiance(el)
+    el["niveau"] = niveau(el)
     return el
 
 
@@ -81,7 +112,8 @@ def nouveau(type_: str, id_: str, nom: str = "", description: str = "", applicat
     return {"id": identifiant(type_, id_), "projet": projet.PROJECT_DIR.name, "application": application, "nom": nom or id_,
             "description": description, "perimetre": {"type": type_, "id": id_}, "version_application": version_application,
             "version": 0, "statut": "Draft", "provenance": "observé", "cree": t, "maj": t,
-            "etats": {}, "transitions": {}, "actions": {}, "conditions": {}, "chemins_generes": {}, "historique_validations": []}
+            "etats": {}, "transitions": {}, "actions": {}, "conditions": {}, "chemins_generes": {}, "historique_validations": [],
+            "hypotheses": {}}
 
 
 # =========================================================================== lecture / écriture versionnée
@@ -110,7 +142,7 @@ def charger(mid: str) -> dict | None:
     if not f.exists():
         return None
     m = yaml.safe_load(f.read_text("utf-8")) or {}
-    for c in COLLECTIONS + ("chemins_generes",):
+    for c in COLLECTIONS + ("chemins_generes", "hypotheses"):
         m.setdefault(c, {})
     m.setdefault("historique_validations", [])
     return m
@@ -133,6 +165,9 @@ def sauver(m: dict, motif: str = "") -> dict:
     """Écrit le modèle ; si son contenu a changé, la version précédente est archivée et la version augmente."""
     f = _fichier(m["id"])
     f.parent.mkdir(parents=True, exist_ok=True)
+    for c in COLLECTIONS:  # niveau et confiance toujours recalculés : jamais un état incohérent sur disque
+        for el in (m.get(c) or {}).values():
+            el["confiance"], el["niveau"] = confiance(el), niveau(el)
     ancien = charger(m["id"])
     emp = contenu(m)
     if ancien is not None and contenu(ancien) == emp and ancien.get("version"):
@@ -183,7 +218,7 @@ def comparer(mid: str, a: int | str, b: int | str = "courante") -> dict:
         x, y = va.get(c) or {}, vb.get(c) or {}
         modifies = []
         for k in sorted(set(x) & set(y)):
-            champs = sorted(f for f in set(x[k]) | set(y[k]) if f not in _HORODATAGE + ("confiance",) and x[k].get(f) != y[k].get(f))
+            champs = sorted(f for f in set(x[k]) | set(y[k]) if f not in _HORODATAGE + ("confiance", "niveau") and x[k].get(f) != y[k].get(f))
             if champs:
                 modifies.append({"id": k, "champs": champs})
         out[c] = {"ajoutes": sorted(set(y) - set(x)), "retires": sorted(set(x) - set(y)), "modifies": modifies}
@@ -284,7 +319,7 @@ def _decider(mid: str, collection: str, eid: str, decision: str, motif: str, aut
     if motif:
         el["motif_rejet"] = motif
     el["maj"] = _maintenant()
-    el["confiance"] = confiance(el)
+    el["confiance"], el["niveau"] = confiance(el), niveau(el)
     m["historique_validations"].append({"date": el["maj"], "element": f"{collection}/{eid}", "decision": decision, "auteur": auteur, "motif": motif})
     return sauver(m, f"{collection[:-1]} {eid} {decision}")
 
@@ -357,6 +392,11 @@ def deposer_propositions(mid: str, propositions: dict, source: str = "IA") -> di
                                         preconditions="", postconditions=str(p.get("postconditions") or ""), priorite="normale",
                                         postconditions_a_confirmer=True)
         ajoutes.append(f"transitions/{tid}")
+    m.setdefault("revisions_proposees", [])
+    for r in propositions.get("revisions") or []:  # révisions de scénarios : proposées, jamais appliquées
+        if isinstance(r, dict) and str(r.get("proposition") or "").strip():
+            m["revisions_proposees"].append({"scenario": str(r.get("scenario") or ""), "proposition": str(r["proposition"])[:400], "source": source,
+                                             "date": _maintenant()})
     m.setdefault("incoherences_signalees", [])
     for x in propositions.get("incoherences") or []:
         m["incoherences_signalees"].append({"texte": str(x)[:400], "source": source, "date": _maintenant()})
@@ -366,3 +406,71 @@ def deposer_propositions(mid: str, propositions: dict, source: str = "IA") -> di
 
 def copie(m: dict) -> dict:
     return copy.deepcopy(m)
+
+
+# =========================================================================== conditions mutualisées
+def mots(texte: str) -> set:
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", texte or "").encode("ascii", "ignore").decode().lower()
+    vides = {"le", "la", "les", "de", "des", "du", "un", "une", "et", "est", "sont", "pas", "ne", "n", "l", "d", "si", "que", "qui"}
+    return {x for x in re.findall(r"[a-z0-9]+", t) if x not in vides and len(x) > 1}
+
+
+def condition_commune(m: dict, libelle: str) -> str:
+    """Identifiant d'une condition existante de même sens (mêmes mots significatifs, ou presque) : une condition métier
+    se réutilise dans plusieurs transitions au lieu d'être recréée sous une autre forme."""
+    a = mots(libelle)
+    if not a:
+        return ""
+    for k, c in (m.get("conditions") or {}).items():
+        b = mots(c.get("libelle", ""))
+        if b and (a == b or len(a & b) / len(a | b) >= 0.75):
+            return k
+    return ""
+
+
+# =========================================================================== hypothèses (comportements non documentés)
+def decider_hypothese(mid: str, hid: str, decision: str, motif: str = "", auteur: str = "automaticien") -> dict:
+    """Accepter une hypothèse la fait entrer dans le modèle comme comportement À CONFIRMER (état et transition déduits,
+    résultat attendu inconnu tant qu'une exigence ou le QA ne le précise pas). Rejeter la garde pour qu'elle ne soit
+    jamais reproposée. Une IA ne décide pas."""
+    if auteur == "ia":
+        raise PermissionError("Une IA ne décide pas d'une hypothèse.")
+    m = exiger(mid)
+    h = (m.get("hypotheses") or {}).get(hid)
+    if not h:
+        raise KeyError(f"Hypothèse inconnue : {hid}")
+    if decision == "rejeter":
+        if not motif.strip():
+            raise ValueError("Le motif du rejet est obligatoire.")
+        h.update(statut="rejetée", motif_rejet=motif, decide_par=auteur, maj=_maintenant())
+    elif decision == "accepter":
+        de = h.get("de")
+        if de not in m["etats"]:
+            raise KeyError(f"État de départ inconnu : {de}")
+        eid = h.get("etat_id") or f"E-H-{slug(hid, 40)}"
+        m["etats"][eid] = element("déduit", f"hypothèse {CATEGORIES_HYPOTHESE.get(h['categorie'], h['categorie'])}", auteur=auteur,
+                                  justification=h.get("justification", ""), nom=h.get("etat_nom") or h["libelle"][:120],
+                                  type=h.get("etat_type") or "erreur", ecran=m["etats"][de].get("ecran", ""), description=h.get("description", ""),
+                                  contexte="", initial=False, final=True, hypothese=True)
+        garde = ""
+        if h.get("condition"):
+            garde = condition_commune(m, h["condition"]) or _id_libre(m, "conditions", "C", h["condition"])
+            m["conditions"].setdefault(garde, element("déduit", f"hypothèse {h['categorie']}", auteur=auteur, libelle=h["condition"], regle="",
+                                                      hypothese=True))
+        aid = ""
+        if h.get("action"):
+            aid = next((k for k, a in m["actions"].items() if a.get("libelle", "").casefold() == h["action"].casefold()), "") \
+                or _id_libre(m, "actions", "A", h["action"])
+            m["actions"].setdefault(aid, element("déduit", f"hypothèse {h['categorie']}", auteur=auteur, libelle=h["action"], ecran=m["etats"][de].get("ecran", "")))
+        tid = f"T-H-{slug(hid, 40)}"
+        m["transitions"][tid] = element("déduit", f"hypothèse {CATEGORIES_HYPOTHESE.get(h['categorie'], h['categorie'])}", auteur=auteur,
+                                        justification=h.get("justification", ""), de=de, vers=eid, action=aid, evenement=h.get("evenement", ""),
+                                        garde=garde, issue=h.get("issue", "vraie") if garde else "", preconditions="", postconditions="",
+                                        postconditions_a_confirmer=True, priorite="haute", hypothese=True)
+        h.update(statut="acceptée", decide_par=auteur, maj=_maintenant(), etat_id=eid, transition_id=tid)
+    else:
+        raise ValueError("Décision : accepter ou rejeter.")
+    m["historique_validations"].append({"date": _maintenant(), "element": f"hypotheses/{hid}", "decision": decision, "auteur": auteur, "motif": motif})
+    return sauver(m, f"hypothèse {hid} : {decision}")

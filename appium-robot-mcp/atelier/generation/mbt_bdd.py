@@ -97,27 +97,28 @@ def modele_bdd(chemin: dict, m: dict, origine: str = "MBT", us: list[str] | None
     trace = {"model_id": m["id"], "model_version": m["version"], "state_ids": chemin["etats"], "transition_ids": chemin["transitions"],
              "action_ids": chemin["actions"], "condition_ids": [c["id"] for c in chemin["conditions"]],
              "conditions": [{"id": c["id"], "issue": c["issue"]} for c in chemin["conditions"]],
-             "source_path_id": chemin["id"], "coverage_strategy": chemin["strategie"], "related_user_story_ids": us,
+             "source_path_id": chemin["id"], "coverage_strategy": chemin["strategie"],
+             "related_user_story_ids": sorted(set(us) | set(chemin.get("exigences") or [])), "hypothese": bool(chemin.get("hypothese")),
              "generation_origin": origine, "generation_date": datetime.now().astimezone().isoformat(timespec="seconds")}
     per = m.get("perimetre") or {}
     description = [f"Généré par l'analyse comportementale (modèle {m['id']} v{m['version']}, chemin {chemin['id']}) : à relire et valider.",
-                   f"Justification : {chemin['justification']}"] + [f"À confirmer : {x}" for x in chemin["manquant"][:8]]
+                   f"Justification : {chemin['justification']}", f"Valeur ajoutée : {chemin.get('valeur_ajoutee', '')}"] + [f"À confirmer : {x}" for x in chemin["manquant"][:8]]
     return {"langue": "fr", "feature": titre, "titre": titre, "description": description, "contexte": [], "tags": [],
             "source": "mbt", "sources_generation": ["US", "MBT"] if origine == "US_MBT" else [origine], "statut": "brouillon",
             "module": per.get("id", "").split(":", 1)[1] if per.get("type") == "module" else "",
             "parcours": per.get("id", "") if per.get("type") == "parcours" else "", "mbt": trace,
             "scenarios": [{"id": bdd._id(), "nom": titre, "type": chemin["type"] if chemin["type"] in bdd.TYPES_SCENARIO else "principal",
-                           "tags": ["mbt"], "depuis": "", "etapes": etapes}]}
+                           "tags": ["mbt"] + (["a_confirmer"] if chemin["manquant"] else []), "depuis": "", "etapes": etapes}]}
 
 
 def generer(mid: str, chemins: list[str] | None = None, strategie: str = "transitions", forcer: bool = False,
-            origine: str = "MBT", limites: dict | None = None, auteur: str = "automaticien") -> dict:
+            origine: str = "MBT", limites: dict | None = None, auteur: str = "automaticien", inclure_couverts: bool = False) -> dict:
     """Crée les scénarios BDD (brouillons) des chemins choisis (tous ceux de la stratégie si aucun n'est choisi). Un
     doublon n'est créé qu'avec `forcer` ; chaque création est tracée dans le modèle (chemins générés)."""
     if origine not in ORIGINES:
         raise ValueError(f"Origine inconnue : {origine}")
     m = cm.exiger(mid)
-    a = mbt.analyser(mid, strategie, limites)
+    a = mbt.analyser(mid, strategie, limites, inclure_couverts=inclure_couverts)
     choisis = [p for p in a["chemins"] if not chemins or p["id"] in chemins]
     inconnus = sorted(set(chemins or []) - {p["id"] for p in choisis})
     scenarios = mbt._scenarios()
