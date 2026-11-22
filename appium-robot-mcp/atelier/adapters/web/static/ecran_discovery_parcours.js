@@ -69,19 +69,28 @@
 
   function rendre() {
     const archive = P.statut === "Archivé";
-    Z.innerHTML = `${entete(P.id ? `Parcours · ${P.nom}` : "Nouveau parcours", `${pillStatut(P.statut)}
-        ${P.id ? `<button class="btn" id="cad-dup" title="Nouveau parcours avec le même cadrage (variante)">${ico("copie")}Dupliquer</button>
-          <button class="btn" id="cad-arc">${archive ? "Restaurer" : "Archiver"}</button>` : ""}<a class="btn" href="#discovery/cadrage">Tous les parcours</a>`)}
-      <ol class="cad-etapes" role="tablist">${etapes().map(([id, lib], i) => `<li><button role="tab" data-e="${id}" aria-selected="${id === etape}" ${!P.id && id !== "parcours" ? "disabled" : ""}
-        class="${fait(id) ? "fait" : ""}"><span class="cad-n">${fait(id) ? ico("check") : i + 1}</span>${esc(lib)}</button></li>`).join("")}</ol>
-      <div class="corps-carte" id="cad-corps"></div>`;
+    const lib = Object.fromEntries(etapes());
+    Z.innerHTML = `${entete(P.id ? `Parcours · ${P.nom}` : "Nouveau parcours", `${pillStatut(P.statut)}<a class="btn" href="#discovery/cadrage">Tous les parcours</a>`)}
+      <div class="cad-grille"><div class="corps-carte" id="cad-corps" aria-label="${esc(lib[etape] || "")}"></div>
+      <aside class="cad-menu" aria-label="Étapes du parcours">
+        <div id="cad-panneau"></div>
+        <ol class="cad-etapes-v" role="tablist">${etapes().map(([id, l], i) => `<li><button role="tab" data-e="${id}" aria-selected="${id === etape}" ${!P.id && id !== "parcours" ? "disabled" : ""}
+          class="${fait(id) ? "fait" : ""}"><span class="cad-n">${fait(id) ? ico("check") : i + 1}</span><span class="cad-m"><b>${esc(l)}</b><span class="lib">${resume(id)}</span></span></button></li>`).join("")}</ol>
+        ${P.id ? `<div class="cad-menu-actions"><h4 class="lib">ACTIONS</h4>
+          <button class="btn petit" id="cad-dup" title="Nouveau parcours avec le même cadrage (variante)">${ico("copie")}Dupliquer</button>
+          <button class="btn petit" id="cad-arc">${archive ? "Restaurer" : "Archiver"}</button></div>` : ""}
+      </aside></div>`;
     $$("[data-e]", Z).forEach(b => b.onclick = () => { etape = b.dataset.e; rendre(); });
     if ($("#cad-dup")) $("#cad-dup").onclick = dupliquer;
-    if ($("#cad-arc")) $("#cad-arc").onclick = async () => {
-      const motif = archive ? "" : prompt("Motif de l'archivage (facultatif). Rien n'est supprimé : cadrage, déroulés et liens sont gardés.");
-      if (motif === null) return;
-      try { P = await api(`/api/discovery/cadrage/${encodeURIComponent(P.id)}/${archive ? "restaurer" : "archiver"}`, {method: "POST", body: {motif}}); toast(archive ? "Parcours restauré." : "Parcours archivé.", "ok"); rendre(); }
-      catch (e) { toast(e.message, "ko"); }
+    if ($("#cad-arc")) $("#cad-arc").onclick = () => {
+      const faire = async motif => {
+        try { P = await api(`/api/discovery/cadrage/${encodeURIComponent(P.id)}/${archive ? "restaurer" : "archiver"}`, {method: "POST", body: {motif}}); toast(archive ? "Parcours restauré." : "Parcours archivé.", "ok"); rendre(); }
+        catch (e) { toast(e.message, "ko"); }
+      };
+      if (archive) return faire("");
+      const pn = panneau("Archiver le parcours", `<div class="champ"><label for="cad-motif">Motif (facultatif)</label><input class="in" id="cad-motif"></div>
+        <p class="lib">Rien n'est supprimé : cadrage, déroulés et liens sont gardés.</p>`, `<button class="btn primaire petit" id="cad-arc-ok">Archiver</button>`);
+      $("#cad-arc-ok", pn).onclick = () => faire($("#cad-motif", pn).value);
     };
     ({parcours: etapeParcours, exigences: etapeExigences, donnees: etapeDonnees, cible: etapeCible, deroules: etapeDeroules})[etape]($("#cad-corps"));
   }
@@ -99,12 +108,38 @@
   }
 
   function dupliquer() {
-    const m = modale("Dupliquer le parcours", `<div class="champ"><label for="cad-dn">Nom du nouveau parcours</label><input class="in" id="cad-dn" value="${esc(P.nom)} (variante)"></div>
-      <p class="lib">Le cadrage est repris (exigences, données, cible). Les déroulés et les écrans ne le sont pas.</p>`, `<button class="btn primaire" id="cad-dok">Dupliquer</button>`);
-    $("#cad-dok", m.el).onclick = async () => {
-      try { const n = await api(`/api/discovery/cadrage/${encodeURIComponent(P.id)}/dupliquer`, {method: "POST", body: {nom: $("#cad-dn", m.el).value}}); m.fermer(); location.hash = "discovery/cadrage/" + encodeURIComponent(n.id); }
+    const pn = panneau("Dupliquer le parcours", `<div class="champ"><label for="cad-dn">Nom du nouveau parcours</label><input class="in" id="cad-dn" value="${esc(P.nom)} (variante)"></div>
+      <p class="lib">Le cadrage est repris (exigences, données, cible). Les déroulés et les écrans ne le sont pas.</p>`, `<button class="btn primaire petit" id="cad-dok">Dupliquer</button>`);
+    $("#cad-dok", pn).onclick = async () => {
+      try { const n = await api(`/api/discovery/cadrage/${encodeURIComponent(P.id)}/dupliquer`, {method: "POST", body: {nom: $("#cad-dn", pn).value}}); location.hash = "discovery/cadrage/" + encodeURIComponent(n.id); }
       catch (e) { toast(e.message, "ko"); }
     };
+  }
+
+  /* panneau du menu de droite : une action (dupliquer, archiver) s'y ouvre au lieu d'une fenêtre qui recouvre l'écran */
+  function panneau(titre, corps, boutons) {
+    const z = $("#cad-panneau");
+    z.innerHTML = `<section class="cad-panneau" aria-label="${esc(titre)}"><h4>${esc(titre)}<button class="icone" data-fermer aria-label="Fermer">${ico("x")}</button></h4>
+      ${corps}<div class="btns">${boutons}<button class="btn petit" data-fermer>Annuler</button></div></section>`;
+    $$("[data-fermer]", z).forEach(b => b.onclick = () => { z.innerHTML = ""; });
+    $("input, textarea", z)?.focus();
+    return z;
+  }
+
+  /* résumé d'une étape dans le menu de droite : ce qui est renseigné, sans ouvrir l'étape */
+  function resume(id) {
+    const n = (k, s, p) => `${k} ${k > 1 ? p : s}`;
+    if (id === "parcours") return P.nom ? esc(P.objectif || P.resultat_attendu || "objectif non précisé").slice(0, 90) : "à nommer";
+    if (id === "exigences") return P.exigences.length ? n(P.exigences.length, "exigence", "exigences") : "aucune";
+    if (id === "donnees") return P.profil_donnees ? `<span class="mono">${esc(P.profil_donnees)}</span>${P.donnees && !P.donnees.erreur ? ` · ${P.donnees.pretes.length} prête(s)` : ""}` : "aucun profil";
+    if (id === "cible") return P.plateforme ? `${esc(P.plateforme)}${P.environnement ? " · " + esc(P.environnement) : ""} · ${esc((O.pilotes || {})[P.pilote] || P.pilote)}` : "à choisir";
+    if (id === "deroules") {
+      if (!P.sessions.length) return "aucun déroulé";
+      const aValider = P.ecrans.filter(e => e.lien === "à valider").length;
+      return `${n(P.sessions.length, "déroulé", "déroulés")} · ${n(P.ecrans.length, "écran", "écrans")}${aValider ? ` · <span class="warn-t">${aValider} à valider</span>` : P.valide ? " · validés" : ""}
+        ${P.bdd ? `<br>Test : ${avancement(P.bdd)}` : ""}`;
+    }
+    return "";
   }
 
   const pied = (precedente, bouton) => `<div class="btns cad-pied">${precedente ? `<button class="btn" data-prec="${precedente}">← Précédent</button>` : ""}${bouton}</div>`;
