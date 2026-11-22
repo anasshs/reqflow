@@ -428,6 +428,15 @@ const Atelier = {
 };
 window.Atelier = Atelier;
 
+/* Une relation à valider, visuelle : [nature · nom (écran)] — verbe → [nature · nom (écran)]. Les identifiants techniques
+   restent au survol. r : { de, vers, verbe } (intelligence_app.relation_lisible). */
+window.RelationVisuelle = r => {
+  if (!r) return "";
+  const bout = b => `<span class="rel-bout rel-${esc(b.type)}" title="${esc(b.id)}"><span class="rel-nature">${esc(b.nature)}</span>
+    <span class="rel-nom">${esc(b.libelle)}</span>${b.detail ? `<span class="rel-detail">${esc(b.detail)}</span>` : ""}${b.ecran ? `<span class="rel-ou">écran ${esc(b.ecran)}</span>` : ""}</span>`;
+  return `<span class="rel-vis">${bout(r.de)}<span class="rel-verbe">${esc(r.verbe)}<span aria-hidden="true">→</span></span>${bout(r.vers)}</span>`;
+};
+
 /* Agent de l'atelier choisi pour le projet (Paramètres › Cursor / Claude) : quand c'est Claude Code, les boutons et leurs
    bulles écrits « Cursor » dans les écrans (« Demander à Cursor »…) prennent son nom. Seuls les boutons et liens d'action
    sont renommés : l'écran des réglages, qui parle aussi de Cursor lui-même (règles .mdc, ligne de commande), n'est pas touché. */

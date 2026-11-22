@@ -105,9 +105,21 @@ def propositions(session: str = "") -> list[dict]:
         if n.get("statut") == "à valider" and (not session or p.get("session") == session):
             out.append({"id": nid, "objet": "noeud", "type": n["type"], "libelle": n["libelle"], "source": p.get("source_libelle") or n.get("provenance"),
                         "ecran": p.get("ecran", "")})
+    g = None
     for rid, r in d["relations"].items():
         if r.get("statut") == "à valider" and (not session or session in (r.get("source") or "")):
-            out.append({"id": rid, "objet": "relation", "type": r["type"], "libelle": f"{r['de']} — {r['type']} → {r['vers']}", "source": r.get("source", "")})
+            from atelier.discovery import intelligence_app
+
+            if g is None:
+                try:
+                    from atelier.discovery import connaissance
+
+                    g = connaissance.construire()
+                except Exception:  # noqa: BLE001 — graphe illisible : les identifiants restent affichés
+                    g = False
+            rel = intelligence_app.relation_lisible(r["de"], r["type"], r["vers"], g or None) if g else None
+            out.append({"id": rid, "objet": "relation", "type": rel["verbe"] if rel else r["type"],
+                        "libelle": rel["phrase"] if rel else f"{r['de']} — {r['type']} → {r['vers']}", "relation": rel, "source": r.get("source", "")})
     try:
         for e in carte.ecrans() if carte.app_courante() else []:
             for p in e.get("propositions_nom") or []:

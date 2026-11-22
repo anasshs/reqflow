@@ -280,11 +280,11 @@ def a_valider() -> list[dict]:
         src = str(p.get("source") or "")
         origine = src.split(" (MCP)")[0] if " (MCP)" in src else "Cursor" if "cursor" in src.lower() else "Jira (règles extraites)" if src.startswith("jira:") or src == "déduit" else "Discovery"
         out.append({"source": origine, "decision": "discovery", "id": p["id"], "type": p.get("type", ""), "libelle": p.get("libelle", ""),
-                    "detail": p.get("source") or "", "confiance": None})
+                    "relation": p.get("relation"), "detail": p.get("source") or "", "confiance": None})
     for v in intelligence_app.validation():
         if v["id"] not in vus:
             out.append({"source": "Knowledge Graph (déduit)", "decision": "graphe", "id": v["id"], "type": v["type"], "libelle": v["libelle"],
-                        "detail": v.get("source") or "", "confiance": v.get("confiance")})
+                        "relation": v.get("relation"), "detail": v.get("source") or "", "confiance": v.get("confiance")})
     L = {"user_story": "Story reconstruite", "criteres": "critères d'acceptation", "lien_test": "lien exigence ↔ test", "classement_orphelin": "classement de test orphelin"}
     for p in intelligence_couverture.propositions(statut="proposee"):
         c = p["contenu"]

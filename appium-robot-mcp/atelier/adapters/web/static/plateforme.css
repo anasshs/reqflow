@@ -956,3 +956,17 @@ body.fenetre-graphe > #ecran { grid-row: 1 / -1; }
 @media (max-width: 900px) { .mbt-2col, .mbt-modele { grid-template-columns: 1fr; } }
 .mbt-onglets { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .mbt-chaine { padding-left: 18px; } .mbt-chaine li { margin: 6px 0; }
+
+/* Relation à valider, visuelle : deux cartes reliées par le verbe (plus d'identifiants techniques) */
+.rel-vis { display: inline-flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
+.rel-bout { display: inline-flex; flex-direction: column; gap: 1px; padding: 5px 9px; border-radius: 8px; border: 1px solid var(--line-2);
+  background: var(--surface-2); max-width: 320px; border-left: 3px solid var(--accent); }
+.rel-nature { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.rel-nom { font-weight: 600; overflow-wrap: anywhere; line-height: 1.3; }
+.rel-ou { font-size: 11.5px; color: var(--muted); }
+.rel-detail { font-size: 12px; color: var(--ink-2); line-height: 1.35; }
+.rel-verbe { align-self: center; display: inline-flex; gap: 4px; align-items: center; color: var(--accent-ink); font-size: 12px; font-style: italic; }
+.rel-regle { border-left-color: var(--warn); }
+.rel-bout.rel-ecran { border-left-color: var(--ok); }
+.rel-composant { border-left-color: var(--accent); }
+.rel-exigence, .rel-parcours { border-left-color: var(--ok); }

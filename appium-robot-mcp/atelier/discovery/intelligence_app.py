@@ -140,13 +140,92 @@ def changements() -> list[dict]:
     return out
 
 
+NATURES = {"ecran": "Écran", "composant": "Champ", "regle": "Règle", "module": "Module", "parcours": "Parcours", "exigence": "Exigence",
+           "test": "Test", "scenario": "Scénario", "anomalie": "Anomalie", "action": "Action", "endpoint": "Service", "locator": "Locator",
+           "keyword": "Keyword", "suite": "Suite", "application": "Application", "modele_comportement": "Modèle de comportement"}
+
+
+def _lisible(nom: str) -> str:
+    """Un nom technique (« demande_demo_coordonnees ») en mots (« Demande demo coordonnees ») ; un nom déjà lisible est gardé."""
+    s = (nom or "").strip()
+    if not s or " " in s:
+        return s
+    if not ("_" in s or "-" in s):
+        return s[:1].upper() + s[1:] if s.islower() else s
+    s = s.replace("_", " ").replace("-", " ").strip()
+    return s[:1].upper() + s[1:]
+
+
+def _nom_ecran(e: str, g) -> str:
+    """Nom lisible d'un écran : nom métier du graphe, sinon celui de la carte (un alias e_… y est résolu), sinon son identifiant.
+    Gardé sur le graphe : une file de validation cite les mêmes écrans des centaines de fois."""
+    memo = getattr(g, "_noms_ecrans", None) if g is not None else None
+    if memo is None and g is not None:
+        memo = {}
+        try:
+            g._noms_ecrans = memo
+        except AttributeError:
+            pass
+    if memo is not None and e in memo:
+        return memo[e]
+    nom = _nom_ecran_calcule(e, g)
+    if memo is not None:
+        memo[e] = nom
+    return nom
+
+
+def _nom_ecran_calcule(e: str, g) -> str:
+    en = g.noeuds.get(f"ecran:{e}") if g else None
+    if en and en.libelle and en.libelle != e:
+        return en.libelle
+    try:
+        from atelier.discovery import carte
+
+        x = carte.ecran(e)
+        return _lisible(x.get("nom_metier") or x.get("nom") or e)
+    except Exception:  # noqa: BLE001 — écran inconnu de la carte
+        return _lisible(en.libelle if en and en.libelle else e)
+
+
+def _bout(nid: str, g) -> dict:
+    """Un bout de relation pour un humain : son nom (pas son identifiant), sa nature, l'écran où il se trouve, et pour une
+    règle sa description."""
+    n = g.noeuds.get(nid) if g else None
+    typ = (n.type if n else nid.split(":", 1)[0]) or ""
+    brut = (n.libelle if n and n.libelle else nid.split(":", 1)[-1]).strip()
+    props = (n.proprietes or {}) if n else {}
+    lib = _nom_ecran(nid.split(":", 1)[-1], g) if typ == "ecran" else _lisible(brut)
+    detail = ""
+    if typ == "regle" and props.get("description") and props["description"] != brut:
+        d = str(props["description"]).strip()
+        detail = d if len(d) <= 180 else d[:177] + "…"
+    ecran = _nom_ecran(props["ecran"], g) if typ != "ecran" and props.get("ecran") else ""
+    return {"id": nid, "type": typ, "nature": NATURES.get(typ, typ.replace("_", " ").capitalize()),
+            "libelle": lib if len(lib) <= 140 else lib[:137] + "…", "ecran": ecran, "detail": detail}
+
+
+def relation_lisible(de: str, type_: str, vers: str, g=None) -> dict:
+    """« composant:x.champ_y — possede → regle:obs_123 » devient : Champ « Nom du cabinet » (écran Demande démo) — possède →
+    Règle « Un cabinet qui… ». Les identifiants restent dans de.id / vers.id pour décider."""
+    from atelier.domain.graphe import TYPES_RELATIONS
+
+    if g is None:
+        g = _g()
+    a, b = _bout(de, g), _bout(vers, g)
+    verbe = TYPES_RELATIONS.get(type_, type_.replace("_", " ")).lower()
+    return {"de": a, "vers": b, "verbe": verbe, "phrase": f"{a['nature']} « {a['libelle']} » {verbe} {b['nature'].lower()} « {b['libelle']} »"}
+
+
 def validation() -> list[dict]:
     """File de validation : éléments et relations proposés (déduits) en attente d'une décision humaine."""
     g = _g()
     out = [{"objet": "nœud", "id": n.id, "libelle": n.libelle, "type": n.type, "provenance": n.provenance, "source": n.source, "confiance": n.confiance}
            for n in g.noeuds.values() if n.statut == "à valider"]
-    out += [{"objet": "relation", "id": r.id, "libelle": f"{r.de} — {r.type} → {r.vers}", "type": r.type, "provenance": r.provenance, "source": r.source, "confiance": None}
-            for r in g.relations.values() if r.statut == "à valider"]
+    for r in g.relations.values():
+        if r.statut == "à valider":
+            rel = relation_lisible(r.de, r.type, r.vers, g)
+            out.append({"objet": "relation", "id": r.id, "libelle": rel["phrase"], "relation": rel, "type": rel["verbe"], "provenance": r.provenance,
+                        "source": r.source, "confiance": None})
     return out
 
 

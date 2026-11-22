@@ -260,7 +260,7 @@
     const z = $("#df-prop", F);
     if (!z) return;
     const l = await api("/api/discovery/propositions?session=" + encodeURIComponent(SESSION)).catch(() => []);
-    z.innerHTML = l.slice(0, 12).map(p => `<div style="border-bottom:1px solid var(--line);padding:4px 0"><span class="pill">${esc(p.type)}</span> ${esc(p.libelle)}
+    z.innerHTML = l.slice(0, 12).map(p => `<div style="border-bottom:1px solid var(--line);padding:4px 0">${p.relation ? RelationVisuelle(p.relation) : `<span class="pill">${esc(p.type)}</span> ${esc(p.libelle)}`}
       <br><span class="lib">${esc(p.source || "")}</span><span class="btns" style="float:right"><button class="btn petit" data-ok="${esc(p.id)}">Valider</button><button class="btn petit" data-ko="${esc(p.id)}">Rejeter</button></span></div>`).join("")
       || "Rien pour l'instant. Cursor / Claude déposent ici ce qu'ils comprennent (discovery_proposer) ; les messages observés deviennent des règles.";
     $$("[data-ok],[data-ko]", z).forEach(b => b.onclick = async () => {
