@@ -878,8 +878,8 @@ tr.sel td { background: var(--accent-soft); }
 @media (max-width: 900px) { .chemin-accueil { grid-template-columns: repeat(2, minmax(0, 1fr)); } .fil-chemin .suite { display: none; } }
 
 /* Tests automatisés (ecran_tests.js) : vue simple, sélection et barre d'actions */
-#ecran.g-tests { display: flex; flex-direction: column; gap: 12px; padding-bottom: 72px; height: auto; }
-#ecran.g-tests .carte { min-height: 0; height: auto; }
+#ecran.g-tests { display: flex; flex-direction: column; gap: 12px; padding-bottom: 72px; overflow-y: auto; } /* le cadre de l'écran a une hauteur fixe : la liste défile */
+#ecran.g-tests > .carte, #ecran.g-tests > .ta-barre { flex: 0 0 auto; min-height: 0; height: auto; } /* jamais écrasées par la colonne flex */
 .ta-entete p { margin: 0 0 8px; }
 .ta-filtres { display: flex; gap: 6px; flex-wrap: wrap; }
 .ta-suite .titre-carte label { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; text-transform: capitalize; }
