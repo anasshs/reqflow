@@ -181,6 +181,33 @@ def test_cursor_ia_de_l_atelier_reglable_sans_variable(boite, projet, monkeypatc
     assert fournisseur_ia.fournisseur() == "aucun"
 
 
+def test_agent_de_l_atelier_cursor_ou_claude_code(boite, projet, monkeypatch):
+    """Passer à Claude Code : le choix est gardé pour le projet, les libellés prennent son nom, et les modes d'envoi propres
+    à Cursor (lien profond, ligne de commande) basculent sur la boîte de demandes."""
+    from fastapi.testclient import TestClient
+
+    from atelier.intelligence import fournisseur_ia
+    from web_app_loader import charger_app_web
+
+    monkeypatch.delenv("IA_FOURNISSEUR", raising=False)
+    assert boite.agent() == "cursor" and boite.etat()["agent_nom"] == "Cursor"          # historique : Cursor par défaut
+    boite.regler_envoi("lien")
+    boite.regler_ia(True)
+    e = boite.regler_agent("claude_code")
+    assert e["agent"] == "claude_code" and e["agent_nom"] == "Claude Code" and e["envoi"] == "boite"
+    assert e["ia"]["boutons_cursor"] is True                                            # l'IA de l'atelier reste l'agent MCP
+    assert fournisseur_ia.etat()["agent_nom"] == "Claude Code" and "l'agent Claude Code" in fournisseur_ia.etat()["detail"]
+    with pytest.raises(ValueError, match="propre à Cursor"):
+        boite.regler_envoi("lien")
+    boite.regler_ia(False)
+    assert "Demander à Claude Code" in boite.etat()["ia"]["aide"]
+    with pytest.raises(ValueError, match="Agent"):
+        boite.regler_agent("autre")
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200
+    r = c.post("/api/cursor/envoi", json={"agent": "cursor", "ia_cursor": True}).json()  # sans mode d'envoi : le mode courant est gardé
+    assert r["agent"] == "cursor" and r["envoi"] == "boite" and r["ia"]["boutons_cursor"] is True
+
 def test_ligne_de_commande_serveur_approuve_et_outils_autorises(boite, projet, monkeypatch, tmp_path):
     """Sans fenêtre, l'agent refuse les outils de l'atelier tant que le serveur MCP n'est pas approuvé et que ses outils
     ne sont pas autorisés : l'atelier le vérifie et le dit, au lieu de laisser la demande finir sur des refus."""

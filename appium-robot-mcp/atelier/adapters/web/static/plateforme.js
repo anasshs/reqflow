@@ -93,7 +93,7 @@ window.EtatIA = (operation = "") => (ETAT_IA[operation] = ETAT_IA[operation] || 
 window.AvecIA = ia => !!ia && (ia.fournisseur === "cursor" || !!ia.appel_direct);
 /* bouton principal : « Demander à Cursor » (id-cursor) ou « Avis de l'IA » (id-ia) ; rien sans IA */
 window.BoutonIA = (ia, id, quoi = "") => !ia ? "" : ia.fournisseur === "cursor"
-  ? `<button class="btn petit primaire" id="${id}-cursor" title="Cursor lit le texte via le MCP, juge le sens et justifie chaque verdict ; vous décidez ici">Demander à Cursor${quoi ? ` ${esc(quoi)}` : ""}</button>`
+  ? `<button class="btn petit primaire" id="${id}-cursor" title="${esc(ia.agent_nom || "Cursor")} lit le texte via le MCP, juge le sens et justifie chaque verdict ; vous décidez ici">Demander à ${esc(ia.agent_nom || "Cursor")}${quoi ? ` ${esc(quoi)}` : ""}</button>`
   : ia.appel_direct ? `<button class="btn petit primaire" id="${id}-ia" title="L'IA ${esc(ia.fournisseur)} lit le texte (masqué avant envoi), juge le sens et justifie ; vous décidez ici">Avis de l'IA${quoi ? ` ${esc(quoi)}` : ""}</button>` : "";
 /* lien profond Cursor : ouvre Cursor avec la demande déjà écrite dans le chat (l'utilisateur relit et envoie).
    « & » remplacé (texte tronqué après « & » signalé sur certaines versions) ; au-delà de 8 000 caractères : copier seulement. */
@@ -109,24 +109,44 @@ const lienCursor = texte => {
    attendus : outils MCP dont la fin signifie « résultat déposé » (suivi de la demande : suivi_cursor.js).
    Le troisième paramètre (ancienne explication) n'est plus affiché : la fenêtre ne garde que l'essentiel. */
 const PHRASE_BOITE = "Traite les demandes de l'atelier.";
-window.OuvrirCursorBoite = () => { const l = lienCursor(PHRASE_BOITE); if (l) location.href = l; };
+window.OuvrirCursorBoite = () => {
+  if (window.NomAgentIA !== "Cursor") return phraseAgent(PHRASE_BOITE);  // Claude Code n'a pas de lien d'ouverture : on lui dit la phrase
+  const l = lienCursor(PHRASE_BOITE); if (l) location.href = l;
+};
+/* Claude Code (ou tout agent sans lien profond) : la phrase à lui dire, à copier ; rien n'ouvre Cursor. */
+const phraseAgent = (phrase, titre = "") => {
+  const nom = window.NomAgentIA;
+  const m = modale(titre || `À dire à ${nom}`, `<p>Dans ${esc(nom)}, ouvert sur le dossier du projet de tests, dire :</p>
+    <textarea class="in mono" rows="${phrase.length > 200 ? 8 : 2}" readonly style="width:100%">${esc(phrase)}</textarea>
+    <p class="lib" style="margin:6px 0 0">${esc(nom)} prend ensuite les demandes de l'atelier par le MCP et dépose ses résultats ici.</p>`,
+    `<button class="btn primaire" data-copier>Copier</button>`);
+  $("[data-copier]", m.el).onclick = async () => {
+    try { await navigator.clipboard.writeText(phrase); toast(`Copié : le coller dans ${nom}.`, "ok"); m.fermer(); }
+    catch (err) { $("textarea", m.el).select(); toast("Sélectionné : Ctrl + C pour copier.", "ok"); }
+  };
+  return m;
+};
 window.DemanderCursor = async (titre, texte, _explication, attendus = [], options = {}) => {
-  const e = options.chat ? null : await api("/api/cursor/boite").catch(() => null);
-  if (e && e.envoi !== "lien") {
+  const e = await api("/api/cursor/boite").catch(() => null);
+  if (e && e.agent_nom) window.NomAgentIA = e.agent_nom;
+  const nom = window.NomAgentIA, cursor = nom === "Cursor";
+  if (!cursor && options.chat) return phraseAgent(texte, titre);  // exploration, mise au point : directement dans le chat de l'agent
+  if (e && e.envoi !== "lien" && !options.chat) {
     try {
       const dep = await api("/api/cursor/boite", {method: "POST", body: {titre, texte, attendus, ecran: location.hash}});
       window.SuiviCursor?.ajouter(titre, attendus, {id: dep.id, mode: dep.mode});  // le suivi affiche l'état réel de la demande déposée
       if (options.zone && document.body.contains(options.zone)) options.zone.innerHTML = "";
-      if (e.envoi !== "cli" && !e.ecoute.active) {  // personne n'écoute la boîte : sans ce message, Cursor ne fera rien
+      if (e.envoi !== "cli" && !e.ecoute.active) {  // personne n'écoute la boîte : sans ce message, l'agent ne fera rien
         window.OuvrirCursorBoite();
-        return toast(`Demande déposée. Cursor s'ouvre avec « ${PHRASE_BOITE} » : appuyer sur Entrée dans son chat (mode Agent). Il traitera ensuite les demandes seul.`, "ok");
+        return toast(cursor ? `Demande déposée. Cursor s'ouvre avec « ${PHRASE_BOITE} » : appuyer sur Entrée dans son chat (mode Agent). Il traitera ensuite les demandes seul.`
+          : `Demande déposée. Dire une fois à ${nom} « ${PHRASE_BOITE} » : il traitera ensuite les demandes seul.`, "ok");
       }
-      return toast(e.envoi === "cli" ? "Cursor est lancé : le suivi s'affiche en bas à droite." : "Demande envoyée à Cursor : le suivi s'affiche en bas à droite.", "ok");
+      return toast(e.envoi === "cli" ? "Cursor est lancé : le suivi s'affiche en bas à droite." : `Demande envoyée à ${nom} : le suivi s'affiche en bas à droite.`, "ok");
     } catch (err) { toast(`Envoi direct impossible (${err.message}) : passage par le chat.`, "ko"); }
   }
-  const lien = lienCursor(texte);
+  const lien = cursor ? lienCursor(texte) : "";  // lien profond : propre à Cursor
   const corps = rangs => `<textarea class="in mono" rows="${rangs}" readonly style="width:100%">${esc(texte)}</textarea>
-    <p class="lib" style="margin:6px 0 0">${lien ? "Cursor s'ouvre avec cette demande : la relire, puis l'envoyer." : "Demande trop longue pour un lien : la copier, puis la coller dans le chat de Cursor."}</p>`;
+    <p class="lib" style="margin:6px 0 0">${lien ? "Cursor s'ouvre avec cette demande : la relire, puis l'envoyer." : cursor ? "Demande trop longue pour un lien : la copier, puis la coller dans le chat de Cursor." : `La copier, puis la coller dans ${esc(nom)}.`}</p>`;
   const boutons = `<button class="btn" data-copier>Copier</button>${lien ? `<a class="btn primaire" data-ouvrir href="${esc(lien)}">Ouvrir dans Cursor</a>` : ""}`;
   let m;
   if (options.zone && document.body.contains(options.zone)) {  // dans la page : rien n'est recouvert
@@ -138,7 +158,7 @@ window.DemanderCursor = async (titre, texte, _explication, attendus = [], option
     zone.scrollIntoView({block: "nearest"});
   } else m = modale(titre, corps(5), boutons);
   const copier = async (silencieux = false) => {
-    try { await navigator.clipboard.writeText(texte); if (!silencieux) toast("Demande copiée : la coller dans Cursor.", "ok"); return true; }
+    try { await navigator.clipboard.writeText(texte); if (!silencieux) toast(`Demande copiée : la coller dans ${nom}.`, "ok"); return true; }
     catch (err) { $("textarea", m.el).select(); if (!silencieux) toast("Sélectionnée : Ctrl + C pour copier.", "ok"); return false; }
   };
   const suivre = () => window.SuiviCursor?.ajouter(titre, attendus);
@@ -407,6 +427,27 @@ const Atelier = {
   },
 };
 window.Atelier = Atelier;
+
+/* Agent de l'atelier choisi pour le projet (Paramètres › Cursor / Claude) : quand c'est Claude Code, les boutons et leurs
+   bulles écrits « Cursor » dans les écrans (« Demander à Cursor »…) prennent son nom. Seuls les boutons et liens d'action
+   sont renommés : l'écran des réglages, qui parle aussi de Cursor lui-même (règles .mdc, ligne de commande), n'est pas touché. */
+window.NomAgentIA = "Cursor";
+const renommerAgent = racine => {
+  const nom = window.NomAgentIA;
+  if (nom === "Cursor" || location.hash.startsWith("#parametres")) return;
+  $$("button, a.btn, .btn", racine.nodeType === 1 ? racine : document.body).forEach(b => {
+    if (b.title && b.title.includes("Cursor")) b.title = b.title.replace(/\bCursor\b/g, nom);
+    const it = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+    for (let n = it.nextNode(); n; n = it.nextNode()) if (n.nodeValue.includes("Cursor")) n.nodeValue = n.nodeValue.replace(/\bCursor\b/g, nom);
+  });
+};
+api("/api/cursor/boite").then(b => {
+  if (!b || !b.agent_nom || b.agent_nom === "Cursor") return;
+  window.NomAgentIA = b.agent_nom;
+  renommerAgent(document.body);
+  new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => n.nodeType === 1 && renommerAgent(n === document.body ? n : n.parentElement || n))))
+    .observe(document.body, {childList: true, subtree: true});
+}).catch(() => {});
 
 /* Activité de Cursor : console flottante (console_agent.js), disponible sur tous les écrans. */
 

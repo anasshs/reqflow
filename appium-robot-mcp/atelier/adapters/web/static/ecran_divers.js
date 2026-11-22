@@ -302,12 +302,18 @@
         <p class="lib">Claude Code : ouvrir Claude Code dans le dossier du projet de tests, accepter le serveur « appium-robot » (.mcp.json), puis taper /mcp pour le voir « connected ». Dans Cursor ou Claude Code, demander par exemple : « Où suis-je dans l'application ? » (outil where_am_i) ou « Démarre une Discovery de l'application en recette ». L'atelier doit être lancé (python web/app.py).</p>
         <div class="btns"><button class="btn primaire" id="ag-test" title="Interroge le serveur MCP comme Cursor (même commande en stdio, même URL en mode HTTP), l'initialise et liste ses outils">Tester le serveur MCP</button>
           <button class="btn" id="ag-rafr">Actualiser</button></div><div id="ag-test-r" class="lib"></div>`)}
-      ${bo ? etape(4, bo.envoi !== "lien", "Envoi des demandes à Cursor (réglé une fois, pour tout le projet)", `
+      ${bo ? etape(4, bo.envoi !== "lien", `Agent de l'atelier et envoi des demandes (réglé une fois, pour tout le projet)`, `
+        <p style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><b>Agent qui traite les demandes</b>${Object.entries(bo.agents).map(([v, lib]) => `<label style="display:flex;gap:6px;align-items:center"><input type="radio" name="ag-agent" value="${v}" ${v === bo.agent ? "checked" : ""}> ${esc(lib)}
+          ${cnx.some(x => x.agent === lib && x.etat === "connecte") ? '<span class="pill ok">connecté</span>' : ""}</label>`).join("")}</p>
+        ${(() => { const autre = cnx.find(x => x.etat === "connecte" && x.agent !== bo.agent_nom && Object.values(bo.agents).includes(x.agent));
+          return autre ? `<p class="alerte-projet" style="margin:0 0 8px">${esc(autre.agent)} est connecté, mais l'agent de l'atelier est ${esc(bo.agent_nom)}. Choisir ${esc(autre.agent)} ci-dessus, puis Valider.</p>` : ""; })()}
         ${bo.envoi === "cli" && !cliOk ? `<p class="alerte-projet" style="margin:0 0 8px"><b>Les demandes ne peuvent pas partir :</b> le mode « ligne de commande » est choisi, mais l'agent Cursor en ligne de commande n'est pas installé sur ce poste.
           <button class="btn petit primaire" id="ag-vers-boite">Passer à la boîte de demandes</button> <span class="lib">rien à installer : dire une fois dans Cursor « Traite les demandes de l'atelier »</span></p>` : ""}
-        ${Object.entries(bo.envois).map(([v, lib]) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 0${v === "cli" && !cliOk ? ";opacity:.65" : ""}"><input type="radio" name="ag-envoi" value="${v}" ${v === bo.envoi ? "checked" : ""} ${v === "cli" && !cliOk && bo.envoi !== "cli" ? "disabled" : ""}> <span>${esc(lib)}</span> ${etatEnvoi(v)}</label>`).join("")}
+        ${Object.entries(bo.envois).map(([v, lib]) => { const horsAgent = bo.agent !== "cursor" && bo.envois_cursor_seul.includes(v);
+          return `<label style="display:flex;gap:8px;align-items:center;padding:3px 0${(v === "cli" && !cliOk) || horsAgent ? ";opacity:.65" : ""}" data-cursor-seul="${bo.envois_cursor_seul.includes(v) ? 1 : ""}"><input type="radio" name="ag-envoi" value="${v}" ${v === bo.envoi ? "checked" : ""} ${(v === "cli" && !cliOk && bo.envoi !== "cli") || horsAgent ? "disabled" : ""}>
+            <span>${esc(v === "boite" ? lib.replace("Cursor", bo.agent_nom) : lib)}</span> ${horsAgent ? '<span class="lib">(Cursor uniquement)</span>' : v === "boite" ? etatEnvoi(v).replace("Cursor", esc(bo.agent_nom)) : etatEnvoi(v)}</label>`; }).join("")}
         <label style="display:flex;gap:8px;align-items:center;padding:6px 0 3px;border-top:1px solid var(--line);margin-top:6px"><input type="checkbox" id="ag-ia-cursor" ${bo.ia.boutons_cursor ? "checked" : ""} ${bo.ia.impose ? "disabled" : ""}>
-          <span><b>Cursor est l'IA de l'atelier</b> : affiche les boutons « Demander à Cursor » dans les modules</span>
+          <span><b>${esc(bo.agent_nom)} est l'IA de l'atelier</b> : affiche les boutons « Demander à ${esc(bo.agent_nom)} » dans les modules</span>
           ${bo.ia.impose ? `<span class="lib">imposé par la variable IA_FOURNISSEUR (« ${esc(bo.ia.impose)} »)</span>` : ""}</label>
         ${bo.ia.boutons_cursor ? "" : `<p><span class="pill ko">Boutons masqués</span> ${esc(bo.ia.aide)}</p>`}
         <div class="btns"><button class="btn primaire" id="ag-envoi-ok">Valider</button></div>
@@ -326,7 +332,7 @@
             <span><b>Laisser Cursor agir sans approbation (option --force)</b><br><span class="lib">À cocher si Cursor répond que les appels à l'atelier sont « refusés » malgré l'autorisation ci-dessus.
             Attention : Cursor peut alors aussi lancer des commandes sur ce poste et écrire des fichiers sans demander. Réglage du projet, partagé avec l'équipe par le repository de tests. Puis « Valider ».</span></span></label>
           ${bo.cli.force ? '<p><span class="pill warn">--force actif</span> <span class="lib">Cursor agit sans approbation en ligne de commande.</span></p>' : ""}</div>` : ""}
-        <p class="lib">Ensuite chaque « Demander à Cursor » part d'un clic, sans choix à refaire. L'exploration passe toujours par le chat de Cursor : vous devez voir l'agent et lui répondre.</p>`) : ""}
+        <p class="lib">Ensuite chaque « Demander à ${esc(bo.agent_nom)} » part d'un clic, sans choix à refaire. L'exploration passe toujours par le chat de ${esc(bo.agent_nom)} : vous devez voir l'agent et lui répondre.</p>`) : ""}
       <details ${cc.installe ? "open" : ""}><summary><b>Claude Code</b> <span class="lib">(agent en terminal ou application de bureau, ouvert sur le dossier du projet de tests)</span></summary>
         <p style="margin-top:6px">MCP du projet : ${statut(cc)} <span class="lib mono">${esc(cc.fichier)}</span></p>
         <p>Règles : ${rccOk ? '<span class="pill ok">à jour</span>' : `<span class="pill warn">${rcc.filter(x => x !== "identique").length} fichier(s) à installer ou mettre à jour</span>`}
@@ -377,8 +383,12 @@
     if ($("#ag-vers-boite")) $("#ag-vers-boite").onclick = async () => {
       try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: "boite"}}); toast("Demandes envoyées par la boîte de demandes. Dire une fois dans Cursor : « Traite les demandes de l'atelier ».", "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); } };
+    $$("[name=ag-agent]", z).forEach(r => r.onchange = () => $("#ag-envoi-ok").click());  // changer d'agent s'enregistre d'un clic
     if ($("#ag-envoi-ok")) $("#ag-envoi-ok").onclick = async () => {
-      try { await api("/api/cursor/envoi", {method: "POST", body: {envoi: ($("[name=ag-envoi]:checked", z) || {}).value || "lien", ...($("#ag-ia-cursor").disabled ? {} : {ia_cursor: $("#ag-ia-cursor").checked}), ...($("#ag-cli-force") ? {cli_force: $("#ag-cli-force").checked} : {})}}); toast("Réglages Cursor enregistrés pour le projet.", "ok"); agents(z); }
+      const ag = ($("[name=ag-agent]:checked", z) || {}).value || bo.agent, envoiChoisi = ($("[name=ag-envoi]:checked", z) || {}).value;
+      try { await api("/api/cursor/envoi", {method: "POST", body: {agent: ag, envoi: ag !== "cursor" && bo.envois_cursor_seul.includes(envoiChoisi) ? "boite" : envoiChoisi || "",
+          ...($("#ag-ia-cursor").disabled ? {} : {ia_cursor: $("#ag-ia-cursor").checked}), ...($("#ag-cli-force") ? {cli_force: $("#ag-cli-force").checked} : {})}});
+        window.NomAgentIA = bo.agents[ag]; toast(`Réglages enregistrés pour le projet : agent ${bo.agents[ag]}.`, "ok"); agents(z); }
       catch (e) { toast(e.message, "ko"); }
     };
   }

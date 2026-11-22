@@ -17,6 +17,8 @@ une proposition d'IA n'est jamais appliquée sans validation humaine, et le four
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import json
 import os
 
@@ -40,7 +42,7 @@ def du_projet() -> str:
 
     f = projet.PROJECT_DIR / "atelier_cursor.yaml"
     try:
-        v = str(((yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}).get("ia") or "").strip().lower()
+        v = str(((charger_yaml(f.read_text("utf-8")) or {}) if f.exists() else {}).get("ia") or "").strip().lower()
     except (OSError, yaml.YAMLError, AttributeError):
         v = ""
     return v if v in REGLABLES_SANS_VARIABLE else ""
@@ -91,8 +93,21 @@ def _etat_global() -> dict:
               "interne": f"LLM interne {os.environ.get('IA_INTERNE_MODELE', '?')} — {os.environ.get('IA_INTERNE_URL', 'URL non configurée')}",
               "anthropic": "API Claude" + ("" if os.environ.get("ANTHROPIC_API_KEY") else " (ANTHROPIC_API_KEY absente)")}[f]
     bloque = f in ("interne", "anthropic") and configure_brut() and _budget_bloque()
-    return {"fournisseur": f, "detail": detail + (" — budget IA atteint : règles seules jusqu'au mois prochain" if bloque else ""),
+    nom = _nom_agent()
+    if f == "cursor" and nom != "Cursor":  # « cursor » = l'agent MCP de l'atelier, qui peut être Claude Code
+        detail = detail.replace("l'agent Cursor", f"l'agent {nom}")
+    return {"fournisseur": f, "agent_nom": nom, "detail": detail + (" — budget IA atteint : règles seules jusqu'au mois prochain" if bloque else ""),
             "appel_direct": f in ("interne", "anthropic") and configure(), "budget_atteint": bloque}
+
+
+def _nom_agent() -> str:
+    """Nom de l'agent MCP choisi pour le projet (Paramètres › Cursor / Claude) : Cursor ou Claude Code."""
+    try:
+        from atelier.integrations import boite_cursor
+
+        return boite_cursor.nom_agent()
+    except Exception:  # noqa: BLE001 — projet illisible : nom historique
+        return "Cursor"
 
 
 def _budget_bloque() -> bool:

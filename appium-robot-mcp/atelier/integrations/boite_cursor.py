@@ -29,6 +29,8 @@ contient que des noms d'outils et des clés).
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import json
 import os
 import re
@@ -48,6 +50,8 @@ MODES = ("boite", "cli")
 ENVOIS = {"lien": "Ouvrir le chat de Cursor avec la demande (à relire et envoyer)",
           "boite": "Boîte de demandes : Cursor vient la chercher (lui dire une fois « traite les demandes de l'atelier »)",
           "cli": "Ligne de commande : l'atelier lance Cursor sans fenêtre"}
+AGENTS = {"cursor": "Cursor", "claude_code": "Claude Code"}  # agent qui traite les demandes de l'atelier (par le MCP)
+ENVOIS_CURSOR_SEUL = ("lien", "cli")  # lien profond et ligne de commande : propres à Cursor ; Claude Code passe par la boîte
 ATTENTE_MAX_S = 40          # un outil MCP qui ne répond pas est coupé par le client : on rend la main avant
 ARGS_DEFAUT = "-p {demande} --output-format text --approve-mcps --trust"
 GARDEES = 60                # demandes conservées (les plus récentes)
@@ -75,13 +79,35 @@ def envoi() -> str:
     return v if v in ENVOIS else "lien"
 
 
+def agent() -> str:
+    """Agent de l'atelier pour le projet : « cursor » (défaut, historique) ou « claude_code »."""
+    v = _reglages().get("agent")
+    return v if v in AGENTS else "cursor"
+
+
+def nom_agent() -> str:
+    return AGENTS[agent()]
+
+
+def regler_agent(a: str) -> dict:
+    """Change l'agent qui traite les demandes de l'atelier (rôle automaticien). Claude Code n'a ni lien profond ni ligne de
+    commande réglée ici : ses demandes passent par la boîte (lui dire une fois « Traite les demandes de l'atelier »)."""
+    from atelier.domain import roles
+
+    roles.exiger("construire")
+    if a not in AGENTS:
+        raise ValueError(f"Agent : {', '.join(AGENTS)}.")
+    _ecrire_reglages(agent=a, **({"envoi": "boite"} if a != "cursor" and envoi() in ENVOIS_CURSOR_SEUL else {}))
+    return etat()
+
+
 def _reglages() -> dict:
     """Réglages Cursor du projet (atelier_cursor.yaml) : mode d'envoi et fournisseur d'IA ; {} si absent ou illisible."""
     import yaml
 
     f = _fichier_reglage()
     try:
-        d = (yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}
+        d = (charger_yaml(f.read_text("utf-8")) or {}) if f.exists() else {}
     except (OSError, yaml.YAMLError):
         d = {}
     return d if isinstance(d, dict) else {}
@@ -127,6 +153,8 @@ def regler_envoi(mode: str) -> dict:
     roles.exiger("construire")
     if mode not in ENVOIS:
         raise ValueError(f"Mode d'envoi : {', '.join(ENVOIS)}.")
+    if mode in ENVOIS_CURSOR_SEUL and agent() != "cursor":
+        raise ValueError(f"Ce mode d'envoi est propre à Cursor : avec {nom_agent()}, les demandes passent par la boîte de demandes.")
     if mode == "cli":
         _ligne("essai")  # commande absente ou mal réglée sur ce poste : dit avant d'enregistrer
     _ecrire_reglages(envoi=mode)
@@ -365,7 +393,8 @@ def etat(limite: int = 20) -> dict:
     à la boîte, et réglage de la ligne de commande."""
     l = _lire()
     return {"demandes": list(reversed(l))[:limite], "en_attente": sum(d["statut"] == "en attente" and d["mode"] == "boite" for d in l),
-            "ecoute": _derniere_ecoute(), "cli": cli(), "envoi": envoi(), "envois": ENVOIS, "ia": _fournisseur_ia()}
+            "ecoute": _derniere_ecoute(), "cli": cli(), "envoi": envoi(), "envois": ENVOIS, "ia": _fournisseur_ia(),
+            "agent": agent(), "agent_nom": nom_agent(), "agents": AGENTS, "envois_cursor_seul": list(ENVOIS_CURSOR_SEUL)}
 
 
 def _fournisseur_ia() -> dict:
@@ -373,10 +402,10 @@ def _fournisseur_ia() -> dict:
     dans les paramètres évite de chercher des boutons absents."""
     from atelier.intelligence import fournisseur_ia
 
-    f, impose = fournisseur_ia.fournisseur(), fournisseur_ia.impose()
+    f, impose, nom = fournisseur_ia.fournisseur(), fournisseur_ia.impose(), nom_agent()
     return {"fournisseur": f, "boutons_cursor": f == "cursor", "impose": impose,
-            "aide": "" if f == "cursor" else (f"Les boutons « Demander à Cursor » sont masqués : la variable IA_FOURNISSEUR impose « {impose} »." if impose
-                                              else "Les boutons « Demander à Cursor » sont masqués : cocher « Cursor est l'IA de l'atelier », puis Valider.")}
+            "aide": "" if f == "cursor" else (f"Les boutons « Demander à {nom} » sont masqués : la variable IA_FOURNISSEUR impose « {impose} »." if impose
+                                              else f"Les boutons « Demander à {nom} » sont masqués : cocher « {nom} est l'IA de l'atelier », puis Valider.")}
 
 
 def _fichier_ecoute():
