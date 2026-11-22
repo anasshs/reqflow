@@ -49,3 +49,21 @@ couverture / flux / impact sans Xray). Règle : un seul graphe, un seul moteur ;
 | 4 | Couverture indépendante de Xray (couverture_atelier : parcours, écrans, fonctionnalités, tests BDD automatisés, liens confirmés seulement) | fait |
 | 5 | Flux vérifié / exploratoire, vue d'ensemble limitée ; Impact technique / fonctionnel / utilisateur, direct / indirect / potentiel ; TNR sans Xray (identifiant BDD, puis clé Xray) | fait |
 | 6 | Doublons sémantiques, qualité du graphe, sélection d'affichage | fait |
+
+## 4. Finitions (sections 5.1, 5.4, 6 et 12 du cahier)
+
+- **Mise à jour ciblée au fichier près** : chaque fichier d'écran de la carte et chaque test BDD n'est relu que s'il a
+  changé (taille, date) ; les autres sont repris en mémoire. L'assemblage reste complet et atomique (aucune relation
+  d'une ancienne version d'un fichier). Chaque construction calcule l'écart avec la précédente (ajoutés, modifiés,
+  retirés, relations comprises) : pendant le suivi en direct, les éléments nouveaux sont surlignés en vert, les éléments
+  modifiés en bleu (compteurs « +n · ~m » dans le bouton « En direct »). Volumes : Sources du graphe.
+- **Filtres** (bouton « Filtres » de la barre) : application (si plusieurs), plateforme, version (builds où chaque
+  écran a été vu, lus dans la carte), type d'élément (dans la perspective), provenance, confiance des liens, statut,
+  patrimoine Jira / Xray. Module, fonctionnalité, parcours : liste « périmètre ».
+- **Liens « via »** : leur panneau donne le chemin réel (éléments intermédiaires, cliquables, et « Afficher » ouvre
+  l'élément intermédiaire avec ses deux relations réelles). Jamais enregistrés, jamais dans la couverture ni l'impact.
+- **Panneau de détail en onglets** : actions toujours visibles (Explorer, Impact, Couverture, Relier, Modifier, Valider,
+  Fusionner, Masquer, IA) ; onglets Propriétés (identifiant, nom, type, module, plateforme, version, statut),
+  Provenance (origine, source, fichier, dates, validation, confiance), Relations (entrantes, sortantes, par type, niveau
+  de confiance), Traçabilité (exigences, parcours, tests, plans, exécutions, anomalies à deux pas, « non confirmé » si le
+  chemin ne passe pas par des liens confirmés), Historique (création, modification, validation, fusion, déclaration).

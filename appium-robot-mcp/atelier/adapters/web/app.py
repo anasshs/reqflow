@@ -1367,9 +1367,10 @@ async def graphes_migration():
 
 @app.get("/api/graphes/connaissance")
 async def graphe_connaissance(types: str = "", categories: str = "", plateforme: str = "", recherche: str = "",
-                              centre: str = "", profondeur: int = 1, patrimoine: str = "lie", perimetre: str = ""):
+                              centre: str = "", profondeur: int = 1, patrimoine: str = "lie", perimetre: str = "",
+                              version: str = ""):
     return await asyncio.to_thread(_call, espaces.vue_connaissance, _liste(types), _liste(categories), plateforme,
-                                   recherche, centre, profondeur, patrimoine, perimetre)
+                                   recherche, centre, profondeur, patrimoine, perimetre, version)
 
 
 @app.get("/api/graphes/perimetres")

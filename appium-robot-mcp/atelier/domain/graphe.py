@@ -196,7 +196,9 @@ class Graphe:
         return g
 
     def filtrer(self, types: list[str] | None = None, categories: list[str] | None = None,
-                plateforme: str = "", recherche: str = "") -> "Graphe":
+                plateforme: str = "", recherche: str = "", version: str = "") -> "Graphe":
+        """version : garde les éléments vus dans ce build (et ceux qui ne dépendent d'aucun build) ;
+        plateforme : de même pour une plateforme."""
         q = recherche.strip().casefold()
 
         def garde(n: Noeud) -> bool:
@@ -205,6 +207,9 @@ class Graphe:
             if categories and n.categorie not in categories:
                 return False
             if plateforme and n.plateformes and plateforme not in n.plateformes:
+                return False
+            if version and (n.proprietes.get("versions") and version not in n.proprietes["versions"]
+                            or n.type == "version" and n.id != f"version:{version}"):
                 return False
             if q and q not in n.libelle.casefold() and q not in n.id.casefold():
                 return False

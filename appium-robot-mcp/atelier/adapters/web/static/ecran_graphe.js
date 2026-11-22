@@ -55,6 +55,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
             <span id="kg-options"></span>
             <input type="search" class="in" id="kg-recherche" placeholder="Rechercher…" aria-label="Rechercher un élément" hidden>
             <button class="icone" id="kg-cherche" title="Rechercher" aria-pressed="false">${ico("recherche")}</button>
+            <button class="btn petit" id="kg-filtres" aria-haspopup="true" aria-expanded="false" title="Application, plateforme, version, type, provenance, confiance, statut">Filtres<span id="kg-nb-filtres"></span></button>
             <button class="icone" id="kg-tout" title="Revenir au graphe complet">${ico("rejouer")}</button>
             <button class="icone" id="kg-aj" title="Recentrer / ajuster à l'écran">${ico("cible")}</button>
             <button class="btn petit" id="kg-direct" aria-pressed="false" title="Suivre la construction du graphe en direct pendant une Discovery (manuelle, guidée ou par l'agent)"><span class="point-direct"></span>En direct</button>
@@ -66,16 +67,24 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
             <button id="kg-zp">${ico("zoomp")}Zoom avant</button>
             <button id="kg-zm">${ico("zoomm")}Zoom arrière</button>
             <button id="kg-mini">${ico("graphe")}Afficher / masquer la mini-carte</button>
-            <hr><label>Statut <select class="in" id="kg-statut" aria-label="Filtrer par statut"><option value="">Tous</option><option value="validé">Validé</option><option value="à valider">À valider</option></select></label>
-            <label>Provenance <select class="in" id="kg-prov" aria-label="Filtrer par provenance"><option value="">Toutes</option><option value="observé">Observé</option><option value="déclaré">Déclaré</option><option value="déduit">Déduit</option></select></label>
-            <label>Liens <select class="in" id="kg-conf" aria-label="Filtrer les liens par confiance"><option value="">Tous</option><option value="confirmée">Confirmés seulement</option><option value="probable">Confirmés et probables</option></select></label>
-            <label><input type="checkbox" id="kg-patrimoine"> Tout le patrimoine Jira / Xray</label>
             <hr><button id="kg-m-src">${ico("donnee")}Sources du graphe</button>
             <button id="kg-m-qual">${ico("assertion")}Qualité du graphe et doublons</button>
             <button id="kg-m-anom">${ico("aide")}Anomalies et recommandations</button>
             <button id="kg-m-histo">${ico("historique")}Historique des modifications</button>
             <button id="kg-m-ajout">${ico("plus")}Ajouter un élément</button>
             <hr><button id="kg-ex">${ico("export")}Exporter (JSON / SVG)</button>
+          </div>
+          <div class="menu-graphe filtres-graphe" id="kg-filtres-liste" hidden>
+            <label id="kg-f-app-l" hidden>Application <select class="in" id="kg-f-app" aria-label="Application"></select></label>
+            <label>Plateforme <select class="in" id="kg-f-plat" aria-label="Plateforme"><option value="">Toutes</option></select></label>
+            <label>Version <select class="in" id="kg-f-ver" aria-label="Version (build)"><option value="">Toutes</option></select></label>
+            <label>Type <select class="in" id="kg-f-type" aria-label="Type d'élément"><option value="">Tous ceux de la perspective</option></select></label>
+            <label>Provenance <select class="in" id="kg-prov" aria-label="Filtrer par provenance"><option value="">Toutes</option><option value="observé">Observé</option><option value="déclaré">Déclaré</option><option value="déduit">Déduit</option></select></label>
+            <label>Liens <select class="in" id="kg-conf" aria-label="Filtrer les liens par confiance"><option value="">Tous</option><option value="confirmée">Confirmés seulement</option><option value="probable">Confirmés et probables</option></select></label>
+            <label>Statut <select class="in" id="kg-statut" aria-label="Filtrer par statut"><option value="">Tous</option><option value="validé">Validé</option><option value="à valider">À valider</option></select></label>
+            <label><input type="checkbox" id="kg-patrimoine"> Tout le patrimoine Jira / Xray</label>
+            <p class="lib" style="margin:4px 0 0">Module, fonctionnalité, parcours : liste « périmètre » de la barre.</p>
+            <button class="btn petit" id="kg-f-raz">Réinitialiser les filtres</button>
           </div>
           <div class="zone-graphe" id="kg-zone"></div>
         </section>
@@ -92,14 +101,29 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       const menu = $("#kg-menu-liste");
       $("#kg-menu").onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; $("#kg-menu").setAttribute("aria-expanded", !menu.hidden); };
       menu.onclick = e => { if (e.target.closest("button")) menu.hidden = true; };
-      zone.addEventListener("click", e => { if (!e.target.closest("#kg-menu-liste, #kg-menu")) menu.hidden = true; });
+      const fl = $("#kg-filtres-liste");
+      $("#kg-filtres").onclick = e => { e.stopPropagation(); fl.hidden = !fl.hidden; $("#kg-filtres").setAttribute("aria-expanded", !fl.hidden); };
+      zone.addEventListener("click", e => { if (!e.target.closest("#kg-menu-liste, #kg-menu")) menu.hidden = true;
+        if (!e.target.closest("#kg-filtres-liste, #kg-filtres")) fl.hidden = true; });
+      $("#kg-f-plat").onchange = e => { S.params.plateforme = e.target.value; nbFiltres(); charger(); };
+      $("#kg-f-ver").onchange = e => { S.params.version = e.target.value; nbFiltres(); charger(); };
+      $("#kg-f-type").onchange = e => { S.type = e.target.value; nbFiltres(); charger(); };
+      $("#kg-f-app").onchange = async e => {
+        try { await api("/api/apps/choisir", {method: "POST", body: {slug: e.target.value}}); toast("Application active changée.", "ok"); charger(); }
+        catch (x) { toast(x.message, "ko"); }
+      };
+      $("#kg-f-raz").onclick = () => {
+        delete S.params.plateforme; delete S.params.version; delete S.params.patrimoine; S.type = S.statut = S.provenance = S.confiance = "";
+        for (const i of ["#kg-f-plat", "#kg-f-ver", "#kg-f-type", "#kg-prov", "#kg-conf", "#kg-statut"]) $(i).value = "";
+        $("#kg-patrimoine").checked = false; nbFiltres(); charger();
+      };
       $("#kg-mini").onclick = () => { const m = $(".gv-mini"); if (m) m.hidden = !m.hidden; G?._mini(); };
       $("#kg-tout").onclick = () => { if (!S.params.centre) return G?.ajuster(); delete S.params.centre; S.auto = false; charger(); };
       $("#kg-recherche").oninput = e => { clearTimeout(t); t = setTimeout(() => { S.params.recherche = e.target.value; charger(); }, 300); };
-      $("#kg-statut").onchange = e => { S.statut = e.target.value; dessiner(); };
-      $("#kg-prov").onchange = e => { S.provenance = e.target.value; dessiner(); };
-      $("#kg-conf").onchange = e => { S.confiance = e.target.value; dessiner(); };
-      $("#kg-patrimoine").onchange = e => { if (e.target.checked) S.params.patrimoine = "tout"; else delete S.params.patrimoine; charger(); };
+      $("#kg-statut").onchange = e => { S.statut = e.target.value; nbFiltres(); dessiner(); };
+      $("#kg-prov").onchange = e => { S.provenance = e.target.value; nbFiltres(); dessiner(); };
+      $("#kg-conf").onchange = e => { S.confiance = e.target.value; nbFiltres(); dessiner(); };
+      $("#kg-patrimoine").onchange = e => { if (e.target.checked) S.params.patrimoine = "tout"; else delete S.params.patrimoine; nbFiltres(); charger(); };
       $("#kg-zp").onclick = () => G?.zoom(1.25);
       $("#kg-zm").onclick = () => G?.zoom(0.8);
       $("#kg-aj").onclick = () => G?.ajuster();
@@ -164,6 +188,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       $$("[data-angle]", o).forEach(b => b.onclick = () => {
         S.angle = dernierAngle = b.dataset.angle;
         $$("[data-angle]", o).forEach(x => x.setAttribute("aria-pressed", x === b));
+        S.type = "";  // un type d'une autre perspective n'a plus de sens
+        nbFiltres();
         adresseAngle();
         charger();
       });
@@ -261,7 +287,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       flux: "/api/graphes/flux"}[S.vue];
     const q = new URLSearchParams(Object.entries(S.params).filter(([, v]) => v));
     /* angle : filtré par le serveur (avant le plafond d'affichage) ; autour d'un élément exploré, filtré à l'affichage */
-    if (S.vue === "connaissance" && TYPES_VUE[S.angle] && !S.params.centre) q.set("types", TYPES_VUE[S.angle]);
+    if (S.vue === "connaissance" && !S.params.centre && (S.type || TYPES_VUE[S.angle])) q.set("types", S.type || TYPES_VUE[S.angle]);
     try { S.data = await api(url + "?" + q); }
     catch (e) {
       if (S.params.centre && S.auto) { delete S.params.centre; S.auto = false; return charger(garder); }  // centre automatique absent du graphe
@@ -284,13 +310,17 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       const fm = $("#kg-fmod");
       if (fm && fm.options.length === 1) for (const m of S.data.modules || []) fm.add(new Option(m, m));
     }
+    if (S.data.filtres) remplirFiltres(S.data.filtres);
     if (garder) G?.garderPositions();
-    if (S.direct) {  // nouveautés depuis le début du suivi : mises en avant, compteur dans le bouton
-      if (S.attenteConnus || !S.connus) { S.connus = new Set(S.data.noeuds.map(n => n.id)); S.attenteConnus = false; }
-      let nouveaux = 0;
-      for (const n of S.data.noeuds) { n.nouveau = !S.connus.has(n.id); nouveaux += n.nouveau; }
+    if (S.direct) {  // nouveautés et modifications depuis le début du suivi : mises en avant, compteurs dans le bouton
+      if (S.attenteConnus || !S.connus) { S.connus = new Set(S.data.noeuds.map(n => n.id)); S.attenteConnus = false; S.modifies = new Set(); S.dateConstruction = S.data.construction?.date; }
+      const c = S.data.construction || {};
+      if (c.date && c.date !== S.dateConstruction) { S.dateConstruction = c.date; for (const i of c.modifies || []) if (S.connus.has(i)) S.modifies.add(i); }
+      let nouveaux = 0, modifies = 0;
+      for (const n of S.data.noeuds) { n.nouveau = !S.connus.has(n.id); n.modifie = !n.nouveau && S.modifies.has(n.id); nouveaux += n.nouveau; modifies += n.modifie; }
       const b = $("#kg-direct");
-      if (b) b.innerHTML = `<span class="point-direct"></span>En direct${nouveaux ? ` · +${nouveaux}` : ""}`;
+      if (b) b.innerHTML = `<span class="point-direct"></span>En direct${nouveaux ? ` · +${nouveaux}` : ""}${modifies ? ` · ~${modifies}` : ""}`;
+      if (b) b.title = `Suivi en direct : ${nouveaux} élément(s) nouveau(x) (vert), ${modifies} modifié(s) (bleu) depuis le début du suivi.`;
     }
     dessiner();
     legende();
@@ -302,6 +332,35 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       G.centrerSur(id);
       selectionner(id);
     } else if (!S.selection) panneauParDefaut();
+  }
+
+  /* filtres proposés : lus dans le référentiel complet (valeurs réellement présentes) */
+  function remplirFiltres(f) {
+    const remplir = (sel, valeurs, actuel, lib = v => v) => {
+      const el = $(sel);
+      if (!el) return;
+      const premier = el.options[0]?.outerHTML || "";
+      el.innerHTML = premier + valeurs.map(v => `<option value="${esc(v)}">${esc(lib(v))}</option>`).join("");
+      el.value = actuel || "";
+    };
+    remplir("#kg-f-plat", f.plateformes || [], S.params.plateforme, v => v.charAt(0).toUpperCase() + v.slice(1));
+    remplir("#kg-f-ver", f.versions || [], S.params.version, v => "Build " + v);
+    const angle = TYPES_VUE[S.angle] ? TYPES_VUE[S.angle].split(",") : null;
+    remplir("#kg-f-type", Object.keys(f.types || {}).filter(t => !angle || angle.includes(t)), S.type, t => `${t.replace(/_/g, " ")} (${f.types[t]})`);
+    const apps = f.applications || [];
+    $("#kg-f-app-l").hidden = true;
+    api("/api/apps").then(a => {
+      if ((a.applications || []).length < 2) return;
+      $("#kg-f-app-l").hidden = false;
+      $("#kg-f-app").innerHTML = a.applications.map(x => `<option value="${esc(x.slug)}" ${x.slug === a.active ? "selected" : ""}>${esc(x.nom || x.slug)}</option>`).join("");
+    }).catch(() => { if (apps.length) $("#kg-f-app-l").hidden = true; });
+  }
+
+  function nbFiltres() {
+    const n = [S.params.plateforme, S.params.version, S.type, S.provenance, S.confiance, S.statut, S.params.patrimoine].filter(Boolean).length;
+    const el = $("#kg-nb-filtres");
+    if (el) el.textContent = n ? ` · ${n}` : "";
+    $("#kg-filtres")?.setAttribute("aria-pressed", n > 0);
   }
 
   /* ------------------------------------------------------------------ en direct */
@@ -466,7 +525,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     let d;
     try { d = await api("/api/graphes/noeud?id=" + encodeURIComponent(id)); } catch (e) { return detail("Erreur", esc(e.message)); }
     const n = d.noeud, p = n.proprietes || {};
-    const props = Object.entries(p).filter(([, v]) => v !== "" && v !== null && v !== false && !(Array.isArray(v) && !v.length))
+    const props = Object.entries(p).filter(([k, v]) => k !== "versions" && k !== "completude" && v !== "" && v !== null && v !== false && !(Array.isArray(v) && !v.length))
       .map(([k, v]) => `<dt>${esc(k.replace(/_/g, " "))}</dt><dd>${typeof v === "object" ? `<code>${esc(JSON.stringify(v))}</code>` : esc(v)}</dd>`).join("");
     /* relation lue dans son sens métier : « → Vérifie » si ce nœud en est la source, « ← Vérifie » s'il en est la cible */
     const ST_REL = {OFFICIAL: ["ok", "officiel"], VALIDATED: ["info", "validé"], PROPOSED: ["warn", "proposé"]};
@@ -475,34 +534,80 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
         <span class="lib">${sortant ? "→" : "←"} ${esc(m.libelle || x.relation.libelle)}</span><button class="lien ellipse" data-sel="${esc(x.noeud.id)}">${esc(x.noeud.libelle)}</button>
         ${st ? `<span class="pill ${st[0]}">${st[1]}</span>` : x.relation.statut !== "validé" ? '<span class="pill warn">à valider</span>' : ""}
         ${x.relation.confiance_niveau && x.relation.confiance_niveau !== "confirmée" ? `<span class="pill ${x.relation.confiance_niveau === "probable" ? "info" : "warn"}" title="Niveau de confiance du lien">${esc(x.relation.confiance_niveau)}</span>` : ""}</li>`; };
+    const pv = d.provenance || {}, tr = d.tracabilite || {};
+    const module = d.entrants.find(x => x.noeud.type === "module" && x.relation.type === "contient")?.noeud;
+    const parType = {};
+    for (const x of d.sortants.concat(d.entrants)) { const l = x.relation.metier?.libelle || x.relation.libelle; parType[l] = (parType[l] || 0) + 1; }
+    const CAT_HISTO = {ajout_noeud: "création", ajout_relation: "déclaration", modification_noeud: "modification", renommage_ecran: "modification",
+      validation_relation: "validation", fusion: "fusion", rejet: "rejet", suppression_noeud: "suppression", suppression_relation: "suppression"};
+    const listeTrac = (titre, l) => l && l.length ? `<h3 class="lib" style="margin:10px 0 4px">${titre} (${l.length})</h3><ul class="liste">${l.map(x =>
+      `<li><button class="lien ellipse" data-sel="${esc(x.id)}">${esc(x.libelle)}</button><span class="lib">${esc(x.type.replace(/_/g, " "))}</span>
+        ${x.confirme ? "" : '<span class="pill warn" title="Relié seulement par des liens probables ou à valider">non confirmé</span>'}</li>`).join("")}</ul>` : "";
+    const ONGLETS = [["props", "Propriétés"], ["prov", "Provenance"], ["rel", `Relations (${d.sortants.length + d.entrants.length})`],
+      ["trac", "Traçabilité"], ["histo", "Historique"]];
+    const onglet = ONGLETS.some(o => o[0] === S.ongletDetail) ? S.ongletDetail : "props";
     detail(n.metier ? n.metier.libelle : n.type.replace("_", " "), `
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><span class="carre" style="background:var(--f-${familleDe(n.type).id});width:12px;height:30px"></span>
         <div class="item"><b style="font-size:14px">${esc(n.libelle)}</b><div class="lib"><code>${esc(n.metier ? n.metier.id : n.id)}</code>${n.metier ? ` · ${esc(n.metier.type)} · univers ${esc(n.metier.univers)}` : ""}</div></div></div>
-      <div class="btns" style="margin-bottom:10px"><span class="pill ${n.statut === "validé" ? "ok" : "warn"}">${esc(n.statut)}</span><span class="pill">${esc(n.provenance)}</span>
-        <span class="pill info" title="Base de l'élément (pas un score calculé)">${esc(baseElement(n))}</span>${n.plateformes.map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>
-      ${p.completude ? `<p><span class="pill ${p.completude === "confirmé" || p.completude === "exploré" ? "ok" : "warn"}">parcours ${esc(p.completude)}</span>
-        ${p.completude === "déclaré" ? `<a class="lien" href="#discovery/cadrage">le dérouler</a>` : ""}</p>` : ""}
-      <p class="lib" style="margin:4px 0 8px">Voir dans : ${ANGLES.filter(a => a[0] && TYPES_VUE[a[0]].split(",").includes(n.type)).map(a =>
+      <div class="btns" style="margin-bottom:8px"><span class="pill ${n.statut === "validé" ? "ok" : "warn"}">${esc(n.statut)}</span><span class="pill">${esc(n.provenance)}</span>
+        <span class="pill info" title="Base de l'élément (pas un score calculé)">${esc(baseElement(n))}</span>
+        ${p.completude ? `<span class="pill ${p.completude === "confirmé" || p.completude === "exploré" ? "ok" : "warn"}">parcours ${esc(p.completude)}</span>` : ""}</div>
+      <p class="lib" style="margin:0 0 8px">Voir dans : ${ANGLES.filter(a => a[0] && TYPES_VUE[a[0]].split(",").includes(n.type)).map(a =>
         `<button class="lien" data-persp="${a[0]}">${a[1]}</button>`).join(" · ") || "—"}</p>
-      <dl class="props"><dt>Source</dt><dd>${esc(n.source)}</dd>${props}</dl>
-      <div class="btns" style="margin:12px 0">
-        <button class="btn primaire" id="kd-impact">${ico("impact")}Impact</button>
-        <button class="btn" id="kd-dev">${ico("graphe")}Explorer</button>
-        ${n.type === "test" || n.type === "test_robot" ? `<button class="btn" id="kd-flux">${ico("editeur")}Flux</button>` : ""}
-        ${p.fichier ? `<a class="btn" href="#editeur/${encodeURIComponent(p.fichier)}">${ico("fichier")}Ouvrir le fichier</a>` : ""}
-        ${n.type === "locator" && p.valeur ? `<button class="btn" id="kd-tester">${ico("mobile")}Tester sur le device</button>` : ""}
-        ${n.type === "test" ? `<a class="btn" href="#bdd/${encodeURIComponent(n.id.slice(5))}">${ico("bdd")}Scénario BDD</a>` : ""}
-        <button class="btn" id="kd-modif">Modifier</button>
-        ${n.statut === "à valider" ? `<button class="btn succes" id="kd-valider">${ico("check")}Valider</button>` : ""}
-        <button class="btn" id="kd-relier">${ico("lien")}Relier</button><button class="btn" id="kd-fusion">Fusionner</button>
-        <button class="btn danger" id="kd-suppr">${n.provenance === "observé" ? "Masquer" : "Supprimer"}</button>
-        <button class="btn violet" id="kd-ia">${ico("ia")}IA</button></div>
+      <div class="btns" style="margin:0 0 8px">
+        <button class="btn petit" id="kd-dev">${ico("graphe")}Explorer</button>
+        <button class="btn petit primaire" id="kd-impact">${ico("impact")}Impact</button>
+        <button class="btn petit" id="kd-couv">Couverture</button>
+        ${n.type === "test" || n.type === "test_robot" || n.type === "scenario" ? `<button class="btn petit" id="kd-flux">${ico("editeur")}Flux</button>` : ""}
+        ${p.fichier ? `<a class="btn petit" href="#editeur/${encodeURIComponent(p.fichier)}">${ico("fichier")}Ouvrir le fichier</a>` : ""}
+        ${n.type === "locator" && p.valeur ? `<button class="btn petit" id="kd-tester">${ico("mobile")}Tester sur le device</button>` : ""}
+        ${n.type === "test" ? `<a class="btn petit" href="#bdd/${encodeURIComponent(n.id.slice(5))}">${ico("bdd")}Scénario BDD</a>` : ""}
+        ${n.type === "scenario" ? `<a class="btn petit" href="#bdd/${encodeURIComponent(n.id.slice(9))}">${ico("bdd")}Ouvrir le test BDD</a>` : ""}
+        ${p.completude === "déclaré" ? `<a class="btn petit" href="#discovery/cadrage">Dérouler le parcours</a>` : ""}
+        <button class="btn petit" id="kd-relier">${ico("lien")}Relier</button>
+        <button class="btn petit" id="kd-modif">Modifier</button>
+        ${n.statut === "à valider" ? `<button class="btn petit succes" id="kd-valider">${ico("check")}Valider</button>` : ""}
+        <button class="btn petit" id="kd-fusion">Fusionner</button>
+        <button class="btn petit danger" id="kd-suppr">${n.provenance === "observé" ? "Masquer" : "Supprimer"}</button>
+        <button class="btn petit violet" id="kd-ia">${ico("ia")}IA</button></div>
       <div id="kd-zone"></div>
-      <h3 class="lib" style="margin:12px 0 4px">RELATIONS (${d.sortants.length + d.entrants.length})</h3>
-      <ul class="liste">${d.sortants.map(x => lien(x, true)).join("")}${d.entrants.map(x => lien(x, false)).join("")}</ul>
-      ${d.tests_xray.length ? `<h3 class="lib" style="margin:12px 0 4px">TESTS XRAY ASSOCIÉS</h3><div class="btns">${d.tests_xray.map(t => `<button class="pill violet lien" data-sel="${esc(t)}">${esc(t.slice(5))}</button>`).join("")}</div>` : ""}
-      ${d.tests_robot.length ? `<h3 class="lib" style="margin:12px 0 4px">SCRIPTS AUTOMATISÉS</h3><ul class="liste">${d.tests_robot.map(t => `<li><button class="lien" data-sel="${esc(t)}">${esc(t.split("::").pop())}</button></li>`).join("")}</ul>` : ""}
-      <h3 class="lib" style="margin:12px 0 4px">HISTORIQUE</h3>${d.historique.length ? `<ul class="liste">${d.historique.map(h => `<li><span class="mono lib">${esc(h.date.slice(0, 16).replace("T", " "))}</span>${esc(h.op.replace(/_/g, " "))} <span class="lib">(${esc(h.auteur)})</span></li>`).join("")}</ul>` : "<p class='lib'>Aucune modification déclarée.</p>"}`);
+      <div class="sous-onglets onglets-detail" role="tablist" aria-label="Détail de l'élément">${ONGLETS.map(([k, l]) =>
+        `<button role="tab" data-onglet="${k}" aria-selected="${k === onglet}">${l}</button>`).join("")}</div>
+      <div data-panneau="props" ${onglet === "props" ? "" : "hidden"}><dl class="props">
+        <dt>Identifiant</dt><dd><code>${esc(n.id)}</code></dd><dt>Nom</dt><dd>${esc(n.libelle)}</dd><dt>Type</dt><dd>${esc(n.type.replace(/_/g, " "))}</dd>
+        ${module ? `<dt>Module</dt><dd><button class="lien" data-sel="${esc(module.id)}">${esc(module.libelle)}</button></dd>` : ""}
+        <dt>Plateforme</dt><dd>${esc(n.plateformes.join(", ") || "toutes")}</dd>
+        ${(p.versions || []).length ? `<dt>Version</dt><dd>${esc(p.versions.map(v => "Build " + v).join(", "))}</dd>` : ""}
+        <dt>Statut</dt><dd>${esc(n.statut)}</dd>${props}</dl></div>
+      <div data-panneau="prov" ${onglet === "prov" ? "" : "hidden"}><dl class="props">
+        <dt>Origine</dt><dd>${esc(pv.provenance || n.provenance)} <span class="lib">(observé : vu dans une source ; déclaré : saisi ; déduit : calculé ou proposé)</span></dd>
+        <dt>Source</dt><dd>${esc(pv.source || n.source)}</dd>${pv.fichier ? `<dt>Fichier</dt><dd><code>${esc(pv.fichier)}</code></dd>` : ""}
+        ${pv.premiere_trace ? `<dt>Date</dt><dd>${esc(pv.premiere_trace.slice(0, 16).replace("T", " "))}${pv.derniere_trace && pv.derniere_trace !== pv.premiere_trace ? ` · dernière modification ${esc(pv.derniere_trace.slice(0, 16).replace("T", " "))}` : ""}</dd>` : ""}
+        <dt>Validation</dt><dd>${esc(n.statut)}${pv.validation ? ` <span class="lib">(${esc(pv.validation)})</span>` : ""}</dd>
+        <dt>Confiance</dt><dd>${esc(baseElement(n))}</dd></dl>
+        <p class="lib">Les liens ont leur propre niveau de confiance (onglet Relations) : seuls les liens confirmés comptent dans la couverture, l'impact et la TNR.</p></div>
+      <div data-panneau="rel" ${onglet === "rel" ? "" : "hidden"}>
+        <div class="btns" style="margin-bottom:6px">${Object.entries(parType).map(([t, c]) => `<span class="pill">${esc(t)} · ${c}</span>`).join("")}</div>
+        ${d.sortants.length ? `<h3 class="lib" style="margin:8px 0 4px">SORTANTES (${d.sortants.length})</h3><ul class="liste">${d.sortants.map(x => lien(x, true)).join("")}</ul>` : ""}
+        ${d.entrants.length ? `<h3 class="lib" style="margin:8px 0 4px">ENTRANTES (${d.entrants.length})</h3><ul class="liste">${d.entrants.map(x => lien(x, false)).join("")}</ul>` : ""}
+        ${d.sortants.length + d.entrants.length ? "" : "<p class='lib'>Aucune relation.</p>"}</div>
+      <div data-panneau="trac" ${onglet === "trac" ? "" : "hidden"}>
+        ${listeTrac("EXIGENCES ET FONCTIONNALITÉS", tr.exigences)}${listeTrac("PARCOURS", tr.parcours)}${listeTrac("TESTS (BDD, XRAY, ROBOT)", tr.tests)}
+        ${listeTrac("PLANS ET ENSEMBLES DE TESTS", tr.plans)}${listeTrac("EXÉCUTIONS ET RÉSULTATS", tr.executions)}${listeTrac("ANOMALIES", tr.anomalies)}
+        ${Object.values(tr).some(l => l.length) ? "<p class='lib'>Éléments reliés à deux pas au plus.</p>" : "<p class='lib'>Aucune exigence, aucun parcours, aucun test relié pour l'instant.</p>"}</div>
+      <div data-panneau="histo" ${onglet === "histo" ? "" : "hidden"}>${d.historique.length ? `<ul class="liste">${d.historique.map(h => `<li><span class="mono lib">${esc(h.date.slice(0, 16).replace("T", " "))}</span>
+        <span class="pill">${esc(CAT_HISTO[h.op] || h.op.replace(/_/g, " "))}</span>${esc(h.op.replace(/_/g, " "))} <span class="lib">(${esc(h.auteur)})</span></li>`).join("")}</ul>`
+        : "<p class='lib'>Aucune modification déclarée : l'élément vient tel quel de sa source.</p>"}</div>`);
+    $$("[data-onglet]", $("#kg-detail")).forEach(b => b.onclick = () => {
+      S.ongletDetail = b.dataset.onglet;
+      $$("[data-onglet]", $("#kg-detail")).forEach(x => x.setAttribute("aria-selected", x === b));
+      $$("[data-panneau]", $("#kg-detail")).forEach(x => { x.hidden = x.dataset.panneau !== b.dataset.onglet; });
+    });
+    $("#kd-couv").onclick = () => {
+      if (n.type === "test") { location.hash = "graphe/couverture/test/" + encodeURIComponent(n.id.slice(5)); return; }
+      if (n.type === "module") { location.hash = "graphe/couverture/module/" + encodeURIComponent(n.libelle); return; }
+      $('[data-onglet="trac"]', $("#kg-detail"))?.click();
+    };
     const z = $("#kd-zone");
     $$("[data-persp]", $("#kg-detail")).forEach(b => b.onclick = () => {  // même élément, autre perspective
       S.angle = dernierAngle = b.dataset.persp;
@@ -512,7 +617,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     });
     $("#kd-impact").onclick = () => impact(id);
     $("#kd-dev").onclick = () => developper(id);
-    if ($("#kd-flux")) $("#kd-flux").onclick = () => { location.hash = "graphe/flux"; setTimeout(() => { $("#kg-cible").value = id; S.params.cible = id; charger(); }, 250); };
+    if ($("#kd-flux")) $("#kd-flux").onclick = () => { location.hash = "graphe/flux"; setTimeout(() => { if ($("#kg-cible")) $("#kg-cible").value = id; S.params.cible = id; charger(); }, 250); };
     if ($("#kd-tester")) $("#kd-tester").onclick = async () => {
       const r = await api("/api/action", {method: "POST", body: {nom: "check_locator", args: {locator: p.valeur}}}).catch(e => ({erreur: e.message}));
       z.innerHTML = r.erreur ? `<p class="echec"><b>Impossible</b> ${esc(r.erreur)} — ouvrir une session sur la bonne plateforme.</p>`
@@ -539,6 +644,17 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
 
   function panneauRelation(r) {
     S.selection = null;
+    if (r.type === "lie_via") {  // jamais enregistré : un raccourci d'affichage ; le chemin réel passe par ces éléments
+      const pr = r.proprietes || {}, via = pr.via || [];
+      detail("Lien « via » (affichage)", `<p><button class="lien" data-sel="${esc(r.de)}">${esc(r.de)}</button> et <button class="lien" data-sel="${esc(r.vers)}">${esc(r.vers)}</button>
+          sont reliés par ${pr.nombre || via.length} élément(s) masqué(s) dans cette perspective (${esc((pr.types || []).join(", "))}).</p>
+        <h3 class="lib" style="margin:10px 0 4px">CHEMIN RÉEL</h3><ul class="liste">${via.map(x => `<li><span class="lib">${esc(r.de.split(":")[0])} →</span>
+          <button class="lien" data-sel="${esc(x)}">${esc(x)}</button><span class="lib">→ ${esc(r.vers.split(":")[0])}</span>
+          <button class="btn petit" data-chemin="${esc(x)}" title="Afficher l'élément intermédiaire et ses deux relations réelles">Afficher</button></li>`).join("")}</ul>
+        <p class="lib">Ce lien n'est pas enregistré dans le référentiel et n'entre ni dans la couverture ni dans l'impact.</p>`);
+      $$("[data-chemin]", $("#kg-detail")).forEach(b => b.onclick = () => { S.angle = dernierAngle = ""; $$("[data-angle]").forEach(x => x.setAttribute("aria-pressed", x.dataset.angle === "")); developper(b.dataset.chemin); });
+      return;
+    }
     const m = r.metier || {}, de = m.inverse ? r.vers : r.de, vers = m.inverse ? r.de : r.vers;
     detail("Relation", `<p><b>${esc(m.libelle || r.libelle)}</b>${m.type ? ` <code>${esc(m.type)}</code>` : ""}</p><dl class="props"><dt>De</dt><dd><button class="lien" data-sel="${esc(de)}">${esc(de)}</button></dd>
       <dt>Vers</dt><dd><button class="lien" data-sel="${esc(vers)}">${esc(vers)}</button></dd>

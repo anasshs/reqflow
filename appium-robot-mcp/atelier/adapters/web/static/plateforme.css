@@ -841,6 +841,12 @@ tr.sel td { background: var(--accent-soft); }
 #kg-direct.direct-actif .point-direct { background: var(--ko); animation: pulse-direct 1.4s infinite; }
 @keyframes pulse-direct { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 .gv-boite.gv-nouveau { stroke: var(--ok) !important; stroke-width: 3px; filter: drop-shadow(0 0 6px var(--ok)); }
+.gv-boite.gv-modifie { stroke: var(--info, #3b82f6) !important; stroke-width: 3px; filter: drop-shadow(0 0 5px var(--info, #3b82f6)); }
+.filtres-graphe { min-width: 280px; }
+.filtres-graphe label { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.onglets-detail { margin: 6px 0 8px; padding: 0; flex-wrap: wrap; column-gap: 0; }
+.onglets-detail button { padding: 6px 6px 5px; font-size: 12px; }
+.filtres-graphe label:has(input[type="checkbox"]) { justify-content: flex-start; }
 .gv-lien.gv-via path { stroke-dasharray: 2 5; stroke: var(--muted) !important; opacity: .7; }
 body.fenetre-graphe { grid-template-columns: 0 minmax(0, 1fr); }
 body.fenetre-graphe .nav-lat, body.fenetre-graphe .entete, body.fenetre-graphe #fil-chemin, body.fenetre-graphe #alerte-projet { display: none; }

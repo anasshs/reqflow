@@ -155,12 +155,24 @@ def ids_perimetre(g, nid: str) -> set[str]:
     return garde
 
 
+def filtres_disponibles(g: Graphe) -> dict:
+    """Valeurs proposées par les filtres de l'écran, lues dans le référentiel complet."""
+    types: dict = {}
+    for n in g.noeuds.values():
+        types[n.type] = types.get(n.type, 0) + 1
+    return {"applications": sorted(({"id": i, "libelle": n.libelle} for i, n in g.noeuds.items() if n.type == "application"), key=lambda x: x["id"]),
+            "plateformes": sorted({p for n in g.noeuds.values() for p in n.plateformes}),
+            "versions": sorted((n.id.split(":", 1)[1] for n in g.noeuds.values() if n.type == "version"), reverse=True),
+            "types": dict(sorted(types.items()))}
+
+
 def vue_connaissance(types: list[str] | None = None, categories: list[str] | None = None, plateforme: str = "",
                      recherche: str = "", centre: str = "", profondeur: int = 1, patrimoine: str = "lie",
-                     perimetre: str = "") -> dict:
+                     perimetre: str = "", version: str = "") -> dict:
     """patrimoine « lie » (défaut) : la connaissance de l'application et les seuls tickets Jira / Xray qui s'y
     rattachent ; « tout » : toute la copie locale Jira / Xray. Un centre ou une recherche montrent toujours tout."""
     g = _graphe()
+    filtres = filtres_disponibles(g)
     masques = 0
     if perimetre:
         g = g.sous_graphe(ids_perimetre(g, perimetre))
@@ -172,11 +184,14 @@ def vue_connaissance(types: list[str] | None = None, categories: list[str] | Non
         garde = patrimoine_lie(g)
         masques = sum(1 for i, n in g.noeuds.items() if i not in garde and n.type in PATRIMOINE + ("module",))
         g = g.sous_graphe(garde)
-    vue = g.filtrer(types, categories, plateforme, recherche)
-    if types and not centre:
+    vue = g.filtrer(types, categories, plateforme, recherche, version)
+    if (types or plateforme or version) and not centre:
         projeter_liens(g, vue)
     prio = {centre} if centre else (ids_perimetre(g, perimetre) if perimetre and perimetre in g.noeuds else set())
-    return {**_limiter(vue, prio), "patrimoine_masque": masques}
+    d = connaissance.DERNIERE_CONSTRUCTION.get("delta") or {}
+    return {**_limiter(vue, prio), "patrimoine_masque": masques, "filtres": filtres,
+            "construction": {"date": connaissance.DERNIERE_CONSTRUCTION.get("date"), "modifies": d.get("modifies", []),
+                             "retires": len(d.get("retires", []))}}
 
 
 def projeter_liens(complet, vue, max_par_noeud: int = 12):
@@ -325,6 +340,7 @@ def detail(noeud: str) -> dict:
     entrants = [lien(r, r.de) for r in g.entrants(noeud)]
     voisins = {x["noeud"]["id"] for x in sortants + entrants}
     proches = g.voisinage([noeud], 2).noeuds
+    histo = declarations.historique(noeud, 50)
     t = ontologie.type_cible(n, g)
     return {"noeud": {**n.vers_dict(), "metier": {"type": t, "libelle": ontologie.TYPES_CIBLES[t][1], "univers": ontologie.TYPES_CIBLES[t][0],
                                                    "id": ontologie.id_cible(n, t),
@@ -333,7 +349,33 @@ def detail(noeud: str) -> dict:
             "tests_xray": sorted(i for i in proches if g.noeuds[i].type == "test"),
             "tests_robot": sorted(i for i in proches if g.noeuds[i].type == "test_robot"),
             "scenarios_bdd": sorted(i for i in proches if g.noeuds[i].type in ("scenario", "feature")),
-            "nb_voisins": len(voisins), "historique": declarations.historique(noeud, 50)}
+            "nb_voisins": len(voisins), "historique": histo,
+            "provenance": _provenance(n, histo), "tracabilite": _tracabilite(g, noeud, set(proches))}
+
+
+TRACABILITE = (("exigences", ("fonctionnalite", "user_story", "epic", "regle")), ("parcours", ("parcours",)),
+               ("tests", ("scenario", "test", "test_robot")), ("plans", ("test_plan", "test_set")),
+               ("executions", ("test_execution", "resultat")), ("anomalies", ("bug",)))
+
+
+def _tracabilite(g: Graphe, noeud: str, proches: set) -> dict:
+    """Ce qui est relié à l'élément à deux pas au plus : exigences, parcours, tests (BDD, Xray, Robot), plans, exécutions,
+    anomalies ; chaque entrée dit si le chemin est confirmé (lien direct confirmé, ou deux liens confirmés)."""
+    conf = g.confirme().voisinage([noeud], 2).noeuds
+    out = {}
+    for cle, types in TRACABILITE:
+        ids = sorted(i for i in proches if i != noeud and g.noeuds[i].type in types)
+        out[cle] = [{"id": i, "libelle": g.noeuds[i].libelle, "type": g.noeuds[i].type, "confirme": i in conf} for i in ids[:40]]
+    return out
+
+
+def _provenance(n, histo: list) -> dict:
+    p = n.proprietes or {}
+    dates = [h.get("date") for h in histo if h.get("date")]
+    return {"provenance": n.provenance, "source": n.source, "fichier": p.get("fichier") or (n.source if "/" in (n.source or "") else ""),
+            "statut": n.statut, "confiance": n.confiance,
+            "validation": ontologie.statut_validation(n.provenance, n.statut),
+            "premiere_trace": min(dates) if dates else (p.get("cree") or ""), "derniere_trace": max(dates) if dates else ""}
 
 
 # =========================================================================== modifications

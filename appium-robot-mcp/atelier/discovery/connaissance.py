@@ -78,6 +78,8 @@ def vider_cache():
     with _VERROU_GRAPHE:
         _CACHE_GRAPHE.clear()
         _MEMO_SOURCES.clear()
+        _MEMO_FICHIERS.clear()
+        _SIGNATURES.clear()
 
 
 # =========================================================================== sources relues seulement si elles changent
@@ -118,6 +120,60 @@ def _memo(nom: str, fichiers: list, calcul):
     _MEMO_SOURCES[nom] = (cle, pickle.dumps(val, protocol=pickle.HIGHEST_PROTOCOL))
     DERNIERE_CONSTRUCTION.setdefault("relues", []).append(nom)
     return val
+
+
+# Grain plus fin pour ce qui change pendant une Discovery : chaque fichier d'écran (et chaque test BDD) est relu seulement
+# s'il a changé ; les autres sont repris en mémoire. Un fichier disparu n'est plus lu : ses nœuds et relations disparaissent.
+_MEMO_FICHIERS: dict = {}
+
+
+def _lu(source: str, chemins: list, lecture):
+    """lecture() réutilisée tant que les fichiers `chemins` (taille, date) n'ont pas changé ; compteurs par source."""
+    cle = []
+    for c in chemins:
+        try:
+            st = os.stat(c)
+            cle.append((str(c), st.st_size, st.st_mtime_ns))
+        except OSError:
+            cle.append((str(c), None, None))
+    k = (source, str(chemins[0]) if chemins else "")
+    m = _MEMO_FICHIERS.get(k)
+    stats = DERNIERE_CONSTRUCTION.setdefault("fichiers", {}).setdefault(source, {"relus": 0, "reutilises": 0})
+    if m and m[0] == cle:
+        stats["reutilises"] += 1
+        return pickle.loads(m[1])
+    val = lecture()
+    _MEMO_FICHIERS[k] = (cle, pickle.dumps(val, protocol=pickle.HIGHEST_PROTOCOL))
+    stats["relus"] += 1
+    return val
+
+
+# Delta entre deux constructions : ce qui a été ajouté, modifié ou retiré (mis en avant à l'écran pendant le suivi en direct).
+_SIGNATURES: dict = {}
+
+
+def _signature(n) -> str:
+    import json as _json
+
+    return hashlib.blake2b(_json.dumps([n.type, n.libelle, n.statut, n.provenance, n.plateformes, n.proprietes], sort_keys=True,
+                                       default=str, ensure_ascii=False).encode(), digest_size=8).hexdigest()
+
+
+def _delta(g: Graphe) -> dict:
+    liens: dict = {}
+    for r in g.relations.values():  # une relation ajoutée, retirée ou changée modifie ses deux extrémités
+        t = f"{r.de}|{r.type}|{r.vers}|{r.statut}"
+        liens.setdefault(r.de, []).append(t)
+        liens.setdefault(r.vers, []).append(t)
+    sig = {i: _signature(n) + hashlib.blake2b("\n".join(sorted(liens.get(i, []))).encode(), digest_size=6).hexdigest()
+           for i, n in g.noeuds.items()}
+    avant = _SIGNATURES.get("noeuds")
+    _SIGNATURES["noeuds"] = sig
+    if avant is None:
+        return {"premiere": True, "ajoutes": [], "modifies": [], "retires": []}
+    return {"premiere": False, "ajoutes": sorted(set(sig) - set(avant))[:300],
+            "modifies": sorted(i for i in sig if i in avant and sig[i] != avant[i])[:300],
+            "retires": sorted(set(avant) - set(sig))[:300]}
 
 
 # =========================================================================== construction
@@ -240,6 +296,8 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
     _enrichir_champs(g)
     _depuis_anomalies(g)
     _marquer_automatisation(g)
+    if inventaire is None and avec_declarations:
+        DERNIERE_CONSTRUCTION["delta"] = _delta(g)
     DERNIERE_CONSTRUCTION.update(duree_s=round(time.perf_counter() - debut, 3), noeuds=len(g.noeuds), relations=len(g.relations),
                                  date=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return g
@@ -257,7 +315,9 @@ def _depuis_carte(g: Graphe):
         if not slug:
             return
         cfg = carte.config_app()
-        ecrans = carte.ecrans()
+        dossier = carte._dir() / "ecrans"
+        ecrans = [e for e in (_lu("écrans (carte)", [f], lambda f=f: carte._load(f, {}))
+                              for f in sorted(dossier.glob("*.yaml"))) if e and e.get("id")]
         transitions = carte.transitions()
     except Exception:
         return
@@ -267,9 +327,13 @@ def _depuis_carte(g: Graphe):
     for p in cfg.get("plateformes") or []:
         g.noeud(f"plateforme:{p}", "plateforme", p.capitalize(), source="carte", plateformes=[p])
         g.relier(app.id, f"plateforme:{p}", "contient", source="carte")
-    if cfg.get("build"):
-        g.noeud(f"version:{cfg['build']}", "version", f"Build {cfg['build']}", source="carte")
-        g.relier(app.id, f"version:{cfg['build']}", "contient", source="carte")
+    builds = {cfg.get("build") or ""}
+    for e in ecrans:
+        builds |= {p.get("vu_build") or "" for p in (e.get("plateformes") or {}).values()}
+        builds |= {c.get("build") or "" for c in e.get("changements") or []}
+    for b in sorted(builds - {""}):
+        g.noeud(f"version:{b}", "version", f"Build {b}", source="carte", proprietes={"courante": b == cfg.get("build")})
+        g.relier(app.id, f"version:{b}", "contient", source="carte")
     try:
         from atelier.discovery import classement
 
@@ -283,6 +347,8 @@ def _depuis_carte(g: Graphe):
         plats = sorted((e.get("plateformes") or {}).keys())
         n = g.noeud(eid, "ecran", e.get("nom") or e.get("titre") or e["id"], source="carte", plateformes=plats,
                     proprietes={"id_carte": e["id"], "titre": e.get("titre", ""), "a_revoir": e.get("a_revoir", False),
+                                "versions": sorted(({p.get("vu_build") or "" for p in (e.get("plateformes") or {}).values()}
+                                                   | {c.get("build") or "" for c in e.get("changements") or []}) - {""}),
                                 "etats": len(e.get("etats", [])),
                                 "noms_proposes": [f"{p['nom']} ({p.get('source', '')})" for p in e.get("propositions_nom") or []]},
                     confiance=1.0 if e.get("nom") else 0.8)
@@ -479,23 +545,37 @@ def _depuis_bdd(g: Graphe, inv: dict):
     except Exception:  # noqa: BLE001
         return
     try:
-        liste = bdd.lister()
+        dossier = bdd._dossier()
+        fichiers = sorted(dossier.glob("*.yaml")) if dossier.exists() else []
     except Exception:  # noqa: BLE001
         return
+    try:
+        publiees = conception._publications_xray()
+    except Exception:  # noqa: BLE001
+        publiees = {}
+
+    def lire(f):
+        import yaml as _yaml
+
+        cle = (_yaml.safe_load(f.read_text("utf-8")) or {}).get("cle") or f.stem
+        m = bdd.charger(cle) or {}
+        return {"cle": cle, "titre": m.get("titre", ""), "statut": m.get("statut", "brouillon")}, m
+
+    lus = []
+    for f in fichiers:
+        try:
+            lus.append(_lu("tests BDD", [f, f.with_suffix(".feature")], lambda f=f: lire(f)))
+        except Exception:  # noqa: BLE001 — fichier illisible : ignoré, jamais bloquant
+            continue
     par_tag: dict = {}
     for tid, t in (inv.get("tests") or {}).items():
         for tag in t.get("tags") or []:
             par_tag.setdefault(tag, []).append(f"test_robot:{tid}")
-    for b in liste:
-        try:
-            m = bdd.charger(b["cle"]) or {}
-        except Exception:  # noqa: BLE001 — fichier illisible : ignoré, jamais bloquant
-            continue
+    from atelier.integrations.xray import KEY_RE
+
+    for b, m in lus:
         cle = b["cle"]
-        try:
-            cle_xray = conception.cle_xray_du_scenario(cle) or m.get("cle_xray") or ""
-        except Exception:  # noqa: BLE001
-            cle_xray = m.get("cle_xray") or ""
+        cle_xray = (publiees.get(cle) or {}).get("xray") or (cle if KEY_RE.match(cle or "") else "") or m.get("cle_xray") or ""
         sid = f"scenario:{cle}"
         etapes = [e for s in m.get("scenarios", []) for e in s.get("etapes", [])]
         g.noeud(sid, "scenario", b.get("titre") or cle, source=f"bdd/{cle}.yaml",
