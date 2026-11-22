@@ -37,3 +37,20 @@ def test_test_bdd_relie_a_son_parcours():
     assert maintenance.du_parcours({"cle": "parcours_menu_docs_2"}, p)          # sans lien enregistré : la clé donnée à la création
     assert not maintenance.du_parcours({"cle": "parcours_menu_docs_bis"}, p)
     assert not maintenance.du_parcours({"cle": "parcours_menu_docs", "parcours": "PU-autre"}, p)  # lien enregistré vers un autre parcours
+
+
+def test_test_design_compte_les_tests_concus_dans_l_atelier(monkeypatch):
+    """Sans Xray, la vue d'ensemble de Test Design affichait 0 approuvé, 0 prêt, 0 automatisé : les tests BDD de l'atelier comptent."""
+    from atelier.generation import bdd, conception
+
+    l = [{"cle": "a", "statut": "brouillon"}, {"cle": "b", "statut": "validé"}, {"cle": "c", "statut": "validé"},
+         {"cle": "d", "statut": "brouillon"}, {"cle": "XR-1", "statut": "validé"}]
+    monkeypatch.setattr(bdd, "lister", lambda: l)
+    monkeypatch.setattr(maintenance, "cycle_bdd", lambda v=None: {
+        "c": {"script": True, "suites": ["c.robot"], "etat": "Validé", "tests": 1, "verifies": 1, "verifie": True},
+        "d": {"script": True, "suites": ["d.robot"], "etat": "À valider", "tests": 1, "verifies": 0, "verifie": False}})
+    at = conception.tests_atelier({"XR-1"})                        # XR-1 vient d'un cas Xray : compté côté Xray, pas deux fois
+    assert at["total"] == 4
+    assert (at["a_revoir"], at["approuves"], at["prets_automatisation"], at["automatises"]) == (1, 2, 1, 2)
+    assert at["par_etape"] == {"Scénario à valider": 1, "Script à générer": 1, "À vérifier (run réel)": 1, "Test à valider": 0,
+                               "Automatisé, vérifié, validé": 1}

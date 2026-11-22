@@ -93,21 +93,26 @@
   /* ------------------------------------------------------------------ 01 vue d'ensemble */
   async function vue(z) {
     const v = await api("/api/conception/vue"), k = v.kpi;
-    const kpi = (val, l, c = "") => `<div class="kpi"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
-    const ix = Atelier.integrations();
+    const det = v.detail || {xray: {}, atelier: {}};
+    const bulle = c => det.atelier[c] !== undefined ? `Cas Xray : ${det.xray[c] ?? 0} · tests conçus dans l'atelier : ${det.atelier[c]}` : "";
+    const kpi = (val, l, c = "", cle = "") => `<div class="kpi" title="${esc(cle ? bulle(cle) : "")}"><div class="v ${c}">${val ?? "—"}</div><div class="l">${l}</div></div>`;
+    const ix = Atelier.integrations(), avecXray = ix.xray || k.cas_xray > 0;  // sans Xray : pas de panneaux Xray vides
     z.innerHTML = `${entete("Vue d'ensemble", `${ix.xray ? `<a class="btn" href="#rapports/patrimoine">${ico("xray")}Importer le repository Xray</a><button class="btn" id="cv-def">${ico("xray")}Importer les définitions Xray</button>` : ""}
         ${ix.jira ? `<a class="btn" href="#conception/exigences" title="Application Intelligence › Couverture (source unique des exigences)">Exigences sans tests</a>` : ""}<a class="btn" href="#conception/revue" title="Cas de test filtrés sur « En revue »">En attente de validation</a><a class="btn primaire" href="#bdd">${ico("bdd")}Créer un test BDD</a>`)}
       <div class="corps-carte"><div class="kpis" style="grid-template-columns:repeat(8,minmax(0,1fr));margin-bottom:12px">
-        ${kpi(k.exigences, "exigences importées")}${kpi(k.cas_xray, "cas de test Xray")}${kpi(k.scenarios_bdd, "scénarios BDD")}${kpi(k.a_revoir, "à revoir", "warn-t")}
-        ${kpi(k.approuves, "approuvés", "violet")}${kpi(k.prets_automatisation, "prêts pour l'automatisation", "info")}${kpi(k.automatises, "automatisés", "ok")}
+        ${kpi(k.exigences, "exigences importées")}${kpi(k.cas_xray, "cas de test Xray")}${kpi(k.scenarios_bdd, "scénarios BDD")}${kpi(k.a_revoir, "à revoir", "warn-t", "a_revoir")}
+        ${kpi(k.approuves, "approuvés", "violet", "approuves")}${kpi(k.prets_automatisation, "prêts pour l'automatisation", "info", "prets_automatisation")}${kpi(k.automatises, "automatisés", "ok", "automatises")}
         ${kpi(k.couverture_exigences === null ? null : String(k.couverture_exigences).replace(".", ",") + " %", "couverture des exigences")}</div>
         <p class="lib">Synchronisation Xray : ${v.xray.present ? `instantané du ${esc(String(v.xray.date).replace("T", " ").slice(0, 16))} · ${esc(v.xray.source || "")} · ${v.xray.nb_tests} tests` : "aucun instantané"} — import (mode A) ; publication des tests Gherkin (modes B / C) depuis Cas de test, historique dans Mapping.</p>
-        <div class="grille-strat">${barres("Cas de test par statut Xray", v.par_statut_xray)}${barres("Par type", v.par_type)}${barres("Par priorité", v.par_priorite)}
-          ${barres("Revue interne", Object.fromEntries(Object.entries(v.par_revue).map(([s, n]) => [LIB_REVUE[s], n])))}
-          <section class="bloc-strat"><h3>Couverture des exigences par module</h3><table>${Object.entries(v.couverture_modules).map(([m, x]) => `<tr><td>${esc(m)}</td><td>${x.couvertes}/${x.exigences}</td>
+        <div class="grille-strat">${avecXray ? `${barres("Cas de test par statut Xray", v.par_statut_xray)}${barres("Par type", v.par_type)}${barres("Par priorité", v.par_priorite)}` : ""}
+          ${v.nb_tests_atelier ? barres(`Tests conçus dans l'atelier (${v.nb_tests_atelier})`, v.tests_atelier) : ""}
+          ${k.cas_xray || !v.nb_tests_atelier ? barres("Revue interne des cas Xray", Object.fromEntries(Object.entries(v.par_revue).map(([s, n]) => [LIB_REVUE[s], n]))) : ""}
+          ${!k.exigences && !ix.jira ? "" : `<section class="bloc-strat"><h3>Couverture des exigences par module</h3><table>${Object.entries(v.couverture_modules).map(([m, x]) => `<tr><td>${esc(m)}</td><td>${x.couvertes}/${x.exigences}</td>
             <td style="width:45%"><div class="barre"><i style="width:${x.exigences ? x.couvertes / x.exigences * 100 : 0}%"></i></div></td></tr>`).join("")}</table>
-            ${v.exigences_sans_test.length ? `<p class="lib">Sans test : ${v.exigences_sans_test.map(esc).join(", ")}</p>` : ""}</section>
-          <section class="bloc-strat"><h3>Activités récentes</h3><ul class="liste">${v.activite.map(a => `<li><span class="mono lib">${esc(a.date.slice(5, 16).replace("T", " "))}</span><span class="item">${esc(a.op)} ${esc(a.cle || a.nom || "")} ${a.vers ? "→ " + esc(LIB_REVUE[a.vers] || a.vers) : ""}</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul></section></div></div>`;
+            ${v.exigences_sans_test.length ? `<p class="lib">Sans test : ${v.exigences_sans_test.map(esc).join(", ")}</p>` : ""}</section>`}
+          <section class="bloc-strat"><h3>Activités récentes</h3><ul class="liste">${v.activite.map(a => `<li><span class="mono lib">${esc(a.date.slice(5, 16).replace("T", " "))}</span><span class="item">${esc(a.op)} ${esc(a.cle || a.nom || "")} ${a.vers ? "→ " + esc(LIB_REVUE[a.vers] || a.vers) : ""}</span></li>`).join("")
+            || (v.bdd_recents || []).map(b => `<li><span class="mono lib">${esc(b.maj.slice(5, 16).replace("T", " "))}</span><span class="item"><a href="#bdd/${encodeURIComponent(b.cle)}">${esc(b.titre || b.cle)}</a>
+              <span class="pill ${b.statut === "validé" ? "ok" : ""}">${esc(b.statut)}</span></span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul></section></div></div>`;
     if ($("#cv-def")) $("#cv-def").onclick = async () => {
       const projet = v.xray.present || Atelier.ctx.projet_xray ? "" : prompt("Clé du projet Xray (aucun instantané à compléter) :");
       if (projet === null) return;

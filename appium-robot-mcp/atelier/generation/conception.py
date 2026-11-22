@@ -136,11 +136,17 @@ def vue_ensemble() -> dict:
         m = modules.setdefault(e.get("module") or "—", {"exigences": 0, "couvertes": 0})
         m["exigences"] += 1
         m["couvertes"] += 0 if e["sans_test"] else 1
+    at = tests_atelier({c["cle"] for c in cas})
     return {
         "kpi": {"exigences": len(ex), "cas_xray": len(cas), "scenarios_bdd": len(s["bdd"]),
-                "a_revoir": rev["In Review"] + rev["Changes Requested"], "approuves": rev["Approved"],
-                "prets_automatisation": rev["Ready for Automation"], "automatises": sum(c["automatise"] for c in cas),
+                "a_revoir": rev["In Review"] + rev["Changes Requested"] + at["a_revoir"], "approuves": rev["Approved"] + at["approuves"],
+                "prets_automatisation": rev["Ready for Automation"] + at["prets_automatisation"],
+                "automatises": sum(c["automatise"] for c in cas) + at["automatises"],
                 "couverture_exigences": round(100 * sum(not e["sans_test"] for e in ex) / len(ex), 1) if ex else None},
+        "detail": {"xray": {"a_revoir": rev["In Review"] + rev["Changes Requested"], "approuves": rev["Approved"],
+                            "prets_automatisation": rev["Ready for Automation"], "automatises": sum(c["automatise"] for c in cas)},
+                   "atelier": {k: at[k] for k in ("a_revoir", "approuves", "prets_automatisation", "automatises")}},
+        "tests_atelier": at["par_etape"], "nb_tests_atelier": at["total"],
         "xray": s["etat_xray"],
         "par_statut_xray": dict(Counter(c["statut_xray"] or "—" for c in cas)),
         "par_type": dict(Counter(c["type"] or "—" for c in cas)),
@@ -149,7 +155,32 @@ def vue_ensemble() -> dict:
         "couverture_modules": modules,
         "exigences_sans_test": [e["cle"] for e in ex if e["sans_test"]],
         "activite": journal(10),
+        "bdd_recents": sorted(({"cle": b["cle"], "titre": b.get("titre", ""), "statut": b.get("statut", ""), "maj": str(b.get("maj") or "")}
+                               for b in s["bdd"].values() if b.get("maj")), key=lambda b: b["maj"], reverse=True)[:8],
     }
+
+
+def tests_atelier(cles_xray: set | None = None) -> dict:
+    """Tests conçus dans l'atelier (scénarios BDD sans cas Xray : Discovery, saisie, MBT) et leur avancement. Sans eux, un
+    projet sans Xray affichait 0 approuvé, 0 prêt, 0 automatisé alors que ses tests l'étaient (constat du 2026-11-22).
+    « À revoir » = scénario brouillon ; « approuvé » = scénario validé ; « prêt » = validé, script pas encore écrit ;
+    « automatisé » = script écrit (un test du dépôt porte la clé du scénario)."""
+    from atelier.generation import bdd, maintenance
+
+    cles_xray = cles_xray or set()
+    l = [b for b in bdd.lister() if b["cle"] not in cles_xray]
+    try:
+        cyc = maintenance.cycle_bdd() if l else {}
+    except Exception:  # noqa: BLE001 — dépôt illisible : avancement inconnu, les scénarios restent comptés
+        cyc = {}
+    etapes = Counter(maintenance.etape_bdd(b, cyc.get(b["cle"]))["etape"] for b in l)
+    valides = [b for b in l if b.get("statut") == "validé"]
+    return {"total": len(l), "a_revoir": sum(1 for b in l if b.get("statut") != "validé" and b["cle"] not in cyc),
+            "approuves": len(valides), "prets_automatisation": sum(1 for b in valides if b["cle"] not in cyc),
+            "automatises": sum(1 for b in l if b["cle"] in cyc),
+            "par_etape": {lib: etapes.get(e, 0) for e, lib in (("valider_bdd", "Scénario à valider"), ("generer", "Script à générer"),
+                                                               ("verifier", "À vérifier (run réel)"), ("valider_test", "Test à valider"),
+                                                               ("fait", "Automatisé, vérifié, validé"))}}
 
 
 # =========================================================================== revue et validation (écran 10)
