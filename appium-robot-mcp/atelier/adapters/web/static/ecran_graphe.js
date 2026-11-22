@@ -5,13 +5,14 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   : n.provenance === "déduit" ? (n.statut === "validé" ? "déduit, validé" : "déduit, à valider")
   : n.provenance === "observé" ? "observé" : "déclaré";
 (() => {
-  const TYPES_VUE = {fonctionnel: "module,fonctionnalite,parcours,action,regle,role,epic,user_story,bug,test,test_plan,test_set,feature,scenario",
+  const TYPES_VUE = {fonctionnel: "application,module,fonctionnalite,parcours,action,regle,role,epic,user_story,bug,test,test_plan,test_set,feature,scenario",
     technique: "application,plateforme,version,ecran,composant,locator,keyword,resource,bibliotheque,endpoint,entite,suite,test_robot,jdd,requete,variable",
-    parcours: "application,module,ecran,variable"};
+    parcours: "application,module,parcours,ecran,variable"};
   /* angles de lecture du graphe principal (anciens onglets Fonctionnel, Technique, Parcours utilisateur) : un filtre */
-  const ANGLES = [["", "Tout le graphe", "Tous les éléments"], ["fonctionnel", "Fonctionnel", "Le « quoi » : modules, fonctionnalités, règles, epics, US, tests, plans"],
+  const ANGLES = [["fonctionnel", "Fonctionnel", "Le « quoi », relié : application, modules, parcours, fonctionnalités, règles, exigences, tests"],
+    ["parcours", "Écrans et navigation", "La carte de l'application : modules, parcours, écrans et navigations entre écrans"],
     ["technique", "Technique", "Le « comment » : écrans, composants, locators, keywords, resources, tests Robot, JDD"],
-    ["parcours", "Parcours utilisateur", "La carte de l'application : modules, écrans et navigations entre écrans"]];
+    ["", "Tout", "Tous les éléments"]];
   const VUES = [["connaissance", "Graphe de connaissances"], ["bdd", "Construction BDD"], ["couverture", "Couverture"], ["flux", "Flux"], ["impact", "Impact"]];
   let dernierAngle = "";  // gardé le temps de l'écran : revenir de Couverture / Flux / Impact retrouve le filtre
   const RANGS = {
@@ -35,7 +36,12 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       const [sv, sk, ...sr] = (sous || "").split("/");
       if (VUES.some(v => v[0] === sv)) S.vue = sv;
       /* #graphe/connaissance/<angle> ; les anciennes adresses #graphe/fonctionnel, /technique, /parcours y mènent */
-      S.angle = TYPES_VUE[sv] ? sv : (sv === "connaissance" && TYPES_VUE[sk] ? sk : "");
+      const tout = sv === "connaissance" && sk === "tout";
+      S.angle = TYPES_VUE[sv] ? sv : (sv === "connaissance" && TYPES_VUE[sk] ? sk : tout ? "" : "fonctionnel");  // défaut : la vue fonctionnelle
+      /* « …/direct » : suivi en direct (fenêtre à part pendant une Discovery) */
+      S.direct = [sk, ...sr].includes("direct");
+      S.fenetre = S.direct && !!window.opener;
+      document.body.classList.toggle("fenetre-graphe", S.fenetre);
       if (S.vue === "connaissance" && (TYPES_VUE[sv] || sv === "connaissance")) { dernierAngle = S.angle; adresseAngle(); }
       if (S.vue === "couverture" && sr.length && sk === "test") S.params.test = sr.join("/");
       if (S.vue === "couverture" && sr.length && sk === "module") S.params.module = sr.join("/");
@@ -49,6 +55,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
             <button class="icone" id="kg-cherche" title="Rechercher" aria-pressed="false">${ico("recherche")}</button>
             <button class="icone" id="kg-tout" title="Revenir au graphe complet">${ico("rejouer")}</button>
             <button class="icone" id="kg-aj" title="Recentrer / ajuster à l'écran">${ico("cible")}</button>
+            <button class="btn petit" id="kg-direct" aria-pressed="false" title="Suivre la construction du graphe en direct pendant une Discovery (manuelle, guidée ou par l'agent)"><span class="point-direct"></span>En direct</button>
+            <button class="icone" id="kg-fenetre" title="Ouvrir le graphe en direct dans une autre fenêtre (à garder sur un second écran pendant la Discovery)">${ico("ext")}</button>
             <button class="icone" id="kg-pe" title="Plein écran">${ico("plein")}</button>
             <button class="icone" id="kg-menu" title="Plus d'options" aria-haspopup="true" aria-expanded="false" style="font-size:18px;line-height:1">⋮</button>
           </div>
@@ -58,6 +66,10 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
             <button id="kg-mini">${ico("graphe")}Afficher / masquer la mini-carte</button>
             <hr><label>Statut <select class="in" id="kg-statut" aria-label="Filtrer par statut"><option value="">Tous</option><option value="validé">Validé</option><option value="à valider">À valider</option></select></label>
             <label><input type="checkbox" id="kg-patrimoine"> Tout le patrimoine Jira / Xray</label>
+            <hr><button id="kg-m-src">${ico("donnee")}Sources du graphe</button>
+            <button id="kg-m-anom">${ico("aide")}Anomalies et recommandations</button>
+            <button id="kg-m-histo">${ico("historique")}Historique des modifications</button>
+            <button id="kg-m-ajout">${ico("plus")}Ajouter un élément</button>
             <hr><button id="kg-ex">${ico("export")}Exporter (JSON / SVG)</button>
           </div>
           <div class="zone-graphe" id="kg-zone"></div>
@@ -66,23 +78,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
           <section class="carte" style="flex:none"><h2 class="titre-carte">Types de nœuds</h2><div class="corps-carte" id="kg-legende" style="padding:6px 12px"></div></section>
           <section class="carte" style="flex:1"><h2 class="titre-carte" id="kg-titre-detail">Détail</h2><div class="corps-carte" id="kg-detail"></div></section>
         </div>
-        <div class="actions-graphe">
-          <button class="btn outil" id="kg-a-noeud">${ico("plus")}Ajouter nœud</button>
-          <button class="btn outil" id="kg-a-relier">${ico("lien")}Relier</button>
-          <button class="btn outil" id="kg-a-etape">${ico("bdd")}Générer étape</button>
-          <button class="btn outil" id="kg-a-dev">${ico("graphe")}Explorer les dépendances</button>
-          <button class="btn outil" id="kg-a-ia">${ico("ia")}Analyser avec IA</button>
-          <button class="btn outil" id="kg-a-couv">${ico("assertion")}Vérifier la couverture</button>
-          <button class="btn outil" id="kg-a-impact">${ico("impact")}Analyse d'impact</button>
-          <button class="btn outil" id="kg-a-robot">${ico("editeur")}Générer Robot</button>
-          <button class="btn outil" id="kg-a-histo">${ico("historique")}Historique</button>
-          <span style="flex:1"></span>
-          <button class="btn primaire" id="kg-a-valider">${ico("check")}Valider le scénario</button>
-        </div>
-        <div class="bas-kg">
-          <section class="carte"><h2 class="titre-carte">Scénario généré (BDD)<span class="actions-titre" id="kg-bdd-actions"></span></h2><div class="corps-carte" id="kg-bdd"></div></section>
-          <section class="carte"><h2 class="titre-carte">Assistant IA<span class="actions-titre"><input class="in" id="kg-question" style="width:190px" placeholder="Question sur le graphe…" aria-label="Question à l'assistant"></span></h2><div class="corps-carte" id="kg-assistant"></div></section>
-        </div>`;
+`;
       G = null;
       $$(".sous-onglets [data-vue]", zone).forEach(b => b.onclick = () => {
         location.hash = "graphe/" + b.dataset.vue + (b.dataset.vue === "connaissance" && dernierAngle ? "/" + dernierAngle : ""); });
@@ -102,20 +98,15 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       $("#kg-aj").onclick = () => G?.ajuster();
       $("#kg-pe").onclick = () => document.fullscreenElement ? document.exitFullscreen() : $("#kg-zone").requestFullscreen?.();
       $("#kg-ex").onclick = exporter;
-      $("#kg-a-noeud").onclick = formulaireAjout;
-      $("#kg-a-relier").onclick = () => S.selection ? formulaireRelation(S.selection) : toast("Sélectionner d'abord un élément du graphe.");
-      $("#kg-a-dev").onclick = () => S.selection ? developper(S.selection) : toast("Sélectionner d'abord un élément du graphe.");
-      $("#kg-a-impact").onclick = () => S.selection ? impact(S.selection) : toast("Sélectionner l'élément modifié (locator, keyword, écran…).");
-      $("#kg-a-couv").onclick = () => { location.hash = "graphe/couverture"; };
-      $("#kg-a-histo").onclick = historique;
-      $("#kg-a-ia").onclick = () => demanderIA($("#kg-question").value.trim() ? "expliquer" : (S.selection ? "resumer" : "expliquer"));
-      $("#kg-question").onkeydown = e => { if (e.key === "Enter") demanderIA("expliquer"); };
-      $("#kg-a-etape").onclick = () => { location.hash = "bdd" + (S.bdd ? "/" + encodeURIComponent(S.bdd.scenario.cle) : ""); };
-      $("#kg-a-robot").onclick = () => { if (S.bdd) location.hash = "bdd/" + encodeURIComponent(S.bdd.scenario.cle); else toast("Aucun scénario BDD : le créer depuis Construction BDD."); };
-      $("#kg-a-valider").onclick = validerScenario;
-      bandeScenario();
-      assistant();
-      desabo = [Atelier.on("carte_change", () => charger(true)), Atelier.on("theme", () => G?.rafraichirTheme())];
+      $("#kg-m-src").onclick = sourcesGraphe;
+      $("#kg-m-anom").onclick = anomalies;
+      $("#kg-m-histo").onclick = historique;
+      $("#kg-m-ajout").onclick = formulaireAjout;
+      $("#kg-direct").onclick = () => basculerDirect(!S.direct);
+      $("#kg-fenetre").onclick = () => window.open(`${location.pathname}#graphe/connaissance/${S.angle || "tout"}/direct`, "atelier-graphe-direct", "width=1280,height=820");
+      desabo = [Atelier.on("carte_change", () => S.direct ? rafraichirDirect() : charger(true)), Atelier.on("theme", () => G?.rafraichirTheme()),
+        ...["mcp_outil", "discovery", "outil", "locators_change", "mcp_image"].map(t => Atelier.on(t, e => { if (S.direct && (t !== "mcp_outil" || e.etat === "fin")) rafraichirDirect(); }))];
+      if (S.direct) basculerDirect(true, false);
       options();
       const demarrage = async () => {
         await charger();
@@ -126,7 +117,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       };
       demarrage();
     },
-    quitter() { desabo.forEach(f => f()); desabo = []; },
+    quitter() { desabo.forEach(f => f()); desabo = []; clearTimeout(minuterieDirect); clearInterval(S?.secours); document.body.classList.remove("fenetre-graphe"); },
   };
   Atelier.enregistrer("graphe", E);
 
@@ -156,20 +147,16 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   function options() {
     const o = $("#kg-options");
     if (["connaissance", "impact"].includes(S.vue)) {
-      o.innerHTML = (S.vue === "connaissance" ? `<label class="lib" for="kg-angle">Afficher</label>
-        <select class="in" id="kg-angle" style="width:auto" title="${esc(ANGLES.find(a => a[0] === S.angle)[2])}">${ANGLES.map(([id, lib, aide]) =>
-          `<option value="${id}" title="${esc(aide)}" ${id === S.angle ? "selected" : ""}>${lib}</option>`).join("")}</select>` : "")
-        + `<select class="in" id="kg-perim" style="width:auto;max-width:240px" aria-label="Périmètre"><option value="">Toute l'application</option></select>
-        <button class="btn" id="kg-plan" hidden>${ico("bdd")}Plan de test</button>`
-        + (S.vue === "connaissance" ? `<button class="btn" id="kg-src">${ico("donnee")}Sources du graphe</button><button class="btn primaire" id="kg-disc">${ico("recherche")}Lancer une Discovery</button>` : "");
-      if ($("#kg-angle")) $("#kg-angle").onchange = e => {
-        S.angle = dernierAngle = e.target.value;
-        e.target.title = ANGLES.find(a => a[0] === S.angle)[2];
+      o.innerHTML = (S.vue === "connaissance" ? `<span class="segments" role="group" aria-label="Angle de lecture">${ANGLES.map(([id, lib, aide]) =>
+          `<button class="btn petit" data-angle="${id}" aria-pressed="${id === S.angle}" title="${esc(aide)}">${lib}</button>`).join("")}</span>` : "")
+        + `<select class="in" id="kg-perim" style="width:auto;max-width:220px" aria-label="Périmètre"><option value="">Toute l'application</option></select>
+        <button class="btn" id="kg-plan" hidden>${ico("bdd")}Plan de test</button>`;
+      $$("[data-angle]", o).forEach(b => b.onclick = () => {
+        S.angle = dernierAngle = b.dataset.angle;
+        $$("[data-angle]", o).forEach(x => x.setAttribute("aria-pressed", x === b));
         adresseAngle();
         charger();
-      };
-      if ($("#kg-src")) $("#kg-src").onclick = sourcesGraphe;
-      if ($("#kg-disc")) $("#kg-disc").onclick = () => DiscoveryFlottant.ouvrir();
+      });
       remplirPerimetres();
     } else if (S.vue === "couverture") {
       o.innerHTML = `<select class="in" id="kg-module" style="width:auto" aria-label="Module"><option value="">Tous les modules</option></select>
@@ -184,9 +171,11 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
 
   /* l'adresse reflète l'angle de lecture (#graphe/connaissance/fonctionnel) */
   function adresseAngle() {
-    const h = "#graphe/connaissance" + (S.angle ? "/" + S.angle : "");
+    if (S.vue !== "connaissance") return;
+    const h = "#graphe/connaissance/" + (S.angle || "tout") + (S.direct ? "/direct" : "");
     if (location.hash !== h) history.replaceState(null, "", h);
   }
+
 
   /* l'adresse reflète le module affiché (#graphe/couverture/module/<nom>) */
   function adresseCouverture() {
@@ -278,6 +267,13 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       if (sel && sel.options.length === 1) for (const c of S.data.cibles || []) sel.add(new Option(c.libelle + (c.id.startsWith("test:") ? " (Xray)" : ""), c.id));
     }
     if (garder) G?.garderPositions();
+    if (S.direct) {  // nouveautés depuis le début du suivi : mises en avant, compteur dans le bouton
+      if (S.attenteConnus || !S.connus) { S.connus = new Set(S.data.noeuds.map(n => n.id)); S.attenteConnus = false; }
+      let nouveaux = 0;
+      for (const n of S.data.noeuds) { n.nouveau = !S.connus.has(n.id); nouveaux += n.nouveau; }
+      const b = $("#kg-direct");
+      if (b) b.innerHTML = `<span class="point-direct"></span>En direct${nouveaux ? ` · +${nouveaux}` : ""}`;
+    }
     dessiner();
     legende();
     if (S.focus && G?.parId?.has(S.focus)) {  // test demandé : sélectionné, centré, lisible
@@ -288,6 +284,24 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       G.centrerSur(id);
       selectionner(id);
     } else if (!S.selection) panneauParDefaut();
+  }
+
+  /* ------------------------------------------------------------------ en direct */
+  let minuterieDirect = null;
+  function basculerDirect(actif, recharger = true) {
+    S.direct = actif;
+    S.connus = actif ? new Set((S.data?.noeuds || []).map(n => n.id)) : null;
+    S.attenteConnus = actif && !S.data;  // premier chargement : la base de comparaison
+    const b = $("#kg-direct");
+    if (b) { b.setAttribute("aria-pressed", actif); b.classList.toggle("direct-actif", actif); }
+    adresseAngle();
+    clearInterval(S.secours);  // filet : une modification sans événement (autre poste, fichier) est vue au plus 8 s après
+    if (actif) S.secours = setInterval(() => { if (!document.hidden) charger(true); }, 8000);
+    if (actif && recharger) rafraichirDirect();
+  }
+  function rafraichirDirect() {
+    clearTimeout(minuterieDirect);  // une rafale d'événements (écran observé, locators, transition) = un seul rechargement
+    minuterieDirect = setTimeout(() => charger(true), 1500);
   }
 
   /* autour d'un élément exploré, l'angle masque les voisins des autres types ; l'élément exploré reste toujours */
@@ -371,9 +385,21 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     if (S.vue === "couverture") return indicateurs(S.data?.indicateurs);
     if (S.vue === "impact") return detail("Analyse d'impact", `<p>Sélectionner l'élément modifié (locator, keyword, écran, fichier resource, JDD) :
       les tests, scénarios, modules et plateformes concernés s'affichent, avec la TNR ciblée à lancer.</p>`);
-    detail("Lecture du graphe", `<p class="lib">Cliquer un nœud pour ses propriétés et actions ; double-cliquer pour explorer ses dépendances
-      (vue en grappes autour de l'élément). Traits pointillés orange : proposition « déduite » à valider, jamais utilisée pour une décision.</p>
-      <p class="lib">${S.data?.stats?.noeuds ?? 0} éléments, ${S.data?.stats?.relations ?? 0} relations.</p>`);
+    const ns = S.data?.noeuds || [], rs = S.data?.relations || [], nb = t => ns.filter(n => n.type === t).length;
+    const aValider = ns.filter(n => n.statut === "à valider").length + rs.filter(r => r.statut === "à valider").length;
+    const lignes = [["module", "module(s)"], ["parcours", "parcours"], ["ecran", "écran(s)"], ["fonctionnalite", "fonctionnalité(s)"], ["regle", "règle(s)"],
+      ["user_story", "user stories"], ["test", "test(s) Xray"], ["test_robot", "test(s) automatisé(s)"]].filter(([t]) => nb(t));
+    detail("Ce que sait l'atelier", `${ns.length ? `<ul class="liste">${lignes.map(([t, l]) => `<li><b>${nb(t)}</b>&nbsp;${l}</li>`).join("")}
+        <li><b>${rs.filter(r => r.type === "mene_a").length}</b>&nbsp;lien(s) entre modules</li>
+        ${rs.some(r => r.type === "lie_via") ? `<li><b>${rs.filter(r => r.type === "lie_via").length}</b>&nbsp;lien(s) « via » (pointillés gris)</li>` : ""}</ul>
+        ${aValider ? `<p><span class="pill warn">${aValider} à valider</span> <a class="lien" href="#intelligence/validation">les passer en revue</a></p>` : ""}`
+      : `<p>Rien dans cette vue pour l'instant. La connaissance se construit en explorant l'application.</p><button class="btn primaire" id="kg-v-disc">${ico("recherche")}Lancer une Discovery</button>`}
+      <p class="lib" style="margin-top:10px">Cliquer un élément pour le comprendre et agir dessus ; double-clic pour explorer autour. Pointillés orange : déduit, à valider.
+        « En direct » suit la Discovery en cours.</p>
+      <div class="champ" style="margin-top:8px"><label for="kg-question">Une question sur l'application ?</label>
+        <input class="in" id="kg-question" placeholder="Ex. : par quels écrans passe la demande de démo ?"></div>`);
+    if ($("#kg-v-disc")) $("#kg-v-disc").onclick = () => DiscoveryFlottant.ouvrir();
+    $("#kg-question").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) demanderIA("expliquer", e.target.value.trim()); };
   }
 
   function indicateurs(ind) {
@@ -401,7 +427,6 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
 
   async function selectionner(id) {
     S.selection = id;
-    if (id.startsWith("test:")) bandeScenario(id.slice(5));
     let d;
     try { d = await api("/api/graphes/noeud?id=" + encodeURIComponent(id)); } catch (e) { return detail("Erreur", esc(e.message)); }
     const n = d.noeud, p = n.proprietes || {};
@@ -594,57 +619,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       : "<p class='lib'>Aucune modification.</p>");
   }
 
-  /* ------------------------------------------------------------------ bande « scénario généré » et assistant */
-  async function bandeScenario(cle) {
-    const z = $("#kg-bdd");
-    if (!z) return;
-    let v = null;
-    if (cle) v = await api("/api/bdd/" + encodeURIComponent(cle)).catch(() => null);
-    if (cle && !v) {  // test sélectionné sans scénario : on le dit (jamais le scénario d'un autre test)
-      S.bdd = null;
-      z.innerHTML = vide(`Pas de scénario BDD pour ${cle}`, `<button class="btn petit primaire" id="kg-bdd-creer" style="margin-top:6px">Créer le scénario depuis Xray</button>`);
-      $("#kg-bdd-actions").innerHTML = "";
-      $("#kg-bdd-creer").onclick = () => window.OuvrirBdd(cle);
-      return;
-    }
-    if (!v) { const l = await api("/api/bdd").catch(() => []); if (l.length) v = await api("/api/bdd/" + encodeURIComponent(l[0].cle)).catch(() => null); }
-    S.bdd = v;
-    if (!v) { z.innerHTML = vide("Aucun scénario BDD", "Construction BDD › Nouveau scénario, à partir d'un test Xray."); $("#kg-bdd-actions").innerHTML = ""; return; }
-    const m = v.scenario, p = m.scenarios.find(x => x.type === "principal") || m.scenarios[0];
-    const mot = e => e.mot || {given: "Given", when: "When", then: "Then", and: "And", but: "But"}[e.type];
-    const puce = e => `<div class="puce-etape"><span class="mot ${e.type}">${esc(mot(e))}</span><div class="carte-etape">${esc(e.texte)}</div></div>`;
-    const br = m.scenarios.filter(x => x !== p);
-    $("#kg-bdd-actions").innerHTML = `<span class="pill ${m.statut === "validé" ? "ok" : "warn"}">${esc(m.statut)}</span><a class="btn" href="#bdd/${encodeURIComponent(m.cle)}">${esc(m.cle)} ${ico("ext")}</a>`;
-    z.innerHTML = `<div class="bande-bdd">${p.etapes.map(puce).join(`<span class="fleche">${ico("fleche")}</span>`)}</div>
-      ${br.map(b => { const textesP = p.etapes.map(e => e.texte); const propres = b.etapes.filter((e, i) => textesP[i] !== e.texte);
-        return `<div class="bande-bdd"><span class="pill ${b.type === "negatif" ? "ko" : "violet"}">${b.type === "negatif" ? "Branche négative" : "Branche"}</span>${propres.map(puce).join(`<span class="fleche">${ico("fleche")}</span>`)}</div>`; }).join("")}
-      <p class="lib" style="margin:4px 0 0">${ico("check")} ${v.statistiques.etapes_validees}/${v.statistiques.etapes_total} étapes validées · bdd/${esc(m.cle)}.feature</p>`;
-  }
-
-  async function assistant() {
-    const z = $("#kg-assistant");
-    if (!z) return;
-    const a = await api("/api/graphes/anomalies").catch(() => []);
-    const cnt = g => a.filter(x => x.gravite === g).length;
-    const lignes = [
-      [cnt("haute") ? "ko" : "ok", cnt("haute") ? "x" : "check", cnt("haute") ? `${cnt("haute")} anomalie(s) haute(s) à traiter` : "Aucune anomalie haute"],
-      [cnt("moyenne") ? "warn" : "ok", cnt("moyenne") ? "aide" : "check", `${cnt("moyenne")} point(s) moyen(s) (traçabilité, couverture)`],
-      ["violet", "ia", `${cnt("info")} proposition(s) IA à valider`],
-      ...a.filter(x => x.gravite === "haute").slice(0, 2).map(x => ["ko", "x", x.message]),
-    ];
-    z.innerHTML = `<ul class="liste checklist">${lignes.map(([c, i, t]) => `<li><span class="${c}-t" style="color:var(--${c === "violet" ? "violet-ink" : c})">${ico(i)}</span><span class="item">${esc(t)}</span></li>`).join("")}</ul>
-      <button class="btn contour" id="kg-toutes" style="width:100%;justify-content:center;margin-top:6px">Voir toutes les recommandations</button>`;
-    $("#kg-toutes").onclick = anomalies;
-  }
-
-  async function validerScenario() {
-    if (!S.bdd) return toast("Aucun scénario BDD à valider.", "ko");
-    try { S.bdd = await api(`/api/bdd/${encodeURIComponent(S.bdd.scenario.cle)}/operation`, {method: "POST", body: {op: "valider"}}); toast("Scénario validé.", "ok"); bandeScenario(S.bdd.scenario.cle); }
-    catch (e) { toast(e.message, "ko"); }
-  }
-
-  async function demanderIA(intention) {
-    const question = $("#kg-question").value.trim();
+  /* ------------------------------------------------------------------ assistant */
+  async function demanderIA(intention, q = "") {
+    const question = q || ($("#kg-question")?.value || "").trim();
     detail("Assistant IA", "<p class='lib'>Analyse du contexte du graphe sélectionné…</p>");
     let r;
     try {

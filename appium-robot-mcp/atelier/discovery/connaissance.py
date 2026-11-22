@@ -96,6 +96,56 @@ def construire(avec_declarations: bool = True, inventaire: dict | None = None) -
     return pickle.loads(octets)
 
 
+def _relations_fonctionnelles(g: Graphe):
+    """Vue fonctionnelle reliée, déduite de ce que la Discovery a observé (agrégats, jamais inventés) :
+    - module → mène à → module : au moins une navigation d'un écran de l'un vers un écran de l'autre
+      (transitions, actions et écrans gardés en propriétés) ;
+    - parcours → traverse → module : un écran du parcours appartient au module (ordre de passage gardé) ;
+    - parcours → s'enchaîne avec → parcours : le dernier écran de l'un est le premier de l'autre.
+    Statut : celui des faits sources (un parcours dont les écrans sont encore à valider donne des liens à valider)."""
+    module_de: dict = {}
+    for r in g.relations.values():
+        if r.type == "contient" and r.de.startswith("module:") and r.vers.startswith("ecran:"):
+            module_de.setdefault(r.vers, r.de)
+    agg: dict = {}
+    for r in list(g.relations.values()):
+        if r.type != "navigue_vers" or r.proprietes.get("interdite"):
+            continue
+        a, b = module_de.get(r.de), module_de.get(r.vers)
+        if a and b and a != b:
+            x = agg.setdefault((a, b), {"transitions": 0, "ecrans": set(), "actions": set()})
+            x["transitions"] += 1
+            x["ecrans"].update((r.de, r.vers))
+            if r.proprietes.get("action"):
+                x["actions"].add(str(r.proprietes["action"]))
+    for (a, b), x in agg.items():
+        g.relier(a, b, "mene_a", provenance="déduit", statut="validé", source="navigations observées entre leurs écrans (Discovery)",
+                 proprietes={"transitions": x["transitions"], "actions": sorted(x["actions"])[:12], "via_ecrans": sorted(x["ecrans"])[:20]})
+    extremites: dict = {}
+    for pid, n in g.noeuds.items():
+        if n.type != "parcours":
+            continue
+        rels = sorted((r for r in g.sortants(pid, False) if r.type == "contient" and r.vers.startswith("ecran:")),
+                      key=lambda r: (r.proprietes.get("ordre", 0), r.vers))
+        if not rels:
+            continue
+        extremites[pid] = (rels[0].vers, rels[-1].vers)
+        modules: dict = {}
+        for i, r in enumerate(rels):
+            m = module_de.get(r.vers)
+            if m:
+                st = modules.get(m, (i, "validé", []))
+                modules[m] = (st[0], "validé" if st[1] == "validé" and r.statut == "validé" else "à valider", st[2] + [r.vers])
+        for m, (ordre, statut, ecrans) in modules.items():
+            g.relier(pid, m, "traverse", provenance="déduit", statut=statut, source="écrans du parcours (Discovery)",
+                     proprietes={"ordre": ordre, "via_ecrans": ecrans[:20]})
+    for a, (_, fin) in extremites.items():
+        for b, (debut, _) in extremites.items():
+            if a != b and fin == debut:
+                g.relier(a, b, "enchaine_avec", provenance="déduit", statut="validé", source="fin de l'un = début de l'autre",
+                         proprietes={"via_ecrans": [fin]})
+
+
 def _construire(avec_declarations: bool = True, inventaire: dict | None = None) -> Graphe:
     from atelier.execution import depot_robot
     from atelier.execution.robot import derniers_resultats
@@ -113,6 +163,7 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
     if avec_declarations:
         declarations.appliquer(g)
     _depuis_donnees(g)  # après les déclarations : les parcours déclarés reçoivent les variables de leurs écrans
+    _relations_fonctionnelles(g)  # le « quoi » relié entre lui : modules, parcours (depuis la Discovery)
     _verifiees_sur(g, set(declarations.charger()["relations_masquees"]) if avec_declarations else set())
     _enrichir_champs(g)
     _depuis_anomalies(g)

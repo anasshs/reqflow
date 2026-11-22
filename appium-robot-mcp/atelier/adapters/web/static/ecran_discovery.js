@@ -69,7 +69,7 @@
   async function vue(z) {
     const v = await apiDelai("/api/discovery/vue?graphe=0", 60000), k = v.kpi;
     if (!v.app) { z.innerHTML = entete("Vue d'ensemble") + pas("Aucune application", `<a href="#parametres/applications">Déclarer l'application</a> (Paramètres › Applications), puis lancer une session.`); return; }
-    z.innerHTML = `${entete("Vue d'ensemble", `${v.active ? `<a class="btn" href="#discovery/studio">Reprendre ${esc(v.active.id)}</a>` : ""}<a class="btn primaire" href="#discovery/cadrage" title="Nommer le parcours, rattacher les exigences, choisir les données et la cible avant de dérouler">${ico("plus")}Préparer un parcours</a><button class="btn" id="dv-new" title="Exploration libre, sans parcours préparé">Explorer librement</button>`)}<div class="corps-carte">
+    z.innerHTML = `${entete("Vue d'ensemble", `${v.active ? `<a class="btn" href="#discovery/studio">Reprendre ${esc(v.active.id)}</a>` : ""}<a class="btn primaire" href="#discovery/cadrage" title="Nommer le parcours, rattacher les exigences, choisir les données et la cible avant de dérouler">${ico("plus")}Préparer un parcours</a><button class="btn" id="dv-new" title="Exploration libre, sans parcours préparé">Explorer librement</button><button class="btn" id="dv-graphe" title="Le graphe de connaissances se construit en direct pendant la Discovery : l'ouvrir dans une autre fenêtre">${ico("graphe")}Graphe en direct</button>`)}<div class="corps-carte">
       <h3 class="lib">CARTE DE L'APPLICATION</h3>${kpis([[k.ecrans, "écrans"], [k.transitions, "transitions"], [k.actions, "actions observées"], [k.composants, "composants"], [k.locators, "locators"], [v.sessions, "sessions"]])}
       ${kpis([[k.sans_locator_stable, "interactifs sans locator stable", k.sans_locator_stable ? "warn-t" : ""], [k.ecrans_avec_variantes, "écrans avec variantes"], [k.ecrans_modifies, "écrans modifiés", k.ecrans_modifies ? "warn-t" : ""], [k.a_nommer, "écrans à nommer", k.a_nommer ? "warn-t" : ""]])}
       <h3 class="lib">KNOWLEDGE GRAPH</h3><div id="dv-kg"><p class="lib">Calcul du graphe (dépôt Robot, copie Jira / Xray, JDD, OpenAPI)… <span id="dv-t">0</span> s</p></div>
@@ -77,6 +77,7 @@
         <a class="btn" href="#discovery/historique">Comparer deux sessions</a><a class="btn" href="#graphe/connaissance">Knowledge Graph</a></div>
       <p class="lib" style="margin-top:10px">Indicateurs calculés sur la carte de l'application <b>${esc(v.app)}</b> et le Knowledge Graph ; aucune valeur estimée.</p></div>`;
     $("#dv-new").onclick = () => DiscoveryFlottant.ouvrir();
+    $("#dv-graphe").onclick = () => window.open(`${location.pathname}#graphe/connaissance/parcours/direct`, "atelier-graphe-direct", "width=1280,height=820");
     const t0 = Date.now(), chrono = setInterval(() => { const e = $("#dv-t"); if (e) e.textContent = Math.round((Date.now() - t0) / 1000); else clearInterval(chrono); }, 1000);
     try {
       const g = await apiDelai("/api/discovery/vue-graphe");

@@ -25,6 +25,9 @@ Pilotage de l'IA (point d'appel unique, journal des tokens, réglages, routage, 
 Chemin de l'utilisateur (Découvrir → Concevoir le test → Automatiser → Exécuter : bandeau « Ton chemin » de l'Accueil, repère
 d'étape en haut des écrans du chemin, prochaine action ; options Jira / Xray affichées seulement s'ils sont utilisés) : atelier/intelligence/chemin.py.
 De l'US au test automatisé (un seul fil dans un périmètre : couverture des US ou parcours, puis automatisation ; guide dans l'outil) : docs/DE_L_US_AU_TEST_AUTOMATISE.md.
+Knowledge Graph : vue fonctionnelle reliée (module → mène à → module, parcours → traverse → module, parcours → s'enchaîne
+avec, déduits de la Discovery ; liens « via » dans une vue filtrée), suivi en direct pendant une Discovery et fenêtre à part
+(#graphe/connaissance/<angle>/direct) : atelier/discovery/connaissance.py, espaces.py, ecran_graphe.js.
 Agents : Cursor, Claude Code (.mcp.json du projet + règles en CLAUDE.md / skills : atelier/integrations/claude_code.py),
 Claude Desktop ; règles du projet mises à niveau automatiquement quand l'atelier en livre de nouvelles (personnalisées gardées).
 Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).

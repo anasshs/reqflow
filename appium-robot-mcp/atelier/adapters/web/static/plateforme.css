@@ -241,7 +241,7 @@ a.kpi { transition: border-color .12s, box-shadow .12s; } a.kpi:hover { border-c
 .hl-and { color: var(--ink-2); font-weight: 600; } .hl-feat { color: var(--rose); font-weight: 700; } .hl-tag { color: var(--warn); }
 
 /* ------------------------------------------------------------------ Knowledge Graph */
-.g-kg { grid-template-columns: minmax(0, 1fr) 290px; grid-template-rows: minmax(0, 1fr) auto 178px; }
+.g-kg { grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: minmax(0, 1fr); }
 .barre-graphe { display: flex; gap: 6px; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--line); min-height: 46px; flex-wrap: wrap; flex: none; }
 .barre-graphe .sous-onglets { border: 0; padding: 0; margin-right: auto; }
 .barre-graphe input[type=search] { width: 170px; }
@@ -831,3 +831,17 @@ tr.sel td { background: var(--accent-soft); }
 .chemin-suite { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: var(--accent-soft); }
 .chemin-suite .lib { flex: 1; }
 @media (max-width: 900px) { .chemin-accueil { grid-template-columns: repeat(2, minmax(0, 1fr)); } .fil-chemin .suite { display: none; } }
+
+/* graphe : angles en segments, suivi en direct, fenêtre à part */
+.segments { display: inline-flex; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.segments .btn { border: 0; border-radius: 0; background: var(--surface); }
+.segments .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.point-direct { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+#kg-direct.direct-actif { border-color: var(--ko); color: var(--ko); }
+#kg-direct.direct-actif .point-direct { background: var(--ko); animation: pulse-direct 1.4s infinite; }
+@keyframes pulse-direct { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+.gv-boite.gv-nouveau { stroke: var(--ok) !important; stroke-width: 3px; filter: drop-shadow(0 0 6px var(--ok)); }
+.gv-lien.gv-via path { stroke-dasharray: 2 5; stroke: var(--muted) !important; opacity: .7; }
+body.fenetre-graphe { grid-template-columns: 0 minmax(0, 1fr); }
+body.fenetre-graphe .nav-lat, body.fenetre-graphe .entete, body.fenetre-graphe #fil-chemin, body.fenetre-graphe #alerte-projet { display: none; }
+body.fenetre-graphe > #ecran { grid-row: 1 / -1; }

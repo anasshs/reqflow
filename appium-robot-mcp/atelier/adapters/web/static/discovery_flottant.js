@@ -184,7 +184,7 @@
         ${enCours ? `<button class="btn petit" id="df-pause">Pause</button>` : `<button class="btn petit primaire" id="df-reprendre">Reprendre</button>`}
         <button class="btn petit" id="df-back">← Retour</button>
         ${c.mode === "autonome" ? `<button class="btn petit primaire" id="df-explo">Explorer seul</button><button class="btn petit" id="df-explo-x">Arrêter l'exploration</button>` : ""}
-        <button class="btn petit" id="df-ann">Annoter</button><button class="btn petit danger" id="df-stop">Terminer</button>
+        <button class="btn petit" id="df-ann">Annoter</button><button class="btn petit" id="df-graphe" title="Ouvre le graphe de connaissances en direct dans une autre fenêtre : il se construit pendant que vous explorez">Graphe en direct</button><button class="btn petit danger" id="df-stop">Terminer</button>
         <label class="lib"><input type="checkbox" id="df-auto" checked> direct</label></div>
       <div class="df-split"><div class="df-ecran" id="df-ecran"><span class="lib" style="padding:16px">Chargement de l'écran…</span></div>
         <div class="df-cote"><div id="df-el"><p class="lib">Toucher l'image : l'élément est identifié, classé (Safe, Controlled, Sensitive, Forbidden) puis exécuté s'il est autorisé.</p></div>
@@ -195,6 +195,7 @@
     if ($("#df-pause", F)) $("#df-pause", F).onclick = () => act("pause");
     if ($("#df-reprendre", F)) $("#df-reprendre", F).onclick = () => act("demarrer");
     $("#df-back", F).onclick = () => agir({action: "press_back"});
+    $("#df-graphe", F).onclick = () => window.open(`${location.pathname}#graphe/connaissance/parcours/direct`, "atelier-graphe-direct", "width=1280,height=820");
     $("#df-ann", F).onclick = () => { const t = prompt("Annotation de l'étape courante (cocher « sensible » en commençant par ! : jamais rejouée ni explorée) :");
       if (t) api(`/api/discovery/sessions/${SESSION}/annoter`, {method: "POST", body: {texte: t.replace(/^!\s*/, ""), sensible: t.startsWith("!")}}).then(evenements).catch(e => toast(e.message, "ko")); };
     $("#df-stop", F).onclick = terminer;

@@ -38,6 +38,10 @@ TYPES_RELATIONS = {
     "possede": "Possède", "concerne": "Concerne", "detecte_par": "Est détectée par", "associe_a": "Est associée à",
     # corrélation exigence ↔ écran : preuve issue des tests (jamais déclarée à la main, jamais une couverture)
     "verifiee_sur": "Est vérifiée sur",
+    # vue fonctionnelle déduite de la Discovery (agrégats de faits observés, preuve gardée en propriétés)
+    "mene_a": "Mène à", "traverse": "Traverse", "enchaine_avec": "S'enchaîne avec",
+    # projection d'une vue filtrée : deux éléments affichés reliés par des éléments masqués (jamais stockée)
+    "lie_via": "Lié via",
 }
 PROVENANCES = ("observé", "déclaré", "déduit")
 

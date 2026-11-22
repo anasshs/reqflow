@@ -234,6 +234,10 @@ REGLES = [
     ("couvre", None, None, "COVERS", False, "", ""),
     # application
     ("navigue_vers", None, None, "NAVIGATES_TO", False, "", ""),
+    ("mene_a", None, None, "NAVIGATES_TO", False, "APPLICATION_DISCOVERY", ""),
+    ("traverse", None, None, "PART_OF_JOURNEY", True, "APPLICATION_DISCOVERY", ""),
+    ("enchaine_avec", None, None, "NAVIGATES_TO", False, "APPLICATION_DISCOVERY", ""),
+    ("lie_via", None, None, "RELATED_TO", False, "", ""),
     ("utilise", ("UIComponent",) + _SCRIPTS, ("Locator",), "USES_LOCATOR", False, "", ""),
     ("utilise", _SCRIPTS, ("UIComponent",), "USES_COMPONENT", False, "", ""),
     ("utilise", None, ("AutomationLibrary",), "USES_LIBRARY", False, "", ""),

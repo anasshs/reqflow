@@ -155,7 +155,47 @@ def vue_connaissance(types: list[str] | None = None, categories: list[str] | Non
         garde = patrimoine_lie(g)
         masques = sum(1 for i, n in g.noeuds.items() if i not in garde and n.type in PATRIMOINE + ("module",))
         g = g.sous_graphe(garde)
-    return {**_limiter(g.filtrer(types, categories, plateforme, recherche)), "patrimoine_masque": masques}
+    vue = g.filtrer(types, categories, plateforme, recherche)
+    if types and not centre:
+        projeter_liens(g, vue)
+    return {**_limiter(vue), "patrimoine_masque": masques}
+
+
+def projeter_liens(complet, vue, max_par_noeud: int = 12):
+    """Vue filtrée (ex. « Fonctionnel ») : deux éléments affichés reliés par un élément masqué (écran, composant…)
+    reçoivent un lien « lié via » (pointillé, jamais stocké), avec ce qui les relie : aucune vue ne laisse des nœuds isolés
+    alors que la connaissance les relie. Seuls les liens fiables (observés, déclarés, déduits validés) sont projetés."""
+    from collections import defaultdict
+
+    gardes = set(vue.noeuds)
+    voisins = defaultdict(set)
+    for r in complet.relations.values():
+        if not r.fiable:
+            continue
+        voisins[r.de].add(r.vers)
+        voisins[r.vers].add(r.de)
+    existants = {frozenset((r.de, r.vers)) for r in vue.relations.values()}
+    via: dict = defaultdict(set)
+    for x, autour in voisins.items():
+        if x in gardes or complet.noeuds[x].type in ("application", "plateforme", "version", "environnement"):
+            continue  # un nœud qui relie tout (l'application…) ne dit rien d'un lien entre deux éléments
+        affiches = sorted(a for a in autour if a in gardes)
+        if len(affiches) < 2 or len(affiches) > 40:  # nœud masqué trop central : il relierait tout à tout
+            continue
+        for i, a in enumerate(affiches):
+            for b in affiches[i + 1:]:
+                if frozenset((a, b)) not in existants:
+                    via[(a, b)].add(x)
+    par_noeud: dict = defaultdict(int)
+    for (a, b), xs in sorted(via.items(), key=lambda kv: -len(kv[1])):
+        if par_noeud[a] >= max_par_noeud or par_noeud[b] >= max_par_noeud:
+            continue
+        types = sorted({complet.noeuds[x].type for x in xs})
+        r = vue.relier(a, b, "lie_via", provenance="déduit", statut="validé", source="projection de la vue",
+                       proprietes={"via": sorted(xs)[:10], "nombre": len(xs), "types": types})
+        if r:
+            par_noeud[a] += 1
+            par_noeud[b] += 1
 
 
 def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = "", test: str = "") -> dict:

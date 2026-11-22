@@ -256,7 +256,8 @@ class GrapheVue {
     for (const r of this.liens) {
       if (!this.pos.has(r.de) || !this.pos.has(r.vers)) continue;  // extrémité repliée (« + N autres »)
       const autre = r.de === this.centre ? this.parId.get(r.vers) : this.parId.get(r.de);
-      const g = el("g", {class: "gv-lien" + (r.metier?.type === "VERIFIED_ON" ? " gv-preuve" : "") + (r.provenance === "déduit" ? " gv-deduit" : "") +
+      const g = el("g", {class: "gv-lien" + (r.metier?.type === "VERIFIED_ON" ? " gv-preuve" : "") + (r.type === "lie_via" ? " gv-via"
+        : r.provenance === "déduit" && r.statut !== "validé" ? " gv-deduit" : "") +
         (r.statut === "à valider" ? " gv-a-valider" : "")}, this.gLiens);
       const ligne = el("path", {"marker-end": "url(#gv-fleche)", style: `stroke:${couleurNoeud(autre)}`}, g);
       const t = el("text", {class: "gv-lien-texte"}, g);
@@ -285,7 +286,7 @@ class GrapheVue {
       } else {
         const anomalie = n.proprietes?.non_defini || n.proprietes?.dernier_statut === "FAIL";
         el("rect", {x: -86, y: -22, width: 172, height: 44, rx: 9, class: "gv-boite" +
-          (n.statut === "à valider" ? " gv-a-valider" : "") + (anomalie ? " gv-anomalie" : ""), style: `--c:${coul}`}, g);
+          (n.statut === "à valider" ? " gv-a-valider" : "") + (anomalie ? " gv-anomalie" : "") + (n.nouveau ? " gv-nouveau" : ""), style: `--c:${coul}`}, g);
         el("rect", {x: -78, y: -13, width: 26, height: 26, rx: 6, class: "gv-ico-fond", style: `--c:${coul}`}, g);
         const ic = (typeof ICONES !== "undefined" && ICONES[ICONE_TYPE[n.type] || "graphe"]) || "";
         const gi = el("g", {transform: "translate(-74,-9) scale(0.75)"}, g);
