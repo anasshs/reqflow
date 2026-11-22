@@ -2745,6 +2745,14 @@ def contexte():
         envs = envs_xray.liste()
     except Exception:
         envs = []
+    try:  # sélecteur unique du header : un environnement porte sa plateforme (une entrée par plateforme si besoin)
+        from atelier.intelligence import environnements as envs_app
+
+        envs_header = envs_app.pour_application(cfg.get("slug", ""), cfg.get("nom", ""), cfg.get("plateformes") or [], envs)
+        for e in envs_header:
+            e["url"] = e["url"] or (cfg.get("web") or {}).get("url", "")
+    except Exception:  # noqa: BLE001 — référentiel illisible : les noms connus, sans plateforme imposée
+        envs_header = []
     cache = state["sante_cache"]
     xray = cache.get("xray")
     pa = projets.actif() or {}
@@ -2757,7 +2765,7 @@ def contexte():
             "projets": [{"id": p["id"], "nom": p["nom"]} for p in projets.lister()["projets"]],
             "applications": [{"slug": a["slug"], "nom": a.get("nom", a["slug"])} for a in amap.apps()],
             "application": cfg.get("slug"), "version": cfg.get("build", ""), "plateformes": cfg.get("plateformes", []),
-            "session": session.plateforme(), "flux": state["flux"], "environnements": envs,
+            "session": session.plateforme(), "flux": state["flux"], "environnements": envs, "environnements_app": envs_header,
             "xray": {"configure": bool(os.environ.get("XRAY_CLIENT_ID")), "connecte": xray[0] if xray else None,
                      "detail": xray[1] if xray else "non vérifié"},
             "run_en_cours": centre.FILE.en_cours is not None,
@@ -2782,6 +2790,32 @@ async def chemin_utilisateur():
     from atelier.intelligence import chemin
 
     return await asyncio.to_thread(_call, chemin.etat)
+
+
+@app.get("/api/environnements")
+def environnements_liste():
+    """Environnements de l'Execution Center (plateforme, URL, jeu de données, application de rattachement)."""
+    from atelier.intelligence import environnements
+
+    return _call(lambda: {"environnements": environnements.lister()})
+
+
+@app.post("/api/environnements")
+async def environnements_ajouter(req: Request):
+    """Déclare un environnement (depuis l'assistant d'application notamment)."""
+    from atelier.intelligence import environnements
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, environnements.ajouter, b.get("environnement") or {}, b.get("application", ""))
+
+
+@app.post("/api/environnements/rattacher")
+async def environnements_rattacher(req: Request):
+    """Rattache à une application les environnements choisis (les autres lui sont retirés)."""
+    from atelier.intelligence import environnements
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, environnements.rattacher, b.get("application", ""), b.get("ids") or [])
 
 
 @app.get("/api/accueil")

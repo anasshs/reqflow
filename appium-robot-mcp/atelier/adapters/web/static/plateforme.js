@@ -406,9 +406,14 @@ const Atelier = {
       bandeau.innerHTML = `<b>${esc(raison.charAt(0).toUpperCase() + raison.slice(1))}</b> <span class="lib">(${esc(c.projet_alerte.dossier)})</span>.
         <a class="btn petit primaire" href="#parametres/projets">Choisir ou créer un projet</a> <span class="lib">ou relancer avec ROBOT_PROJECT_DIR vers le dossier de tests.</span>`;
     } else if (bandeau) bandeau.remove();
-    const plats = c.plateformes?.length ? c.plateformes : ["android", "ios", "web"];
-    if (!this.plateforme || !plats.includes(this.plateforme)) this.plateforme = c.session || c.flux?.platform || plats[0];
-    if (!this.env || !(c.environnements || []).includes(this.env)) this.env = (c.environnements || [])[0] || "";
+    /* Un seul sélecteur : l'environnement porte sa plateforme (« recette · Android », « prod »). Atelier.env reste le nom du jeu
+       de données de l'environnement, Atelier.plateforme la plateforme des runs (PLATFORM) ; Atelier.environnement l'entrée choisie. */
+    const envs = c.environnements_app || [];
+    let memo = "";
+    try { memo = localStorage.getItem("atelier-environnement") || ""; } catch { /* stockage indisponible */ }
+    const choisi = envs.find(e => e.id === (this.environnement?.id || memo)) || envs.find(e => e.par_defaut)
+      || envs.find(e => e.plateforme === (this.plateforme || c.session)) || envs[0] || null;
+    this._poserEnv(choisi, c);
     const integ = this.integrations();
     $$("#onglets [data-si-jira]:not(.nav-sous)").forEach(b => { b.hidden = !integ.jira; });
     const xray = !c.xray?.configure ? ["", "Non configuré"] : c.xray.connecte === true ? ["ok", "Connecté"]
@@ -420,8 +425,9 @@ const Atelier = {
       ${c.filtre_application?.app ? `<div title="Les écrans ne montrent que les tests de l'application (règle définie dans Paramètres › Applications)"><label>Tests de l'app</label>
         <span class="val">${esc((c.filtre_application.valeurs || []).join(", "))} · ${c.filtre_application.tests ?? "?"}/${c.filtre_application.tests_projet ?? "?"}</span></div>` : ""}
       <div><label>Version</label><span class="val">${esc(c.version || "—")}</span></div>
-      <div><label for="c-plat">Plateforme</label><span class="ligne">${ico({android: "android", ios: "pomme", web: "globe"}[this.plateforme] || "mobile")}<select id="c-plat">${plats.map(p => `<option value="${p}" ${p === this.plateforme ? "selected" : ""}>${{android: "Android", ios: "iOS", web: "Web", api: "API"}[p] || esc(p)}</option>`).join("")}</select></span></div>
-      <div><label for="c-env">Environnement</label><select id="c-env">${(c.environnements || []).map(e => `<option ${e === this.env ? "selected" : ""}>${esc(e)}</option>`).join("") || "<option value=''>Aucun JDD</option>"}</select></div>
+      <div><label for="c-env">Environnement</label><span class="ligne">${ico({android: "android", ios: "pomme", web: "globe", api: "api"}[this.plateforme] || "mobile")}<select id="c-env"
+        title="${esc(this.environnement ? `${this.environnement.libelle} : plateforme ${this.plateforme}${this.environnement.url ? ", " + this.environnement.url : ""}, jeu de données ${this.env}` : "Aucun environnement")}">
+        ${envs.map(e => `<option value="${esc(e.id)}" ${e.id === this.environnement?.id ? "selected" : ""}>${esc(e.libelle)}</option>`).join("") || "<option value=''>Aucun environnement</option>"}</select></span></div>
       <div class="secondaire"><label>Outil</label><span class="val">${Atelier.plateforme === "web" ? "Browser + Robot Framework" : "Appium + Robot Framework"}</span></div>
       <div ${integ.xray ? "" : "hidden"}><label>Xray</label><span class="val" title="${esc(c.xray?.detail || "")}" style="color:var(--${xray[0] === "ok" ? "ok" : xray[0] === "ko" ? "ko" : "ink"})">${ico("xray")}${xray[1]}</span></div>
 `;
@@ -439,8 +445,19 @@ const Atelier = {
       try { await api("/api/apps/choisir", {method: "POST", body: {slug: e.target.value}}); toast("Application active changée.", "ok"); await this.chargerContexte(); this.ouvrir(); }
       catch (err) { toast(err.message, "ko"); }
     };
-    $("#c-plat").onchange = e => { this.plateforme = e.target.value; this.diffuser({type: "contexte"}); };
-    $("#c-env").onchange = e => { this.env = e.target.value; this.diffuser({type: "contexte"}); };
+    $("#c-env").onchange = e => {
+      this._poserEnv(envs.find(x => x.id === e.target.value) || null, c);
+      try { localStorage.setItem("atelier-environnement", e.target.value); } catch { /* préférence non mémorisée */ }
+      this.chargerContexte();  // icône et infobulle du sélecteur
+      this.diffuser({type: "contexte"});
+    };
+  },
+  _poserEnv(e, c) {
+    this.environnement = e;
+    if (e) { this.env = e.jdd; this.plateforme = e.plateforme; return; }
+    const plats = c.plateformes?.length ? c.plateformes : ["web"];  // aucun environnement : la plateforme de l'application
+    if (!plats.includes(this.plateforme)) this.plateforme = c.session || c.flux?.platform || plats[0];
+    this.env = (c.environnements || [])[0] || "";
   },
 
   async _alertes() {

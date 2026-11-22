@@ -611,7 +611,54 @@
     const ETAPES = ["Identité et projet Xray", "Prérequis", "Amorcer", "Cartographier"];
     const m = modale(app ? `Application · ${app.nom}` : "Nouvelle application", `<div id="wa-tete" class="btns" style="margin-bottom:10px"></div><div id="wa-corps"></div><p class="ko-t" id="wa-err"></p>`,
       `<button class="btn" id="wa-prec">Précédent</button><button class="btn primaire" id="wa-suiv">Suivant</button>`);
-    const plats = () => type === "mobile" ? $$("[name=wa-p]:checked", m.el).map(i => i.value) : [type];
+    /* Environnements : choisis (ou créés) ici, ils portent la plateforme, l'adresse et le jeu de données ; l'application en
+       déduit ses plateformes et son adresse. Ensuite, un seul sélecteur « Environnement » dans le header. */
+    const PLAT_ENV = {web: [["web", "Web"]], mobile: [["android", "Android"], ["ios", "iOS"]], api: [["api", "API"]]};
+    let ENVS = null, CHOIX = null;
+    const compatibles = () => (ENVS || []).filter(e => (!e.application || e.application === slug)
+      && (!e.plateforme_id || PLAT_ENV[type].some(([p]) => p === e.plateforme_id)));
+    const choisis = () => compatibles().filter(e => CHOIX.has(e.id));
+    const plats = () => type === "mobile" ? [...new Set(choisis().map(e => e.plateforme_id).filter(p => p === "android" || p === "ios"))] : [type];
+    const urlEnv = () => (choisis().find(e => e.url) || {}).url || "";
+    const listeEnvs = () => { const l = compatibles();
+      return l.length ? l.map(e => `<label class="lib wa-env"><input type="checkbox" name="wa-env" value="${esc(e.id)}" ${CHOIX.has(e.id) ? "checked" : ""}>
+          <b>${esc(e.nom)}</b> · ${esc(e.plateforme || "toutes plateformes")}${e.url ? ` · <span class="mono">${esc(e.url)}</span>` : ""} · ${esc(e.type || "")}${e.jdd_env ? ` · jeu ${esc(e.jdd_env)}` : ""}</label>`).join("")
+        : `<p class="lib">Aucun environnement ${type === "web" ? "web" : type === "api" ? "d'API" : "mobile"} déclaré : en créer un.</p>`; };
+    const blocEnvs = () => `<div class="champ" style="grid-column:1/-1"><label>Environnements</label>
+        <div id="wa-envs" class="wa-envs">${ENVS ? listeEnvs() : '<span class="lib">Chargement…</span>'}</div>
+        <div class="btns" style="margin-top:6px"><button type="button" class="btn petit" id="wa-env-plus">${ico("plus")}Nouvel environnement</button></div>
+        <div id="wa-env-form" class="wa-env-form" hidden><div class="grille-2">
+          <div class="champ"><label for="wa-en-nom">Nom</label><input class="in" id="wa-en-nom" placeholder="recette"></div>
+          <div class="champ"><label for="wa-en-type">Type</label><select class="in" id="wa-en-type">${["TEST", "DEV", "PREPROD", "PROD", "AUTRE"].map(x => `<option>${x}</option>`).join("")}</select></div>
+          <div class="champ"><label for="wa-en-plat">Plateforme</label><select class="in" id="wa-en-plat">${PLAT_ENV[type].map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></div>
+          <div class="champ"><label for="wa-en-url">${type === "mobile" ? "Adresse (optionnelle)" : type === "api" ? "URL de base de l'API" : "URL de l'application"}</label>
+            <input class="in" id="wa-en-url" placeholder="${type === "api" ? "https://api.recette.exemple.fr/v1" : "https://recette.exemple.fr"}"></div>
+          <div class="champ"><label for="wa-en-jdd">Jeu de données (data/jdd/&lt;nom&gt;.yaml)</label><input class="in" id="wa-en-jdd" placeholder="même nom que l'environnement"></div>
+          </div><div class="btns"><button type="button" class="btn primaire petit" id="wa-env-ajouter">Ajouter l'environnement</button><span class="ko-t" id="wa-env-err"></span></div></div>
+        <p class="lib" style="margin-top:4px">Un environnement porte la plateforme, l'adresse et le jeu de données ; il se choisit ensuite dans le header (Environnement).</p></div>`;
+    async function brancherEnvs() {
+      if (ENVS === null) {
+        ENVS = ((await api("/api/environnements").catch(() => ({environnements: []}))).environnements) || [];
+        CHOIX = new Set(ENVS.filter(e => slug && e.application === slug).map(e => e.id));
+      }
+      const boite = $("#wa-envs", m.el);
+      if (!boite) return;
+      const relier = () => $$("[name=wa-env]", m.el).forEach(i => i.onchange = () => { i.checked ? CHOIX.add(i.value) : CHOIX.delete(i.value); });
+      boite.innerHTML = listeEnvs(); relier();
+      $("#wa-env-plus", m.el).onclick = () => { const f = $("#wa-env-form", m.el); f.hidden = !f.hidden; if (!f.hidden) $("#wa-en-nom", m.el).focus(); };
+      $("#wa-env-ajouter", m.el).onclick = async () => {
+        const nom = $("#wa-en-nom", m.el).value.trim(), url = $("#wa-en-url", m.el).value.trim();
+        if (!nom) { $("#wa-env-err", m.el).textContent = "Nom de l'environnement obligatoire."; return; }
+        if (type !== "mobile" && !url) { $("#wa-env-err", m.el).textContent = "Adresse obligatoire pour un environnement web ou d'API."; return; }
+        try {
+          const e = await api("/api/environnements", {method: "POST", body: {application: slug || "", environnement: {nom, url, type: $("#wa-en-type", m.el).value,
+            plateforme: $("#wa-en-plat", m.el).value, jdd_env: $("#wa-en-jdd", m.el).value.trim() || nom}}});
+          ENVS.push(e); CHOIX.add(e.id);
+          $("#wa-env-form", m.el).hidden = true; ["#wa-en-nom", "#wa-en-url", "#wa-en-jdd"].forEach(s => { $(s, m.el).value = ""; });
+          boite.innerHTML = listeEnvs(); relier(); toast(`Environnement « ${e.nom} » ajouté.`, "ok");
+        } catch (err) { $("#wa-env-err", m.el).textContent = err.message; }
+      };
+    }
     const val = id => $(id, m.el)?.value ?? "";
     const rendre = () => {
       $("#wa-tete", m.el).innerHTML = ETAPES.map((t, i) => `<span class="pill ${i + 1 === etape ? "info" : i + 1 < etape ? "ok" : ""}">${i + 1}. ${t}</span>`).join("");
@@ -623,13 +670,13 @@
           ${slug ? '<span class="lib">(le type ne change pas après création)</span>' : ""}</div><div class="grille-2">
           <div class="champ"><label for="wa-nom">Nom</label><input class="in" id="wa-nom" value="${esc(cfg.nom || "")}" placeholder="Banque Mobile"></div>
           <div class="champ"><label for="wa-build">Version / build</label><input class="in" id="wa-build" value="${esc(cfg.build || "")}" placeholder="4.12.0 (1342)"></div>
-          ${type === "mobile" ? `<div class="champ" style="grid-column:1/-1"><label>Plateformes</label><div class="btns">${["android", "ios"].map(p => `<label class="lib"><input type="checkbox" name="wa-p" value="${p}" ${(cfg.plateformes || ["android"]).includes(p) ? "checked" : ""}> ${{android: "Android", ios: "iOS"}[p]}</label>`).join("")}</div></div>
+          ${blocEnvs()}
+          ${type === "mobile" ? `
           <div class="champ"><label for="wa-pkg">Package Android</label><input class="in" id="wa-pkg" value="${esc(cfg.android?.app_package || "")}" placeholder="com.exemple.banque"></div>
           <div class="champ"><label for="wa-act">Activité Android</label><input class="in" id="wa-act" value="${esc(cfg.android?.app_activity || "")}" placeholder=".MainActivity"></div>
           <div class="champ"><label for="wa-bundle">Bundle iOS</label><input class="in" id="wa-bundle" value="${esc(cfg.ios?.bundle_id || "")}" placeholder="com.exemple.banque"></div>` : ""}
-          ${type === "web" ? `<div class="champ" style="grid-column:1/-1"><label for="wa-url">URL de l'application web</label><input class="in" id="wa-url" value="${esc(cfg.web?.url || "")}" placeholder="https://recette.exemple.fr"></div>` : ""}
-          ${type === "api" ? `<div class="champ"><label for="wa-aurl">URL de base de l'API</label><input class="in" id="wa-aurl" value="${esc(cfg.api?.url || "")}" placeholder="https://api.recette.exemple.fr/v1"></div>
-          <div class="champ"><label for="wa-oapi">Contrat OpenAPI (fichier du projet, optionnel)</label><input class="in mono" id="wa-oapi" value="${esc(cfg.api?.openapi || "")}" placeholder="api/cartes.openapi.yaml"></div>` : ""}
+          
+          ${type === "api" ? `          <div class="champ"><label for="wa-oapi">Contrat OpenAPI (fichier du projet, optionnel)</label><input class="in mono" id="wa-oapi" value="${esc(cfg.api?.openapi || "")}" placeholder="api/cartes.openapi.yaml"></div>` : ""}
           <div class="champ"><label for="wa-px">Projet Xray de rattachement</label><input class="in" id="wa-px" value="${esc(cfg.projet_xray ?? Atelier.ctx.projet_xray ?? "")}" placeholder="DEMO"></div>
           </div>
         <p class="lib">Ses tests (JQL et dossiers du Test Repository) et la politique de ses US se définissent dans <a href="#parametres/configuration">Paramètres › Configuration</a>, une fois l'application créée.</p>`;
@@ -648,7 +695,7 @@
           <p style="margin-top:12px"><b>Explorer</b> l'application en direct (connexion au device, OTP passé à la main, exploration sans saisie ni liste rouge) :
             <a class="btn" href="/" target="_blank" rel="noopener">Ouvrir l'écran en direct</a></p>
           <p class="lib">Ensuite : Application Intelligence › Application Map pour nommer les écrans et voir la carte.</p>`;
-      if (etape === 1) $$("[name=wa-type]", m.el).forEach(rd => rd.onchange = () => { type = rd.value; rendre(); });
+      if (etape === 1) { $$("[name=wa-type]", m.el).forEach(rd => rd.onchange = () => { type = rd.value; rendre(); }); brancherEnvs(); }
       if (etape === 2 && type === "api") c.innerHTML = `<p class="lib">Application API : pas d'exploration d'écrans ni de liste rouge.</p>
           <div class="champ"><label for="wa-comptes">Comptes / clients de test (un par ligne, jamais de secret : les jetons restent dans l'environnement ou le coffre)</label><textarea class="in" id="wa-comptes" rows="3">${esc((cfg.comptes || []).join("\n"))}</textarea></div>
           <input type="hidden" id="wa-langue" value="${esc(cfg.langue || "fr")}"><textarea id="wa-rouge" hidden></textarea>`;
@@ -667,21 +714,23 @@
       }
     };
     const identite = () => ({nom: val("#wa-nom").trim(), type, plateformes: plats(), build: val("#wa-build"), projet_xray: val("#wa-px"),
-      api: type === "api" ? {url: val("#wa-aurl").trim(), openapi: val("#wa-oapi").trim()} : {},
+      api: type === "api" ? {url: urlEnv() || cfg.api?.url || "", openapi: val("#wa-oapi").trim()} : {},
 
-      android: {app_package: val("#wa-pkg"), app_activity: val("#wa-act")}, ios: {bundle_id: val("#wa-bundle")}, web: {url: val("#wa-url")}});
+      android: {app_package: val("#wa-pkg"), app_activity: val("#wa-act")}, ios: {bundle_id: val("#wa-bundle")}, web: {url: type === "web" ? urlEnv() || cfg.web?.url || "" : cfg.web?.url || ""}});
     $("#wa-prec", m.el).onclick = () => { if (etape > 1) { etape--; rendre(); } };
     $("#wa-suiv", m.el).onclick = async () => {
       try {
         if (etape === 1) {
           const id = identite();
-          if (!id.plateformes.length) throw new Error("Choisir au moins une plateforme (Android et / ou iOS).");
+          if (!choisis().length) throw new Error("Choisir au moins un environnement (ou en créer un).");
+          if (!id.plateformes.length) throw new Error("Les environnements choisis ne disent pas la plateforme (Android / iOS) : en choisir ou en créer un qui la précise.");
           if (!id.nom) throw new Error("Nom de l'application obligatoire.");
-          if (type === "api" && !id.api.url) throw new Error("URL de base de l'API obligatoire.");
+          if (type === "api" && !id.api.url) throw new Error("L'environnement d'API choisi n'a pas d'URL de base.");
           if (!slug) {
             cfg = await api("/api/apps", {method: "POST", body: {langue: "fr", ...id}});
             slug = cfg.slug;
           } else cfg = await api("/api/apps/maj", {method: "POST", body: id});
+          await api("/api/environnements/rattacher", {method: "POST", body: {application: slug, ids: choisis().map(e => e.id)}});
         }
         if (etape === 2) cfg = await api("/api/apps/maj", {method: "POST", body: {langue: $("#wa-langue", m.el).value,
           comptes: $("#wa-comptes", m.el).value.split("\n").map(x => x.trim()).filter(Boolean), liste_rouge: $("#wa-rouge", m.el).value.split("\n")}});

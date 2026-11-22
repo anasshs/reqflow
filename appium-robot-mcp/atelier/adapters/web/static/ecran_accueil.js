@@ -5,7 +5,7 @@
    ce qui a réellement été produit (livrables). Les tableaux de bord de pilotage sont dans #pilotage. */
 "use strict";
 (() => {
-  let jeton = null, zone = null;
+  let jeton = null, zone = null, A = null;
   const STATUT = {valide: ["ok", "check"], en_cours: ["info", "horloge"], a_completer: ["warn", "alerte"], non_demarre: ["", "pause"],
     a_la_demande: ["demande", "horloge"], indisponible: ["ko", "x"]};
   const pastille = (st, lib) => { const [c, i] = STATUT[st] || ["", ""]; return `<span class="pill acc-st ${c}">${i ? ico(i) : ""}${esc(lib)}</span>`; };
@@ -31,10 +31,8 @@
 
   /* ------------------------------------------------------------------ en-tête de l'application */
   function entete(a) {
-    const c = Atelier.ctx || {};
-    const meta = [["globe", "Environnement", Atelier.env || "—"], ["calque", "Version", c.version || a.build || "—"],
-      ["mobile", "Plateforme", (a.plateformes || []).join(", ") || a.type || "—"],
-      ...(a.responsable ? [["equipe", "Responsable", a.responsable]] : []), ["horloge", "Dernière activité", quand(a.derniere_activite)]];
+    // environnement, version et plateforme sont dans le header : pas répétés ici
+    const meta = [...(a.responsable ? [["equipe", "Responsable", a.responsable]] : []), ["horloge", "Dernière activité", quand(a.derniere_activite)]];
     return `<div><nav class="acc-fil" aria-label="Fil d'Ariane"><a href="#parametres/applications">Applications</a><span>›</span><b>${esc(a.nom || "—")}</b></nav>
         <h1>${esc(a.nom || "Aucune application")} ${a.slug ? '<span class="pill ok">Active</span>' : ""}</h1>
         <div class="acc-meta">${meta.map(([i, l, v]) => `<span>${ico(i)}${l} : <b>${esc(v)}</b></span>`).join("")}</div></div>
@@ -101,7 +99,9 @@
   /* ------------------------------------------------------------------ informations clés, activités */
   function informations(a) {
     const c = Atelier.ctx || {};
-    const lignes = [["Application", a.nom], ["Type", a.type], ["Adresse", a.url], ["Environnement", Atelier.env], ["Version", c.version || a.build],
+    const e = Atelier.environnement || {};
+    const lignes = [["Application", a.nom], ["Type", a.type], ["Environnement", e.libelle || Atelier.env], ["Adresse", e.url || a.url],
+      ["Jeu de données", e.jdd && e.jdd !== e.environnement ? e.jdd : ""], ["Version", c.version || a.build],
       ["Responsable", a.responsable], ["Date de création", a.cree ? new Date(a.cree).toLocaleDateString("fr-FR") : ""], ["Dernière activité", a.derniere_activite ? quand(a.derniere_activite) : ""]];
     return `<h2 class="titre-carte">Informations clés</h2><div class="corps-carte"><dl class="acc-infos">${lignes.filter(([, v]) => v)
       .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>`;
@@ -137,8 +137,10 @@
         </div>`;
       brancherActions();
       livrables(j);
+      const desabo = Atelier.on("contexte", () => { if (j === jeton && A) poser("acc-infos", informations(A.application || {})); });
+      this.quitter = () => desabo();
       let a;
-      try { a = await api("/api/accueil"); } catch (e) {
+      try { a = A = await api("/api/accueil"); } catch (e) {
         if (j === jeton) poser("acc-etapes", vide("Indisponible", esc(e.message)));
         return;
       }
