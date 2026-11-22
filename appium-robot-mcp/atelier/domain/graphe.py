@@ -42,6 +42,10 @@ TYPES_RELATIONS = {
     "mene_a": "Mène à", "traverse": "Traverse", "enchaine_avec": "S'enchaîne avec",
     # projection d'une vue filtrée : deux éléments affichés reliés par des éléments masqués (jamais stockée)
     "lie_via": "Lié via",
+    # perspective utilisateur : l'action est un nœud (écran → permet → action → aboutit à → écran)
+    "permet": "Permet", "aboutit_a": "Aboutit à", "declenche": "Déclenche",
+    # ponts Tests & Qualité : test Xray formalisé par un scénario BDD
+    "formalise_par": "Est formalisé par",
 }
 PROVENANCES = ("observé", "déclaré", "déduit")
 
@@ -85,8 +89,25 @@ class Relation:
         """Utilisable pour une décision : un lien déduit non validé ne l'est jamais."""
         return not (self.provenance == "déduit" and self.statut != "validé")
 
+    @property
+    def confiance_niveau(self) -> str:
+        """Distinct de la provenance : « confirmée » (lue dans une source, déclarée, ou validée par un humain),
+        « probable » (calculée de façon déterministe à partir de faits observés, preuves gardées), « non vérifiée »
+        (proposition à valider, IA comprise). Seules les relations confirmées alimentent couverture, impact et TNR
+        officiels ; les probables restent visibles (vues exploratoires)."""
+        if self.statut != "validé":
+            return "non vérifiée"
+        if self.provenance == "déduit" and self.proprietes.get("calcul"):
+            return "probable"
+        return "confirmée"
+
+    @property
+    def confirmee(self) -> bool:
+        return self.confiance_niveau == "confirmée"
+
     def vers_dict(self) -> dict:
-        return {**asdict(self), "id": self.id, "libelle": TYPES_RELATIONS.get(self.type, self.type)}
+        return {**asdict(self), "id": self.id, "libelle": TYPES_RELATIONS.get(self.type, self.type),
+                "confiance_niveau": self.confiance_niveau}
 
 
 def verifier_type_noeud(t: str):

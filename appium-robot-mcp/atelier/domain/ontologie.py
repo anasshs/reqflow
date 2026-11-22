@@ -94,6 +94,7 @@ RELATIONS = {
     "DEPENDS_ON": ("extension", "Dépend de", True), "IMPACTS": ("extension", "Impacte", True),
     "AFFECTS": ("extension", "Affecte", True), "DETECTED_BY": ("extension", "Détecté par", True),
     "RELATED_TO": ("extension", "Lié à", True),
+    "FORMALIZED_BY": ("extension", "Formalisé par", True),
     # preuve issue des tests : un test de l'exigence passe par l'écran (à ne pas confondre avec REALIZED_BY)
     "VERIFIED_ON": ("extension", "Vérifiée sur", True),
 }
@@ -238,6 +239,10 @@ REGLES = [
     ("traverse", None, None, "PART_OF_JOURNEY", True, "APPLICATION_DISCOVERY", ""),
     ("enchaine_avec", None, None, "NAVIGATES_TO", False, "APPLICATION_DISCOVERY", ""),
     ("lie_via", None, None, "RELATED_TO", False, "", ""),
+    ("permet", None, None, "HAS_ACTION", False, "APPLICATION_DISCOVERY", ""),
+    ("aboutit_a", None, None, "NAVIGATES_TO", False, "APPLICATION_DISCOVERY", ""),
+    ("declenche", None, None, "TRIGGERS", False, "", ""),
+    ("formalise_par", None, None, "FORMALIZED_BY", False, "", ""),
     ("utilise", ("UIComponent",) + _SCRIPTS, ("Locator",), "USES_LOCATOR", False, "", ""),
     ("utilise", _SCRIPTS, ("UIComponent",), "USES_COMPONENT", False, "", ""),
     ("utilise", None, ("AutomationLibrary",), "USES_LIBRARY", False, "", ""),
