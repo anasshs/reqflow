@@ -154,3 +154,29 @@ l'indique : cible Robot seule) ; l'édition du modèle se fait par formulaires (
 | § 8 Incrémental | `actualiser_tous` (au changement du projet), `evolutions` (états, transitions, conditions, chemins, scénarios, automatisations, révisions proposées) ; TNR : scénarios touchés par des éléments établis ; les autres « à examiner ». |
 | § 9 Dashboard | section « Couverture comportementale » (états, transitions, issues vérifiés / établis ; chemins couverts / retenus ; inconnus ; réutilisés ; générés ; impactés) et cinq niveaux : conception, scénarios BDD, automatisation, exécution, validée. |
 | § 10 Modes | automatique (cas d'une US), assisté (Synthèse de l'écran Analyse comportementale), expert (Modèle, Analyse, Comportements manquants, Stratégie, Chemins, Génération, Évolutions et impact). |
+
+## 8. Positionnement (avis de conception du 2026-11-22)
+
+Le MBT est un moteur transversal, jamais un référentiel à part : il lit et enrichit le Knowledge Graph, et sert à trois
+moments.
+
+| Moment | Ce qui se passe |
+|---|---|
+| A. Création d'un parcours | À la validation du parcours (Discovery), son modèle comportemental est construit en arrière-plan (`parcours_utilisateur.valider`) ; la synthèse est prête dès que le QA ouvre « Analyser le comportement ». |
+| B. Création ou évolution d'une US | La génération des cas (Test Design) ajoute les chemins non couverts (mode automatique) ; un nouveau critère crée une nouvelle version du modèle et ses évolutions. |
+| C. Réception d'une nouvelle version | L'analyse d'un build (Releases) ajoute la part comportementale du périmètre : les transitions touchées par les évolutions rattachées (US, module, écran, règle), leurs scénarios BDD générés, leurs tests Robot (non-régression sans Xray) ; leurs tests Xray entrent dans la non-régression ciblée. |
+
+Chaîne : Discovery → Knowledge Graph → analyse des exigences → MBT → Test Design → BDD → Automation Studio → Execution
+Center → impact et non-régression.
+
+Compléments issus de l'avis :
+- **Préconditions et postconditions** structurées sur chaque transition, chacune sourcée et avec son niveau : utilisateur
+  authentifié (navigation observée en amont d'un écran d'authentification), condition gardant la transition, écran
+  atteint (Observé), résultat écrit dans l'exigence (Confirmé), sinon « résultat attendu à confirmer ». Les
+  postconditions confirmées deviennent des étapes « Et … » du scénario BDD.
+- **Hypothèses priorisées par le risque métier** : élevé (opération sensible : virement, paiement, signature,
+  suppression ; accès non autorisé), moyen (engagement : valider, confirmer, envoyer), faible ; triées du plus risqué.
+- **Stratégie orientée risque** (« critiques ») : score = priorités, risque métier des actions traversées, refus vérifiés,
+  état final atteint.
+- **Trois décisions** face aux scénarios existants : Réutilisation (identique ou contenu : rien n'est créé),
+  Complémentaire (prolonge, variante ou partiellement commun), Nouveau ; la nuance et la raison sont gardées.

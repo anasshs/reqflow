@@ -44,8 +44,12 @@ se comporter ; les chemins disent comment le vérifier. Ne pas confondre les tro
 
 4. Générer les scénarios BDD
 - mbt_generer_bdd(modele, chemins, strategie) crée des brouillons dans le référentiel BDD existant (même éditeur), avec
-  la traçabilité modèle → chemin → scénario. Les doublons ne sont pas recréés : lire « ignores » et le dire. Rien n'est
+  la traçabilité modèle → chemin → scénario. Trois décisions face à l'existant : Réutilisation (déjà couvert : rien
+  n'est créé, le dire avec le scénario cité), Complémentaire (prolonge ou varie un scénario), Nouveau. Rien n'est
   fusionné ni validé par l'agent.
+- Chaque transition porte ses préconditions et postconditions sourcées (preconditions_liste, postconditions_liste) :
+  s'en servir pour les « Étant donné » et les « Alors » ; une postcondition « à confirmer » ne se transforme jamais en
+  résultat inventé. Les hypothèses sont triées par risque métier : commencer par les « élevé ».
 - Les étapes générées « (à confirmer) » ou « (condition à confirmer) » restent signalées tant qu'une exigence ou le QA
   ne les a pas précisées ; ne pas les réécrire en certitudes.
 - Avant d'automatiser : studio_rapprocher_etapes sur les étapes (keywords existants d'abord). Un chemin n'est « prêt »

@@ -201,6 +201,10 @@
       <div class="btns"><span class="pill ${NIV[e.niveau] || ""}" title="Niveau de confiance">${esc(e.niveau || "")}</span><span class="pill">${esc(e.provenance)}</span><span class="pill">${esc(e.validation)}</span></div>
       <dl class="props">${champs.filter(([, v]) => v && String(v).trim()).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}
         <dt>Source</dt><dd>${esc(e.source)}</dd>${e.justification ? `<dt>Justification</dt><dd>${esc(e.justification)}</dd>` : ""}${e.motif_rejet ? `<dt>Rejet</dt><dd>${esc(e.motif_rejet)}</dd>` : ""}</dl>
+      ${coll === "transitions" && ((e.preconditions_liste || []).length || (e.postconditions_liste || []).length) ? `<h4 class="kg-sous">Préconditions</h4>
+        <ul class="liste">${(e.preconditions_liste || []).map(x => `<li>${esc(x.texte)} <span class="pill ${NIV[x.niveau] || ""}">${esc(x.niveau)}</span><span class="lib"> ${esc(x.source)}</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul>
+        <h4 class="kg-sous">Postconditions</h4>
+        <ul class="liste">${(e.postconditions_liste || []).map(x => `<li>${esc(x.texte)} <span class="pill ${NIV[x.niveau] || ""}">${esc(x.niveau)}</span><span class="lib"> ${esc(x.source)}</span></li>`).join("") || "<li class='lib'>Aucune.</li>"}</ul>` : ""}
       <div class="btns" style="margin-top:8px">${e.validation !== "validé" ? `<button class="btn petit succes" id="mb-val">${ico("check")}Valider</button>` : ""}
         ${e.validation !== "rejeté" ? `<button class="btn petit danger" id="mb-rej">Rejeter</button>` : ""}
         <button class="btn petit" id="mb-mod">Corriger</button>${e.provenance === "déclaré" ? `<button class="btn petit danger" id="mb-sup">Supprimer</button>` : ""}</div>
@@ -367,9 +371,9 @@
     if (resultat) afficherResultat(resultat);
     function afficherResultat(r) {
       $("#mb-res").innerHTML = `<h3 class="lib">CRÉÉS (${r.crees.length})</h3><ul class="liste">${r.crees.map(c => `<li><a class="lien" href="#bdd/${encodeURIComponent(c.cle)}">${esc(c.titre)}</a>
-          <span class="pill">${esc(c.comparaison.classe)}</span>${c.a_confirmer ? `<span class="pill warn">${c.a_confirmer} à confirmer</span>` : ""}
+          <span class="pill" title="${esc(c.comparaison.raison || "")}">${esc(c.comparaison.classe)}${c.comparaison.nuance ? ` · ${esc(c.comparaison.nuance)}` : ""}</span>${c.a_confirmer ? `<span class="pill warn">${c.a_confirmer} à confirmer</span>` : ""}
           <button class="btn petit" data-trace="${esc(c.cle)}">Traçabilité</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul>
-        ${r.ignores.length ? `<h3 class="lib">NON CRÉÉS : DOUBLONS (${r.ignores.length})</h3><ul class="liste">${r.ignores.map(x => `<li>${esc(x.titre)} ≈ <a class="lien" href="#bdd/${encodeURIComponent(x.scenario)}">${esc(x.scenario)}</a> <span class="lib">${esc(x.raison)}</span></li>`).join("")}</ul>
+        ${r.ignores.length ? `<h3 class="lib">RÉUTILISÉS : DÉJÀ COUVERTS PAR UN SCÉNARIO EXISTANT (${r.ignores.length})</h3><ul class="liste">${r.ignores.map(x => `<li>${esc(x.titre)} ≈ <a class="lien" href="#bdd/${encodeURIComponent(x.scenario)}">${esc(x.scenario)}</a> <span class="lib">${esc(x.raison)}</span></li>`).join("")}</ul>
           <button class="btn petit" id="mb-forcer">Créer quand même</button>` : ""}`;
       if ($("#mb-forcer")) $("#mb-forcer").onclick = () => confirm("Créer ces scénarios malgré les doublons ?") && go(true);
       $$("[data-trace]").forEach(b => b.onclick = () => tracabilite(b.dataset.trace));
@@ -434,10 +438,11 @@
     const ST = {"proposée": "warn", "acceptée": "info", "rejetée": "ko"};
     const groupes = {};
     for (const h of l) (groupes[h.categorie_libelle] ||= []).push(h);
-    corps(`<p class="lib">Comportements exceptionnels ou issues contraires que ni les exigences ni les règles ne décrivent. Ce sont des hypothèses :
+    for (const g of Object.values(groupes)) g.sort((a, b) => ({"élevé": 0, moyen: 1, faible: 2}[a.risque] ?? 3) - ({"élevé": 0, moyen: 1, faible: 2}[b.risque] ?? 3));
+    corps(`<p class="lib">Comportements exceptionnels ou issues contraires que ni les exigences ni les règles ne décrivent, du plus risqué au moins risqué. Ce sont des hypothèses :
         accepter en fait un comportement « à confirmer » du modèle (sans résultat attendu inventé) ; rejeter l'écarte définitivement (jamais reproposée).</p>
       ${l.length ? Object.entries(groupes).map(([g, hs]) => `<h3 class="lib" style="margin-top:12px">${esc(g.toUpperCase())} (${hs.length})</h3>
-        <ul class="liste">${hs.map(h => `<li><span class="pill ${ST[h.statut] || ""}">${esc(h.statut)}</span> <b>${esc(h.libelle)}</b>
+        <ul class="liste">${hs.map(h => `<li><span class="pill ${ST[h.statut] || ""}">${esc(h.statut)}</span>${h.risque ? ` <span class="pill ${{"élevé": "ko", moyen: "warn"}[h.risque] || ""}" title="Risque métier">risque ${esc(h.risque)}</span>` : ""} <b>${esc(h.libelle)}</b>
           <span class="lib">depuis « ${esc(m.etats[h.de]?.nom || h.de)} »${h.description ? ` · ${esc(h.description)}` : ""}${h.motif_rejet ? ` · rejet : ${esc(h.motif_rejet)}` : ""}</span>
           ${h.statut === "proposée" ? `<span class="btns"><button class="btn petit succes" data-acc="${esc(h.id)}">Accepter (à confirmer)</button><button class="btn petit danger" data-rej="${esc(h.id)}">Rejeter</button></span>` : ""}</li>`).join("")}</ul>`).join("")
         : "<p class='lib'>Aucune hypothèse : les comportements connus sont documentés.</p>"}`);

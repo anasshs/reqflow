@@ -475,6 +475,11 @@
           ${ouvert && dejaReussis.length ? `<button class="btn petit" id="rb-ecarter-reussis" title="${esc(dejaReussis.map(x => x.test).join(", "))}">Écarter les ${dejaReussis.length} déjà réussis sur ${esc(d.precedent)}</button>` : ""}</div>` : ""}
         <p class="lib" style="margin:8px 0">${B.perimetre_valide ? `Périmètre validé le ${date(B.perimetre_valide.date)} par ${esc(B.perimetre_valide.par)} · ` : "Les tests proposés sont retenus par défaut : écarter ce qui ne concerne pas ce build. "}
           <b>${r.retenus} test(s) retenu(s)</b> : ${r.par_categorie.retest} retest · ${r.par_categorie.ciblee} non-régression ciblée · ${r.par_categorie.qualification} qualification.</p>
+        ${c.comportement && (c.comportement.scenarios_bdd || []).length ? `<details class="rel-delta" style="display:block"><summary><b>Comportement : ${c.comportement.scenarios_bdd.length} scénario(s) BDD
+            à rejouer</b> <span class="lib">générés depuis des transitions que les évolutions touchent (${c.comportement.modeles.map(m => esc(m.nom)).join(", ")}) ; leurs tests Xray sont dans la ciblée,
+            leurs tests Robot ci-dessous (non-régression sans Xray)</span></summary>
+          <p class="lib" style="margin:6px 0">${c.comportement.scenarios_bdd.map(s => `<a class="lien" href="#bdd/${encodeURIComponent(s)}">${esc(s)}</a>`).join(" · ")}</p>
+          ${c.comportement.tests_robot.length ? `<p class="lib">Tests Robot : ${c.comportement.tests_robot.map(t => esc(t.split("::").pop())).join(", ")}</p>` : ""}</details>` : ""}
         ${(c.non_retenus || []).length ? `<details class="rel-delta" style="display:block"><summary><b>${c.non_retenus.reduce((a, x) => a + x.nombre, 0)} test(s) non retenus par les plafonds</b>
             <span class="lib">les plus à risque sont retenus d'abord (criticité, dernier échec, étiquette) : au plus ${c.bornes.max_indirects} par impact indirect, ${c.bornes.max_qualification} en qualification (Paramètres › Pilotage IA › Réglages)</span></summary>
           <table class="table-strat" style="margin-top:6px"><tr><th>Catégorie</th><th>Module</th><th>Tests non retenus</th><th></th></tr>${c.non_retenus.map((x, i) => `<tr><td>${esc(CAT[x.categorie][0])}</td><td>${esc(x.module)}</td>

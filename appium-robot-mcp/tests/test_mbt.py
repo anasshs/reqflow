@@ -105,7 +105,7 @@ def test_generation_bdd_tracabilite_et_doublons(appli):
     r2 = mbt_bdd.generer(m["id"], strategie="transitions")                                # tout est couvert : aucun chemin
     assert not r2["crees"] and not r2["ignores"]
     r3 = mbt_bdd.generer(m["id"], strategie="transitions", inclure_couverts=True)         # recibler l'existant : doublons écartés
-    assert not r3["crees"] and {x["classe"] for x in r3["ignores"]} == {"Doublon"}
+    assert not r3["crees"] and {x["classe"] for x in r3["ignores"]} == {"Réutilisation"}
     c = mbt.couverture(m["id"])
     assert c["conception"]["transitions"] == c["modele"]["transitions"] and c["automatisation"]["transitions"] == 0
     assert c["execution"]["transitions"] == 0                                                  # générer n'est pas exécuter
@@ -355,3 +355,52 @@ def test_preparation_donnees_et_tracabilite(appli):
     maillons = [x["maillon"] for x in t["chaine"]]
     assert maillons == ["Exigence", "Knowledge Graph", "Modèle MBT", "Transitions", "Chemin", "Scénario BDD", "Automatisation", "Exécution"]
     assert t["chaine"][0]["elements"] and t["chaine"][3]["elements"] and not t["chaine"][6]["elements"]
+
+
+def test_preconditions_postconditions_et_risque(appli):
+    """Avis de conception § 4, 5, 7 : préconditions et postconditions sourcées ; hypothèses triées par risque métier ;
+    trois décisions (réutilisation, complémentaire, nouveau)."""
+    from atelier.discovery import connaissance
+    from atelier.generation import bdd, mbt_bdd
+    from atelier.intelligence import mbt
+
+    u = "https://banque.exemple.test"
+    vir = next(e for e in appli.ecrans() if e["nom"] == "virement")
+    ok = appli.observer([_el("lien_retour", "Retour aux comptes")], "web", u + "/virement/ok", build="1.0")
+    appli.renommer(ok["id"], "virement_effectue", "Comptes")
+    appli.enregistrer_transition(vir["id"], ok["id"], "web", {"type": "tap", "cle": "bouton_confirmer", "libelle": "Confirmer le virement"})
+    connaissance.vider_cache()
+    m = mbt.construire("module", "Comptes")
+    t = next(t for t in m["transitions"].values() if t["de"] == "E-virement")
+    assert {"texte": "Utilisateur authentifié", "source": "navigation observée (écran d'authentification en amont)", "niveau": "Observé"} in t["preconditions_liste"]
+    assert any(x["texte"] == "L'écran « virement_effectue » est affiché" for x in t["postconditions_liste"])
+    refus = next(t for t in m["transitions"].values() if m["etats"][t["vers"]]["type"] == "erreur")
+    assert refus["postconditions_liste"][-1]["niveau"] == "Confirmé"                   # « la connexion est refusée » : écrit dans l'US
+    nominal = next(t for t in m["transitions"].values() if t["de"] == "E-connexion" and t["provenance"] == "observé")
+    assert any(x["texte"] == "Le tableau de bord s'affiche" and x["niveau"] == "Confirmé" for x in nominal["postconditions_liste"])
+    risques = [h["risque"] for h in m["hypotheses"].values()]
+    assert risques[0] == "élevé" and risques == sorted(risques, key=lambda r: -mbt.RISQUES[r])
+    assert next(h for h in m["hypotheses"].values() if h["categorie"] == "double_soumission" and "Confirmer le virement" in h["libelle"])["risque"] == "élevé"
+    r = mbt_bdd.generer(m["id"], strategie="transitions")
+    s = next(bdd.charger(c["cle"]) for c in r["crees"] if "virement_effectue" in bdd.charger(c["cle"])["titre"] or "virement_effectue" in str(bdd.charger(c["cle"])["mbt"]["state_ids"]))
+    textes = [e["texte"] for e in s["scenarios"][0]["etapes"]]
+    assert "le tableau de bord s'affiche" in textes                                         # postcondition de l'exigence reprise
+    crit = mbt.analyser(m["id"], "critiques", inclure_couverts=True)["chemins"]                  # tout est déjà couvert : on recible
+    assert crit and "score de risque" in crit[0]["justification"]
+
+
+def test_impact_d_une_us_pour_la_non_regression(appli):
+    """Avis § 8 : une évolution rattachée à une US touche les transitions qui portent ses critères ; les scénarios
+    générés depuis ces transitions sont renvoyés pour le périmètre de non-régression."""
+    from atelier.discovery import connaissance
+    from atelier.generation import mbt_bdd
+    from atelier.intelligence import mbt
+
+    m = mbt.construire("module", "Comptes")
+    r = mbt_bdd.generer(m["id"], strategie="transitions")
+    connaissance.vider_cache()
+    g = connaissance.construire()
+    im = mbt.impact_element(g, "user_story:BQ-1")
+    assert im["modeles"] and im["transitions"] >= 2 and set(im["scenarios"]) <= {c["cle"] for c in r["crees"]} and im["scenarios"]
+    im_mod = mbt.impact_element(g, "module:Comptes")
+    assert im_mod["transitions"] >= im["transitions"]

@@ -22,7 +22,7 @@ STRATEGIES = {
     "paires": ("Couverture des paires de transitions", "Chaque enchaînement de deux transitions consécutives est vérifié."),
     "conditions": ("Couverture des conditions", "Chaque issue (vraie, fausse) de chaque condition métier est vérifiée."),
     "chemins": ("Couverture des chemins", "Les chemins possibles d'un état initial à un état final (boucles limitées)."),
-    "critiques": ("Chemins critiques", "Les chemins métier prioritaires (priorité des transitions, état final atteint)."),
+    "critiques": ("Chemins critiques (orientée risque)", "Les chemins au plus fort risque métier : opérations sensibles, engagements, refus, priorités."),
 }
 LIMITES_DEFAUT = {"profondeur": 12, "chemins": 40, "transitions_par_scenario": 10, "passages_boucle": 1}
 POIDS_PRIORITE = {"haute": 3, "normale": 1, "basse": 0}
@@ -263,8 +263,9 @@ def construire(type_: str, id_: str = "", g=None, auteur: str = "atelier") -> di
                 t.setdefault("exigences", [])
                 if u not in t["exigences"]:
                     t["exigences"].append(u)
-                if s["resultat"]:
-                    t["attendu_exigence"] = s["resultat"]
+                attendu = _consequence(c, s)  # « le tableau de bord s'affiche » : la conséquence écrite dans le critère
+                if attendu:
+                    t["attendu_exigence"] = attendu
                 if cid and not t.get("garde"):
                     t.update(garde=cid, issue="vraie", garde_deduite=True)
             else:
@@ -273,6 +274,7 @@ def construire(type_: str, id_: str = "", g=None, auteur: str = "atelier") -> di
     m["manquant"] = manquant
     m["hypotheses"] = _hypotheses(m, g, textes)
     m = _fusionner(cm.charger(m["id"]), m)
+    _pre_post(m, _apres_authentification(m))  # préconditions et postconditions structurées, sourcées
     return cm.sauver(m, "reconstruction depuis le Knowledge Graph")
 
 
@@ -528,8 +530,8 @@ def _par_strategie(strategie: str, m: dict, etats: dict, trans: dict, st: dict, 
             dfs(i, [], {})
         bruts = [b for b in bruts if not any(_contient(s, b[0]) for s in deja["sequences"])]  # déjà couverts par un scénario
         if strategie == "critiques":
-            bruts = sorted(bruts, key=lambda x: (-_score(x[0], trans, st), len(x[0])))[: max(1, min(lim["chemins"], 10))]
-            bruts = [(p, f"Chemin prioritaire (score de risque {_score(p, trans, st)}) : " + j) for p, j in bruts]
+            bruts = sorted(bruts, key=lambda x: (-_score(x[0], trans, st, m), len(x[0])))[: max(1, min(lim["chemins"], 10))]
+            bruts = [(p, f"Chemin prioritaire (score de risque {_score(p, trans, st, m)}) : " + j) for p, j in bruts]
         cand = bruts
         cibles = {tuple(p) for p, _ in cand}
         etablis = {tuple(p) for p, _ in cand if all(t in etab_t for t in p)}
@@ -538,8 +540,17 @@ def _par_strategie(strategie: str, m: dict, etats: dict, trans: dict, st: dict, 
     return _minimiser(strategie, _reduire(cand), trans, cibles, etablis)[: lim["chemins"]]
 
 
-def _score(p: list[str], trans: dict, st: dict) -> int:
-    return sum(POIDS_PRIORITE.get(trans[t].get("priorite"), 1) for t in p) + (2 if p and trans[p[-1]]["vers"] in st["finaux"] else 0)
+def _score(p: list[str], trans: dict, st: dict, m: dict | None = None) -> int:
+    """Score de risque d'un chemin (stratégie orientée risque) : priorité des transitions, risque métier des actions
+    traversées (opération sensible, engagement), refus ou état d'erreur vérifié, état final atteint."""
+    s = sum(POIDS_PRIORITE.get(trans[t].get("priorite"), 1) for t in p) + (2 if p and trans[p[-1]]["vers"] in st["finaux"] else 0)
+    if m:
+        for t in p:
+            a = m["actions"].get(trans[t].get("action"), {}).get("libelle", "")
+            s += RISQUES[_risque_action(a, m["etats"].get(trans[t]["de"], {}).get("nom", ""))] - 1
+            if m["etats"].get(trans[t]["vers"], {}).get("type") == "erreur":
+                s += 2
+    return s
 
 
 def _contient(grand: list[str], petit: list[str]) -> bool:
@@ -950,28 +961,44 @@ def impact(mid: str, de: int | str, vers: int | str = "courante") -> dict:
 
 
 def impact_element(g, noeud: str) -> dict:
-    """Pour l'analyse d'impact du graphe : modèles, transitions et scénarios générés concernés par un élément changé
-    (écran, action, locator, keyword)."""
+    """Pour l'analyse d'impact du graphe et la non-régression d'un build : modèles, transitions et scénarios générés
+    concernés par un élément changé. Écran, action, locator ou keyword : ce qui le touche ; module : ses écrans ; User
+    Story ou règle : les transitions qui portent ses critères ou ses conditions. Scénarios renvoyés avec leurs tests
+    Robot et leur clé Xray quand elles existent (pour le périmètre de non-régression)."""
     N = g.noeuds
+    vide = {"modeles": [], "transitions": 0, "scenarios": [], "tests_robot": [], "tests_xray": []}
     if noeud not in N:
-        return {"modeles": [], "transitions": 0, "scenarios": []}
+        return vide
     n = N[noeud]
-    ecran = noeud if n.type == "ecran" else ""
-    if n.type in ("locator", "action"):
-        ecran = "ecran:" + (n.proprietes.get("ecran") or noeud.split(":", 1)[1].split(".", 1)[0].split("@", 1)[0])
+    ecrans = set()
+    if n.type == "ecran":
+        ecrans.add(noeud)
+    elif n.type in ("locator", "action"):
+        ecrans.add("ecran:" + (n.proprietes.get("ecran") or noeud.split(":", 1)[1].split(".", 1)[0].split("@", 1)[0]))
+    elif n.type == "module":
+        ecrans |= {r.vers for r in g.sortants(noeud) if r.type == "contient" and N[r.vers].type == "ecran"}
     out, scen = [], set()
     for x in cm.lister():
         m = cm.charger(x["id"]) or {}
-        etats = {k for k, e in (m.get("etats") or {}).items() if e.get("ecran") == ecran or e.get("ecran") == noeud}
-        ts = {k for k, t in (m.get("transitions") or {}).items() if t.get("de") in etats or t.get("vers") in etats
-              or noeud in (m.get("actions") or {}).get(t.get("action"), {}).get("locators", [])
-              or noeud in (m.get("actions") or {}).get(t.get("action"), {}).get("keywords", [])}
+        E, T, A, C = (m.get(k) or {} for k in ("etats", "transitions", "actions", "conditions"))
+        etats = {k for k, e in E.items() if e.get("ecran") in ecrans or e.get("us") == noeud}
+        conds = {k for k, c in C.items() if c.get("us") == noeud or noeud in (c.get("exigences") or []) or c.get("regle") == noeud}
+        ts = {k for k, t in T.items() if t.get("de") in etats or t.get("vers") in etats or t.get("garde") in conds
+              or noeud in (t.get("exigences") or []) or t.get("us") == noeud
+              or noeud in A.get(t.get("action"), {}).get("locators", []) or noeud in A.get(t.get("action"), {}).get("keywords", [])}
         if not ts and not etats:
             continue
-        derives = [v.get("scenario") for v in (m.get("chemins_generes") or {}).values() if set(v.get("transitions") or []) & ts]
-        scen |= {s for s in derives if s}
+        scen |= {v.get("scenario") for v in (m.get("chemins_generes") or {}).values() if set(v.get("transitions") or []) & ts and v.get("scenario")}
         out.append({"id": x["id"], "nom": x["nom"], "etats": len(etats), "transitions": len(ts)})
-    return {"modeles": out, "transitions": sum(x["transitions"] for x in out), "scenarios": sorted(scen)}
+    robots, xray = set(), set()
+    for s in scen:
+        sid = f"scenario:{s}"
+        if sid in N:
+            robots |= {r.vers for r in g.sortants(sid) if r.type == "implemente_par" and r.confirmee}
+            if N[sid].proprietes.get("cle_xray"):
+                xray.add(N[sid].proprietes["cle_xray"])
+    return {"modeles": out, "transitions": sum(x["transitions"] for x in out), "scenarios": sorted(scen),
+            "tests_robot": sorted(robots), "tests_xray": sorted(xray)}
 
 
 # =========================================================================== automatisation (lot 7)
@@ -1179,7 +1206,10 @@ def _hypotheses(m: dict, g, textes: list[str]) -> dict:
         if cat in documente or len(out) >= MAX_HYPOTHESES:
             return
         hid = f"H-{cat}-{_h(de, action, condition, issue, evenement)}"
+        risque = "élevé" if cat in ("acces_non_autorise", "interruption", "double_soumission") and SENSIBLE.search(action or libelle) \
+            else "élevé" if cat == "acces_non_autorise" else _risque_action(action, E.get(de, {}).get("nom", ""))
         out[hid] = {"id": hid, "categorie": cat, "categorie_libelle": cm.CATEGORIES_HYPOTHESE[cat], "libelle": libelle, "description": description,
+                    "risque": risque,
                     "de": de, "action": action, "evenement": evenement, "condition": condition, "issue": issue, "etat_nom": etat_nom,
                     "etat_type": etat_type, "statut": "proposée", "source": "catalogue des comportements exceptionnels de l'atelier",
                     "justification": "Comportement non décrit par les exigences ni par les règles : à confirmer avec l'équipe (résultat attendu inconnu)."}
@@ -1202,7 +1232,8 @@ def _hypotheses(m: dict, g, textes: list[str]) -> dict:
                             f"{'non remplie' if contraire == 'fausse' else 'remplie'} ? Aucune règle connue ne le dit.", "de": t["de"],
                             "action": A.get(t.get("action"), {}).get("libelle", ""), "evenement": t.get("evenement", ""), "condition": lib, "issue": contraire,
                             "etat_nom": out_lib[:120], "etat_type": "erreur", "statut": "proposée", "source": f"condition {cid}",
-                            "justification": "La condition inverse doit être étudiée ; son résultat n'est proposé que si une règle le décrit."}
+                            "justification": "La condition inverse doit être étudiée ; son résultat n'est proposé que si une règle le décrit.",
+                            "risque": _risque_action(A.get(t.get("action"), {}).get("libelle", ""), E[t["de"]].get("nom", ""))}
     # soumissions : double soumission, perte de connexion, retour arrière, interruption et reprise, session expirée
     authentifie = any(AUTH.search(e.get("nom", "")) for e in E.values())
     engage = re.compile(r"(?i)valid|confirm|envoy|soumet|payer|signer|souscri|command")
@@ -1252,7 +1283,7 @@ def _hypotheses(m: dict, g, textes: list[str]) -> dict:
             if init:
                 ajouter("acces_non_autorise", init, f"Accès direct à « {E[k]['nom']} » sans être authentifié",
                         f"Accès à « {E[k]['nom']} » refusé : comportement à confirmer", evenement=f"accès direct à « {E[k]['nom']} »")
-    return out
+    return dict(sorted(out.items(), key=lambda kv: (-RISQUES.get(kv[1].get("risque"), 1), kv[0])))  # le plus risqué d'abord
 
 
 def _issues(trans: dict, p: list[str]) -> set:
@@ -1443,3 +1474,59 @@ def tracabilite(cle: str) -> dict:
             ],
             "a_confirmer": [e["texte"] for sc in s.get("scenarios", []) for e in sc.get("etapes", []) if "à confirmer" in e.get("texte", "")],
             "remarque": "Un scénario conçu ou généré n'est jamais une preuve de validation : seule une exécution réussie l'est."}
+
+
+RISQUES = {"élevé": 3, "moyen": 2, "faible": 1}
+
+
+def _risque_action(libelle: str, etat_nom: str = "") -> str:
+    """Risque métier d'une action : élevé si elle engage de l'argent ou des données sensibles (virement, paiement,
+    signature, suppression), moyen si elle engage l'utilisateur (valider, confirmer, envoyer), faible sinon."""
+    if SENSIBLE.search(libelle or ""):
+        return "élevé"
+    if re.search(r"(?i)valid|confirm|envoy|soumet|enregistr|command|souscri", libelle or ""):
+        return "élevé" if SENSIBLE.search(etat_nom or "") else "moyen"
+    return "faible"
+
+
+def _pre_post(m: dict, auth: set) -> None:
+    """Préconditions et postconditions structurées de chaque transition, chacune avec sa source (jamais inventées) :
+    - précondition « Utilisateur authentifié » quand l'état de départ n'est atteignable qu'après un écran
+      d'authentification (observé) ; la condition gardant la transition (issue vraie ou fausse, niveau de la condition) ;
+    - postcondition : l'état atteint (observé), le résultat écrit dans l'exigence (Confirmé), ou « à confirmer »."""
+    for t in m["transitions"].values():
+        pre, post = [], []
+        if t["de"] in auth:
+            pre.append({"texte": "Utilisateur authentifié", "source": "navigation observée (écran d'authentification en amont)", "niveau": "Observé"})
+        c = m["conditions"].get(t.get("garde") or "")
+        if c:
+            pre.append({"texte": c.get("libelle", "") if t.get("issue") != "fausse" else f"non : {c.get('libelle', '')}",
+                        "source": c.get("source", ""), "niveau": cm.niveau(c)})
+        cible = m["etats"].get(t["vers"], {})
+        if cible.get("type") == "ecran":
+            post.append({"texte": f"L'écran « {cible.get('nom')} » est affiché", "source": "carte (Discovery)", "niveau": "Observé"})
+        if t.get("attendu_exigence"):
+            post.append({"texte": t["attendu_exigence"][0].upper() + t["attendu_exigence"][1:], "source": ", ".join(t.get("exigences") or []) or "exigence",
+                         "niveau": "Confirmé"})
+        if cible.get("type") in ("erreur", "systeme", "metier"):
+            if t.get("postconditions") and not t.get("postconditions_a_confirmer"):
+                post.append({"texte": t["postconditions"][0].upper() + t["postconditions"][1:], "source": t.get("source", ""), "niveau": "Confirmé" if t.get("exigences") else cm.niveau(t)})
+            else:
+                post.append({"texte": "Résultat attendu à confirmer", "source": "aucune exigence ne le précise", "niveau": "À confirmer"})
+        t["preconditions_liste"], t["postconditions_liste"] = pre, post
+
+
+def _apres_authentification(m: dict) -> set:
+    """États atteints APRÈS un écran d'authentification (connexion, login) : ils supposent un utilisateur authentifié."""
+    succ: dict = {}
+    for t in m["transitions"].values():
+        succ.setdefault(t["de"], set()).add(t["vers"])
+    vus, file = set(), [k for k, e in m["etats"].items() if AUTH.search(e.get("nom", "")) and e.get("type") == "ecran"]
+    file = [y for x in file for y in succ.get(x, ())]
+    while file:
+        x = file.pop()
+        if x in vus or AUTH.search(m["etats"].get(x, {}).get("nom", "")):
+            continue
+        vus.add(x)
+        file += list(succ.get(x, ()))
+    return vus

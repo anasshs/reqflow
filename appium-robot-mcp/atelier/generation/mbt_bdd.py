@@ -17,7 +17,9 @@ from atelier.generation import bdd
 from atelier.intelligence import mbt
 
 ORIGINES = ("US_AI", "MBT", "US_MBT", "Manual")
-CLASSES = ("Doublon", "Redondance partielle", "Variante", "Complémentaire", "Nouveau")
+# Trois décisions : Réutilisation (un scénario existant couvre déjà ce chemin : rien n'est créé), Complémentaire (un
+# scénario existant en couvre une partie : le nouveau le prolonge ou en est une variante), Nouveau.
+CLASSES = ("Réutilisation", "Complémentaire", "Nouveau")
 
 
 def classer(chemin: dict, modele: dict, scenarios: list[dict] | None = None) -> dict:
@@ -27,7 +29,7 @@ def classer(chemin: dict, modele: dict, scenarios: list[dict] | None = None) -> 
     conc = mbt.couverture_conception(modele, scenarios)
     p, etats = list(chemin["transitions"]), set(chemin["etats"])
     issues = {(c["id"], c["issue"]) for c in chemin["conditions"]}
-    meilleur = {"classe": "Nouveau", "scenario": "", "raison": "aucun scénario ne parcourt ces transitions"}
+    meilleur = {"classe": "Nouveau", "nuance": "", "scenario": "", "raison": "aucun scénario ne parcourt ces transitions"}
     rang = {c: i for i, c in enumerate(CLASSES)}
     for s in scenarios:
         cle = s.get("cle", "")
@@ -36,19 +38,19 @@ def classer(chemin: dict, modele: dict, scenarios: list[dict] | None = None) -> 
             continue
         x = s.get("mbt") or {}
         if ts == p or (set(ts) == set(p) and len(ts) == len(p)):
-            c, r = "Doublon", "mêmes transitions, mêmes conditions"
+            c, nu, r = "Réutilisation", "identique", "mêmes transitions, mêmes conditions : réutiliser le scénario existant"
         elif mbt._contient(ts, p):
-            c, r = "Redondance partielle", "le scénario existant parcourt déjà tout ce chemin"
+            c, nu, r = "Réutilisation", "contenu", "le scénario existant parcourt déjà tout ce chemin : le réutiliser"
         elif mbt._contient(p, ts):
-            c, r = "Complémentaire", f"prolonge le scénario existant {cle} (même début, comportement supplémentaire)"
+            c, nu, r = "Complémentaire", "prolonge", f"prolonge le scénario existant {cle} (même début, comportement supplémentaire)"
         elif x.get("state_ids") and set(x["state_ids"]) == etats and {(i["id"], i["issue"]) for i in x.get("conditions") or []} != issues:
-            c, r = "Variante", "mêmes états, conditions ou issues différentes"
+            c, nu, r = "Complémentaire", "variante", "mêmes états, conditions ou issues différentes (variante)"
         elif set(ts) & set(p):
-            c, r = "Complémentaire", "transitions en partie communes"
+            c, nu, r = "Complémentaire", "partiel", "transitions en partie communes"
         else:
             continue
         if rang[c] < rang[meilleur["classe"]]:
-            meilleur = {"classe": c, "scenario": cle, "raison": r}
+            meilleur = {"classe": c, "nuance": nu, "scenario": cle, "raison": r}
     return meilleur
 
 
@@ -70,6 +72,9 @@ def modele_bdd(chemin: dict, m: dict, origine: str = "MBT", us: list[str] | None
     etapes = []
     e0 = E[chemin["etats"][0]]
     etapes.append(bdd._etape("Étant donné", f"que je suis sur l'écran {e0['nom']}" if e0.get("type") == "ecran" else e0["nom"], ecran=ecran(chemin["etats"][0])))
+    t0 = T[chemin["transitions"][0]] if chemin["transitions"] else {}
+    if any(x["texte"] == "Utilisateur authentifié" for x in t0.get("preconditions_liste") or []):  # précondition du point de départ
+        etapes.append(bdd._etape("Et", "que je suis authentifié", ecran=ecran(chemin["etats"][0])))
     for tid in chemin["transitions"]:
         t = T[tid]
         if t.get("garde"):
@@ -94,6 +99,8 @@ def modele_bdd(chemin: dict, m: dict, origine: str = "MBT", us: list[str] | None
             texte = (t.get("postconditions") or ("l'opération est refusée" if cible.get("type") == "erreur" else texte)) + " (résultat attendu à confirmer)"
         etapes.append(bdd._etape("Alors", texte, ecran=ecran(t["vers"]) if cible.get("type") == "ecran" else ecran(t["de"]),
                                  resultat_attendu="" if t.get("postconditions_a_confirmer") else (t.get("postconditions") or "")))
+        if cible.get("type") == "ecran" and t.get("attendu_exigence"):  # postcondition écrite dans l'exigence (Confirmé)
+            etapes.append(bdd._etape("Et", t["attendu_exigence"], ecran=ecran(t["vers"]), resultat_attendu=t["attendu_exigence"]))
     titre = chemin["titre"][:200]
     us = us if us is not None else list(m.get("us") or [])
     trace = {"model_id": m["id"], "model_version": m["version"], "state_ids": chemin["etats"], "transition_ids": chemin["transitions"],
@@ -127,7 +134,7 @@ def generer(mid: str, chemins: list[str] | None = None, strategie: str = "transi
     crees, ignores = [], []
     for p in choisis:
         cl = classer(p, m, scenarios)
-        if cl["classe"] == "Doublon" and not forcer:
+        if cl["classe"] == "Réutilisation" and not forcer:
             ignores.append({"chemin": p["id"], "titre": p["titre"], **cl})
             continue
         s = modele_bdd(p, m, origine)
