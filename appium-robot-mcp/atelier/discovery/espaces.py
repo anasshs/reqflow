@@ -32,12 +32,29 @@ def _typer(g: Graphe, d: dict) -> dict:
     return d
 
 
-def _limiter(g: Graphe) -> dict:
+TYPES_CLES = ("application", "module", "fonctionnalite", "parcours", "ecran", "scenario", "user_story", "epic", "test")
+
+
+def _limiter(g: Graphe, prioritaires: set | None = None) -> dict:
+    """Au-delà de MAX_NOEUDS, l'AFFICHAGE est une sélection (le référentiel n'est jamais tronqué) : d'abord l'élément
+    sélectionné et le périmètre demandé, puis leurs voisins directs, puis les éléments clés (modules, parcours, écrans,
+    tests…) les plus reliés, puis le reste. Ce qui n'est pas affiché est compté par type (« masques_par_type »)."""
     total = len(g.noeuds)
     if total > MAX_NOEUDS:
-        garde = sorted(g.noeuds, key=lambda i: (CATEGORIES.index(g.noeuds[i].categorie), i))[:MAX_NOEUDS]
+        prio = set(prioritaires or ()) & set(g.noeuds)
+        voisins = {r.vers for r in g.relations.values() if r.de in prio} | {r.de for r in g.relations.values() if r.vers in prio}
+        degre: dict = {}
+        for r in g.relations.values():
+            degre[r.de] = degre.get(r.de, 0) + 1
+            degre[r.vers] = degre.get(r.vers, 0) + 1
+        rang = lambda i: (0 if i in prio else 1 if i in voisins else 2 if g.noeuds[i].type in TYPES_CLES else 3,  # noqa: E731
+                          -degre.get(i, 0), CATEGORIES.index(g.noeuds[i].categorie), i)
+        garde = sorted(g.noeuds, key=rang)[:MAX_NOEUDS]
+        masques: dict = {}
+        for i in set(g.noeuds) - set(garde):
+            masques[g.noeuds[i].type] = masques.get(g.noeuds[i].type, 0) + 1
         g = g.sous_graphe(garde)
-        return {**_typer(g, g.vers_dict()), "tronque": True, "total": total}
+        return {**_typer(g, g.vers_dict()), "tronque": True, "total": total, "masques_par_type": masques}
     return {**_typer(g, g.vers_dict()), "tronque": False}
 
 
@@ -158,7 +175,8 @@ def vue_connaissance(types: list[str] | None = None, categories: list[str] | Non
     vue = g.filtrer(types, categories, plateforme, recherche)
     if types and not centre:
         projeter_liens(g, vue)
-    return {**_limiter(vue), "patrimoine_masque": masques}
+    prio = {centre} if centre else (ids_perimetre(g, perimetre) if perimetre and perimetre in g.noeuds else set())
+    return {**_limiter(vue, prio), "patrimoine_masque": masques}
 
 
 def projeter_liens(complet, vue, max_par_noeud: int = 12):
@@ -215,6 +233,59 @@ def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = ""
     v = v.filtrer(recherche=recherche)
     return {**_limiter(v), "indicateurs": couverture.indicateurs(g, pat), "instantane": patrimoine_xray.etat(),
             "modules": sorted({n.libelle for n in g.noeuds.values() if n.type == "module"}), "module": module, "focus": focus}
+
+
+def qualite() -> dict:
+    """Indicateurs de qualité du référentiel (pas des erreurs de construction) : nœuds orphelins (hors parcours
+    simplement déclaré : information de complétude), relations non validées, parcours incomplets, fonctionnalités sans
+    test, tests sans parcours ni fonctionnalité, écrans sans parcours, tests sans résultat, relations dont le sens métier
+    n'est pas reconnu pour cette paire de types (incohérentes)."""
+    g = _graphe()
+    n, rels = g.noeuds, list(g.relations.values())
+    lies = {r.de for r in rels} | {r.vers for r in rels}
+    entrants: dict = {}
+    for r in rels:
+        entrants.setdefault(r.vers, []).append(r)
+    sortants: dict = {}
+    for r in rels:
+        sortants.setdefault(r.de, []).append(r)
+    lib = lambda ids: sorted(({"id": i, "libelle": n[i].libelle, "type": n[i].type} for i in ids), key=lambda x: x["id"])[:40]  # noqa: E731
+    orphelins = [i for i, x in n.items() if i not in lies and not (x.type == "parcours" and x.proprietes.get("completude") == "déclaré")]
+    incomplets = [i for i, x in n.items() if x.type == "parcours" and x.proprietes.get("completude") not in ("exploré", "confirmé")]
+    verifiees = {r.vers for r in rels if r.type in ("verifie", "teste_par", "verifiee_sur") and r.confirmee}
+    verifiees |= {r.de for r in rels if r.type == "teste_par" and r.confirmee}
+    f_sans_test = [i for i, x in n.items() if x.type == "fonctionnalite" and i not in verifiees]
+    t_sans_cible = [i for i, x in n.items() if x.type == "scenario"
+                    and not any(r.type in ("verifie", "couvre") for r in sortants.get(i, []))]
+    e_sans_parcours = [i for i, x in n.items() if x.type == "ecran"
+                       and not any(r.type == "contient" and n[r.de].type == "parcours" for r in entrants.get(i, []))]
+    sans_resultat = [i for i, x in n.items() if x.type == "test_robot" and not x.proprietes.get("dernier_statut")]
+    non_validees = [r for r in rels if r.statut != "validé"]
+    incoherentes = [r for r in rels if ontologie.metier(r, g)["generique"]]
+    bloc = lambda ids, aide: {"nombre": len(ids), "elements": lib(ids), "aide": aide}  # noqa: E731
+    return {
+        "orphelins": bloc(orphelins, "Éléments sans aucune relation."),
+        "parcours_incomplets": {**bloc(incomplets, "Parcours déclarés, découverts ou partiellement explorés."),
+                                "par_completude": {c: sum(1 for i in incomplets if n[i].proprietes.get("completude") == c)
+                                                   for c in ("déclaré", "découvert", "partiellement exploré")}},
+        "fonctionnalites_sans_test": bloc(f_sans_test, "Aucun test ne les vérifie (lien confirmé)."),
+        "tests_sans_parcours": bloc(t_sans_cible, "Tests BDD qui ne vérifient aucun parcours et ne couvrent aucun écran."),
+        "ecrans_sans_parcours": bloc(e_sans_parcours, "Écrans qu'aucun parcours ne traverse."),
+        "tests_sans_resultat": bloc(sans_resultat, "Tests Robot jamais exécutés (aucun output.xml)."),
+        "relations_non_validees": {"nombre": len(non_validees), "aide": "Propositions à valider : hors couverture, impact et TNR officiels."},
+        "relations_incoherentes": {"nombre": len(incoherentes), "aide": "Relations dont le sens métier n'est pas reconnu pour cette paire de types.",
+                                   "exemples": [{"de": r.de, "type": r.type, "vers": r.vers} for r in incoherentes[:20]]},
+        "doublons_bdd": couverture_doublons(),
+    }
+
+
+def couverture_doublons() -> list[dict]:
+    from atelier.intelligence import couverture
+
+    try:
+        return couverture.doublons_bdd()
+    except Exception:  # noqa: BLE001 — un test BDD illisible ne bloque pas les indicateurs
+        return []
 
 
 def candidats(module: str = "") -> list[dict]:

@@ -71,6 +71,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
             <label>Liens <select class="in" id="kg-conf" aria-label="Filtrer les liens par confiance"><option value="">Tous</option><option value="confirmée">Confirmés seulement</option><option value="probable">Confirmés et probables</option></select></label>
             <label><input type="checkbox" id="kg-patrimoine"> Tout le patrimoine Jira / Xray</label>
             <hr><button id="kg-m-src">${ico("donnee")}Sources du graphe</button>
+            <button id="kg-m-qual">${ico("assertion")}Qualité du graphe et doublons</button>
             <button id="kg-m-anom">${ico("aide")}Anomalies et recommandations</button>
             <button id="kg-m-histo">${ico("historique")}Historique des modifications</button>
             <button id="kg-m-ajout">${ico("plus")}Ajouter un élément</button>
@@ -106,6 +107,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       $("#kg-ex").onclick = exporter;
       $("#kg-m-src").onclick = sourcesGraphe;
       $("#kg-m-anom").onclick = anomalies;
+      $("#kg-m-qual").onclick = qualite;
       $("#kg-m-histo").onclick = historique;
       $("#kg-m-ajout").onclick = formulaireAjout;
       $("#kg-direct").onclick = () => basculerDirect(!S.direct);
@@ -371,7 +373,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     $("#kg-legende").innerHTML = `<ul class="liste legende-types">${FAMILLES_GRAPHE.map(f => `<li data-cat="${f.id}" class="${S.famillesMasquees.has(f.id) ? "inactif" : ""}"
       title="Afficher / masquer : ${esc(f.types.join(", "))}"><span class="carre" style="background:var(--f-${f.id})"></span>${f.nom}<span class="compte">${comptes[f.id] || 0}</span></li>`).join("")}</ul>
       ${S.data?.patrimoine_masque ? `<p class="lib">${S.data.patrimoine_masque} ticket(s) Jira / Xray sans lien avec l'application masqué(s) : <button class="lien" id="kg-patri-tout">tout afficher</button> (ou rechercher une clé).</p>` : ""}
-      ${S.data?.tronque ? `<p class="lib">Affichage limité à ${S.data.noeuds.length} éléments sur ${S.data.total} : filtrer.</p>` : ""}`;
+      ${S.data?.tronque ? `<p class="lib">Affichage limité à ${S.data.noeuds.length} éléments sur ${S.data.total} (sélection, périmètre et éléments clés d'abord ; rien n'est perdu).
+        Non affichés : ${esc(Object.entries(S.data.masques_par_type || {}).map(([t, n]) => `${n} ${t}`).join(", "))}. Choisir un périmètre ou une perspective pour les voir.</p>` : ""}`;
     if ($("#kg-patri-tout")) $("#kg-patri-tout").onclick = () => { S.params.patrimoine = "tout"; if ($("#kg-patrimoine")) $("#kg-patrimoine").checked = true; charger(); };
     $$("#kg-legende [data-cat]").forEach(li => li.onclick = () => {
       const c = li.dataset.cat;
@@ -653,6 +656,27 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       } catch (e) { toast(e.message, "ko"); }
     };
     if ($("#tnr-dry")) { $("#tnr-dry").onclick = () => lancer(true); $("#tnr-run").onclick = () => confirm("Lancer la TNR ciblée ?") && lancer(false); }
+  }
+
+  /* qualité du référentiel : informations de complétude, jamais des erreurs ; doublons de tests BDD par leur contenu */
+  async function qualite() {
+    detail("Qualité du graphe", "<p class='lib'>Calcul…</p>");
+    let q;
+    try { q = await api("/api/graphes/qualite"); } catch (e) { return detail("Qualité du graphe", esc(e.message)); }
+    S.selection = null;
+    const ligne = (lib, b) => `<details><summary><b>${b.nombre}</b> ${lib}</summary><p class="lib">${esc(b.aide)}</p>${(b.elements || []).length ? `<div class="btns">${b.elements.map(x =>
+      `<button class="pill lien" data-sel="${esc(x.id)}">${esc(x.libelle)}</button>`).join("")}</div>` : ""}</details>`;
+    const pct = x => Math.round((x || 0) * 100) + " %";
+    const D = {"doublon probable": "ko", "variante métier": "info", "partiellement redondant": "warn", "couverture complémentaire": ""};
+    detail("Qualité du graphe", `${ligne("parcours incomplets", q.parcours_incomplets)}${ligne("fonctionnalités sans test", q.fonctionnalites_sans_test)}
+      ${ligne("tests BDD sans parcours ni écran", q.tests_sans_parcours)}${ligne("écrans sans parcours", q.ecrans_sans_parcours)}
+      ${ligne("tests Robot sans résultat", q.tests_sans_resultat)}${ligne("éléments orphelins", q.orphelins)}
+      <p><b>${q.relations_non_validees.nombre}</b> relation(s) à valider · <b>${q.relations_incoherentes.nombre}</b> relation(s) au sens métier non reconnu</p>
+      <h3 class="lib" style="margin:12px 0 4px">TESTS BDD PROCHES (${q.doublons_bdd.length})</h3>
+      ${q.doublons_bdd.length ? `<ul class="liste">${q.doublons_bdd.map(d => `<li><span class="pill ${D[d.classe] ?? ""}">${esc(d.classe)}</span>
+        <button class="lien" data-sel="scenario:${esc(d.tests[0])}">${esc(d.titres[0])}</button> ≈ <button class="lien" data-sel="scenario:${esc(d.tests[1])}">${esc(d.titres[1])}</button>
+        <span class="lib">étapes ${pct(d.similarites.etapes)} · résultats ${pct(d.similarites.attendus)} · écrans ${pct(d.similarites.ecrans)}</span></li>`).join("")}</ul>
+        <p class="lib">Comparaison du contenu (étapes, actions, résultats attendus, écrans, données). Une fusion se décide dans Tests BDD.</p>` : "<p class='lib'>Aucun.</p>"}`);
   }
 
   async function anomalies() {

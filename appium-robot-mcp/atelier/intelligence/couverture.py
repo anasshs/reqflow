@@ -199,6 +199,56 @@ def deposer_jugements_redondances(tests: list[dict], jugements: list[dict], sour
     return {"retenus": sum(retenus.values()), **retenus, "refuses": refuses}
 
 
+def _profil_bdd(m: dict) -> dict:
+    etapes = [e for s in m.get("scenarios", []) for e in s.get("etapes", [])]
+    return {"titre": _mots(m.get("titre") or m.get("feature") or ""),
+            "etapes": {" ".join(sorted(_mots(e.get("texte", "")))) for e in etapes},
+            "actions": {" ".join(sorted(_mots(e.get("texte", "")))) for e in etapes if e.get("type") in ("when", "quand")},
+            "attendus": {" ".join(sorted(_mots(e.get("texte", "")))) for e in etapes if e.get("type") in ("then", "alors")},
+            "ecrans": {e.get("ecran") for e in etapes if e.get("ecran")}, "jdd": m.get("jdd") or "", "parcours": m.get("parcours") or "",
+            "module": m.get("module") or ""}
+
+
+def _jac(a: set, b: set) -> float:
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def doublons_bdd(limite: int = 40) -> list[dict]:
+    """Tests BDD comparés sur leur contenu, pas leur titre : étapes, actions, résultats attendus, écrans traversés,
+    données. Classement : doublon probable (mêmes actions et mêmes résultats), variante métier (même chemin,
+    résultat attendu différent), partiellement redondant (une bonne part des étapes en commun), couverture
+    complémentaire (même parcours ou mêmes écrans, étapes différentes). Aucune fusion automatique : décision humaine."""
+    from atelier.generation import bdd
+
+    profils = {}
+    for b in bdd.lister():
+        m = bdd.charger(b["cle"]) or {}
+        profils[b["cle"]] = (b.get("titre") or b["cle"], _profil_bdd(m))
+    cles, out = sorted(profils), []
+    for i, a in enumerate(cles):
+        for c in cles[i + 1:]:
+            (ta, pa), (tc, pc) = profils[a], profils[c]
+            if pa["module"] and pc["module"] and pa["module"] != pc["module"] and not (pa["ecrans"] & pc["ecrans"]):
+                continue
+            s_et, s_ac, s_at, s_ec = _jac(pa["etapes"], pc["etapes"]), _jac(pa["actions"], pc["actions"]), \
+                _jac(pa["attendus"], pc["attendus"]), _jac(pa["ecrans"], pc["ecrans"])
+            if s_ac >= 0.8 and s_at >= 0.8:
+                classe = "doublon probable"
+            elif s_ec >= 0.7 and s_at < 0.5 and (s_ac >= 0.5 or s_ec == 1.0):
+                classe = "variante métier"
+            elif s_et >= 0.4:
+                classe = "partiellement redondant"
+            elif (pa["parcours"] and pa["parcours"] == pc["parcours"]) or s_ec >= 0.5:
+                classe = "couverture complémentaire"
+            else:
+                continue
+            out.append({"tests": [a, c], "titres": [ta, tc], "classe": classe,
+                        "similarites": {"etapes": round(s_et, 2), "actions": round(s_ac, 2), "attendus": round(s_at, 2), "ecrans": round(s_ec, 2)},
+                        "memes_donnees": bool(pa["jdd"]) and pa["jdd"] == pc["jdd"]})
+    ordre = {"doublon probable": 0, "variante métier": 1, "partiellement redondant": 2, "couverture complémentaire": 3}
+    return sorted(out, key=lambda x: (ordre[x["classe"]], -x["similarites"]["etapes"]))[:limite]
+
+
 def couverture_atelier(g: Graphe) -> dict:
     """Couverture sans Xray, lue dans le graphe : parcours, écrans et fonctionnalités vérifiés par un test BDD, tests BDD
     automatisés (test Robot qui porte leur identifiant ou leur clé Xray) et leur dernier résultat. Seules les relations

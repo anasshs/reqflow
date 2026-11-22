@@ -1456,6 +1456,12 @@ async def graphe_candidats(module: str = ""):
     return await asyncio.to_thread(_call, espaces.candidats, module)
 
 
+@app.get("/api/graphes/qualite")
+async def graphe_qualite():
+    """Indicateurs de qualité du Knowledge Graph et doublons des tests BDD (comparés sur leur contenu)."""
+    return await asyncio.to_thread(_call, espaces.qualite)
+
+
 @app.get("/api/graphes/flux")
 async def graphe_flux(cible: str = "", mode: str = "verifie", module: str = ""):
     return await asyncio.to_thread(_call, espaces.vue_flux, cible, mode, module)
