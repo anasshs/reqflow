@@ -40,6 +40,7 @@ RELATIONS_DEPENDANCE = {"appelle", "utilise", "depend_de"}
 DOSSIERS_IGNORES = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".mcp_snapshots", ".idea", ".vscode"}
 VARIABLES = ("APP_MAP_DIR", "CONNAISSANCE_DIR", "PATRIMOINE_FICHIER", "MAP_SEUIL_SIMILARITE", "ATELIER_PROJETS")
 STABILITE_S = 2.0
+SANS_EFFET = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".webm", ".html", ".log", ".zip", ".svg", ".bak", ".tmp")
 _CACHE_GRAPHE: dict = {}
 _VERROU_GRAPHE = threading.Lock()
 
@@ -56,6 +57,8 @@ def _empreinte_projet() -> tuple[str, float]:
     for r, ds, fs in os.walk(racine):
         ds[:] = sorted(d for d in ds if d not in DOSSIERS_IGNORES)
         for nom in sorted(fs):
+            if nom.lower().endswith(SANS_EFFET):
+                continue
             p = os.path.join(r, nom)
             try:
                 st = os.stat(p)
@@ -74,6 +77,47 @@ def _empreinte_projet() -> tuple[str, float]:
 def vider_cache():
     with _VERROU_GRAPHE:
         _CACHE_GRAPHE.clear()
+        _MEMO_SOURCES.clear()
+
+
+# =========================================================================== sources relues seulement si elles changent
+# Une Discovery modifie la carte, pas le dépôt Robot ni les résultats : leur lecture (la plus coûteuse sur un vrai dépôt)
+# est réutilisée tant que leurs propres fichiers n'ont pas changé. L'assemblage du graphe, lui, est refait : il est rapide,
+# déterministe et ne laisse jamais une relation d'une ancienne version d'un fichier (un fichier retiré disparaît).
+_MEMO_SOURCES: dict = {}
+DERNIERE_CONSTRUCTION: dict = {}
+
+
+def _fichiers(motifs: tuple[str, ...], sous: str = "") -> list:
+    base = projet.PROJECT_DIR / sous if sous else projet.PROJECT_DIR
+    if not base.exists():
+        return []
+    out = []
+    for r, ds, fs in os.walk(base):
+        ds[:] = sorted(d for d in ds if d not in DOSSIERS_IGNORES)
+        out += [os.path.join(r, f) for f in sorted(fs) if any(Path(f).match(m) for m in motifs)]
+    return out
+
+
+def _memo(nom: str, fichiers: list, calcul):
+    """Résultat de calcul() réutilisé tant que les fichiers de la source (chemin, taille, date) sont identiques."""
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(projet.PROJECT_DIR).encode())
+    for f in fichiers:
+        try:
+            st = os.stat(f)
+        except OSError:
+            continue
+        h.update(f"\n{f}|{st.st_size}|{st.st_mtime_ns}".encode())
+    cle = h.hexdigest()
+    m = _MEMO_SOURCES.get(nom)
+    if m and m[0] == cle:
+        DERNIERE_CONSTRUCTION.setdefault("reutilisees", []).append(nom)
+        return pickle.loads(m[1])
+    val = calcul()
+    _MEMO_SOURCES[nom] = (cle, pickle.dumps(val, protocol=pickle.HIGHEST_PROTOCOL))
+    DERNIERE_CONSTRUCTION.setdefault("relues", []).append(nom)
+    return val
 
 
 # =========================================================================== construction
@@ -176,16 +220,18 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
     from atelier.execution.robot import derniers_resultats
     from atelier.intelligence import patrimoine_xray
 
+    debut = time.perf_counter()
+    DERNIERE_CONSTRUCTION.clear()
     g = Graphe("connaissance")
     _depuis_carte(g)
-    inv = inventaire if inventaire is not None else depot_robot.lire_depot()
+    inv = inventaire if inventaire is not None else _memo("dépôt Robot", _fichiers(("*.robot", "*.resource")), depot_robot.lire_depot)
     _depuis_depot(g, inv)
     _depuis_jdd(g)
     _depuis_patrimoine(g, patrimoine_xray.charger_vue())
     _depuis_couverture(g)
     _depuis_bdd(g, inv)
     _depuis_openapi(g)
-    _resultats(g, derniers_resultats())
+    _resultats(g, _memo("résultats des runs", _fichiers(("output.xml",), "results"), derniers_resultats))
     if avec_declarations:
         declarations.appliquer(g)
     _depuis_donnees(g)  # après les déclarations : les parcours déclarés reçoivent les variables de leurs écrans
@@ -194,6 +240,8 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
     _enrichir_champs(g)
     _depuis_anomalies(g)
     _marquer_automatisation(g)
+    DERNIERE_CONSTRUCTION.update(duree_s=round(time.perf_counter() - debut, 3), noeuds=len(g.noeuds), relations=len(g.relations),
+                                 date=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return g
 
 
@@ -876,4 +924,5 @@ def sources() -> dict:
     d = declarations.charger()
     out["declarations"] = {"noeuds": len(d["noeuds"]), "relations": len(d["relations"]),
                            "a_valider": sum(n.get("statut") == "à valider" for n in d["noeuds"].values())}
+    out["construction"] = dict(DERNIERE_CONSTRUCTION)  # durée, sources relues ou réutilisées, volume
     return out

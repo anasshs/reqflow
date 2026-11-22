@@ -44,7 +44,7 @@ couverture / flux / impact sans Xray). Règle : un seul graphe, un seul moteur ;
 | Lot | Contenu | État |
 |---|---|---|
 | 1 | Confiance des relations ; actions utilisateur en nœuds (écran → permet → action → aboutit à → écran) ; tests BDD dans le graphe et ponts (scénario → vérifie → parcours, couvre → écran, implémenté par → test Robot, test Xray → formalisé par → scénario) ; complétude des parcours | fait |
-| 2 | Mise à jour ciblée (live), cohérence, parcours incomplets | à faire |
+| 2 | Mise à jour ciblée (sources relues seulement si elles changent, empreinte sans captures), cohérence (assemblage refait, aucune relation orpheline), remplacement atomique, parcours incomplets (lot 1) | fait |
 | 3 | Perspectives graphiques (4 vues + filtres provenance / confiance / statut) | à faire |
 | 4 | Couverture indépendante de Xray | à faire |
 | 5 | Flux (vérifié / exploratoire) et Impact (technique, fonctionnel, utilisateur ; TNR sans Xray) | à faire |

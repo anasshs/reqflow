@@ -138,7 +138,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       ${ligne("Dépôt Robot Framework", ok(d.tests), d.erreur ? esc(d.erreur) : `${d.suites} suite(s), ${d.tests} test(s), ${d.keywords} keyword(s)`, `<a class="btn petit" href="#studio">Automation Studio</a>`)}
       ${ligne("Jeux de données", ok((s.jdd?.environnements || []).length), esc((s.jdd?.environnements || []).join(", ") || "aucun"), "")}
       ${ligne("Contrats OpenAPI", ok((s.openapi?.fichiers || []).length), esc((s.openapi?.fichiers || []).join(", ") || "aucun fichier api/*.yaml|json"), `<a class="btn petit" href="#intelligence/api">API</a>`)}
-      ${ligne("Déclarations et propositions", ok(x.noeuds), `${x.noeuds} élément(s), ${x.relations} relation(s), ${x.a_valider} à valider`, `<a class="btn petit" href="#intelligence/validation">Valider</a>`)}</table>`);
+      ${ligne("Déclarations et propositions", ok(x.noeuds), `${x.noeuds} élément(s), ${x.relations} relation(s), ${x.a_valider} à valider`, `<a class="btn petit" href="#intelligence/validation">Valider</a>`)}</table>
+      ${s.construction?.duree_s !== undefined ? `<p class="lib">Dernière construction : ${s.construction.noeuds} éléments, ${s.construction.relations} relations, ${s.construction.duree_s} s
+        ${s.construction.reutilisees?.length ? ` · réutilisé sans relire : ${esc(s.construction.reutilisees.join(", "))}` : ""}.</p>` : ""}`);
     $("#src-disc", m.el).onclick = () => { m.fermer(); DiscoveryFlottant.ouvrir(); };
     $("#src-xray", m.el).onclick = async () => { try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {}}); toast(`${r.importes} définition(s) importée(s).`, "ok"); m.fermer(); charger(); } catch (e) { toast(e.message, "ko"); } };
   }

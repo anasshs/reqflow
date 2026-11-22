@@ -91,3 +91,32 @@ def test_completude():
     assert connaissance.completude_parcours(g, "parcours:p") == "exploré"
     g.relier("scenario:s", "parcours:p", "verifie")
     assert connaissance.completude_parcours(g, "parcours:p") == "confirmé"
+
+
+def test_coherence_live_fichier_modifie_puis_supprime(projet, monkeypatch):
+    """Test 6 du cahier : un fichier modifié puis supprimé ; le graphe suit, sans relation d'une ancienne version ni doublon ;
+    les autres connaissances restent ; une source inchangée n'est pas relue."""
+    from atelier.discovery import connaissance
+
+    _projet(projet, monkeypatch)
+    (projet / "tests").mkdir()
+    f = projet / "tests" / "s.robot"
+    f.write_text("*** Test Cases ***\nAncien Nom\n    Log    x\n", "utf-8")
+    connaissance.vider_cache()
+    g = connaissance._construire()
+    assert any(i.endswith("::Ancien Nom") for i in g.noeuds) and "ecran:accueil" in g.noeuds
+    assert "dépôt Robot" in connaissance.DERNIERE_CONSTRUCTION["relues"]
+    connaissance._construire()
+    assert "dépôt Robot" in connaissance.DERNIERE_CONSTRUCTION["reutilisees"]            # rien n'a changé : pas relu
+    import os
+    import time
+    f.write_text("*** Test Cases ***\nNouveau Nom\n    Log    x\n", "utf-8")
+    os.utime(f, (time.time() + 5, time.time() + 5))
+    g = connaissance._construire()
+    noms = [i for i in g.noeuds if i.startswith("test_robot:")]
+    assert any(i.endswith("::Nouveau Nom") for i in noms) and not any(i.endswith("::Ancien Nom") for i in noms)
+    assert not any(r.de.endswith("::Ancien Nom") or r.vers.endswith("::Ancien Nom") for r in g.relations.values())
+    f.unlink()
+    g = connaissance._construire()
+    assert not any(i.startswith("test_robot:") for i in g.noeuds) and "ecran:accueil" in g.noeuds  # le reste intact
+    assert all(r.de in g.noeuds and r.vers in g.noeuds for r in g.relations.values())             # aucune relation orpheline
