@@ -16,7 +16,7 @@ import unicodedata
 
 from atelier.domain.graphe import Graphe
 
-TYPES_COUVERTURE = {"module", "epic", "user_story", "bug", "test", "test_plan", "test_execution", "test_robot"}
+TYPES_COUVERTURE = {"module", "epic", "user_story", "bug", "test", "test_plan", "test_execution", "test_robot", "parcours", "scenario"}
 SEUIL_REDONDANCE = 0.8
 MOTS_VIDES = {"le", "la", "les", "de", "des", "du", "un", "une", "et", "a", "au", "aux", "en", "sur", "pour",
               "par", "avec", "sans", "d", "l", "test", "verifier", "verification"}
@@ -33,12 +33,14 @@ def vue(g: Graphe, module: str = "", afficher: str = "tous") -> Graphe:
     """Sous-graphe de traçabilité Epic → US → Test Xray → Test Robot, filtrable."""
     ids = {i for i, n in g.noeuds.items() if n.type in TYPES_COUVERTURE}
     if module:
-        dans = g.atteignables(f"module:{module}", "aval", {"contient", "teste_par", "implemente_par"}) | {f"module:{module}"}
+        dans = g.atteignables(f"module:{module}", "aval", {"contient", "teste_par", "implemente_par", "formalise_par"}) | {f"module:{module}"}
         tests = {i for i in dans if g.noeuds[i].type == "test"}
         amont = set()
         for t in tests:
             amont |= {i for i in g.atteignables(t, "amont", {"contient", "teste_par"})
                       if g.noeuds[i].type in ("epic", "user_story", "bug", "test_plan")}
+        for s in [i for i in dans if g.noeuds[i].type == "scenario"]:  # tests BDD du module : les parcours qu'ils vérifient
+            amont |= {r.vers for r in g.sortants(s) if r.type == "verifie" and r.confirmee and g.noeuds[r.vers].type == "parcours"}
         ids &= dans | amont
     if afficher in ("manuels", "automatises"):
         voulu = afficher == "automatises"
@@ -197,10 +199,61 @@ def deposer_jugements_redondances(tests: list[dict], jugements: list[dict], sour
     return {"retenus": sum(retenus.values()), **retenus, "refuses": refuses}
 
 
+def couverture_atelier(g: Graphe) -> dict:
+    """Couverture sans Xray, lue dans le graphe : parcours, écrans et fonctionnalités vérifiés par un test BDD, tests BDD
+    automatisés (test Robot qui porte leur identifiant ou leur clé Xray) et leur dernier résultat. Seules les relations
+    CONFIRMÉES comptent (jamais « même module », jamais une proposition non validée)."""
+    noeuds = g.noeuds
+    scen = {i: n for i, n in noeuds.items() if n.type == "scenario"}
+    robots = {s: [r.vers for r in g.sortants(s) if r.type == "implemente_par" and r.confirmee] for s in scen}
+    auto = {s for s, rs in robots.items() if rs}
+
+    def verifies(types: tuple, rel: tuple) -> dict:
+        out = {}
+        for s in scen:
+            for r in g.sortants(s):
+                if r.type in rel and r.confirmee and noeuds[r.vers].type in types:
+                    out.setdefault(r.vers, set()).add(s)
+        return out
+    par_parcours = verifies(("parcours",), ("verifie",))
+    par_ecran = verifies(("ecran",), ("couvre",))
+    par_fonct = verifies(("fonctionnalite", "user_story", "epic"), ("verifie",))
+    for t, n in noeuds.items():  # test Xray formalisé par un scénario : ses exigences sont vérifiées par ce scénario
+        if n.type == "test":
+            sc = [r.vers for r in g.sortants(t) if r.type == "formalise_par" and r.confirmee]
+            for r in g.sortants(t):
+                if r.type == "verifie" and r.confirmee and noeuds[r.vers].type in ("fonctionnalite", "user_story", "epic"):
+                    par_fonct.setdefault(r.vers, set()).update(sc)
+
+    def bloc(type_: str, par: dict) -> dict:
+        tous = sorted(i for i, n in noeuds.items() if n.type == type_)
+        couverts = [i for i in tous if par.get(i)]
+        return {"total": len(tous), "couverts": len(couverts), "couverts_auto": sum(1 for i in couverts if par[i] & auto),
+                "non_couverts": [{"id": i, "libelle": noeuds[i].libelle, **({"completude": noeuds[i].proprietes.get("completude")}
+                                                                            if type_ == "parcours" else {})}
+                                 for i in tous if i not in couverts][:50]}
+    res = {s: [noeuds[r].proprietes.get("dernier_statut") for r in rs if r in noeuds] for s, rs in robots.items()}
+    modules: dict = {}
+    for r in g.relations.values():
+        if r.type == "contient" and r.de.startswith("module:") and r.vers in scen:
+            d = modules.setdefault(noeuds[r.de].libelle, {"module": noeuds[r.de].libelle, "tests_bdd": 0, "automatises": 0})
+            d["tests_bdd"] += 1
+            d["automatises"] += r.vers in auto
+    return {
+        "tests_bdd": {"total": len(scen), "automatises": len(auto), "manuels": len(scen) - len(auto),
+                      "taux_automatisation": round(len(auto) / len(scen), 3) if scen else None,
+                      "avec_resultat": sum(1 for v in res.values() if any(v)),
+                      "reussis": sum(1 for v in res.values() if v and all(x == "PASS" for x in v if x) and any(v))},
+        "parcours": bloc("parcours", par_parcours), "ecrans": bloc("ecran", par_ecran),
+        "fonctionnalites": bloc("fonctionnalite", par_fonct),
+        "modules": sorted(modules.values(), key=lambda d: d["module"]),
+    }
+
+
 def indicateurs(g: Graphe, pat: dict | None) -> dict:
-    if not pat:
-        return {"disponible": False, "raison": "Aucun instantané du patrimoine Xray : synchroniser ou importer.",
-                "definitions": DEFINITIONS}
+    if not pat:  # sans Xray, la couverture existe quand même : celle des tests BDD et Robot de l'atelier
+        return {"disponible": False, "raison": "Aucun instantané du patrimoine Xray : la couverture ci-dessous vient des tests de l'atelier.",
+                "definitions": DEFINITIONS, "atelier": couverture_atelier(g)}
     tests = pat["tests"]
     auto = {t["cle"]: bool((g.noeuds.get(f"test:{t['cle']}") or _Vide()).proprietes.get("automatise")) for t in tests}
     modules: dict = {}
@@ -243,6 +296,7 @@ def indicateurs(g: Graphe, pat: dict | None) -> dict:
         "exigences_sans_automatisation": [e for e in exig if e["couverte"] and not e["couverte_auto"]],
         "redondances": redondances(tests),
         "cles_robot_inconnues_de_xray": orphelins,
+        "atelier": couverture_atelier(g),
     }
 
 

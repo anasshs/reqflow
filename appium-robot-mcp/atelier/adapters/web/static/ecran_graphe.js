@@ -5,18 +5,20 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   : n.provenance === "déduit" ? (n.statut === "validé" ? "déduit, validé" : "déduit, à valider")
   : n.provenance === "observé" ? "observé" : "déclaré";
 (() => {
-  const TYPES_VUE = {fonctionnel: "application,module,fonctionnalite,parcours,action,regle,role,epic,user_story,bug,test,test_plan,test_set,feature,scenario",
-    technique: "application,plateforme,version,ecran,composant,locator,keyword,resource,bibliotheque,endpoint,entite,suite,test_robot,jdd,requete,variable",
-    parcours: "application,module,parcours,ecran,variable"};
+  const TYPES_VUE = {fonctionnel: "application,module,fonctionnalite,parcours,regle,role,epic,user_story,bug",
+    parcours: "application,module,parcours,ecran,action,variable",
+    technique: "application,plateforme,version,module,ecran,composant,locator,keyword,resource,bibliotheque,endpoint,entite,suite,test_robot,jdd,requete,variable",
+    qualite: "module,fonctionnalite,parcours,epic,user_story,bug,test,test_plan,test_set,test_execution,scenario,feature,suite,test_robot,resultat"};
   /* angles de lecture du graphe principal (anciens onglets Fonctionnel, Technique, Parcours utilisateur) : un filtre */
-  const ANGLES = [["fonctionnel", "Fonctionnel", "Le « quoi », relié : application, modules, parcours, fonctionnalités, règles, exigences, tests"],
-    ["parcours", "Écrans et navigation", "La carte de l'application : modules, parcours, écrans et navigations entre écrans"],
-    ["technique", "Technique", "Le « comment » : écrans, composants, locators, keywords, resources, tests Robot, JDD"],
+  const ANGLES = [["fonctionnel", "Fonctionnelle", "Que fait l'application : modules, fonctionnalités, parcours, règles, exigences"],
+    ["parcours", "Utilisateur", "Comment on l'utilise : parcours, écrans, actions (écran → action → écran), données saisies"],
+    ["technique", "Technique", "Comment elle est construite : écrans, composants, locators, keywords, resources, endpoints, jeux de données"],
+    ["qualite", "Tests & Qualité", "Comment c'est vérifié : exigences, tests BDD, tests Robot, tests Xray, plans, exécutions, résultats"],
     ["", "Tout", "Tous les éléments"]];
-  const VUES = [["connaissance", "Graphe de connaissances"], ["bdd", "Construction BDD"], ["couverture", "Couverture"], ["flux", "Flux"], ["impact", "Impact"]];
+  const VUES = [["connaissance", "Graphe de connaissances"], ["couverture", "Couverture"], ["flux", "Flux"], ["impact", "Impact"]];
   let dernierAngle = "";  // gardé le temps de l'écran : revenir de Couverture / Flux / Impact retrouve le filtre
   const RANGS = {
-    couverture: {module: 0, epic: 1, user_story: 2, bug: 2, test_plan: 3, test: 4, test_execution: 5, test_robot: 5},
+    couverture: {module: 0, epic: 1, parcours: 1, user_story: 2, bug: 2, test_plan: 3, test: 4, scenario: 4, test_execution: 5, test_robot: 5},
     flux: {test: 0, suite: 1, test_robot: 2, jdd: 3, keyword: 3, requete: 4, resource: 4, locator: 5, ecran: 6, bibliotheque: 6, plateforme: 7},
   };
   const RELATIONS = {contient: "Contient", navigue_vers: "Navigue vers", depend_de: "Dépend de", appelle: "Appelle", verifie: "Vérifie",
@@ -65,6 +67,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
             <button id="kg-zm">${ico("zoomm")}Zoom arrière</button>
             <button id="kg-mini">${ico("graphe")}Afficher / masquer la mini-carte</button>
             <hr><label>Statut <select class="in" id="kg-statut" aria-label="Filtrer par statut"><option value="">Tous</option><option value="validé">Validé</option><option value="à valider">À valider</option></select></label>
+            <label>Provenance <select class="in" id="kg-prov" aria-label="Filtrer par provenance"><option value="">Toutes</option><option value="observé">Observé</option><option value="déclaré">Déclaré</option><option value="déduit">Déduit</option></select></label>
+            <label>Liens <select class="in" id="kg-conf" aria-label="Filtrer les liens par confiance"><option value="">Tous</option><option value="confirmée">Confirmés seulement</option><option value="probable">Confirmés et probables</option></select></label>
             <label><input type="checkbox" id="kg-patrimoine"> Tout le patrimoine Jira / Xray</label>
             <hr><button id="kg-m-src">${ico("donnee")}Sources du graphe</button>
             <button id="kg-m-anom">${ico("aide")}Anomalies et recommandations</button>
@@ -92,6 +96,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       $("#kg-tout").onclick = () => { if (!S.params.centre) return G?.ajuster(); delete S.params.centre; S.auto = false; charger(); };
       $("#kg-recherche").oninput = e => { clearTimeout(t); t = setTimeout(() => { S.params.recherche = e.target.value; charger(); }, 300); };
       $("#kg-statut").onchange = e => { S.statut = e.target.value; dessiner(); };
+      $("#kg-prov").onchange = e => { S.provenance = e.target.value; dessiner(); };
+      $("#kg-conf").onchange = e => { S.confiance = e.target.value; dessiner(); };
       $("#kg-patrimoine").onchange = e => { if (e.target.checked) S.params.patrimoine = "tout"; else delete S.params.patrimoine; charger(); };
       $("#kg-zp").onclick = () => G?.zoom(1.25);
       $("#kg-zm").onclick = () => G?.zoom(0.8);
@@ -315,13 +321,16 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   function dessiner() {
     const d = S.data;
     if (!d) return;
-    const garde = n => dansAngle(n) && !S.famillesMasquees.has(familleDe(n.type).id) && (!S.statut || n.statut === S.statut);
+    const garde = n => dansAngle(n) && !S.famillesMasquees.has(familleDe(n.type).id) && (!S.statut || n.statut === S.statut)
+      && (!S.provenance || n.provenance === S.provenance);
+    const NIVEAUX = {"confirmée": ["confirmée"], probable: ["confirmée", "probable"]};
+    const lienGarde = r => !S.confiance || r.type === "lie_via" || (NIVEAUX[S.confiance] || []).includes(r.confiance_niveau);
     const ids = new Set(d.noeuds.filter(garde).map(n => n.id));
     /* relations dessinées dans leur lecture métier (ontologie cible) : libellé typé, flèche dans le sens métier
        (« Test → Vérifie → Story ») ; l'identifiant historique reste celui des actions (valider, retirer) */
     const lire = r => { const m = r.metier; if (!m) return r;
       return {...r, de: m.inverse ? r.vers : r.de, vers: m.inverse ? r.de : r.vers, libelle: m.libelle, historique: r.libelle, metier: {...m, inverse: false}}; };
-    const data = {...d, noeuds: d.noeuds.filter(n => ids.has(n.id)), relations: d.relations.filter(r => ids.has(r.de) && ids.has(r.vers)).map(lire)};
+    const data = {...d, noeuds: d.noeuds.filter(n => ids.has(n.id)), relations: d.relations.filter(r => ids.has(r.de) && ids.has(r.vers) && lienGarde(r)).map(lire)};
     if (!G) {
       $("#kg-zone").innerHTML = "";
       G = new GrapheVue($("#kg-zone"), {onSelection: n => selectionner(n.id), onDevelopper: id => developper(id), onRelation: r => panneauRelation(r)});
@@ -340,7 +349,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     }
     if (!data.noeuds.length) {
       $("#kg-zone").insertAdjacentHTML("beforeend", `<div class="vide" style="position:absolute;inset:30% 10% auto">${S.vue === "couverture"
-        ? "<b>Aucun instantané Xray</b>Importer ou synchroniser le patrimoine depuis Rapports › Patrimoine Xray."
+        ? "<b>Rien à tracer pour l'instant</b>Créer un test BDD depuis un parcours (Discovery), ou importer le patrimoine Xray (Rapports › Patrimoine Xray)."
         : S.vue === "connaissance" && S.angle ? `<b>Aucun élément dans la vue « ${esc(ANGLES.find(a => a[0] === S.angle)[1])} »</b>${S.angle === "parcours"
           ? "Aucun écran cartographié : lancer une Discovery, ou choisir « Tout le graphe » dans « Afficher »."
           : "Choisir « Tout le graphe » dans « Afficher », ou élargir le périmètre."}`
@@ -404,9 +413,22 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     $("#kg-question").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) demanderIA("expliquer", e.target.value.trim()); };
   }
 
+  /* couverture des tests de l'atelier (sans Xray) : parcours, écrans, fonctionnalités vérifiés ; automatisation */
+  function blocAtelier(a) {
+    if (!a) return "";
+    const ligne = (lib, b) => `<tr><td>${lib}</td><td>${b.couverts}/${b.total}</td><td>${b.couverts_auto}</td><td><div class="barre"><i style="width:${b.total ? b.couverts / b.total * 100 : 0}%"></i></div></td></tr>`;
+    const t = a.tests_bdd;
+    return `<h3 class="lib" style="margin:4px 0">TESTS DE L'ATELIER (sans Xray)</h3>
+      <p><b>${t.automatises}/${t.total}</b> tests BDD automatisés${t.taux_automatisation !== null ? ` (${pct(t.taux_automatisation)})` : ""} · ${t.avec_resultat} avec un résultat · ${t.reussis} réussi(s)</p>
+      <table><tr><th></th><th>Couverts</th><th>Auto.</th><th></th></tr>${ligne("Parcours", a.parcours)}${ligne("Écrans", a.ecrans)}${a.fonctionnalites.total ? ligne("Fonctionnalités", a.fonctionnalites) : ""}</table>
+      ${a.parcours.non_couverts.length ? `<h3 class="lib" style="margin:10px 0 4px">PARCOURS SANS TEST (${a.parcours.non_couverts.length})</h3><ul class="liste">${a.parcours.non_couverts.map(p =>
+        `<li><button class="lien" data-sel="${esc(p.id)}">${esc(p.libelle)}</button>${p.completude ? ` <span class="pill">${esc(p.completude)}</span>` : ""}</li>`).join("")}</ul>` : ""}
+      <p class="lib">Couvert = vérifié par un test BDD (lien confirmé) ; automatisé = un test Robot porte l'identifiant du test BDD.</p>`;
+  }
+
   function indicateurs(ind) {
     if (!ind) return;
-    if (!ind.disponible) return detail("Couverture", `<p>${esc(ind.raison)}</p><a class="btn primaire" href="#rapports/patrimoine">Patrimoine Xray</a>`);
+    if (!ind.disponible) return detail("Couverture", `${blocAtelier(ind.atelier)}<p class="lib" style="margin-top:10px">${esc(ind.raison)}</p><a class="btn petit" href="#rapports/patrimoine">Importer le patrimoine Xray</a>`);
     const g = ind.global;
     detail("Couverture", `<div style="display:flex;gap:14px;align-items:center;margin-bottom:10px"><div class="anneau" style="--p:${Math.round((g.couverture_automatisee || 0) * 100)}"><span>${pct(g.couverture_automatisee)}</span></div>
       <div><b>${g.automatises}/${g.tests}</b> tests automatisés<br><span class="lib">${g.exigences_couvertes}/${g.exigences} exigences couvertes · ${g.exigences_couvertes_auto} en automatique</span></div></div>
@@ -417,6 +439,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       <ul class="liste">${ind.exigences_non_couvertes.map(e => `<li><button class="lien" data-sel="${esc(e.type + ":" + e.cle)}">${esc(e.cle)}</button> ${esc(e.resume || "")}</li>`).join("") || "<li class='lib'>Aucune</li>"}</ul>
       <h3 class="lib" style="margin:12px 0 4px">TESTS REDONDANTS (CANDIDATS)</h3>
       <ul class="liste">${ind.redondances.map(r => `<li><button class="lien" data-sel="test:${esc(r.tests[0])}">${esc(r.tests[0])}</button>≈<button class="lien" data-sel="test:${esc(r.tests[1])}">${esc(r.tests[1])}</button>${r.similarite !== null && r.similarite !== undefined ? `<span class="compte">${pct(r.similarite)}</span>` : ""}${PastilleJugement(r.jugement, {redondants: "ko", distincts: "ok"})}</li>`).join("") || "<li class='lib'>Aucun</li>"}</ul>
+      ${ind.atelier && ind.atelier.tests_bdd.total ? `<div style="margin-top:12px">${blocAtelier(ind.atelier)}</div>` : ""}
       <details style="margin-top:10px"><summary class="lib">Définitions utilisées</summary><ul class="lib">${Object.values(ind.definitions).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>`);
     $$("#kg-detail [data-module]").forEach(b => b.onclick = () => {
       S.params.module = b.dataset.module;
@@ -439,12 +462,17 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     const lien = (x, s) => { const m = x.relation.metier || {}, sortant = m.type ? s !== !!m.inverse : s, st = ST_REL[m.validation_status];
       return `<li title="${esc(m.type ? `${m.type} · source ${m.source_system}${m.a_confirmer ? " · à confirmer : " + m.a_confirmer : ""} (ancien : ${x.relation.libelle})` : "")}">
         <span class="lib">${sortant ? "→" : "←"} ${esc(m.libelle || x.relation.libelle)}</span><button class="lien ellipse" data-sel="${esc(x.noeud.id)}">${esc(x.noeud.libelle)}</button>
-        ${st ? `<span class="pill ${st[0]}">${st[1]}</span>` : x.relation.statut !== "validé" ? '<span class="pill warn">à valider</span>' : ""}</li>`; };
+        ${st ? `<span class="pill ${st[0]}">${st[1]}</span>` : x.relation.statut !== "validé" ? '<span class="pill warn">à valider</span>' : ""}
+        ${x.relation.confiance_niveau && x.relation.confiance_niveau !== "confirmée" ? `<span class="pill ${x.relation.confiance_niveau === "probable" ? "info" : "warn"}" title="Niveau de confiance du lien">${esc(x.relation.confiance_niveau)}</span>` : ""}</li>`; };
     detail(n.metier ? n.metier.libelle : n.type.replace("_", " "), `
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><span class="carre" style="background:var(--f-${familleDe(n.type).id});width:12px;height:30px"></span>
         <div class="item"><b style="font-size:14px">${esc(n.libelle)}</b><div class="lib"><code>${esc(n.metier ? n.metier.id : n.id)}</code>${n.metier ? ` · ${esc(n.metier.type)} · univers ${esc(n.metier.univers)}` : ""}</div></div></div>
       <div class="btns" style="margin-bottom:10px"><span class="pill ${n.statut === "validé" ? "ok" : "warn"}">${esc(n.statut)}</span><span class="pill">${esc(n.provenance)}</span>
         <span class="pill info" title="Base de l'élément (pas un score calculé)">${esc(baseElement(n))}</span>${n.plateformes.map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>
+      ${p.completude ? `<p><span class="pill ${p.completude === "confirmé" || p.completude === "exploré" ? "ok" : "warn"}">parcours ${esc(p.completude)}</span>
+        ${p.completude === "déclaré" ? `<a class="lien" href="#discovery/cadrage">le dérouler</a>` : ""}</p>` : ""}
+      <p class="lib" style="margin:4px 0 8px">Voir dans : ${ANGLES.filter(a => a[0] && TYPES_VUE[a[0]].split(",").includes(n.type)).map(a =>
+        `<button class="lien" data-persp="${a[0]}">${a[1]}</button>`).join(" · ") || "—"}</p>
       <dl class="props"><dt>Source</dt><dd>${esc(n.source)}</dd>${props}</dl>
       <div class="btns" style="margin:12px 0">
         <button class="btn primaire" id="kd-impact">${ico("impact")}Impact</button>
@@ -465,6 +493,12 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       ${d.tests_robot.length ? `<h3 class="lib" style="margin:12px 0 4px">SCRIPTS AUTOMATISÉS</h3><ul class="liste">${d.tests_robot.map(t => `<li><button class="lien" data-sel="${esc(t)}">${esc(t.split("::").pop())}</button></li>`).join("")}</ul>` : ""}
       <h3 class="lib" style="margin:12px 0 4px">HISTORIQUE</h3>${d.historique.length ? `<ul class="liste">${d.historique.map(h => `<li><span class="mono lib">${esc(h.date.slice(0, 16).replace("T", " "))}</span>${esc(h.op.replace(/_/g, " "))} <span class="lib">(${esc(h.auteur)})</span></li>`).join("")}</ul>` : "<p class='lib'>Aucune modification déclarée.</p>"}`);
     const z = $("#kd-zone");
+    $$("[data-persp]", $("#kg-detail")).forEach(b => b.onclick = () => {  // même élément, autre perspective
+      S.angle = dernierAngle = b.dataset.persp;
+      $$("[data-angle]").forEach(x => x.setAttribute("aria-pressed", x.dataset.angle === S.angle));
+      adresseAngle();
+      developper(id);
+    });
     $("#kd-impact").onclick = () => impact(id);
     $("#kd-dev").onclick = () => developper(id);
     if ($("#kd-flux")) $("#kd-flux").onclick = () => { location.hash = "graphe/flux"; setTimeout(() => { $("#kg-cible").value = id; S.params.cible = id; charger(); }, 250); };

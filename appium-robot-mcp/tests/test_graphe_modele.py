@@ -120,3 +120,40 @@ def test_coherence_live_fichier_modifie_puis_supprime(projet, monkeypatch):
     g = connaissance._construire()
     assert not any(i.startswith("test_robot:") for i in g.noeuds) and "ecran:accueil" in g.noeuds  # le reste intact
     assert all(r.de in g.noeuds and r.vers in g.noeuds for r in g.relations.values())             # aucune relation orpheline
+
+
+def test_couverture_sans_xray(projet, monkeypatch):
+    """Test 3 du cahier : avec seulement des tests BDD et Robot, la couverture fonctionne, sans Xray."""
+    from atelier.discovery import connaissance, espaces
+    from atelier.generation import bdd, parcours_bdd
+    from atelier.intelligence import couverture
+
+    acc, con, vide = _projet(projet, monkeypatch)
+    r = parcours_bdd.brouillon([acc["id"], con["id"]], titre="Aller à la connexion")
+    m = bdd.charger(r["cle"])
+    m["parcours"] = vide["noeud"]
+    bdd.sauver(m)
+    (projet / "tests").mkdir()
+    (projet / "tests" / "c.robot").write_text(f"*** Test Cases ***\nAller à la connexion\n    [Tags]    {r['cle']}\n    Log    x\n", "utf-8")
+    connaissance.vider_cache()
+    g = connaissance.construire()
+    a = couverture.couverture_atelier(g)
+    assert a["tests_bdd"] == {**a["tests_bdd"], "total": 1, "automatises": 1, "taux_automatisation": 1.0}
+    assert a["parcours"]["couverts"] == 1 and a["parcours"]["couverts_auto"] == 1
+    assert a["ecrans"]["total"] == 2 and a["ecrans"]["couverts"] == 2
+    v = espaces.vue_couverture()
+    assert v["indicateurs"]["disponible"] is False and v["indicateurs"]["atelier"]["tests_bdd"]["total"] == 1
+    assert any(n["type"] == "scenario" for n in v["noeuds"]) and any(n["type"] == "parcours" for n in v["noeuds"])
+
+
+def test_couverture_ignore_les_liens_non_confirmes():
+    from atelier.domain.graphe import Graphe
+    from atelier.intelligence import couverture
+
+    g = Graphe("t")
+    for i, t in [("parcours:p", "parcours"), ("scenario:s", "scenario"), ("ecran:e", "ecran")]:
+        g.noeud(i, t, i)
+    g.relier("scenario:s", "parcours:p", "verifie", provenance="déduit", statut="à valider")   # proposition IA
+    g.relier("scenario:s", "ecran:e", "couvre", provenance="déduit", proprietes={"calcul": True})  # probable
+    a = couverture.couverture_atelier(g)
+    assert a["parcours"]["couverts"] == 0 and a["ecrans"]["couverts"] == 0
