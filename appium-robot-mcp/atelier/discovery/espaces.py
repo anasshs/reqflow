@@ -32,12 +32,29 @@ def _typer(g: Graphe, d: dict) -> dict:
     return d
 
 
-def _limiter(g: Graphe) -> dict:
+TYPES_CLES = ("application", "module", "fonctionnalite", "parcours", "ecran", "scenario", "user_story", "epic", "test")
+
+
+def _limiter(g: Graphe, prioritaires: set | None = None) -> dict:
+    """Au-delà de MAX_NOEUDS, l'AFFICHAGE est une sélection (le référentiel n'est jamais tronqué) : d'abord l'élément
+    sélectionné et le périmètre demandé, puis leurs voisins directs, puis les éléments clés (modules, parcours, écrans,
+    tests…) les plus reliés, puis le reste. Ce qui n'est pas affiché est compté par type (« masques_par_type »)."""
     total = len(g.noeuds)
     if total > MAX_NOEUDS:
-        garde = sorted(g.noeuds, key=lambda i: (CATEGORIES.index(g.noeuds[i].categorie), i))[:MAX_NOEUDS]
+        prio = set(prioritaires or ()) & set(g.noeuds)
+        voisins = {r.vers for r in g.relations.values() if r.de in prio} | {r.de for r in g.relations.values() if r.vers in prio}
+        degre: dict = {}
+        for r in g.relations.values():
+            degre[r.de] = degre.get(r.de, 0) + 1
+            degre[r.vers] = degre.get(r.vers, 0) + 1
+        rang = lambda i: (0 if i in prio else 1 if i in voisins else 2 if g.noeuds[i].type in TYPES_CLES else 3,  # noqa: E731
+                          -degre.get(i, 0), CATEGORIES.index(g.noeuds[i].categorie), i)
+        garde = sorted(g.noeuds, key=rang)[:MAX_NOEUDS]
+        masques: dict = {}
+        for i in set(g.noeuds) - set(garde):
+            masques[g.noeuds[i].type] = masques.get(g.noeuds[i].type, 0) + 1
         g = g.sous_graphe(garde)
-        return {**_typer(g, g.vers_dict()), "tronque": True, "total": total}
+        return {**_typer(g, g.vers_dict()), "tronque": True, "total": total, "masques_par_type": masques}
     return {**_typer(g, g.vers_dict()), "tronque": False}
 
 
@@ -138,12 +155,24 @@ def ids_perimetre(g, nid: str) -> set[str]:
     return garde
 
 
+def filtres_disponibles(g: Graphe) -> dict:
+    """Valeurs proposées par les filtres de l'écran, lues dans le référentiel complet."""
+    types: dict = {}
+    for n in g.noeuds.values():
+        types[n.type] = types.get(n.type, 0) + 1
+    return {"applications": sorted(({"id": i, "libelle": n.libelle} for i, n in g.noeuds.items() if n.type == "application"), key=lambda x: x["id"]),
+            "plateformes": sorted({p for n in g.noeuds.values() for p in n.plateformes}),
+            "versions": sorted((n.id.split(":", 1)[1] for n in g.noeuds.values() if n.type == "version"), reverse=True),
+            "types": dict(sorted(types.items()))}
+
+
 def vue_connaissance(types: list[str] | None = None, categories: list[str] | None = None, plateforme: str = "",
                      recherche: str = "", centre: str = "", profondeur: int = 1, patrimoine: str = "lie",
-                     perimetre: str = "") -> dict:
+                     perimetre: str = "", version: str = "") -> dict:
     """patrimoine « lie » (défaut) : la connaissance de l'application et les seuls tickets Jira / Xray qui s'y
     rattachent ; « tout » : toute la copie locale Jira / Xray. Un centre ou une recherche montrent toujours tout."""
     g = _graphe()
+    filtres = filtres_disponibles(g)
     masques = 0
     if perimetre:
         g = g.sous_graphe(ids_perimetre(g, perimetre))
@@ -155,7 +184,51 @@ def vue_connaissance(types: list[str] | None = None, categories: list[str] | Non
         garde = patrimoine_lie(g)
         masques = sum(1 for i, n in g.noeuds.items() if i not in garde and n.type in PATRIMOINE + ("module",))
         g = g.sous_graphe(garde)
-    return {**_limiter(g.filtrer(types, categories, plateforme, recherche)), "patrimoine_masque": masques}
+    vue = g.filtrer(types, categories, plateforme, recherche, version)
+    if (types or plateforme or version) and not centre:
+        projeter_liens(g, vue)
+    prio = {centre} if centre else (ids_perimetre(g, perimetre) if perimetre and perimetre in g.noeuds else set())
+    d = connaissance.DERNIERE_CONSTRUCTION.get("delta") or {}
+    return {**_limiter(vue, prio), "patrimoine_masque": masques, "filtres": filtres,
+            "construction": {"date": connaissance.DERNIERE_CONSTRUCTION.get("date"), "modifies": d.get("modifies", []),
+                             "retires": len(d.get("retires", []))}}
+
+
+def projeter_liens(complet, vue, max_par_noeud: int = 12):
+    """Vue filtrée (ex. « Fonctionnel ») : deux éléments affichés reliés par un élément masqué (écran, composant…)
+    reçoivent un lien « lié via » (pointillé, jamais stocké), avec ce qui les relie : aucune vue ne laisse des nœuds isolés
+    alors que la connaissance les relie. Seuls les liens fiables (observés, déclarés, déduits validés) sont projetés."""
+    from collections import defaultdict
+
+    gardes = set(vue.noeuds)
+    voisins = defaultdict(set)
+    for r in complet.relations.values():
+        if not r.fiable:
+            continue
+        voisins[r.de].add(r.vers)
+        voisins[r.vers].add(r.de)
+    existants = {frozenset((r.de, r.vers)) for r in vue.relations.values()}
+    via: dict = defaultdict(set)
+    for x, autour in voisins.items():
+        if x in gardes or complet.noeuds[x].type in ("application", "plateforme", "version", "environnement"):
+            continue  # un nœud qui relie tout (l'application…) ne dit rien d'un lien entre deux éléments
+        affiches = sorted(a for a in autour if a in gardes)
+        if len(affiches) < 2 or len(affiches) > 40:  # nœud masqué trop central : il relierait tout à tout
+            continue
+        for i, a in enumerate(affiches):
+            for b in affiches[i + 1:]:
+                if frozenset((a, b)) not in existants:
+                    via[(a, b)].add(x)
+    par_noeud: dict = defaultdict(int)
+    for (a, b), xs in sorted(via.items(), key=lambda kv: -len(kv[1])):
+        if par_noeud[a] >= max_par_noeud or par_noeud[b] >= max_par_noeud:
+            continue
+        types = sorted({complet.noeuds[x].type for x in xs})
+        r = vue.relier(a, b, "lie_via", provenance="déduit", statut="validé", source="projection de la vue",
+                       proprietes={"via": sorted(xs)[:10], "nombre": len(xs), "types": types})
+        if r:
+            par_noeud[a] += 1
+            par_noeud[b] += 1
 
 
 def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = "", test: str = "") -> dict:
@@ -173,8 +246,68 @@ def vue_couverture(module: str = "", afficher: str = "tous", recherche: str = ""
     if focus and focus not in v.noeuds:  # filtre manuels / automatisés qui l'excluait : on garde le test demandé
         v = couverture.vue_test(g, focus)
     v = v.filtrer(recherche=recherche)
-    return {**_limiter(v), "indicateurs": couverture.indicateurs(g, pat), "instantane": patrimoine_xray.etat(),
+    ind = couverture.indicateurs(g, pat)
+    try:  # indicateurs comportementaux (MBT) : parcours identifiés et couverts, transitions et conditions non vérifiées
+        from atelier.intelligence import mbt
+
+        ind["comportement"] = mbt.couverture_globale()
+    except Exception:  # noqa: BLE001
+        ind["comportement"] = {"modeles": 0}
+    return {**_limiter(v), "indicateurs": ind, "instantane": patrimoine_xray.etat(),
             "modules": sorted({n.libelle for n in g.noeuds.values() if n.type == "module"}), "module": module, "focus": focus}
+
+
+def qualite() -> dict:
+    """Indicateurs de qualité du référentiel (pas des erreurs de construction) : nœuds orphelins (hors parcours
+    simplement déclaré : information de complétude), relations non validées, parcours incomplets, fonctionnalités sans
+    test, tests sans parcours ni fonctionnalité, écrans sans parcours, tests sans résultat, relations dont le sens métier
+    n'est pas reconnu pour cette paire de types (incohérentes)."""
+    g = _graphe()
+    n, rels = g.noeuds, list(g.relations.values())
+    lies = {r.de for r in rels} | {r.vers for r in rels}
+    entrants: dict = {}
+    for r in rels:
+        entrants.setdefault(r.vers, []).append(r)
+    sortants: dict = {}
+    for r in rels:
+        sortants.setdefault(r.de, []).append(r)
+    lib = lambda ids: sorted(({"id": i, "libelle": n[i].libelle, "type": n[i].type} for i in ids), key=lambda x: x["id"])[:40]  # noqa: E731
+    orphelins = [i for i, x in n.items() if i not in lies and not (x.type == "parcours" and x.proprietes.get("completude") == "déclaré")]
+    incomplets = [i for i, x in n.items() if x.type == "parcours" and x.proprietes.get("completude") not in ("exploré", "confirmé")]
+    verifiees = {r.vers for r in rels if r.type in ("verifie", "teste_par", "verifiee_sur") and r.confirmee}
+    verifiees |= {r.de for r in rels if r.type == "teste_par" and r.confirmee}
+    f_sans_test = [i for i, x in n.items() if x.type == "fonctionnalite" and i not in verifiees]
+    t_sans_cible = [i for i, x in n.items() if x.type == "scenario"
+                    and not any(r.type in ("verifie", "couvre") for r in sortants.get(i, []))]
+    e_sans_parcours = [i for i, x in n.items() if x.type == "ecran"
+                       and not any(r.type == "contient" and n[r.de].type == "parcours" for r in entrants.get(i, []))]
+    sans_resultat = [i for i, x in n.items() if x.type == "test_robot" and not x.proprietes.get("dernier_statut")]
+    non_validees = [r for r in rels if r.statut != "validé"]
+    incoherentes = [r for r in rels if ontologie.metier(r, g)["generique"]]
+    bloc = lambda ids, aide: {"nombre": len(ids), "elements": lib(ids), "aide": aide}  # noqa: E731
+    return {
+        "orphelins": bloc(orphelins, "Éléments sans aucune relation."),
+        "parcours_incomplets": {**bloc(incomplets, "Parcours déclarés, découverts ou partiellement explorés."),
+                                "par_completude": {c: sum(1 for i in incomplets if n[i].proprietes.get("completude") == c)
+                                                   for c in ("déclaré", "découvert", "partiellement exploré")}},
+        "fonctionnalites_sans_test": bloc(f_sans_test, "Aucun test ne les vérifie (lien confirmé)."),
+        "tests_sans_parcours": bloc(t_sans_cible, "Tests BDD qui ne vérifient aucun parcours et ne couvrent aucun écran."),
+        "ecrans_sans_parcours": bloc(e_sans_parcours, "Écrans qu'aucun parcours ne traverse."),
+        "tests_sans_resultat": bloc(sans_resultat, "Tests Robot jamais exécutés (aucun output.xml)."),
+        "relations_non_validees": {"nombre": len(non_validees), "aide": "Propositions à valider : hors couverture, impact et TNR officiels."},
+        "relations_incoherentes": {"nombre": len(incoherentes), "aide": "Relations dont le sens métier n'est pas reconnu pour cette paire de types.",
+                                   "exemples": [{"de": r.de, "type": r.type, "vers": r.vers} for r in incoherentes[:20]]},
+        "doublons_bdd": couverture_doublons(),
+    }
+
+
+def couverture_doublons() -> list[dict]:
+    from atelier.intelligence import couverture
+
+    try:
+        return couverture.doublons_bdd()
+    except Exception:  # noqa: BLE001 — un test BDD illisible ne bloque pas les indicateurs
+        return []
 
 
 def candidats(module: str = "") -> list[dict]:
@@ -183,18 +316,27 @@ def candidats(module: str = "") -> list[dict]:
     return couverture.candidats(_graphe(), patrimoine_xray.charger_vue(), module)
 
 
-def vue_flux(cible: str = "") -> dict:
+def vue_flux(cible: str = "", mode: str = "verifie", module: str = "") -> dict:
     from atelier.execution import flux
 
     g = _graphe()
     tests = sorted(({"id": i, "libelle": n.libelle} for i, n in g.noeuds.items()
-                    if n.type == "test_robot" or (n.type == "test" and n.proprietes.get("automatise"))),
+                    if n.type == "test_robot" or n.type == "scenario" or (n.type == "test" and n.proprietes.get("automatise"))),
                    key=lambda x: x["id"])
-    return {**_limiter(flux.vue(g, cible)), "cibles": tests}
+    return {**_limiter(flux.vue(g, cible, mode, module)), "cibles": tests, "mode": mode,
+            "modules": sorted({n.libelle for n in g.noeuds.values() if n.type == "module"})}
 
 
 def impact(noeud: str) -> dict:
-    return connaissance.analyser_impact(_graphe(), noeud)
+    g = _graphe()
+    r = connaissance.analyser_impact(g, noeud)
+    try:  # comportement : modèles, transitions et scénarios générés concernés (MBT)
+        from atelier.intelligence import mbt
+
+        r["comportement"] = mbt.impact_element(g, noeud)
+    except Exception:  # noqa: BLE001
+        r["comportement"] = {"modeles": [], "transitions": 0, "scenarios": []}
+    return r
 
 
 # =========================================================================== détail
@@ -213,6 +355,7 @@ def detail(noeud: str) -> dict:
     entrants = [lien(r, r.de) for r in g.entrants(noeud)]
     voisins = {x["noeud"]["id"] for x in sortants + entrants}
     proches = g.voisinage([noeud], 2).noeuds
+    histo = declarations.historique(noeud, 50)
     t = ontologie.type_cible(n, g)
     return {"noeud": {**n.vers_dict(), "metier": {"type": t, "libelle": ontologie.TYPES_CIBLES[t][1], "univers": ontologie.TYPES_CIBLES[t][0],
                                                    "id": ontologie.id_cible(n, t),
@@ -221,7 +364,33 @@ def detail(noeud: str) -> dict:
             "tests_xray": sorted(i for i in proches if g.noeuds[i].type == "test"),
             "tests_robot": sorted(i for i in proches if g.noeuds[i].type == "test_robot"),
             "scenarios_bdd": sorted(i for i in proches if g.noeuds[i].type in ("scenario", "feature")),
-            "nb_voisins": len(voisins), "historique": declarations.historique(noeud, 50)}
+            "nb_voisins": len(voisins), "historique": histo,
+            "provenance": _provenance(n, histo), "tracabilite": _tracabilite(g, noeud, set(proches))}
+
+
+TRACABILITE = (("exigences", ("fonctionnalite", "user_story", "epic", "regle")), ("parcours", ("parcours",)),
+               ("tests", ("scenario", "test", "test_robot")), ("plans", ("test_plan", "test_set")),
+               ("executions", ("test_execution", "resultat")), ("anomalies", ("bug",)))
+
+
+def _tracabilite(g: Graphe, noeud: str, proches: set) -> dict:
+    """Ce qui est relié à l'élément à deux pas au plus : exigences, parcours, tests (BDD, Xray, Robot), plans, exécutions,
+    anomalies ; chaque entrée dit si le chemin est confirmé (lien direct confirmé, ou deux liens confirmés)."""
+    conf = g.confirme().voisinage([noeud], 2).noeuds
+    out = {}
+    for cle, types in TRACABILITE:
+        ids = sorted(i for i in proches if i != noeud and g.noeuds[i].type in types)
+        out[cle] = [{"id": i, "libelle": g.noeuds[i].libelle, "type": g.noeuds[i].type, "confirme": i in conf} for i in ids[:40]]
+    return out
+
+
+def _provenance(n, histo: list) -> dict:
+    p = n.proprietes or {}
+    dates = [h.get("date") for h in histo if h.get("date")]
+    return {"provenance": n.provenance, "source": n.source, "fichier": p.get("fichier") or (n.source if "/" in (n.source or "") else ""),
+            "statut": n.statut, "confiance": n.confiance,
+            "validation": ontologie.statut_validation(n.provenance, n.statut),
+            "premiere_trace": min(dates) if dates else (p.get("cree") or ""), "derniere_trace": max(dates) if dates else ""}
 
 
 # =========================================================================== modifications
@@ -319,7 +488,7 @@ def _vue_graphe(nom: str, cible: str = "", module: str = "") -> Graphe:
     if nom == "couverture":
         return couverture.vue(g, module)
     if nom == "flux":
-        return flux.vue(g, cible if cible in g.noeuds else "")
+        return flux.vue(g, cible if cible in g.noeuds else "", "exploratoire", ensemble=True)
     if nom == "connaissance":
         return g
     raise KeyError(f"Graphe inconnu : {nom}")

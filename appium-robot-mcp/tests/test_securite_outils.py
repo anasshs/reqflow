@@ -31,6 +31,8 @@ NATURE = {
     **dict.fromkeys(["knowledge_graph", "impact_analysis", "coverage_report", "automation_flow", "plan_de_test", "cerveau_application",
                      "cerveau_question", "coverage_intelligence", "testabilite_us_a_traiter"], "L"),
     **dict.fromkeys(["testabilite_deposer_proposition", "coverage_proposer_story", "coverage_proposer_lien"], "P"),
+    # Model-Based Testing : le modèle (comportement/) et les brouillons BDD sont des écritures locales ; propositions à valider
+    "mbt_chemins": "L", **dict.fromkeys(["mbt_modele", "mbt_generer_bdd"], "É"), "mbt_deposer_propositions": "P",
     # Automation Studio
     **dict.fromkeys(["studio_socle", "studio_rapprocher_etapes", "studio_scenario_bdd", "studio_revue", "studio_corrections_locators", "studio_factorisation_keywords"], "L"),
     **dict.fromkeys(["studio_generer_depuis_bdd", "studio_construire_test", "studio_executer_etape", "studio_corriger_locator",
@@ -59,7 +61,7 @@ def _outils() -> dict:
 def test_chaque_outil_est_classe():
     o = _outils()
     assert set(o) == set(NATURE), f"non classés : {sorted(set(o) - set(NATURE))} ; disparus : {sorted(set(NATURE) - set(o))}"
-    assert len(o) == 117
+    assert len(o) == 121  # + 4 Model-Based Testing + run_tests
 
 
 def test_ecritures_externes_par_demande():

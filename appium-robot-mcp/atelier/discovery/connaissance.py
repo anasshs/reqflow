@@ -40,6 +40,7 @@ RELATIONS_DEPENDANCE = {"appelle", "utilise", "depend_de"}
 DOSSIERS_IGNORES = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".mcp_snapshots", ".idea", ".vscode"}
 VARIABLES = ("APP_MAP_DIR", "CONNAISSANCE_DIR", "PATRIMOINE_FICHIER", "MAP_SEUIL_SIMILARITE", "ATELIER_PROJETS")
 STABILITE_S = 2.0
+SANS_EFFET = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".webm", ".html", ".log", ".zip", ".svg", ".bak", ".tmp")
 _CACHE_GRAPHE: dict = {}
 _VERROU_GRAPHE = threading.Lock()
 
@@ -56,6 +57,8 @@ def _empreinte_projet() -> tuple[str, float]:
     for r, ds, fs in os.walk(racine):
         ds[:] = sorted(d for d in ds if d not in DOSSIERS_IGNORES)
         for nom in sorted(fs):
+            if nom.lower().endswith(SANS_EFFET):
+                continue
             p = os.path.join(r, nom)
             try:
                 st = os.stat(p)
@@ -74,6 +77,103 @@ def _empreinte_projet() -> tuple[str, float]:
 def vider_cache():
     with _VERROU_GRAPHE:
         _CACHE_GRAPHE.clear()
+        _MEMO_SOURCES.clear()
+        _MEMO_FICHIERS.clear()
+        _SIGNATURES.clear()
+
+
+# =========================================================================== sources relues seulement si elles changent
+# Une Discovery modifie la carte, pas le dépôt Robot ni les résultats : leur lecture (la plus coûteuse sur un vrai dépôt)
+# est réutilisée tant que leurs propres fichiers n'ont pas changé. L'assemblage du graphe, lui, est refait : il est rapide,
+# déterministe et ne laisse jamais une relation d'une ancienne version d'un fichier (un fichier retiré disparaît).
+_MEMO_SOURCES: dict = {}
+DERNIERE_CONSTRUCTION: dict = {}
+
+
+def _fichiers(motifs: tuple[str, ...], sous: str = "") -> list:
+    base = projet.PROJECT_DIR / sous if sous else projet.PROJECT_DIR
+    if not base.exists():
+        return []
+    out = []
+    for r, ds, fs in os.walk(base):
+        ds[:] = sorted(d for d in ds if d not in DOSSIERS_IGNORES)
+        out += [os.path.join(r, f) for f in sorted(fs) if any(Path(f).match(m) for m in motifs)]
+    return out
+
+
+def _memo(nom: str, fichiers: list, calcul):
+    """Résultat de calcul() réutilisé tant que les fichiers de la source (chemin, taille, date) sont identiques."""
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(projet.PROJECT_DIR).encode())
+    for f in fichiers:
+        try:
+            st = os.stat(f)
+        except OSError:
+            continue
+        h.update(f"\n{f}|{st.st_size}|{st.st_mtime_ns}".encode())
+    cle = h.hexdigest()
+    m = _MEMO_SOURCES.get(nom)
+    if m and m[0] == cle:
+        DERNIERE_CONSTRUCTION.setdefault("reutilisees", []).append(nom)
+        return pickle.loads(m[1])
+    val = calcul()
+    _MEMO_SOURCES[nom] = (cle, pickle.dumps(val, protocol=pickle.HIGHEST_PROTOCOL))
+    DERNIERE_CONSTRUCTION.setdefault("relues", []).append(nom)
+    return val
+
+
+# Grain plus fin pour ce qui change pendant une Discovery : chaque fichier d'écran (et chaque test BDD) est relu seulement
+# s'il a changé ; les autres sont repris en mémoire. Un fichier disparu n'est plus lu : ses nœuds et relations disparaissent.
+_MEMO_FICHIERS: dict = {}
+
+
+def _lu(source: str, chemins: list, lecture):
+    """lecture() réutilisée tant que les fichiers `chemins` (taille, date) n'ont pas changé ; compteurs par source."""
+    cle = []
+    for c in chemins:
+        try:
+            st = os.stat(c)
+            cle.append((str(c), st.st_size, st.st_mtime_ns))
+        except OSError:
+            cle.append((str(c), None, None))
+    k = (source, str(chemins[0]) if chemins else "")
+    m = _MEMO_FICHIERS.get(k)
+    stats = DERNIERE_CONSTRUCTION.setdefault("fichiers", {}).setdefault(source, {"relus": 0, "reutilises": 0})
+    if m and m[0] == cle:
+        stats["reutilises"] += 1
+        return pickle.loads(m[1])
+    val = lecture()
+    _MEMO_FICHIERS[k] = (cle, pickle.dumps(val, protocol=pickle.HIGHEST_PROTOCOL))
+    stats["relus"] += 1
+    return val
+
+
+# Delta entre deux constructions : ce qui a été ajouté, modifié ou retiré (mis en avant à l'écran pendant le suivi en direct).
+_SIGNATURES: dict = {}
+
+
+def _signature(n) -> str:
+    import json as _json
+
+    return hashlib.blake2b(_json.dumps([n.type, n.libelle, n.statut, n.provenance, n.plateformes, n.proprietes], sort_keys=True,
+                                       default=str, ensure_ascii=False).encode(), digest_size=8).hexdigest()
+
+
+def _delta(g: Graphe) -> dict:
+    liens: dict = {}
+    for r in g.relations.values():  # une relation ajoutée, retirée ou changée modifie ses deux extrémités
+        t = f"{r.de}|{r.type}|{r.vers}|{r.statut}"
+        liens.setdefault(r.de, []).append(t)
+        liens.setdefault(r.vers, []).append(t)
+    sig = {i: _signature(n) + hashlib.blake2b("\n".join(sorted(liens.get(i, []))).encode(), digest_size=6).hexdigest()
+           for i, n in g.noeuds.items()}
+    avant = _SIGNATURES.get("noeuds")
+    _SIGNATURES["noeuds"] = sig
+    if avant is None:
+        return {"premiere": True, "ajoutes": [], "modifies": [], "retires": []}
+    return {"premiere": False, "ajoutes": sorted(set(sig) - set(avant))[:300],
+            "modifies": sorted(i for i in sig if i in avant and sig[i] != avant[i])[:300],
+            "retires": sorted(set(avant) - set(sig))[:300]}
 
 
 # =========================================================================== construction
@@ -96,28 +196,197 @@ def construire(avec_declarations: bool = True, inventaire: dict | None = None) -
     return pickle.loads(octets)
 
 
+COMPLETUDES = ("déclaré", "découvert", "partiellement exploré", "exploré", "confirmé")
+
+
+def completude_parcours(g: Graphe, pid: str) -> str:
+    """déclaré (aucun écran : préparé, pas encore déroulé) ; découvert (écrans proposés, aucun validé) ; partiellement
+    exploré (une partie validée) ; exploré (tous validés) ; confirmé (exploré et vérifié par au moins un test BDD)."""
+    ecrans = [r for r in g.sortants(pid) if r.type == "contient" and r.vers.startswith("ecran:")]
+    if not ecrans:
+        return "déclaré"
+    valides = sum(1 for r in ecrans if r.statut == "validé")
+    if not valides:
+        return "découvert"
+    if valides < len(ecrans):
+        return "partiellement exploré"
+    verifie = any(r.type == "verifie" and r.confirmee for r in g.entrants(pid))
+    return "confirmé" if verifie else "exploré"
+
+
+def _relations_fonctionnelles(g: Graphe):
+    """Vue fonctionnelle reliée, déduite de ce que la Discovery a observé (agrégats, jamais inventés) :
+    - module → mène à → module : au moins une navigation d'un écran de l'un vers un écran de l'autre
+      (transitions, actions et écrans gardés en propriétés) ;
+    - parcours → traverse → module : un écran du parcours appartient au module (ordre de passage gardé) ;
+    - parcours → s'enchaîne avec → parcours : le dernier écran de l'un est le premier de l'autre.
+    Statut : celui des faits sources (un parcours dont les écrans sont encore à valider donne des liens à valider)."""
+    for sid, n in list(g.noeuds.items()):  # pont Tests ↔ Utilisateur : le test BDD vérifie le parcours dont il vient
+        if n.type == "scenario" and n.proprietes.get("parcours") in g.noeuds:
+            g.relier(sid, n.proprietes["parcours"], "verifie", source="bdd (parcours d'origine)")
+    module_de: dict = {}
+    for r in g.relations.values():
+        if r.type == "contient" and r.de.startswith("module:") and r.vers.startswith("ecran:"):
+            module_de.setdefault(r.vers, r.de)
+    agg: dict = {}
+    for r in list(g.relations.values()):
+        if r.type != "navigue_vers" or r.proprietes.get("interdite"):
+            continue
+        a, b = module_de.get(r.de), module_de.get(r.vers)
+        if a and b and a != b:
+            x = agg.setdefault((a, b), {"transitions": 0, "ecrans": set(), "actions": set()})
+            x["transitions"] += 1
+            x["ecrans"].update((r.de, r.vers))
+            if r.proprietes.get("action"):
+                x["actions"].add(str(r.proprietes["action"]))
+    for (a, b), x in agg.items():
+        g.relier(a, b, "mene_a", provenance="déduit", statut="validé", source="navigations observées entre leurs écrans (Discovery)",
+                 proprietes={"calcul": True, "transitions": x["transitions"], "actions": sorted(x["actions"])[:12],
+                             "preuves": sorted(x["ecrans"])[:20], "via_ecrans": sorted(x["ecrans"])[:20]})
+    extremites: dict = {}
+    for pid, n in g.noeuds.items():
+        if n.type != "parcours":
+            continue
+        rels = sorted((r for r in g.sortants(pid, False) if r.type == "contient" and r.vers.startswith("ecran:")),
+                      key=lambda r: (r.proprietes.get("ordre", 0), r.vers))
+        if not rels:
+            continue
+        extremites[pid] = (rels[0].vers, rels[-1].vers)
+        modules: dict = {}
+        for i, r in enumerate(rels):
+            m = module_de.get(r.vers)
+            if m:
+                st = modules.get(m, (i, "validé", []))
+                modules[m] = (st[0], "validé" if st[1] == "validé" and r.statut == "validé" else "à valider", st[2] + [r.vers])
+        for m, (ordre, statut, ecrans) in modules.items():
+            g.relier(pid, m, "traverse", provenance="déduit", statut=statut, source="écrans du parcours (Discovery)",
+                     proprietes={"calcul": True, "ordre": ordre, "preuves": ecrans[:20], "via_ecrans": ecrans[:20]})
+    for pid, n in g.noeuds.items():
+        if n.type == "parcours":
+            n.proprietes["completude"] = completude_parcours(g, pid)
+    for a, (_, fin) in extremites.items():
+        for b, (debut, _) in extremites.items():
+            if a != b and fin == debut:
+                g.relier(a, b, "enchaine_avec", provenance="déduit", statut="validé", source="fin de l'un = début de l'autre",
+                         proprietes={"calcul": True, "preuves": [fin], "via_ecrans": [fin]})
+
+
 def _construire(avec_declarations: bool = True, inventaire: dict | None = None) -> Graphe:
     from atelier.execution import depot_robot
     from atelier.execution.robot import derniers_resultats
     from atelier.intelligence import patrimoine_xray
 
+    debut = time.perf_counter()
+    DERNIERE_CONSTRUCTION.clear()
     g = Graphe("connaissance")
     _depuis_carte(g)
-    inv = inventaire if inventaire is not None else depot_robot.lire_depot()
+    inv = inventaire if inventaire is not None else _memo("dépôt Robot", _fichiers(("*.robot", "*.resource")), depot_robot.lire_depot)
     _depuis_depot(g, inv)
     _depuis_jdd(g)
     _depuis_patrimoine(g, patrimoine_xray.charger_vue())
     _depuis_couverture(g)
+    _depuis_bdd(g, inv)
     _depuis_openapi(g)
-    _resultats(g, derniers_resultats())
+    _resultats(g, _memo("résultats des runs", _fichiers(("output.xml",), "results"), derniers_resultats))
     if avec_declarations:
         declarations.appliquer(g)
     _depuis_donnees(g)  # après les déclarations : les parcours déclarés reçoivent les variables de leurs écrans
+    _relations_fonctionnelles(g)  # le « quoi » relié entre lui : modules, parcours (depuis la Discovery)
+    _depuis_comportement(g)  # modèles comportementaux (MBT) : états, transitions, conditions, chemins générés
     _verifiees_sur(g, set(declarations.charger()["relations_masquees"]) if avec_declarations else set())
     _enrichir_champs(g)
     _depuis_anomalies(g)
     _marquer_automatisation(g)
+    if inventaire is None and avec_declarations:
+        DERNIERE_CONSTRUCTION["delta"] = _delta(g)
+    DERNIERE_CONSTRUCTION.update(duree_s=round(time.perf_counter() - debut, 3), noeuds=len(g.noeuds), relations=len(g.relations),
+                                 date=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return g
+
+
+def _depuis_comportement(g: Graphe):
+    """Modèles comportementaux (comportement/*.yaml, MBT) : un nœud par modèle, état, transition, condition, et par
+    chemin qui a donné un scénario BDD. Relations du cahier (CONTAINS_STATE, STARTS_FROM, LEADS_TO, TRIGGERED_BY,
+    GUARDED_BY, ASSOCIATED_WITH, TRAVERSES, DERIVED_FROM, VERIFIES) avec la provenance et la validation de l'élément :
+    un élément déduit non validé reste une proposition (jamais dans la couverture ni l'impact officiels)."""
+    try:
+        from atelier.domain import comportement as cm
+
+        d = cm.dossier()
+        fichiers = sorted(d.glob("*.yaml")) if d.exists() else []
+    except Exception:  # noqa: BLE001
+        return
+    import yaml as _yaml
+
+    for f in fichiers:
+        try:
+            m = _lu("modèles comportementaux", [f], lambda f=f: _yaml.safe_load(f.read_text("utf-8")) or {})
+        except Exception:  # noqa: BLE001 — un modèle illisible ne bloque pas le graphe
+            continue
+        if not m.get("id"):
+            continue
+        mid = f"modele_comportement:{m['id']}"
+        g.noeud(mid, "modele_comportement", m.get("nom") or m["id"], provenance="déclaré" if m.get("statut") == "Validated" else "observé",
+                source=f"comportement/{f.name}", proprietes={"version": m.get("version"), "statut": m.get("statut"), "perimetre": m.get("perimetre")})
+        per = (m.get("perimetre") or {}).get("id")
+        if per in g.noeuds:
+            g.relier(per, mid, "associe_a", source="modèle comportemental (périmètre)")
+
+        def st(el):
+            v = el.get("validation", "à valider")
+            return ("déduit" if el.get("provenance") == "déduit" else "observé" if el.get("provenance") == "observé" else "déclaré",
+                    "validé" if v == "validé" else "à valider")
+        for k, e in (m.get("etats") or {}).items():
+            if e.get("validation") == "rejeté":
+                continue
+            prov, statut = st(e)
+            eid = f"etat:{m['id']}/{k}"
+            g.noeud(eid, "etat", e.get("nom") or k, provenance=prov, source=e.get("source", ""), statut=statut,
+                    proprietes={"genre": e.get("type"), "initial": e.get("initial"), "final": e.get("final"), "confiance_mbt": e.get("confiance")})
+            g.relier(mid, eid, "contient_etat", provenance=prov, statut=statut, source="modèle comportemental")
+            if e.get("ecran") in g.noeuds:
+                g.relier(eid, e["ecran"], "associe_a", provenance=prov, statut=statut, source="modèle comportemental")
+        for k, c in (m.get("conditions") or {}).items():
+            if c.get("validation") == "rejeté":
+                continue
+            prov, statut = st(c)
+            g.noeud(f"condition:{m['id']}/{k}", "condition", c.get("libelle") or k, provenance=prov, source=c.get("source", ""), statut=statut,
+                    proprietes={"regle": c.get("regle", ""), "confiance_mbt": c.get("confiance")})
+            if c.get("regle") in g.noeuds:
+                g.relier(f"condition:{m['id']}/{k}", c["regle"], "associe_a", provenance=prov, statut=statut, source="modèle comportemental")
+        for k, t in (m.get("transitions") or {}).items():
+            de, vers = f"etat:{m['id']}/{t.get('de')}", f"etat:{m['id']}/{t.get('vers')}"
+            if t.get("validation") == "rejeté" or de not in g.noeuds or vers not in g.noeuds:
+                continue
+            prov, statut = st(t)
+            a = (m.get("actions") or {}).get(t.get("action")) or {}
+            tid = f"transition:{m['id']}/{k}"
+            g.noeud(tid, "transition", f"{g.noeuds[de].libelle} → {g.noeuds[vers].libelle}" + (f" ({a.get('libelle')})" if a.get("libelle") else ""),
+                    provenance=prov, source=t.get("source", ""), statut=statut,
+                    proprietes={"priorite": t.get("priorite"), "issue": t.get("issue", ""), "confiance_mbt": t.get("confiance")})
+            for typ, x, y in (("contient_transition", mid, tid), ("part_de", tid, de), ("conduit_a", tid, vers)):
+                g.relier(x, y, typ, provenance=prov, statut=statut, source="modèle comportemental")
+            if a.get("noeud") in g.noeuds:
+                g.relier(tid, a["noeud"], "declenchee_par", provenance=prov, statut=statut, source="modèle comportemental")
+            cond = f"condition:{m['id']}/{t.get('garde')}"
+            if t.get("garde") and cond in g.noeuds:
+                g.relier(tid, cond, "gardee_par", provenance=prov, statut=statut, source="modèle comportemental")
+        for pid, c in (m.get("chemins_generes") or {}).items():
+            sc = f"scenario:{c.get('scenario')}"
+            if sc not in g.noeuds:
+                continue
+            ch = f"chemin:{m['id']}/{pid}"
+            g.noeud(ch, "chemin", f"Chemin {pid}", provenance="déduit", statut="validé", source=f"comportement/{f.name}",
+                    proprietes={"calcul": True, "strategie": c.get("strategie"), "version_modele": c.get("version")})
+            g.relier(sc, ch, "derive_de", provenance="déduit", statut="validé", source="génération MBT", proprietes={"calcul": True})
+            for t in c.get("transitions") or []:
+                if f"transition:{m['id']}/{t}" in g.noeuds:
+                    g.relier(ch, f"transition:{m['id']}/{t}", "parcourt", provenance="déduit", statut="validé", source="génération MBT",
+                             proprietes={"calcul": True})
+                    g.relier(sc, f"transition:{m['id']}/{t}", "verifie", source="génération MBT (traçabilité du scénario)")
+            for e in c.get("etats") or []:
+                if f"etat:{m['id']}/{e}" in g.noeuds:
+                    g.relier(sc, f"etat:{m['id']}/{e}", "verifie", source="génération MBT (traçabilité du scénario)")
 
 
 def _id_ecran(e: dict) -> str:
@@ -132,7 +401,9 @@ def _depuis_carte(g: Graphe):
         if not slug:
             return
         cfg = carte.config_app()
-        ecrans = carte.ecrans()
+        dossier = carte._dir() / "ecrans"
+        ecrans = [e for e in (_lu("écrans (carte)", [f], lambda f=f: carte._load(f, {}))
+                              for f in sorted(dossier.glob("*.yaml"))) if e and e.get("id")]
         transitions = carte.transitions()
     except Exception:
         return
@@ -142,9 +413,13 @@ def _depuis_carte(g: Graphe):
     for p in cfg.get("plateformes") or []:
         g.noeud(f"plateforme:{p}", "plateforme", p.capitalize(), source="carte", plateformes=[p])
         g.relier(app.id, f"plateforme:{p}", "contient", source="carte")
-    if cfg.get("build"):
-        g.noeud(f"version:{cfg['build']}", "version", f"Build {cfg['build']}", source="carte")
-        g.relier(app.id, f"version:{cfg['build']}", "contient", source="carte")
+    builds = {cfg.get("build") or ""}
+    for e in ecrans:
+        builds |= {p.get("vu_build") or "" for p in (e.get("plateformes") or {}).values()}
+        builds |= {c.get("build") or "" for c in e.get("changements") or []}
+    for b in sorted(builds - {""}):
+        g.noeud(f"version:{b}", "version", f"Build {b}", source="carte", proprietes={"courante": b == cfg.get("build")})
+        g.relier(app.id, f"version:{b}", "contient", source="carte")
     try:
         from atelier.discovery import classement
 
@@ -158,6 +433,8 @@ def _depuis_carte(g: Graphe):
         plats = sorted((e.get("plateformes") or {}).keys())
         n = g.noeud(eid, "ecran", e.get("nom") or e.get("titre") or e["id"], source="carte", plateformes=plats,
                     proprietes={"id_carte": e["id"], "titre": e.get("titre", ""), "a_revoir": e.get("a_revoir", False),
+                                "versions": sorted(({p.get("vu_build") or "" for p in (e.get("plateformes") or {}).values()}
+                                                   | {c.get("build") or "" for c in e.get("changements") or []}) - {""}),
                                 "etats": len(e.get("etats", [])),
                                 "noms_proposes": [f"{p['nom']} ({p.get('source', '')})" for p in e.get("propositions_nom") or []]},
                     confiance=1.0 if e.get("nom") else 0.8)
@@ -193,10 +470,25 @@ def _depuis_carte(g: Graphe):
             g.relier(n.id, f"test:{cle_test}", "teste_par", source="carte (TNR)")
     for t in transitions:
         if t["de"] in par_id and t["vers"] in par_id:
+            libelle = t["action"].get("libelle") or t["action"].get("cle") or t["action"].get("type")
+            fiab = round(t["reussites"] / max(t["essais"], 1), 2)
             g.relier(par_id[t["de"]], par_id[t["vers"]], "navigue_vers", source=f"carte ({t.get('source', '')})",
-                     proprietes={"action": t["action"].get("libelle") or t["action"].get("cle") or t["action"].get("type"),
-                                 "plateforme": t["plateforme"], "interdite": t.get("interdite", False),
-                                 "fiabilite": round(t["reussites"] / max(t["essais"], 1), 2)})
+                     proprietes={"action": libelle, "plateforme": t["plateforme"], "interdite": t.get("interdite", False),
+                                 "fiabilite": fiab})
+            # perspective utilisateur : écran → permet → action → aboutit à → écran (condition éventuelle sur le lien)
+            de = par_id[t["de"]]
+            cle_action = t["action"].get("cle") or t["action"].get("type") or "action"
+            aid = f"action:{de.split(':', 1)[1]}.{cle_action}"
+            a = g.noeuds.get(aid) or g.noeud(aid, "action", libelle or cle_action, source="carte",
+                                              proprietes={"genre": t["action"].get("type", ""), "cle": t["action"].get("cle", ""),
+                                                          "ecran": de.split(":", 1)[1]})
+            if t["plateforme"] not in a.plateformes:
+                a.plateformes.append(t["plateforme"])
+            g.relier(de, aid, "permet", source="carte")
+            g.relier(aid, par_id[t["vers"]], "aboutit_a", source="carte",
+                     proprietes={"plateforme": t["plateforme"], "fiabilite": fiab, "interdite": t.get("interdite", False),
+                                 **({"condition": t["condition"]} if t.get("condition") else {}),
+                                 **({"alternative": True} if t.get("alternative") else {})})
 
 
 def _verifiees_sur(g: Graphe, masquees: set | None = None):
@@ -325,6 +617,74 @@ def _depuis_depot(g: Graphe, inv: dict):
             utilisations[k] = utilisations.get(k, 0) + 1
     for k, nb in utilisations.items():
         g.noeuds[f"keyword:{k}"].proprietes["appels_directs_par_tests"] = nb
+
+
+def _depuis_bdd(g: Graphe, inv: dict):
+    """Tests BDD de l'atelier (bdd/*.yaml) : un nœud « scénario » par test BDD, présent avec ou sans Xray, et ses ponts :
+    - scénario → vérifie → parcours (le parcours dont il vient) ;
+    - scénario → couvre → écran (écrans cités par ses étapes) ;
+    - scénario → est implémenté par → test Robot (le test porte l'identifiant du scénario, ou sa clé Xray, en tag) ;
+    - test Xray → est formalisé par → scénario (scénario créé depuis le test, ou publié dans Xray) ;
+    - scénario → utilise → jeu de données."""
+    try:
+        from atelier.generation import bdd, conception
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        dossier = bdd._dossier()
+        fichiers = sorted(dossier.glob("*.yaml")) if dossier.exists() else []
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        publiees = conception._publications_xray()
+    except Exception:  # noqa: BLE001
+        publiees = {}
+
+    def lire(f):
+        import yaml as _yaml
+
+        cle = (_yaml.safe_load(f.read_text("utf-8")) or {}).get("cle") or f.stem
+        m = bdd.charger(cle) or {}
+        return {"cle": cle, "titre": m.get("titre", ""), "statut": m.get("statut", "brouillon")}, m
+
+    lus = []
+    for f in fichiers:
+        try:
+            lus.append(_lu("tests BDD", [f, f.with_suffix(".feature")], lambda f=f: lire(f)))
+        except Exception:  # noqa: BLE001 — fichier illisible : ignoré, jamais bloquant
+            continue
+    par_tag: dict = {}
+    for tid, t in (inv.get("tests") or {}).items():
+        for tag in t.get("tags") or []:
+            par_tag.setdefault(tag, []).append(f"test_robot:{tid}")
+    from atelier.integrations.xray import KEY_RE
+
+    for b, m in lus:
+        cle = b["cle"]
+        cle_xray = (publiees.get(cle) or {}).get("xray") or (cle if KEY_RE.match(cle or "") else "") or m.get("cle_xray") or ""
+        sid = f"scenario:{cle}"
+        etapes = [e for s in m.get("scenarios", []) for e in s.get("etapes", [])]
+        g.noeud(sid, "scenario", b.get("titre") or cle, source=f"bdd/{cle}.yaml",
+                proprietes={"statut_bdd": b.get("statut", ""), "origine": m.get("source", ""), "module": m.get("module", ""),
+                            "jdd": m.get("jdd", ""), "etapes": len(etapes), "cle_xray": cle_xray,
+                            "scenarios": len(m.get("scenarios", []))})
+        if m.get("module"):
+            g.noeud(f"module:{m['module']}", "module", m["module"], source="bdd")
+            g.relier(f"module:{m['module']}", sid, "contient", source="bdd")
+        if m.get("parcours"):  # le parcours vient des déclarations (appliquées plus loin) : relié dans _relations_fonctionnelles
+            g.noeuds[sid].proprietes["parcours"] = m["parcours"]
+        for ref in sorted({e.get("ecran") for e in etapes if e.get("ecran")}):
+            if f"ecran:{ref}" in g.noeuds:
+                g.relier(sid, f"ecran:{ref}", "couvre", source="bdd (étapes)")
+        for tag in {cle, cle_xray} - {""}:
+            for tr in par_tag.get(tag, []):
+                if tr in g.noeuds:
+                    g.relier(sid, tr, "implemente_par", source="dépôt (tag du test)")
+        if cle_xray and f"test:{cle_xray}" in g.noeuds:
+            g.relier(f"test:{cle_xray}", sid, "formalise_par", source="bdd (clé Xray)")
+        if m.get("jdd") and f"jdd:{m['jdd'].upper()}" in g.noeuds:
+            g.relier(sid, f"jdd:{m['jdd'].upper()}", "utilise", source="bdd")
+        g.noeuds[sid].proprietes["automatise"] = any(r.type == "implemente_par" for r in g.sortants(sid))
 
 
 def _depuis_jdd(g: Graphe):
@@ -677,9 +1037,12 @@ def analyser_impact(g: Graphe, noeud_id: str) -> dict:
         plateformes = sorted(depart.plateformes)
     else:
         plateformes = sorted({p for t in tests_robot for p in g.noeuds[t].plateformes})
+    ext = _impact_etendu(g, noeud_id, sources | dependants)
+    tous_robot = sorted(set(tests_robot) | set(ext["indirect"]["tests_robot"]))  # direct + indirect, liens confirmés
     sans_cle = [t for t in tests_robot if not g.noeuds[t].proprietes.get("cles_xray")]
     cles = sorted({c for t in tests_robot for c in g.noeuds[t].proprietes.get("cles_xray") or []})
-    fichiers = sorted({g.noeuds[t].proprietes.get("fichier", "") for t in tests_robot})
+    tags_tnr = _tags_tnr(g, tous_robot)
+    fichiers = sorted({g.noeuds[t].proprietes.get("fichier", "") for t in tous_robot})
     cible = posixpath.commonpath(fichiers) if fichiers else ""  # chemins du projet : toujours « / »
     if cible in fichiers and len(fichiers) > 1:
         cible = posixpath.dirname(cible)
@@ -692,10 +1055,70 @@ def analyser_impact(g: Graphe, noeud_id: str) -> dict:
         "keywords": [{"id": k, "nom": g.noeuds[k].libelle} for k in keywords],
         "modules": sorted(g.noeuds[m].libelle for m in modules),
         "plateformes": plateformes,
-        "tnr": {"possible": bool(cles), "target": cible or ".", "include_tags": cles,
+        # TNR, même sans Xray : 1. test Robot relié à un test BDD (son identifiant en tag), 2. relié à un test Xray (clé),
+        # 3. tests BDD concernés sans script (à exécuter à la main), 4. tests Xray manuels. Liens confirmés seulement.
+        "tnr": {"possible": bool(tags_tnr), "target": cible or ".", "include_tags": tags_tnr,
                 "tests_sans_cle_xray": [g.noeuds[t].libelle for t in sans_cle],
-                "explication": ("TNR ciblée : tests Robot qui portent les clés Xray concernées."
-                                if cles else "Aucun test concerné ne porte de clé Xray : TNR par tag impossible.")},
+                "tests_bdd_manuels": ext["tests_bdd_manuels"], "tests_xray_manuels": ext["tests_xray_manuels"],
+                "explication": (f"TNR ciblée : {len(tous_robot)} test(s) Robot concernés, par l'identifiant de leur test BDD ou leur clé Xray."
+                                if tags_tnr else "Aucun test automatisé concerné ; voir les tests à exécuter à la main.")},
+        "dimensions": ext["dimensions"], "direct": {"tests_robot": tests_robot}, "indirect": ext["indirect"],
+        "potentiel": ext["potentiel"],
+    }
+
+
+def _tags_tnr(g: Graphe, tests_robot: list[str]) -> list[str]:
+    """Tags qui sélectionnent ces tests Robot : identifiants des tests BDD qu'ils implémentent (lien confirmé), sinon
+    leurs clés Xray."""
+    tags = set()
+    for t in tests_robot:
+        bdd = [r.de.split(":", 1)[1] for r in g.entrants(t) if r.type == "implemente_par" and r.de.startswith("scenario:") and r.confirmee]
+        tags |= set(bdd) or set(g.noeuds[t].proprietes.get("cles_xray") or [])
+    return sorted(tags)
+
+
+def _impact_etendu(g: Graphe, noeud_id: str, touches: set) -> dict:
+    """Impact fonctionnel et utilisateur d'une modification. Direct : ce qui dépend techniquement de l'élément (calculé
+    par analyser_impact). Indirect (liens confirmés) : les tests BDD qui couvrent un écran touché ou qui vérifient un
+    parcours passant par lui, et leurs tests Robot. Potentiel (suggestions, jamais dans la TNR) : écrans qui mènent à
+    un écran touché ou en partent, et les tests BDD qui les couvrent ; liens probables ou non vérifiés."""
+    c = g.confirme()
+    ecrans = {i for i in touches | {noeud_id} if g.noeuds.get(i) and g.noeuds[i].type == "ecran"}
+    for i in list(touches):  # un locator ou un composant touché : son écran
+        if g.noeuds.get(i) and g.noeuds[i].type in ("locator", "composant", "action"):
+            ecrans |= {r.de for r in c.entrants(i) if r.type in ("contient", "permet") and g.noeuds[r.de].type == "ecran"}
+    parcours = {r.de for e in ecrans for r in c.entrants(e) if r.type == "contient" and g.noeuds[r.de].type == "parcours"}
+    actions = {r.vers for e in ecrans for r in c.sortants(e) if r.type == "permet"}
+    actions |= {r.de for e in ecrans for r in c.entrants(e) if r.type == "aboutit_a"}
+    transitions = [{"de": r.de, "vers": r.vers, "action": r.proprietes.get("action", "")}
+                   for r in c.relations.values() if r.type == "navigue_vers" and (r.de in ecrans or r.vers in ecrans)]
+    fonct = {r.de for e in ecrans for r in c.entrants(e) if g.noeuds[r.de].type in ("fonctionnalite", "user_story", "epic", "regle")}
+    fonct |= {r.vers for e in ecrans for r in c.sortants(e) if g.noeuds[r.vers].type in ("fonctionnalite", "user_story", "epic", "regle")}
+    fonct |= {r.de for p in parcours for r in c.entrants(p) if g.noeuds[r.de].type in ("fonctionnalite", "user_story", "epic")}
+    scen = {r.de for e in ecrans for r in c.entrants(e) if r.type == "couvre" and r.de.startswith("scenario:")}
+    scen |= {r.de for p in parcours for r in c.entrants(p) if r.type == "verifie" and r.de.startswith("scenario:")}
+    scen |= {r.de for f in fonct for r in c.entrants(f) if r.type == "verifie" and r.de.startswith("scenario:")}
+    robots = {r.vers for s in scen for r in c.sortants(s) if r.type == "implemente_par"}
+    voisins = {r.de for e in ecrans for r in g.entrants(e) if r.type == "navigue_vers"} | \
+              {r.vers for e in ecrans for r in g.sortants(e) if r.type == "navigue_vers"}
+    voisins -= ecrans
+    scen_pot = {r.de for v in voisins for r in g.entrants(v) if r.type == "couvre" and r.de.startswith("scenario:")} - scen
+    scen_pot |= {r.de for e in ecrans for r in g.entrants(e) if r.type == "couvre" and r.de.startswith("scenario:") and not r.confirmee}
+    xray_manuels = sorted({r.de for s in scen for r in c.entrants(s) if r.type == "formalise_par"
+                           and not g.noeuds[r.de].proprietes.get("automatise")})
+    lib = lambda ids: [{"id": i, "libelle": g.noeuds[i].libelle} for i in sorted(ids) if i in g.noeuds]  # noqa: E731
+    return {
+        "dimensions": {
+            "technique": {"elements": lib(i for i in touches if g.noeuds[i].type in ("locator", "keyword", "resource", "composant",
+                                                                                     "endpoint", "jdd", "variable", "module"))},
+            "fonctionnel": {"elements": lib(fonct), "parcours": lib(parcours)},
+            "utilisateur": {"ecrans": lib(ecrans), "actions": lib(actions), "transitions": transitions[:50], "parcours_traverses": lib(parcours)},
+        },
+        "indirect": {"tests_bdd": lib(scen), "tests_robot": sorted(robots)},
+        "potentiel": {"ecrans_voisins": lib(voisins), "tests_bdd": lib(scen_pot),
+                      "explication": "Suggestions à examiner : écrans qui mènent à l'élément ou en partent, liens non confirmés. Jamais dans la TNR."},
+        "tests_bdd_manuels": [x["libelle"] for x in lib(s for s in scen if not any(r.type == "implemente_par" for r in c.sortants(s)))],
+        "tests_xray_manuels": [g.noeuds[i].libelle for i in xray_manuels],
     }
 
 
@@ -730,4 +1153,5 @@ def sources() -> dict:
     d = declarations.charger()
     out["declarations"] = {"noeuds": len(d["noeuds"]), "relations": len(d["relations"]),
                            "a_valider": sum(n.get("statut") == "à valider" for n in d["noeuds"].values())}
+    out["construction"] = dict(DERNIERE_CONSTRUCTION)  # durée, sources relues ou réutilisées, volume
     return out

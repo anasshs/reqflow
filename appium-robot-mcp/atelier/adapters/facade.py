@@ -511,6 +511,54 @@ def knowledge_graph(categorie: str = "", recherche: str = "", centre: str = "", 
 
 
 @outil
+def mbt_modele(perimetre: str) -> dict:
+    """Model-Based Testing : construit ou actualise le modèle comportemental d'un périmètre et le renvoie pour lecture
+    (états, transitions, conditions, critères des US, informations manquantes, éléments rejetés à ne pas reproposer).
+    perimetre : 'module:Comptes', 'user_story:DEMO-12', 'parcours:<id>', 'fonctionnalite:<id>', 'ecran:<nom>' ou 'application'.
+    Seul le fichier comportement/<id>.yaml du projet est écrit (nouvelle version si le comportement change)."""
+    from atelier.intelligence import mbt
+
+    type_, _, id_ = perimetre.partition(":")
+    m = mbt.construire(type_, perimetre if id_ else "")
+    return {"resume": mbt.resume(m), "lecture": mbt.lecture_pour_ia(m["id"])}
+
+
+@outil
+def mbt_chemins(modele: str, strategie: str = "transitions", mode: str = "exploratoire", inclure_couverts: bool = False) -> dict:
+    """Le minimum de chemins d'un modèle comportemental pour la stratégie, chacun avec sa valeur ajoutée (ce qu'il couvre
+    de nouveau), sa justification, ses informations manquantes, son niveau (hypothèse ou établi), les scénarios existants
+    et la préparation à l'automatisation ; plus la structure, les hypothèses et les scénarios réutilisés.
+    strategie : etats, transitions, paires, conditions, chemins, critiques. mode : exploratoire ou verifie (éléments
+    établis seulement). Par défaut, ce que les scénarios existants couvrent déjà n'est pas reciblé."""
+    from atelier.intelligence import mbt
+
+    return mbt.analyser(modele, strategie, None, mode, inclure_couverts)
+
+
+@outil
+def mbt_deposer_propositions(modele: str, propositions: dict) -> dict:
+    """Dépose des propositions d'enrichissement du modèle (Cursor ou autre IA) : {"etats": [{nom, type, justification}],
+    "transitions": [{de, vers, action, garde, issue, justification}], "conditions": [{libelle, justification}],
+    "incoherences": [texte], "revisions": [{scenario, proposition}]} (révisions de scénarios : proposées, jamais appliquées). Toujours « déduit » et « à valider » : rien n'est confirmé sans le QA. Ne jamais inventer un
+    message d'erreur ni une règle absente des textes fournis par mbt_modele."""
+    from atelier.domain import comportement
+    from atelier.intelligence import mbt
+
+    r = comportement.deposer_propositions(modele, propositions or {}, source="Cursor (MCP)")
+    mbt.vider_cache()
+    return {"ajoutes": r["ajoutes"], "ignores": r["ignores"], "modele": mbt.resume(r["modele"])}
+
+
+@outil
+def mbt_generer_bdd(modele: str, chemins: list[str] | None = None, strategie: str = "transitions") -> dict:
+    """Crée les scénarios BDD (brouillons, référentiel BDD existant) des chemins choisis d'un modèle comportemental
+    (tous ceux de la stratégie si aucun). Doublons détectés et non recréés ; traçabilité modèle → chemin → scénario gardée."""
+    from atelier.generation import mbt_bdd
+
+    return mbt_bdd.generer(modele, chemins or None, strategie, False, "MBT")
+
+
+@outil
 def impact_analysis(element: str) -> dict:
     """Analyse d'impact d'une modification (locator, keyword, resource, écran, JDD…) : tests Robot et Xray,
     modules, plateformes concernés et TNR ciblée (include_tags pour run_robot).

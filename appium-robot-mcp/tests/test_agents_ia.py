@@ -51,7 +51,7 @@ def test_regles_sans_ecrasement_implicite(poste):
     from atelier.domain import projet
 
     r = poste.installer_regles()
-    assert len(r["copiees"]) == 12 and "atelier-automatisation.mdc" in r["copiees"] and "atelier-security.mdc" in r["copiees"]
+    assert len(r["copiees"]) == 13 and "atelier-automatisation.mdc" in r["copiees"] and "atelier-security.mdc" in r["copiees"]
     f = projet.PROJECT_DIR / ".cursor" / "rules" / "atelier-discovery.mdc"
     f.write_text("règle adaptée par l'équipe", "utf-8")
     r = poste.installer_regles()

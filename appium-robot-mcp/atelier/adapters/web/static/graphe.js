@@ -19,19 +19,20 @@ const ICONE_TYPE = {ecran: "ecran", module: "dossier", fonctionnalite: "conditio
   role: "graphe", epic: "bdd", user_story: "bdd", bug: "x", test: "assertion", test_plan: "rapports", test_set: "rapports",
   test_execution: "execution", test_robot: "play", suite: "fichier", keyword: "editeur", locator: "cible", resource: "fichier",
   jdd: "donnee", requete: "donnee", variable: "donnee", bibliotheque: "graphe", plateforme: "mobile", application: "mobile", version: "historique",
-  endpoint: "api", entite: "donnee", composant: "graphe", feature: "bdd", scenario: "bdd", step: "check", resultat: "assertion"};
+  endpoint: "api", entite: "donnee", composant: "graphe", feature: "bdd", scenario: "bdd", step: "check", resultat: "assertion",
+  modele_comportement: "graphe", etat: "cible", transition: "branche", condition: "condition", chemin: "branche"};
 const court = (t, n = 26) => (t && t.length > n ? t.slice(0, n - 1) + "…" : t || "");
 
 /* Familles de nœuds (maquette « Graphe de connaissances ») : titre de région, types, disposition et place
    autour de l'élément central. La couleur vient de la variable CSS --f-<famille> (thèmes sombre et clair). */
 const FAMILLES = [
-  {id: "exigences", titre: "EXIGENCES & FONCTIONNALITÉS", nom: "Exigence / Fonctionnalité", types: ["epic", "user_story", "bug", "fonctionnalite", "regle", "role"], dispo: "colonne", place: "NO"},
-  {id: "parcours", titre: "PARCOURS & ÉCRANS", nom: "Parcours / Écran", types: ["parcours", "module", "ecran"], dispo: "flux", place: "N"},
+  {id: "exigences", titre: "EXIGENCES & FONCTIONNALITÉS", nom: "Exigence / Fonctionnalité", types: ["epic", "user_story", "bug", "fonctionnalite", "regle", "role", "condition"], dispo: "colonne", place: "NO"},
+  {id: "parcours", titre: "PARCOURS & ÉCRANS", nom: "Parcours / Écran", types: ["parcours", "module", "ecran", "modele_comportement", "etat", "transition"], dispo: "flux", place: "N"},
   {id: "application", titre: "APPLICATION", nom: "Application / Plateforme", types: ["application", "plateforme", "environnement", "version"], dispo: "colonne", place: "NE"},
   {id: "actions", titre: "ACTIONS UTILISATEUR", nom: "Action / Keyword", types: ["action", "keyword", "step"], dispo: "colonne", place: "O"},
   {id: "donnees", titre: "DONNÉES DE TEST", nom: "Donnée de test", types: ["jdd", "requete", "variable", "entite"], dispo: "colonne", place: "E"},
   {id: "locators", titre: "LOCATORS & COMPOSANTS", nom: "Locator / Composant", types: ["locator", "composant", "bibliotheque", "resource", "endpoint"], dispo: "colonne", place: "E"},
-  {id: "tests", titre: "TESTS & PLANS (XRAY)", nom: "Test / Plan", types: ["test", "test_plan", "test_set", "test_robot", "suite", "feature", "scenario"], dispo: "grille", place: "SO"},
+  {id: "tests", titre: "TESTS & PLANS (XRAY)", nom: "Test / Plan", types: ["test", "test_plan", "test_set", "test_robot", "suite", "feature", "scenario", "chemin"], dispo: "grille", place: "SO"},
   {id: "execution", titre: "EXÉCUTION", nom: "Exécution", types: ["test_execution"], dispo: "colonne", place: "S"},
   {id: "resultats", titre: "RÉSULTATS & PREUVES", nom: "Résultat", types: ["resultat"], dispo: "grille", place: "E"},
 ];
@@ -104,7 +105,7 @@ class GrapheVue {
   _couches(rangs) {
     const parRang = new Map();
     for (const n of this.noeuds) {
-      const r = rangs[n.type] ?? 9;
+      const r = typeof rangs === "function" ? rangs(n) : rangs[n.type] ?? 9;
       if (!parRang.has(r)) parRang.set(r, []);
       parRang.get(r).push(n);
     }
@@ -256,7 +257,8 @@ class GrapheVue {
     for (const r of this.liens) {
       if (!this.pos.has(r.de) || !this.pos.has(r.vers)) continue;  // extrémité repliée (« + N autres »)
       const autre = r.de === this.centre ? this.parId.get(r.vers) : this.parId.get(r.de);
-      const g = el("g", {class: "gv-lien" + (r.metier?.type === "VERIFIED_ON" ? " gv-preuve" : "") + (r.provenance === "déduit" ? " gv-deduit" : "") +
+      const g = el("g", {class: "gv-lien" + (r.metier?.type === "VERIFIED_ON" ? " gv-preuve" : "") + (r.type === "lie_via" ? " gv-via"
+        : r.provenance === "déduit" && r.statut !== "validé" ? " gv-deduit" : "") +
         (r.statut === "à valider" ? " gv-a-valider" : "")}, this.gLiens);
       const ligne = el("path", {"marker-end": "url(#gv-fleche)", style: `stroke:${couleurNoeud(autre)}`}, g);
       const t = el("text", {class: "gv-lien-texte"}, g);
@@ -285,13 +287,14 @@ class GrapheVue {
       } else {
         const anomalie = n.proprietes?.non_defini || n.proprietes?.dernier_statut === "FAIL";
         el("rect", {x: -86, y: -22, width: 172, height: 44, rx: 9, class: "gv-boite" +
-          (n.statut === "à valider" ? " gv-a-valider" : "") + (anomalie ? " gv-anomalie" : ""), style: `--c:${coul}`}, g);
+          (n.statut === "à valider" ? " gv-a-valider" : "") + (anomalie ? " gv-anomalie" : "") + (n.nouveau ? " gv-nouveau" : n.modifie ? " gv-modifie" : ""), style: `--c:${coul}`}, g);
         el("rect", {x: -78, y: -13, width: 26, height: 26, rx: 6, class: "gv-ico-fond", style: `--c:${coul}`}, g);
         const ic = (typeof ICONES !== "undefined" && ICONES[ICONE_TYPE[n.type] || "graphe"]) || "";
         const gi = el("g", {transform: "translate(-74,-9) scale(0.75)"}, g);
         el("path", {d: ic, class: "gv-ico", style: `--c:${coul}`}, gi);
         el("text", {x: -44, y: n.plateformes?.length || n.type ? -1 : 4, class: "gv-libelle"}, g).textContent = court(n.libelle, 18);
         el("text", {x: -44, y: 13, class: "gv-sous"}, g).textContent = court(n.type.replace("_", " ") + (n.plateformes?.length ? " · " + n.plateformes.join("/") : ""), 24);
+        el("text", {x: 84, y: -27, class: "gv-prov gv-prov-" + (n.provenance === "déduit" ? "deduit" : n.provenance === "déclaré" ? "declare" : "observe")}, g).textContent = n.provenance;
         if (n.type === "test" && n.proprietes) {
           el("circle", {cx: 74, cy: -10, r: 5, class: n.proprietes.automatise ? "gv-pastille-auto" : "gv-pastille-manuel"}, g);
         }
@@ -341,6 +344,7 @@ class GrapheVue {
     }
     this.racine.setAttribute("transform", `translate(${this.vue.x},${this.vue.y}) scale(${this.vue.k})`);
     this.svg.classList.toggle("gv-loin", this.vue.k < 0.55);
+    this.opts.onVue?.(this.vue.k);
     this._mini();
   }
 

@@ -262,6 +262,25 @@ def analyser(r: dict, b: dict, g=None, delta: bool = True) -> dict:
             else:
                 candidats_qualif.setdefault(t["cle"], motif)
     borner(candidats_qualif, "qualification", "", "max_qualification")
+    # comportement (MBT) : scénarios générés depuis les transitions touchées par les évolutions rattachées ; leurs tests
+    # Xray entrent dans la ciblée, leurs scénarios BDD et tests Robot sont listés (TNR sans Xray)
+    comportement = {"modeles": {}, "scenarios_bdd": set(), "tests_robot": set()}
+    try:
+        from atelier.intelligence import mbt
+
+        for e in b["evolutions"]:
+            for l in [l for l in e.get("liens") or [] if l["etat"] == "confirmé"]:
+                im = mbt.impact_element(g, l["noeud"])
+                for x in im["modeles"]:
+                    comportement["modeles"][x["id"]] = x["nom"]
+                comportement["scenarios_bdd"] |= set(im["scenarios"])
+                comportement["tests_robot"] |= set(im["tests_robot"])
+                for t in im["tests_xray"]:
+                    ajouter(t, "ciblee", f"comportement : transition touchée par {l['libelle']}", "direct")
+    except Exception:  # noqa: BLE001 — le MBT n'empêche jamais l'analyse du build
+        pass
+    comparaison["comportement"] = {"modeles": [{"id": k, "nom": v} for k, v in sorted(comportement["modeles"].items())],
+                                   "scenarios_bdd": sorted(comportement["scenarios_bdd"]), "tests_robot": sorted(comportement["tests_robot"])}
     for cle, d in (b.get("decisions") or {}).items():
         if d.get("decision") == "ajoutée":
             ajouter(cle, "ciblee", f"ajouté par {d.get('par', '?')} : {d.get('motif', '')}".strip(" :"), "ajout")

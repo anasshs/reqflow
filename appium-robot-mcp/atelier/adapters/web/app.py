@@ -1367,9 +1367,10 @@ async def graphes_migration():
 
 @app.get("/api/graphes/connaissance")
 async def graphe_connaissance(types: str = "", categories: str = "", plateforme: str = "", recherche: str = "",
-                              centre: str = "", profondeur: int = 1, patrimoine: str = "lie", perimetre: str = ""):
+                              centre: str = "", profondeur: int = 1, patrimoine: str = "lie", perimetre: str = "",
+                              version: str = ""):
     return await asyncio.to_thread(_call, espaces.vue_connaissance, _liste(types), _liste(categories), plateforme,
-                                   recherche, centre, profondeur, patrimoine, perimetre)
+                                   recherche, centre, profondeur, patrimoine, perimetre, version)
 
 
 @app.get("/api/graphes/perimetres")
@@ -1456,9 +1457,151 @@ async def graphe_candidats(module: str = ""):
     return await asyncio.to_thread(_call, espaces.candidats, module)
 
 
+# --------------------------------------------------------------------------- Model-Based Testing
+def _mbt():
+    from atelier.intelligence import mbt
+
+    return mbt
+
+
+@app.get("/api/mbt/perimetres")
+async def mbt_perimetres():
+    return await asyncio.to_thread(_call, lambda: _mbt().perimetres())
+
+
+@app.get("/api/mbt/modeles")
+async def mbt_modeles():
+    from atelier.domain import comportement
+
+    return await asyncio.to_thread(_call, comportement.lister)
+
+
+@app.post("/api/mbt/construire")
+async def mbt_construire(req: Request):
+    """Construit ou actualise le modèle comportemental d'un périmètre (Analyser le comportement)."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, lambda: _mbt().resume(_mbt().construire(b.get("type", ""), b.get("id", ""))))
+
+
+@app.get("/api/mbt/modele")
+async def mbt_modele(id: str):
+    from atelier.domain import comportement
+
+    return await asyncio.to_thread(_call, comportement.exiger, id)
+
+
+@app.get("/api/mbt/analyse")
+async def mbt_analyse(id: str, strategie: str = "transitions", mode: str = "exploratoire", profondeur: int = 0, chemins: int = 0,
+                      transitions: int = 0, boucles: int = 0, inclure_couverts: bool = False):
+    lim = {"profondeur": profondeur, "chemins": chemins, "transitions_par_scenario": transitions, "passages_boucle": boucles}
+    return await asyncio.to_thread(_call, lambda: _mbt().analyser(id, strategie, lim, mode, inclure_couverts))
+
+
+@app.post("/api/mbt/hypothese")
+async def mbt_hypothese(req: Request):
+    """Accepter (comportement à confirmer dans le modèle) ou rejeter (jamais reproposée) une hypothèse."""
+    from atelier.domain import comportement
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, comportement.decider_hypothese, b.get("id", ""), b.get("hypothese", ""), b.get("decision", ""), b.get("motif", ""))
+    _mbt().vider_cache()
+    return r
+
+
+@app.get("/api/mbt/evolutions")
+async def mbt_evolutions(id: str, de: str = ""):
+    return await asyncio.to_thread(_call, lambda: _mbt().evolutions(id, int(de) if de else None))
+
+
+@app.post("/api/mbt/actualiser")
+async def mbt_actualiser():
+    """Reconstruit les modèles dont les sources ont changé (US, écrans, règles) et renvoie leurs évolutions."""
+    return await asyncio.to_thread(_call, lambda: _mbt().actualiser_tous(forcer=True))
+
+
+@app.get("/api/mbt/tracabilite")
+async def mbt_tracabilite(cle: str):
+    return await asyncio.to_thread(_call, lambda: _mbt().tracabilite(cle))
+
+
+@app.post("/api/mbt/element")
+async def mbt_element(req: Request):
+    """Modifications du QA (historisées par version) : ajouter un état, une condition, une transition ; modifier,
+    valider, rejeter, supprimer un élément ; changer le statut du modèle."""
+    from atelier.domain import comportement as cm
+
+    b = await req.json()
+    mid, op = b.get("id", ""), b.get("operation", "")
+    ops = {"ajouter_etat": lambda: cm.ajouter_etat(mid, b.get("nom", ""), b.get("type", "metier"), b.get("ecran", ""), b.get("description", ""),
+                                                   b.get("contexte", ""), bool(b.get("initial")), bool(b.get("final"))),
+           "ajouter_condition": lambda: cm.ajouter_condition(mid, b.get("libelle", ""), b.get("regle", "")),
+           "ajouter_transition": lambda: cm.ajouter_transition(mid, b.get("de", ""), b.get("vers", ""), b.get("action", ""), b.get("garde", ""),
+                                                               b.get("issue") or "vraie", b.get("evenement", ""), b.get("postconditions", ""),
+                                                               b.get("preconditions", ""), b.get("priorite") or "normale"),
+           "modifier": lambda: cm.modifier(mid, b.get("collection", ""), b.get("element", ""), b.get("champs") or {}),
+           "valider": lambda: cm.valider(mid, b.get("collection", ""), b.get("element", "")),
+           "rejeter": lambda: cm.rejeter(mid, b.get("collection", ""), b.get("element", ""), b.get("motif", "")),
+           "supprimer": lambda: cm.supprimer(mid, b.get("collection", ""), b.get("element", "")),
+           "statut": lambda: cm.changer_statut(mid, b.get("statut", ""))}
+    if op not in ops:
+        raise HTTPException(404, f"Opération inconnue : {op}")
+    r = await asyncio.to_thread(_call, ops[op])
+    _mbt().vider_cache()
+    return r
+
+
+@app.get("/api/mbt/versions")
+async def mbt_versions(id: str):
+    from atelier.domain import comportement
+
+    return await asyncio.to_thread(_call, comportement.versions, id)
+
+
+@app.get("/api/mbt/comparer")
+async def mbt_comparer(id: str, de: str, vers: str = "courante"):
+    from atelier.domain import comportement
+
+    return await asyncio.to_thread(_call, comportement.comparer, id, de, vers)
+
+
+@app.get("/api/mbt/impact")
+async def mbt_impact(id: str, de: str, vers: str = "courante"):
+    return await asyncio.to_thread(_call, lambda: _mbt().impact(id, de, vers))
+
+
+@app.get("/api/mbt/couverture")
+async def mbt_couverture(id: str = ""):
+    return await asyncio.to_thread(_call, lambda: _mbt().couverture(id) if id else _mbt().couverture_globale())
+
+
+@app.post("/api/mbt/generer")
+async def mbt_generer(req: Request):
+    """Scénarios BDD (brouillons, référentiel existant) des chemins choisis ; doublons non recréés sauf « forcer »."""
+    from atelier.generation import mbt_bdd
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, mbt_bdd.generer, b.get("id", ""), b.get("chemins") or None, b.get("strategie") or "transitions",
+                                   bool(b.get("forcer")), "MBT", b.get("limites") or None, "automaticien", bool(b.get("inclure_couverts")))
+
+
+@app.post("/api/mbt/ia")
+async def mbt_ia(req: Request):
+    """Propositions d'IA (états, transitions, conditions, incohérences), déposées à valider."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, lambda: _mbt().proposer_ia(b.get("id", "")))
+    _mbt().vider_cache()
+    return r
+
+
+@app.get("/api/graphes/qualite")
+async def graphe_qualite():
+    """Indicateurs de qualité du Knowledge Graph et doublons des tests BDD (comparés sur leur contenu)."""
+    return await asyncio.to_thread(_call, espaces.qualite)
+
+
 @app.get("/api/graphes/flux")
-async def graphe_flux(cible: str = ""):
-    return await asyncio.to_thread(_call, espaces.vue_flux, cible)
+async def graphe_flux(cible: str = "", mode: str = "verifie", module: str = ""):
+    return await asyncio.to_thread(_call, espaces.vue_flux, cible, mode, module)
 
 
 @app.get("/api/graphes/noeud")
@@ -1672,7 +1815,8 @@ async def testabilite_action(cle: str, action: str, req: Request):
                "publier": lambda: t.publier_cas(cle), "prendre": lambda: t.prendre(cle, b.get("ids") or []),
                "ne-pas-prendre": lambda: t.ne_pas_prendre(cle, b.get("ids") or [], b.get("motif", "")), "non-testable": lambda: t.non_testable(cle, b.get("justification", "")),
                "convertir": lambda: t.convertir_cas(cle, b.get("id", ""), b.get("vers", "")),
-               "proposer-categories": lambda: _cat().proposer(cle, b.get("categories") or None)["us"],
+               "proposer-categories": lambda: (lambda r: {**r["us"], "comportement": r["comportement"]})(
+                   _cat().proposer(cle, b.get("categories") or None, comportement=b.get("comportement") or "auto")),
                "doublons": lambda: _cat().verifier_doublons(cle)["us"],
                # granularité : un test = un objectif ; regroupements toujours décidés par l'automaticien
                "consolider": lambda: _gran().proposer(cle),

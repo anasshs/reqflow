@@ -531,6 +531,12 @@ def valider(pid: str, ecrans: list[str] | None = None) -> dict:
         p["modifie"] = _maintenant()
         _ecrire(p)
     connaissance.vider_cache()
+    try:  # le comportement du parcours est compris dès sa validation (MBT, en arrière-plan, sans IA)
+        from atelier.intelligence import mbt
+
+        mbt.construire("parcours", p["noeud"])
+    except Exception:  # noqa: BLE001 — l'analyse comportementale n'empêche jamais la validation du parcours
+        pass
     return obtenir(pid)
 
 

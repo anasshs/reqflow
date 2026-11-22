@@ -201,7 +201,7 @@ const Atelier = {
     ["Paramètres", [["parametres/projets", "Projets", "dossier"], ["parametres/applications", "Applications", "mobile"],
       ["parametres/connexions", "Connexions", "lien"], ["ia", "Pilotage IA", "ia"], ["parametres", "Paramètres", "parametres"]]]],
   /* écrans de travail rattachés à un module, quand ils n'ont pas leur propre entrée dans la barre latérale */
-  PARENT: {editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance"},
+  PARENT: {editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance", comportement: "conception"},
 
   /* entrées qui n'ont de sens qu'avec Jira (suivi d'une fonctionnalité par ses US) : cachées sinon */
   SI_JIRA: ["parcours"],

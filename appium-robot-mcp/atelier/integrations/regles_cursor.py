@@ -34,6 +34,7 @@ RUBRIQUES = [  # id, fichier livré, fichier installé, rôle
     ("coverage", "coverage.mdc", "atelier-coverage.mdc", "Mesure de la couverture"),
     ("knowledge-graph", "knowledge-graph.mdc", "atelier-knowledge-graph.mdc", "Consultation et enrichissement du graphe"),
     ("robot-expert", "robot-expert.mdc", "atelier-robot-expert.mdc", "Automaticien expert : qualité du code Robot (Browser, Selenium, Appium, Requests)"),
+    ("model-based-testing", "model-based-testing.mdc", "atelier-model-based-testing.mdc", "Analyse comportementale (Model-Based Testing) : états, transitions, chemins, scénarios qui manquent"),
 ]
 PAR_ID = {r[0]: r for r in RUBRIQUES}
 

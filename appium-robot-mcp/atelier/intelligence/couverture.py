@@ -16,7 +16,7 @@ import unicodedata
 
 from atelier.domain.graphe import Graphe
 
-TYPES_COUVERTURE = {"module", "epic", "user_story", "bug", "test", "test_plan", "test_execution", "test_robot"}
+TYPES_COUVERTURE = {"module", "epic", "user_story", "bug", "test", "test_plan", "test_execution", "test_robot", "parcours", "scenario"}
 SEUIL_REDONDANCE = 0.8
 MOTS_VIDES = {"le", "la", "les", "de", "des", "du", "un", "une", "et", "a", "au", "aux", "en", "sur", "pour",
               "par", "avec", "sans", "d", "l", "test", "verifier", "verification"}
@@ -33,12 +33,14 @@ def vue(g: Graphe, module: str = "", afficher: str = "tous") -> Graphe:
     """Sous-graphe de traçabilité Epic → US → Test Xray → Test Robot, filtrable."""
     ids = {i for i, n in g.noeuds.items() if n.type in TYPES_COUVERTURE}
     if module:
-        dans = g.atteignables(f"module:{module}", "aval", {"contient", "teste_par", "implemente_par"}) | {f"module:{module}"}
+        dans = g.atteignables(f"module:{module}", "aval", {"contient", "teste_par", "implemente_par", "formalise_par"}) | {f"module:{module}"}
         tests = {i for i in dans if g.noeuds[i].type == "test"}
         amont = set()
         for t in tests:
             amont |= {i for i in g.atteignables(t, "amont", {"contient", "teste_par"})
                       if g.noeuds[i].type in ("epic", "user_story", "bug", "test_plan")}
+        for s in [i for i in dans if g.noeuds[i].type == "scenario"]:  # tests BDD du module : les parcours qu'ils vérifient
+            amont |= {r.vers for r in g.sortants(s) if r.type == "verifie" and r.confirmee and g.noeuds[r.vers].type == "parcours"}
         ids &= dans | amont
     if afficher in ("manuels", "automatises"):
         voulu = afficher == "automatises"
@@ -197,10 +199,111 @@ def deposer_jugements_redondances(tests: list[dict], jugements: list[dict], sour
     return {"retenus": sum(retenus.values()), **retenus, "refuses": refuses}
 
 
+def _profil_bdd(m: dict) -> dict:
+    etapes = [e for s in m.get("scenarios", []) for e in s.get("etapes", [])]
+    return {"titre": _mots(m.get("titre") or m.get("feature") or ""),
+            "etapes": {" ".join(sorted(_mots(e.get("texte", "")))) for e in etapes},
+            "actions": {" ".join(sorted(_mots(e.get("texte", "")))) for e in etapes if e.get("type") in ("when", "quand")},
+            "attendus": {" ".join(sorted(_mots(e.get("texte", "")))) for e in etapes if e.get("type") in ("then", "alors")},
+            "ecrans": {e.get("ecran") for e in etapes if e.get("ecran")}, "jdd": m.get("jdd") or "", "parcours": m.get("parcours") or "",
+            "module": m.get("module") or ""}
+
+
+def _jac(a: set, b: set) -> float:
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def doublons_bdd(limite: int = 40) -> list[dict]:
+    """Tests BDD comparés sur leur contenu, pas leur titre : étapes, actions, résultats attendus, écrans traversés,
+    données. Classement : doublon probable (mêmes actions et mêmes résultats), variante métier (même chemin,
+    résultat attendu différent), partiellement redondant (une bonne part des étapes en commun), couverture
+    complémentaire (même parcours ou mêmes écrans, étapes différentes). Aucune fusion automatique : décision humaine."""
+    from atelier.generation import bdd
+
+    profils = {}
+    for b in bdd.lister():
+        m = bdd.charger(b["cle"]) or {}
+        profils[b["cle"]] = (b.get("titre") or b["cle"], _profil_bdd(m))
+    cles, out = sorted(profils), []
+    for i, a in enumerate(cles):
+        for c in cles[i + 1:]:
+            (ta, pa), (tc, pc) = profils[a], profils[c]
+            if pa["module"] and pc["module"] and pa["module"] != pc["module"] and not (pa["ecrans"] & pc["ecrans"]):
+                continue
+            s_et, s_ac, s_at, s_ec = _jac(pa["etapes"], pc["etapes"]), _jac(pa["actions"], pc["actions"]), \
+                _jac(pa["attendus"], pc["attendus"]), _jac(pa["ecrans"], pc["ecrans"])
+            if s_ac >= 0.8 and s_at >= 0.8:
+                classe = "doublon probable"
+            elif s_ec >= 0.7 and s_at < 0.5 and (s_ac >= 0.5 or s_ec == 1.0):
+                classe = "variante métier"
+            elif s_et >= 0.4:
+                classe = "partiellement redondant"
+            elif (pa["parcours"] and pa["parcours"] == pc["parcours"]) or s_ec >= 0.5:
+                classe = "couverture complémentaire"
+            else:
+                continue
+            out.append({"tests": [a, c], "titres": [ta, tc], "classe": classe,
+                        "similarites": {"etapes": round(s_et, 2), "actions": round(s_ac, 2), "attendus": round(s_at, 2), "ecrans": round(s_ec, 2)},
+                        "memes_donnees": bool(pa["jdd"]) and pa["jdd"] == pc["jdd"]})
+    ordre = {"doublon probable": 0, "variante métier": 1, "partiellement redondant": 2, "couverture complémentaire": 3}
+    return sorted(out, key=lambda x: (ordre[x["classe"]], -x["similarites"]["etapes"]))[:limite]
+
+
+def couverture_atelier(g: Graphe) -> dict:
+    """Couverture sans Xray, lue dans le graphe : parcours, écrans et fonctionnalités vérifiés par un test BDD, tests BDD
+    automatisés (test Robot qui porte leur identifiant ou leur clé Xray) et leur dernier résultat. Seules les relations
+    CONFIRMÉES comptent (jamais « même module », jamais une proposition non validée)."""
+    noeuds = g.noeuds
+    scen = {i: n for i, n in noeuds.items() if n.type == "scenario"}
+    robots = {s: [r.vers for r in g.sortants(s) if r.type == "implemente_par" and r.confirmee] for s in scen}
+    auto = {s for s, rs in robots.items() if rs}
+
+    def verifies(types: tuple, rel: tuple) -> dict:
+        out = {}
+        for s in scen:
+            for r in g.sortants(s):
+                if r.type in rel and r.confirmee and noeuds[r.vers].type in types:
+                    out.setdefault(r.vers, set()).add(s)
+        return out
+    par_parcours = verifies(("parcours",), ("verifie",))
+    par_ecran = verifies(("ecran",), ("couvre",))
+    par_fonct = verifies(("fonctionnalite", "user_story", "epic"), ("verifie",))
+    for t, n in noeuds.items():  # test Xray formalisé par un scénario : ses exigences sont vérifiées par ce scénario
+        if n.type == "test":
+            sc = [r.vers for r in g.sortants(t) if r.type == "formalise_par" and r.confirmee]
+            for r in g.sortants(t):
+                if r.type == "verifie" and r.confirmee and noeuds[r.vers].type in ("fonctionnalite", "user_story", "epic"):
+                    par_fonct.setdefault(r.vers, set()).update(sc)
+
+    def bloc(type_: str, par: dict) -> dict:
+        tous = sorted(i for i, n in noeuds.items() if n.type == type_)
+        couverts = [i for i in tous if par.get(i)]
+        return {"total": len(tous), "couverts": len(couverts), "couverts_auto": sum(1 for i in couverts if par[i] & auto),
+                "non_couverts": [{"id": i, "libelle": noeuds[i].libelle, **({"completude": noeuds[i].proprietes.get("completude")}
+                                                                            if type_ == "parcours" else {})}
+                                 for i in tous if i not in couverts][:50]}
+    res = {s: [noeuds[r].proprietes.get("dernier_statut") for r in rs if r in noeuds] for s, rs in robots.items()}
+    modules: dict = {}
+    for r in g.relations.values():
+        if r.type == "contient" and r.de.startswith("module:") and r.vers in scen:
+            d = modules.setdefault(noeuds[r.de].libelle, {"module": noeuds[r.de].libelle, "tests_bdd": 0, "automatises": 0})
+            d["tests_bdd"] += 1
+            d["automatises"] += r.vers in auto
+    return {
+        "tests_bdd": {"total": len(scen), "automatises": len(auto), "manuels": len(scen) - len(auto),
+                      "taux_automatisation": round(len(auto) / len(scen), 3) if scen else None,
+                      "avec_resultat": sum(1 for v in res.values() if any(v)),
+                      "reussis": sum(1 for v in res.values() if v and all(x == "PASS" for x in v if x) and any(v))},
+        "parcours": bloc("parcours", par_parcours), "ecrans": bloc("ecran", par_ecran),
+        "fonctionnalites": bloc("fonctionnalite", par_fonct),
+        "modules": sorted(modules.values(), key=lambda d: d["module"]),
+    }
+
+
 def indicateurs(g: Graphe, pat: dict | None) -> dict:
-    if not pat:
-        return {"disponible": False, "raison": "Aucun instantané du patrimoine Xray : synchroniser ou importer.",
-                "definitions": DEFINITIONS}
+    if not pat:  # sans Xray, la couverture existe quand même : celle des tests BDD et Robot de l'atelier
+        return {"disponible": False, "raison": "Aucun instantané du patrimoine Xray : la couverture ci-dessous vient des tests de l'atelier.",
+                "definitions": DEFINITIONS, "atelier": couverture_atelier(g)}
     tests = pat["tests"]
     auto = {t["cle"]: bool((g.noeuds.get(f"test:{t['cle']}") or _Vide()).proprietes.get("automatise")) for t in tests}
     modules: dict = {}
@@ -243,6 +346,7 @@ def indicateurs(g: Graphe, pat: dict | None) -> dict:
         "exigences_sans_automatisation": [e for e in exig if e["couverte"] and not e["couverte_auto"]],
         "redondances": redondances(tests),
         "cles_robot_inconnues_de_xray": orphelins,
+        "atelier": couverture_atelier(g),
     }
 
 

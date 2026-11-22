@@ -26,6 +26,9 @@ TYPES_NOEUDS = {
     "suite": "AUTOMATION", "test_robot": "AUTOMATION", "jdd": "AUTOMATION", "requete": "AUTOMATION",
     "variable": "AUTOMATION",  # variable du référentiel de données Discovery (définition, jamais de valeur)
     "resultat": "AUTOMATION",
+    # Model-Based Testing : le modèle comportemental et ses chemins (distincts des écrans et des tests)
+    "modele_comportement": "FONCTIONNEL", "etat": "FONCTIONNEL", "transition": "FONCTIONNEL", "condition": "FONCTIONNEL",
+    "chemin": "BDD",
 }
 CATEGORIES = ["APPLICATION", "FONCTIONNEL", "TECHNIQUE", "JIRA", "XRAY", "BDD", "AUTOMATION"]
 
@@ -38,6 +41,18 @@ TYPES_RELATIONS = {
     "possede": "Possède", "concerne": "Concerne", "detecte_par": "Est détectée par", "associe_a": "Est associée à",
     # corrélation exigence ↔ écran : preuve issue des tests (jamais déclarée à la main, jamais une couverture)
     "verifiee_sur": "Est vérifiée sur",
+    # vue fonctionnelle déduite de la Discovery (agrégats de faits observés, preuve gardée en propriétés)
+    "mene_a": "Mène à", "traverse": "Traverse", "enchaine_avec": "S'enchaîne avec",
+    # projection d'une vue filtrée : deux éléments affichés reliés par des éléments masqués (jamais stockée)
+    "lie_via": "Lié via",
+    # perspective utilisateur : l'action est un nœud (écran → permet → action → aboutit à → écran)
+    "permet": "Permet", "aboutit_a": "Aboutit à", "declenche": "Déclenche",
+    # ponts Tests & Qualité : test Xray formalisé par un scénario BDD
+    "formalise_par": "Est formalisé par",
+    # Model-Based Testing
+    "contient_etat": "Contient l'état", "contient_transition": "Contient la transition", "part_de": "Part de",
+    "conduit_a": "Conduit à", "declenchee_par": "Déclenchée par", "gardee_par": "Gardée par", "parcourt": "Parcourt",
+    "derive_de": "Dérivé de",
 }
 PROVENANCES = ("observé", "déclaré", "déduit")
 
@@ -81,8 +96,25 @@ class Relation:
         """Utilisable pour une décision : un lien déduit non validé ne l'est jamais."""
         return not (self.provenance == "déduit" and self.statut != "validé")
 
+    @property
+    def confiance_niveau(self) -> str:
+        """Distinct de la provenance : « confirmée » (lue dans une source, déclarée, ou validée par un humain),
+        « probable » (calculée de façon déterministe à partir de faits observés, preuves gardées), « non vérifiée »
+        (proposition à valider, IA comprise). Seules les relations confirmées alimentent couverture, impact et TNR
+        officiels ; les probables restent visibles (vues exploratoires)."""
+        if self.statut != "validé":
+            return "non vérifiée"
+        if self.provenance == "déduit" and self.proprietes.get("calcul"):
+            return "probable"
+        return "confirmée"
+
+    @property
+    def confirmee(self) -> bool:
+        return self.confiance_niveau == "confirmée"
+
     def vers_dict(self) -> dict:
-        return {**asdict(self), "id": self.id, "libelle": TYPES_RELATIONS.get(self.type, self.type)}
+        return {**asdict(self), "id": self.id, "libelle": TYPES_RELATIONS.get(self.type, self.type),
+                "confiance_niveau": self.confiance_niveau}
 
 
 def verifier_type_noeud(t: str):
@@ -171,7 +203,9 @@ class Graphe:
         return g
 
     def filtrer(self, types: list[str] | None = None, categories: list[str] | None = None,
-                plateforme: str = "", recherche: str = "") -> "Graphe":
+                plateforme: str = "", recherche: str = "", version: str = "") -> "Graphe":
+        """version : garde les éléments vus dans ce build (et ceux qui ne dépendent d'aucun build) ;
+        plateforme : de même pour une plateforme."""
         q = recherche.strip().casefold()
 
         def garde(n: Noeud) -> bool:
@@ -181,10 +215,20 @@ class Graphe:
                 return False
             if plateforme and n.plateformes and plateforme not in n.plateformes:
                 return False
+            if version and (n.proprietes.get("versions") and version not in n.proprietes["versions"]
+                            or n.type == "version" and n.id != f"version:{version}"):
+                return False
             if q and q not in n.libelle.casefold() and q not in n.id.casefold():
                 return False
             return True
         return self.sous_graphe(i for i, n in self.noeuds.items() if garde(n))
+
+    def confirme(self) -> "Graphe":
+        """Copie sans les liens qui ne sont pas confirmés (probables et non vérifiés) : base des calculs officiels."""
+        g = Graphe(self.nom)
+        g.noeuds = dict(self.noeuds)
+        g.relations = {i: r for i, r in self.relations.items() if r.confirmee}
+        return g
 
     def atteignables(self, depart: str, sens: str, types_relations: set[str] | None = None,
                      fiables: bool = True) -> set[str]:

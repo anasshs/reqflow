@@ -223,9 +223,12 @@ def doublons(titre: str, etapes: list[dict] | None = None, gherkin: str = "", au
 
 
 # =========================================================================== opérations sur une US de Test Design
-def proposer(cle: str, categories: list[str] | None = None, g=None, origine: str = "atelier") -> dict:
+def proposer(cle: str, categories: list[str] | None = None, g=None, origine: str = "atelier", comportement: str = "auto") -> dict:
     """Ajoute à l'US les cas proposés par catégorie, chacun annoté de sa recommandation de doublon. Un cas identique
-    (même catégorie et même titre) déjà présent n'est pas ajouté deux fois."""
+    (même catégorie et même titre) déjà présent n'est pas ajouté deux fois.
+    comportement « auto » (défaut) : l'analyse comportementale (MBT) tourne en arrière-plan sur les écrans, actions et
+    transitions de l'US et ajoute les chemins non couverts (nominal, alternatif, négatif), origine US + MBT ; les
+    scénarios existants qui couvrent déjà un chemin sont signalés réutilisables. « desactive » : catégories seules."""
     from atelier.intelligence import testabilite_us as t
 
     d, u = t._exiger(cle)
@@ -238,12 +241,31 @@ def proposer(cle: str, categories: list[str] | None = None, g=None, origine: str
         c = t._ajouter_cas(u, p, f"catégorie : {CATEGORIES[p['categorie']]}")
         c.update({k: p[k] for k in ("categorie", "source_detail", "justification", "confiance", "provenance", "manquant")}, doublon=dbl)
         ajoutes.append(c)
+    analyse = {"active": comportement != "desactive", "cas": 0, "reutilisables": [], "manquant": []}
+    if comportement != "desactive":
+        try:
+            from atelier.intelligence import mbt
+
+            r = mbt.cas_pour_us(cle, g)
+        except Exception as e:  # noqa: BLE001 — l'analyse comportementale n'empêche jamais la génération classique
+            r = {"cas": [], "reutilisables": [], "manquant": [f"Analyse comportementale indisponible : {str(e)[:200]}"]}
+        deja = {c["titre"] for c in u.get("cas") or []}
+        for p in r["cas"]:
+            if p["titre"] in deja or (categories and p["categorie"] not in categories):
+                continue
+            dbl = doublons(p["titre"], p["etapes"], p["gherkin"], [c for c in u.get("cas") or [] if c.get("statut") not in ("Rejeté", "Regroupé")])
+            c = t._ajouter_cas(u, p, "analyse comportementale (MBT)")
+            c.update({k: p[k] for k in ("categorie", "source_detail", "justification", "confiance", "provenance", "manquant")}, doublon=dbl,
+                     mbt=p["mbt"], origine="US_MBT")
+            ajoutes.append(c)
+            analyse["cas"] += 1
+        analyse.update(reutilisables=r["reutilisables"], manquant=r["manquant"])
     if ajoutes and u["statut"] in ("Détectée", "Analysée", "Réponses reçues", "Questions envoyées"):
         t._changer(u, "Cas proposés", f"{len(ajoutes)} cas par catégorie")
     t._sauver_us(d)
     t._journaliser("cas_proposes", cle=cle, nombre=len(ajoutes), source=f"catégories ({origine})")
     return {"ajoutes": len(ajoutes), "par_categorie": {k: sum(c["categorie"] == k for c in ajoutes) for k in CATEGORIES},
-            "doublons": sum(c["doublon"]["recommandation"] != "créer" for c in ajoutes), "us": t.detail(cle)}
+            "doublons": sum(c["doublon"]["recommandation"] != "créer" for c in ajoutes), "comportement": analyse, "us": t.detail(cle)}
 
 
 def verifier_doublons(cle: str) -> dict:
