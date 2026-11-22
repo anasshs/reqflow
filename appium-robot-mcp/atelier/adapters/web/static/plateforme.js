@@ -193,7 +193,7 @@ const Atelier = {
      les rubriques de Paramètres qui n'ont pas leur propre entrée */
   NAV: [["", [["dashboard", "Accueil", "maison"]]],
     ["Plateforme", [["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "cible"], ["parcours", "Suivi des fonctionnalités", "historique"],
-      ["conception", "Test Design", "assertion"], ["bdd", "Tests BDD", "bdd"], ["studio", "Automation Studio", "editeur"], ["tests", "Tests automatisés", "check"],
+      ["conception", "Test Design", "assertion"], ["comportement", "Analyse comportementale", "branche"], ["bdd", "Tests BDD", "bdd"], ["studio", "Automation Studio", "editeur"], ["tests", "Tests automatisés", "check"],
       ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
       ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]]],
     ["Ressources", [["graphe", "Knowledge Graph", "graphe"], ["editeur", "Éditeur de code", "fichier"],
@@ -201,14 +201,14 @@ const Atelier = {
     ["Paramètres", [["parametres/projets", "Projets", "dossier"], ["parametres/applications", "Applications", "mobile"],
       ["parametres/connexions", "Connexions", "lien"], ["ia", "Pilotage IA", "ia"], ["parametres", "Paramètres", "parametres"]]]],
   /* écrans de travail rattachés à un module, quand ils n'ont pas leur propre entrée dans la barre latérale */
-  PARENT: {editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance", comportement: "conception"},
+  PARENT: {editeur: "studio", execution: "centre", graphe: "intelligence", rapports: "gouvernance"},
 
   /* entrées qui n'ont de sens qu'avec Jira (suivi d'une fonctionnalité par ses US) : cachées sinon */
   SI_JIRA: ["parcours"],
   /* le chemin de l'utilisateur : chaque écran qui en fait partie affiche le repère d'étape */
   CHEMIN: [["decouvrir", "Découvrir", "#discovery/cadrage"], ["concevoir", "Concevoir le test", "#bdd"], ["automatiser", "Automatiser", "#studio/direct"],
     ["executer", "Exécuter", "#centre/lancer"]],
-  ETAPE_DE: {discovery: "decouvrir", conception: "concevoir", bdd: "concevoir", studio: "automatiser", editeur: "automatiser", centre: "executer", execution: "executer"},
+  ETAPE_DE: {discovery: "decouvrir", conception: "concevoir", comportement: "concevoir", bdd: "concevoir", studio: "automatiser", editeur: "automatiser", centre: "executer", execution: "executer"},
   integrations() { return this.ctx.integrations || {xray: true, jira: true}; },
 
   /* repère « étape n/4 » : où l'on est sur le chemin, les autres étapes à un clic, et la prochaine action */
