@@ -14,6 +14,8 @@ liste est « lecteur ». Un refus de droit lève PermissionError (message explic
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import yaml
 
 from atelier.domain import projet
@@ -49,7 +51,7 @@ def _fichier():
 def _config() -> dict:
     f = _fichier()
     try:
-        return (yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}
+        return (charger_yaml(f.read_text("utf-8")) or {}) if f.exists() else {}
     except (OSError, yaml.YAMLError):
         return {"erreur": "atelier_roles.yaml illisible"}
 

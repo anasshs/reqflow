@@ -17,6 +17,8 @@ rollback systématique (le compte doit en plus être en lecture seule côté bas
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import os
 import re
 from pathlib import Path
@@ -42,7 +44,7 @@ def _load(name: str) -> dict:
         path = next((p for p in _jdd_dir().glob("*.yaml") if p.stem.casefold() == str(name).casefold()), path)
     if not path.exists():
         raise FileNotFoundError(f"{path} introuvable.")
-    return yaml.safe_load(path.read_text("utf-8")) or {}
+    return charger_yaml(path.read_text("utf-8")) or {}
 
 
 def environnements() -> list[str]:
@@ -245,7 +247,7 @@ def importer(env: str, contenu: str, format_: str, ecraser: bool = False, ecrire
             if CLE_SENSIBLE.search(k) and not SECRET_RE.search(str(v)):
                 erreurs.append(f"{nom}.{k} : valeur sensible en clair, mettre {{{{env:NOM_VARIABLE}}}}")
     chemin = _jdd_dir() / f"{env}.yaml"
-    existants = (yaml.safe_load(chemin.read_text("utf-8")) or {}) if chemin.exists() else {}
+    existants = (charger_yaml(chemin.read_text("utf-8")) or {}) if chemin.exists() else {}
     conflits = sorted(set(jeux) & set(existants))
     if conflits and not ecraser:
         erreurs.append(f"Jeux déjà présents dans {env}.yaml : {', '.join(conflits)} (cocher « remplacer » pour les écraser)")
@@ -267,7 +269,7 @@ ENV_INTERDITS = re.compile(r"(?i)^(prod|production|prd|live)$")
 
 def apis() -> dict:
     f = _jdd_dir() / "api.yaml"
-    return (yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}
+    return (charger_yaml(f.read_text("utf-8")) or {}) if f.exists() else {}
 
 
 def _substituer_secrets(v):

@@ -4,6 +4,8 @@ connaissance.construire() (Jira / Xray via l'instantané, carte observée, dép�
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 from collections import Counter
 
 import yaml
@@ -23,8 +25,8 @@ def _ecrans_carte() -> tuple[dict, list[dict], list[dict]]:
     slug = carte.app_courante()
     app = next((a for a in carte.apps() if a.get("slug") == slug), {}) if slug else {}
     racine = carte._racine() / (slug or "")
-    ecrans = [yaml.safe_load(f.read_text("utf-8")) or {} for f in sorted((racine / "ecrans").glob("*.yaml"))] if slug and (racine / "ecrans").exists() else []
-    trans = (yaml.safe_load((racine / "transitions.yaml").read_text("utf-8")) or []) if slug and (racine / "transitions.yaml").exists() else []
+    ecrans = [charger_yaml(f.read_text("utf-8")) or {} for f in sorted((racine / "ecrans").glob("*.yaml"))] if slug and (racine / "ecrans").exists() else []
+    trans = (charger_yaml((racine / "transitions.yaml").read_text("utf-8")) or []) if slug and (racine / "transitions.yaml").exists() else []
     return app, ecrans, trans
 
 

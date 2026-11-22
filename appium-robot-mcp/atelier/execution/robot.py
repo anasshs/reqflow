@@ -301,29 +301,49 @@ def run_robot(target: str, include_tags: list[str] | None = None,
 def derniers_resultats(dossier: str = "results", reels: bool = False) -> dict:
     """Dernier statut connu de chaque test Robot, lu dans les output.xml du dossier de résultats
     (le plus récent l'emporte). Clé : « <fichier relatif>::<nom du test> ». reels : ignorer les dry runs."""
-    from robot.api import ExecutionResult
-
     base = projet.safe_path(dossier)
     out: dict = {}
     if not base.exists():
         return out
     for f in sorted(base.rglob("output.xml"), key=lambda p: p.stat().st_mtime):
-        try:
-            res = ExecutionResult(str(f))
-        except Exception:
-            continue
-        for t in res.suite.all_tests:
-            src = Path(str(t.source)) if t.source else None
-            try:
-                rel = src.resolve().relative_to(projet.PROJECT_DIR).as_posix() if src else ""
-            except ValueError:
-                rel = str(src)
-            reel = _execute(t)
-            if reels and not reel:
+        for cle, x in _tests_du_resultat(f):
+            if reels and not x["reel"]:
                 continue
-            out[f"{rel}::{t.name}"] = {"statut": t.status, "message": t.message[:300], "reel": reel,
-                                       "fin": str(t.end_time or ""), "output": f.relative_to(projet.PROJECT_DIR).as_posix()}
+            out[cle] = dict(x)
     return out
+
+
+_MEMOIRE_RESULTATS: dict = {}  # output.xml -> (date, taille, projet, tests lus) : un résultat de run ne change plus
+
+
+def _tests_du_resultat(f: Path) -> list:
+    """Tests d'un output.xml (clé, statut…). Chaque écran relisait tous les output.xml du projet (3 s pour 47 runs) :
+    un fichier déjà lu n'est relu que si sa date ou sa taille change."""
+    from robot.api import ExecutionResult
+
+    try:
+        st = f.stat()
+    except OSError:
+        return []
+    sig = (st.st_mtime_ns, st.st_size, str(projet.PROJECT_DIR))
+    m = _MEMOIRE_RESULTATS.get(str(f))
+    if m and m[0] == sig:
+        return m[1]
+    try:
+        res = ExecutionResult(str(f))
+    except Exception:
+        return []  # run en cours d'écriture ou illisible : relu au prochain appel
+    l = []
+    for t in res.suite.all_tests:
+        src = Path(str(t.source)) if t.source else None
+        try:
+            rel = src.resolve().relative_to(projet.PROJECT_DIR).as_posix() if src else ""
+        except ValueError:
+            rel = str(src)
+        l.append((f"{rel}::{t.name}", {"statut": t.status, "message": t.message[:300], "reel": _execute(t),
+                                        "fin": str(t.end_time or ""), "output": f.relative_to(projet.PROJECT_DIR).as_posix()}))
+    _MEMOIRE_RESULTATS[str(f)] = (sig, l)
+    return l
 
 
 def _execute(element) -> bool:

@@ -15,6 +15,8 @@ Non réalisé : runners distants, Device Farm avec réservation, vidéos (voir l
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import heapq
 import itertools
 import json
@@ -278,7 +280,7 @@ def _fichier_campagnes() -> Path:
 
 def campagnes() -> list[dict]:
     f = _fichier_campagnes()
-    l = (yaml.safe_load(f.read_text("utf-8")) or []) if f.exists() else []
+    l = (charger_yaml(f.read_text("utf-8")) or []) if f.exists() else []
     from atelier.execution import historique
 
     runs = historique.lister(200)
@@ -780,7 +782,7 @@ def runs_par_execution(limite: int = 500) -> dict:
     noms = {}
     try:
         f = _fichier_campagnes()
-        noms = {c["id"]: c["nom"] for c in (yaml.safe_load(f.read_text("utf-8")) or [])} if f.exists() else {}
+        noms = {c["id"]: c["nom"] for c in (charger_yaml(f.read_text("utf-8")) or [])} if f.exists() else {}
     except (OSError, yaml.YAMLError):
         pass
     out: dict = {}

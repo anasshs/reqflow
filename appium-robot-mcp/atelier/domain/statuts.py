@@ -17,6 +17,8 @@ et le disent.
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import yaml
 
 from atelier.domain import projet
@@ -41,7 +43,7 @@ def _fichier():
 def _lire() -> dict:
     f = _fichier()
     try:
-        d = (yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}
+        d = (charger_yaml(f.read_text("utf-8")) or {}) if f.exists() else {}
     except (OSError, yaml.YAMLError):
         d = {}
     return d if isinstance(d, dict) else {}

@@ -14,6 +14,8 @@ test:DEMO-1, test_robot:tests/virement.robot::Virement Nominal, keyword:saisirle
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import hashlib
 import os
 import posixpath
@@ -320,7 +322,7 @@ def _depuis_comportement(g: Graphe):
 
     for f in fichiers:
         try:
-            m = _lu("modèles comportementaux", [f], lambda f=f: _yaml.safe_load(f.read_text("utf-8")) or {})
+            m = _lu("modèles comportementaux", [f], lambda f=f: charger_yaml(f.read_text("utf-8")) or {})
         except Exception:  # noqa: BLE001 — un modèle illisible ne bloque pas le graphe
             continue
         if not m.get("id"):
@@ -643,7 +645,7 @@ def _depuis_bdd(g: Graphe, inv: dict):
     def lire(f):
         import yaml as _yaml
 
-        cle = (_yaml.safe_load(f.read_text("utf-8")) or {}).get("cle") or f.stem
+        cle = (charger_yaml(f.read_text("utf-8")) or {}).get("cle") or f.stem
         m = bdd.charger(cle) or {}
         return {"cle": cle, "titre": m.get("titre", ""), "statut": m.get("statut", "brouillon")}, m
 
@@ -854,7 +856,7 @@ def _depuis_openapi(g: Graphe):
         if f.suffix not in (".yaml", ".yml", ".json"):
             continue
         try:
-            d = _json.loads(f.read_text("utf-8")) if f.suffix == ".json" else _yaml.safe_load(f.read_text("utf-8"))
+            d = _json.loads(f.read_text("utf-8")) if f.suffix == ".json" else charger_yaml(f.read_text("utf-8"))
         except Exception:
             continue
         if not isinstance(d, dict) or not ("openapi" in d or "swagger" in d):

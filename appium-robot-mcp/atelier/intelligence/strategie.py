@@ -23,6 +23,8 @@ journalisé est le compte du poste.
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import getpass
 import json
 import os
@@ -272,7 +274,7 @@ def charger() -> dict | None:
     f = _fichier()
     if not f.exists():
         return None
-    s = yaml.safe_load(f.read_text("utf-8")) or {}
+    s = charger_yaml(f.read_text("utf-8")) or {}
     s.setdefault("rubriques", {})
     for r in RUBRIQUES:
         s["rubriques"].setdefault(r["id"], [])
@@ -1062,7 +1064,7 @@ def version(n: int) -> dict:
     f = _dossier() / "versions" / f"v{int(n)}.yaml"
     if not f.exists():
         raise KeyError(f"Version {n} inconnue.")
-    return yaml.safe_load(f.read_text("utf-8"))
+    return charger_yaml(f.read_text("utf-8"))
 
 
 def _contenu(ref) -> dict:

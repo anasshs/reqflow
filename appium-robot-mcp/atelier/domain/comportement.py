@@ -12,6 +12,8 @@ validée automatiquement ; un élément rejeté reste connu (pour ne pas être r
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import copy
 import hashlib
 import json
@@ -128,7 +130,7 @@ def lister() -> list[dict]:
     out = []
     for f in sorted(d.glob("*.yaml")) if d.exists() else []:
         try:
-            m = yaml.safe_load(f.read_text("utf-8")) or {}
+            m = charger_yaml(f.read_text("utf-8")) or {}
         except yaml.YAMLError:
             continue
         out.append({"id": m.get("id", f.stem), "nom": m.get("nom", ""), "perimetre": m.get("perimetre", {}), "version": m.get("version", 0),
@@ -141,7 +143,7 @@ def charger(mid: str) -> dict | None:
     f = _fichier(mid)
     if not f.exists():
         return None
-    m = yaml.safe_load(f.read_text("utf-8")) or {}
+    m = charger_yaml(f.read_text("utf-8")) or {}
     for c in COLLECTIONS + ("chemins_generes", "hypotheses"):
         m.setdefault(c, {})
     m.setdefault("historique_validations", [])
@@ -192,7 +194,7 @@ def versions(mid: str) -> list[dict]:
     d = dossier() / "versions" / mid
     out = []
     for f in sorted(d.glob("v*.yaml"), key=lambda p: int(p.stem[1:])) if d.exists() else []:
-        v = yaml.safe_load(f.read_text("utf-8")) or {}
+        v = charger_yaml(f.read_text("utf-8")) or {}
         out.append({"version": v.get("version"), "maj": v.get("maj", ""), "motif": v.get("motif_version", "")})
     m = charger(mid)
     if m:
@@ -207,7 +209,7 @@ def version(mid: str, n: int | str) -> dict:
     f = dossier() / "versions" / mid / f"v{int(n)}.yaml"
     if not f.exists():
         raise KeyError(f"Version inconnue : {mid} v{n}")
-    return yaml.safe_load(f.read_text("utf-8")) or {}
+    return charger_yaml(f.read_text("utf-8")) or {}
 
 
 def comparer(mid: str, a: int | str, b: int | str = "courante") -> dict:

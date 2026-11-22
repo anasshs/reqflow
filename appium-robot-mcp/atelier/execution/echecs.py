@@ -9,6 +9,8 @@ retests, corrections) et analyses/journal.jsonl. Un résultat d'exécution n'est
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import hashlib
 import json
 import os
@@ -191,7 +193,7 @@ def _observes(ecran: str, cle: str, plateforme: str) -> list[str]:
     try:
         racine = carte._racine() / (carte.app_courante() or "") / "ecrans"
         for f in racine.glob("*.yaml"):
-            d = yaml.safe_load(f.read_text("utf-8")) or {}
+            d = charger_yaml(f.read_text("utf-8")) or {}
             if d.get("nom") != ecran:
                 continue
             for k, el in (d.get("elements") or {}).items():
@@ -367,7 +369,7 @@ def _valeurs_jdd() -> list[str]:
 
     for f in (projet.PROJECT_DIR / "data" / "jdd").glob("*.y*ml") if (projet.PROJECT_DIR / "data" / "jdd").exists() else []:
         try:
-            parcourir(yaml.safe_load(f.read_text("utf-8")))
+            parcourir(charger_yaml(f.read_text("utf-8")))
         except Exception:  # noqa: BLE001 - un JDD illisible n'empêche pas l'analyse ; il est simplement ignoré
             pass
     return sorted(vals, key=len, reverse=True)

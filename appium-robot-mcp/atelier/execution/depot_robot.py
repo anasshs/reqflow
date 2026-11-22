@@ -55,14 +55,33 @@ def _refs(textes: list[str]) -> tuple[list, list, list]:
     return locs, ecrans, jdd
 
 
+_MEMOIRE_DEPOT: dict = {}  # racine -> (signature des fichiers, inventaire) : relu seulement si un fichier a changé
+
+
 def lire_depot(racine: Path | None = None) -> dict:
-    from robot.api.parsing import ModelVisitor, get_model, get_resource_model
+    """Inventaire du dépôt Robot. Lu à chaque affichage (chemin, Studio, revues) : gardé en mémoire tant qu'aucun fichier
+    .robot / .resource n'est ajouté, retiré ou modifié (texte comparé : lire est rapide, analyser est lent), et rendu en copie."""
+    import copy
 
     racine = (racine or projet.PROJECT_DIR).resolve()
-    inv = {"suites": {}, "tests": {}, "keywords": {}, "locators": {}, "fichiers": {}, "erreurs": []}
-
     fichiers = sorted(p for ext in ("*.robot", "*.resource") for p in racine.rglob(ext)
                       if not (set(p.relative_to(racine).parts) & EXCLUS))
+    sig = []
+    for f in fichiers:
+        try:
+            sig.append((str(f), f.read_bytes()))
+        except OSError:
+            sig.append((str(f), b""))
+    m = _MEMOIRE_DEPOT.get(str(racine))
+    if not m or m[0] != sig:
+        m = _MEMOIRE_DEPOT[str(racine)] = (sig, _lire_depot(racine, fichiers))
+    return copy.deepcopy(m[1])
+
+
+def _lire_depot(racine: Path, fichiers: list[Path]) -> dict:
+    from robot.api.parsing import ModelVisitor, get_model, get_resource_model
+
+    inv = {"suites": {}, "tests": {}, "keywords": {}, "locators": {}, "fichiers": {}, "erreurs": []}
     for f in fichiers:
         rel = f.relative_to(racine).as_posix()
         try:

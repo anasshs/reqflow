@@ -11,6 +11,8 @@ de conflit et historique (conception/sync_xray.jsonl). createTest / updateGherki
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import json
 import re
 from collections import Counter
@@ -319,7 +321,7 @@ def _defaut_mapping() -> dict:
 
 def mapping() -> dict:
     f = _dossier() / "mapping_xray.yaml"
-    m = yaml.safe_load(f.read_text("utf-8")) if f.exists() else _defaut_mapping()
+    m = charger_yaml(f.read_text("utf-8")) if f.exists() else _defaut_mapping()
     m.setdefault("application", {"champ": "composant", "champ_jira": ""})
     return {**m, "champs_application": CHAMPS_APPLICATION, "modes": {"A (import)": "disponible : instantané JSON ou synchronisation Jira (description et critères inclus)",
                            "B (bidirectionnel)": "disponible pour les tests Gherkin : mise à jour du Gherkin, conflits détectés (jamais d'écrasement silencieux)",

@@ -8,6 +8,8 @@ recommandations.json.
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import json
 from collections import Counter
 from datetime import datetime, timedelta
@@ -36,7 +38,7 @@ def _d():
 
 def parametres() -> dict:
     f = _d() / "parametres.yaml"
-    p = yaml.safe_load(f.read_text("utf-8")) if f.exists() else {}
+    p = charger_yaml(f.read_text("utf-8")) if f.exists() else {}
     out = json.loads(json.dumps(DEFAUTS))
     for k, v in (p or {}).items():
         out[k] = {**out[k], **v} if isinstance(out.get(k), dict) and isinstance(v, dict) else v

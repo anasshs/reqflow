@@ -20,6 +20,8 @@ production) ; un fichier CSV / JSON est lu dans le projet de tests seulement.
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import ast
 import csv
 import io
@@ -62,7 +64,7 @@ def _etat_dir():
 
 def _lire(nom: str) -> dict:
     f = _def_dir() / f"{nom}.yaml"
-    return (yaml.safe_load(f.read_text("utf-8")) or {}) if f.exists() else {}
+    return (charger_yaml(f.read_text("utf-8")) or {}) if f.exists() else {}
 
 
 def _ecrire(nom: str, d: dict):

@@ -18,6 +18,8 @@ message d'erreur reste reconnu, la variante est rangée dans ses « états ».
 """
 from __future__ import annotations
 
+from atelier.domain import yaml_rapide
+
 import hashlib
 import heapq
 import os
@@ -63,15 +65,13 @@ def slug(text: str, max_len: int = 40) -> str:
 
 
 def _load(p: Path, defaut):
-    if not p.exists():
-        return defaut
-    data = yaml.safe_load(p.read_text("utf-8"))
-    return defaut if data is None else data
+    return yaml_rapide.lire(p, defaut)  # relu seulement s'il a changé : la carte est lue des centaines de fois par écran
 
 
 def _dump(p: Path, data):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=120), "utf-8")
+    yaml_rapide.oublier(p)
 
 
 def est_dynamique(t: str) -> bool:

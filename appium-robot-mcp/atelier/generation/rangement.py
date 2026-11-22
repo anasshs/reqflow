@@ -9,6 +9,8 @@ dans Test Design › Paramètres (conception/rangement.yaml, versionné avec le 
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import collections
 
 import yaml
@@ -25,7 +27,7 @@ def _fichier():
 
 def regles() -> dict:
     f = _fichier()
-    d = yaml.safe_load(f.read_text("utf-8")) if f.exists() else {}
+    d = charger_yaml(f.read_text("utf-8")) if f.exists() else {}
     return {**DEFAUT, **{k: v for k, v in (d or {}).items() if k in DEFAUT and v}}
 
 

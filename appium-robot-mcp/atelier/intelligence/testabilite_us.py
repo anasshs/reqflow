@@ -19,6 +19,8 @@ Garde-fous :
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import json
 import os
 import re
@@ -91,7 +93,7 @@ def espaces() -> list[dict]:
 
 def tous_espaces() -> list[dict]:
     f = _d() / "espaces.yaml"
-    return (yaml.safe_load(f.read_text("utf-8")) or {}).get("espaces", []) if f.exists() else []
+    return (charger_yaml(f.read_text("utf-8")) or {}).get("espaces", []) if f.exists() else []
 
 
 def enregistrer_espace(e: dict) -> list[dict]:

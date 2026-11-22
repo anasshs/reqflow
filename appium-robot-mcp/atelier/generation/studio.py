@@ -10,6 +10,8 @@ Principe : l'IA propose, l'automaticien valide ; aucune modification silencieuse
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import hashlib
 import json
 import re
@@ -89,7 +91,7 @@ def locators() -> list[dict]:
     try:
         racine = carte._racine() / (carte.app_courante() or "") / "ecrans"
         for f in racine.glob("*.yaml") if racine.exists() else []:
-            d = yaml.safe_load(f.read_text("utf-8")) or {}
+            d = charger_yaml(f.read_text("utf-8")) or {}
             for el in (d.get("elements") or {}).values():
                 for plat, vals in (el.get("locators") or {}).items():
                     observes.setdefault((d.get("nom") or d.get("id"), plat), set()).update(vals or [])
@@ -598,7 +600,7 @@ def mapping_bdd(cle: str) -> dict:
 # =========================================================================== espaces d'automatisation
 def espaces() -> list[dict]:
     f = _dossier() / "espaces.yaml"
-    return (yaml.safe_load(f.read_text("utf-8")) or []) if f.exists() else []
+    return (charger_yaml(f.read_text("utf-8")) or []) if f.exists() else []
 
 
 def enregistrer_espace(e: dict) -> list[dict]:

@@ -12,6 +12,8 @@ Règles :
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import json
 import os
 import threading
@@ -37,7 +39,7 @@ def _fichier() -> Path:
 
 def charger() -> dict:
     f = _fichier()
-    data = yaml.safe_load(f.read_text("utf-8")) if f.exists() else None
+    data = charger_yaml(f.read_text("utf-8")) if f.exists() else None
     data = data or {}
     for k, d in (("noeuds", {}), ("relations", {}), ("modifications", {}), ("masques", []),
                  ("relations_masquees", []), ("fusions", {}), ("rejets", {})):

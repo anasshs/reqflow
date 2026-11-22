@@ -23,6 +23,8 @@ Rien n'appelle Jira, Xray ni GitLab : tout vient des copies locales (leur date e
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import json
 import sys
 import subprocess
@@ -817,7 +819,7 @@ def criteres() -> list[dict]:
     f = _dossier() / "criteres.yaml"
     regles = {}
     try:
-        regles = {c["id"]: c for c in (yaml.safe_load(f.read_text("utf-8")) or {}).get("criteres") or []} if f.exists() else {}
+        regles = {c["id"]: c for c in (charger_yaml(f.read_text("utf-8")) or {}).get("criteres") or []} if f.exists() else {}
     except (OSError, yaml.YAMLError, KeyError, TypeError):
         regles = {}
     return [{**c, **{k: regles[c["id"]][k] for k in ("seuil", "bloquant") if k in regles.get(c["id"], {})}} for c in CRITERES_DEFAUT]

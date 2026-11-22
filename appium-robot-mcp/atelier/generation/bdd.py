@@ -14,6 +14,8 @@ absent, étapes non validées, étape proche d'un keyword existant (réutiliser 
 """
 from __future__ import annotations
 
+from atelier.domain.yaml_rapide import charger as charger_yaml
+
 import os
 import re
 import uuid
@@ -194,7 +196,7 @@ def lister() -> list[dict]:
     d = _dossier()
     out = []
     for f in sorted(d.glob("*.yaml")) if d.exists() else []:
-        m = yaml.safe_load(f.read_text("utf-8")) or {}
+        m = charger_yaml(f.read_text("utf-8")) or {}
         out.append({"cle": m.get("cle", f.stem), "titre": m.get("titre", ""), "statut": m.get("statut", "brouillon"),
                     "scenarios": len(m.get("scenarios", [])), "maj": m.get("maj", "")})
     return out
@@ -204,7 +206,7 @@ def charger(cle: str) -> dict | None:
     feat, meta = _fichiers(cle)
     if not meta.exists() and not feat.exists():
         return None
-    m = yaml.safe_load(meta.read_text("utf-8")) if meta.exists() else {}
+    m = charger_yaml(meta.read_text("utf-8")) if meta.exists() else {}
     if feat.exists() and (not meta.exists() or feat.stat().st_mtime > meta.stat().st_mtime + 0.5):
         m = _fusionner_liens(parser(feat.read_text("utf-8")), m or {})  # .feature édité à la main
         m.setdefault("cle", cle)
