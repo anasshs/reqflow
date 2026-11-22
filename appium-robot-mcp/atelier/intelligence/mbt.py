@@ -57,13 +57,105 @@ NOMS_PERIMETRE = {"application": "Application", "module": "Module", "fonctionnal
                   "user_story": "User Story", "ecran": "Écran", "regle": "Règle métier"}
 
 
+# =========================================================================== application du projet
+def _app_courante() -> tuple[str, str]:
+    """(slug, nom) de l'application active du projet ; (« », « ») sans application."""
+    try:
+        from atelier.discovery import carte
+
+        s = carte.app_courante() or ""
+        return s, (carte.config_app(s).get("nom") or s) if s else ""
+    except Exception:  # noqa: BLE001
+        return "", ""
+
+
+def _ecrans_app(slug: str = "") -> set:
+    """Écrans (« ecran:<id> ») de la carte d'une application (l'active par défaut)."""
+    try:
+        from atelier.discovery import carte
+
+        return {f"ecran:{x}" for e in carte.ecrans(slug or None) for x in (e.get("id"), e.get("nom")) if x}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _parcours_app(slug: str = "") -> set:
+    """Parcours utilisateur (PU-…) préparés pour une application (l'active par défaut), noms de nœud compris (parcours:…)."""
+    try:
+        from atelier.discovery import carte, parcours_utilisateur
+
+        s = slug or carte.app_courante() or ""
+        return {x for p in parcours_utilisateur._tous(s) for x in (p.get("id"), p.get("noeud")) if x} if s else set()
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def application_du_modele(m: dict) -> str:
+    """Application d'un modèle : celle de ses écrans, sinon celle du parcours qu'il modélise, sinon celle qu'il porte."""
+    ecrans = {e.get("ecran") for e in (m.get("etats") or {}).values() if e.get("ecran")}
+    app = application_des_ecrans(ecrans) if ecrans else ""
+    per = (m.get("perimetre") or {}).get("id", "")
+    if not app and per.startswith("parcours:"):
+        try:
+            from atelier.discovery import carte
+
+            app = next((a["slug"] for a in carte.apps() if per in _parcours_app(a["slug"])), "")
+        except Exception:  # noqa: BLE001
+            app = ""
+    if not app:
+        slug, nom = _app_courante()
+        porte = str(m.get("application") or "")
+        app = slug if porte and porte in (slug, nom) else porte
+    return app
+
+
+def application_des_ecrans(ecrans) -> str:
+    """L'application du projet à laquelle appartiennent ces écrans (celle qui en a le plus) ; « » si aucune."""
+    try:
+        from atelier.discovery import carte
+
+        slugs = [a["slug"] for a in carte.apps()]
+    except Exception:  # noqa: BLE001
+        return ""
+    ecrans = set(ecrans)
+    scores = sorted(((len(ecrans & _ecrans_app(s)), s) for s in slugs), reverse=True)
+    return scores[0][1] if scores and scores[0][0] else ""
+
+
+def _de_l_application(g, type_: str, nid: str, mien: set, pu: set) -> bool:
+    """Le périmètre appartient-il à l'application active ? Le Knowledge Graph du projet contient aussi les parcours,
+    règles et écrans des autres applications : sans ce tri, l'analyse comportementale les mélangeait."""
+    if type_ in ("application", "user_story"):  # l'application active ; les US viennent de Jira, au niveau du projet
+        return True
+    n = g.noeuds[nid]
+    if type_ == "parcours" and (n.proprietes or {}).get("parcours_utilisateur"):
+        return n.proprietes["parcours_utilisateur"] in pu
+    if type_ == "ecran":
+        return nid in mien
+    e = (n.proprietes or {}).get("ecran")
+    if e:
+        return f"ecran:{e}" in mien
+    ecrans, _ = _ecrans_perimetre(g, type_, nid)
+    return bool(set(ecrans) & mien)
+
+
 def perimetres(g=None) -> dict:
+    """Périmètres modélisables de l'application active seulement (modules, parcours, écrans, règles qui la concernent)."""
     g = _graphe(g)
     out = {t: [] for t in cm.TYPES_PERIMETRE}
+    mien, pu = _ecrans_app(), _parcours_app()
     for i, n in sorted(g.noeuds.items()):
-        if n.type in out:
+        if n.type in out and (not mien or _de_l_application(g, n.type, i, mien, pu)):
             out[n.type].append({"id": i, "libelle": n.libelle, "statut": n.statut})
     return out
+
+
+def modeles() -> list[dict]:
+    """Modèles comportementaux de l'application active. L'application d'un modèle se lit dans ses écrans (un modèle
+    construit avant le 2026-11-22 a pu recevoir l'autre application du projet) ; un modèle sans écran garde celle qu'il porte."""
+    slug, _nom = _app_courante()
+    out = [{**x, "application": application_du_modele(cm.charger(x["id"]) or {})} for x in cm.lister()]
+    return [x for x in out if not slug or x["application"] in (slug, "")]
 
 
 def _noeud_perimetre(g, type_: str, id_: str) -> str:
@@ -154,9 +246,14 @@ def construire(type_: str, id_: str = "", g=None, auteur: str = "atelier") -> di
     g = _graphe(g)
     N = g.noeuds
     nid = _noeud_perimetre(g, type_, id_)
-    app = next((n for n in N.values() if n.type == "application"), None)
+    slug, _nom = _app_courante()  # l'application active, pas la première du graphe (le projet peut en avoir plusieurs)
+    existant = cm.charger(cm.identifiant(type_, nid))
+    if existant and slug:
+        autre = application_du_modele(existant)
+        if autre and autre != slug:  # reconstruit depuis le graphe d'une autre application, il serait vidé
+            raise ValueError(f"Le modèle {existant['id']} appartient à l'application « {autre} » : la choisir (header) pour l'actualiser.")
     courante = next((i.split(":", 1)[1] for i, n in N.items() if n.type == "version" and n.proprietes.get("courante")), "")
-    m = cm.nouveau(type_, nid, nom=f"{NOMS_PERIMETRE[type_]} {N[nid].libelle}", application=app.libelle if app else "",
+    m = cm.nouveau(type_, nid, nom=f"{NOMS_PERIMETRE[type_]} {N[nid].libelle}", application=slug,
                    version_application=courante)
     ecrans, manquant = _ecrans_perimetre(g, type_, nid)
     dans = set(ecrans)
@@ -880,7 +977,7 @@ def couverture_globale() -> dict:
         evol = actualiser_tous()
     except Exception:  # noqa: BLE001
         evol = []
-    modeles = cm.lister()
+    modeles = globals()["modeles"]()  # l'application active seulement
     total = {"modeles": len(modeles), "parcours_identifies": 0, "parcours_couverts": 0, "transitions": 0, "transitions_couvertes": 0,
              "transitions_non_couvertes": 0, "conditions_non_verifiees": 0, "scenarios_manquants": 0,
              "etats_etablis": 0, "etats_verifies": 0, "transitions_verifiees": 0, "issues_etablies": 0, "issues_verifiees": 0,
@@ -1362,7 +1459,7 @@ def actualiser_tous(g=None, forcer: bool = False) -> list[dict]:
         return _ACTUALISATION.get("resultat", [])
     g = _graphe(g)
     out = []
-    for x in cm.lister():
+    for x in modeles():  # l'application active seulement : le graphe des autres n'a pas leurs écrans
         per = x.get("perimetre") or {}
         try:
             avant = x.get("version")

@@ -1508,9 +1508,7 @@ async def mbt_perimetres():
 
 @app.get("/api/mbt/modeles")
 async def mbt_modeles():
-    from atelier.domain import comportement
-
-    return await asyncio.to_thread(_call, comportement.lister)
+    return await asyncio.to_thread(_call, lambda: _mbt().modeles())  # modèles de l'application active seulement
 
 
 @app.post("/api/mbt/construire")

@@ -18,6 +18,17 @@ import urllib.parse
 import re
 import unicodedata
 
+
+def url_complete(url: str) -> str:
+    """« maw3idgo.com » → « https://maw3idgo.com » : sans protocole, Playwright refuse l'adresse (Cannot navigate to
+    invalid URL). Une adresse locale (localhost, 127.0.0.1) prend http ; une adresse complète (http, https, file, about…)
+    ou relative (/chemin) est gardée telle quelle."""
+    u = (url or "").strip()
+    if not u or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", u) and not re.match(r"^[^/:]+:\d+", u) or u.startswith(("/", "#", "?")):
+        return u
+    local = re.match(r"^(localhost|127\.0\.0\.1|\[::1\])(:|/|$)", u)
+    return ("http://" if local else "https://") + u.lstrip("/")
+
 JS = r"""
 (() => {
   if (window.__mcpScan) return;
@@ -155,7 +166,7 @@ class WebBackend:
         self.page = ctx.new_page()
         self.page.on("response", self._noter_reponse)
         if url:
-            self.page.goto(url, wait_until="domcontentloaded")
+            self.page.goto(url_complete(url), wait_until="domcontentloaded")
         return {"url": self.page.url, "titre": self.page.title()}
 
     def _noter_reponse(self, r):
@@ -279,7 +290,7 @@ class WebBackend:
     def goto(self, url: str) -> dict:
         def g():
             p = self._page()
-            p.goto(url, wait_until="domcontentloaded")
+            p.goto(url_complete(url), wait_until="domcontentloaded")
             return {"url": p.url, "titre": p.title()}
         return self._run(g)
 
