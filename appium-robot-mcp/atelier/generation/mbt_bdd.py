@@ -37,8 +37,10 @@ def classer(chemin: dict, modele: dict, scenarios: list[dict] | None = None) -> 
         x = s.get("mbt") or {}
         if ts == p or (set(ts) == set(p) and len(ts) == len(p)):
             c, r = "Doublon", "mêmes transitions, mêmes conditions"
-        elif mbt._contient(ts, p) or mbt._contient(p, ts):
-            c, r = "Redondance partielle", "l'un des deux parcours contient l'autre"
+        elif mbt._contient(ts, p):
+            c, r = "Redondance partielle", "le scénario existant parcourt déjà tout ce chemin"
+        elif mbt._contient(p, ts):
+            c, r = "Complémentaire", f"prolonge le scénario existant {cle} (même début, comportement supplémentaire)"
         elif x.get("state_ids") and set(x["state_ids"]) == etats and {(i["id"], i["issue"]) for i in x.get("conditions") or []} != issues:
             c, r = "Variante", "mêmes états, conditions ou issues différentes"
         elif set(ts) & set(p):

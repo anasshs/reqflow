@@ -214,11 +214,12 @@ def construire(type_: str, id_: str = "", g=None, auteur: str = "atelier") -> di
                                                        libelle=rg.libelle, regle=rg.id, exigence=rg.statut == "validé"))
     # ------------------------------------------------------------- critères d'acceptation (exigences explicites)
     initial = next((k for k, s in m["etats"].items() if s.get("initial")), "")
-    champs = {}  # mots des champs et éléments de chaque écran (pour rattacher un critère au bon écran)
+    champs = {}  # racines des champs SAISIS de chaque écran : un critère qui cite un champ s'applique à l'écran qui le saisit
     for k, e in m["etats"].items():
         if e.get("ecran") in N:
-            champs[k] = set().union(*[_mots(N[r.vers].libelle) for r in g.sortants(e["ecran"])  # champs saisis sur l'écran
-                                      if r.type == "contient" and N[r.vers].type == "composant"] or [set()])
+            champs[k] = set().union(*[_racines(N[r.vers].libelle) for r in g.sortants(e["ecran"]) if r.type == "contient"
+                                      and N[r.vers].type == "composant" and N[r.vers].proprietes.get("type") in ("champ", "input", "")] or [set()])
+    profondeur = _profondeurs(m)
     for u in us:
         cle = u.split(":", 1)[1]
         for n, c in enumerate(_criteres_us(g, u), 1):
@@ -233,14 +234,14 @@ def construire(type_: str, id_: str = "", g=None, auteur: str = "atelier") -> di
                 cond.setdefault("exigences", [])
                 if u not in cond["exigences"]:
                     cond["exigences"].append(u)
-            tid_ref = _transition_proche(m, c, champs)
+            tid_ref = _transition_proche(m, c, champs, s["condition"], profondeur)
             src = m["transitions"][tid_ref]["de"] if tid_ref else _etat_cite(m, c) or initial
             if not src:
                 manquant.append(f"{source} : aucun état où l'appliquer (écrans à découvrir ou à relier).")
                 continue
             if NEGATIF.search(c):
                 eid = f"E-ERR-{cm.slug(cle, 30)}-{n}"
-                res = s["resultat"]
+                res = _consequence(c, s)  # ce que le critère dit du refus (jamais inventé)
                 m["etats"][eid] = cm.element("déduit", source, justification=c, nom=f"Refus : {res or 'résultat à confirmer'}"[:120], type="erreur",
                                              ecran=m["etats"][src].get("ecran", ""), description=c, contexte="", initial=False, final=True, us=u,
                                              calcul=True, a_confirmer=not res)
@@ -250,6 +251,11 @@ def construire(type_: str, id_: str = "", g=None, auteur: str = "atelier") -> di
                     preconditions="", postconditions=res, postconditions_a_confirmer=not res, priorite="haute", us=u, exigences=[u], calcul=True)
                 if cid and tid_ref and not m["transitions"][tid_ref].get("garde"):  # le chemin nominal : la condition de refus n'est pas remplie
                     m["transitions"][tid_ref].update(garde=cid, issue="fausse", garde_deduite=True)
+                elif cid and tid_ref and m["transitions"][tid_ref].get("issue") == "vraie":
+                    # le nominal porte déjà la condition positive d'un autre critère : les deux conditions sont contraires
+                    g1 = m["transitions"][tid_ref]["garde"]
+                    m["conditions"][cid]["contraire"] = g1
+                    m["conditions"][g1]["contraire"] = cid
                 if not res:
                     manquant.append(f"{source} : résultat attendu du refus non précisé (message, état) : à confirmer.")
             elif tid_ref:
@@ -280,17 +286,57 @@ def _technique_action(g, a) -> tuple[list[str], list[str]]:
     return locs, kws
 
 
-def _transition_proche(m: dict, texte: str, champs: dict | None = None) -> str:
-    """Transition à laquelle s'applique un critère : mots communs avec son action (soumission de l'écran) et avec les
-    champs et libellés de son écran de départ (un critère sur « l'identifiant » s'applique à l'écran qui le saisit)."""
-    mt, meilleur, score = _mots(texte), "", 0
-    for tid, t in sorted(m["transitions"].items()):
-        if t.get("provenance") != "observé":
-            continue
+def _racines(t: str) -> set:
+    """Mots significatifs réduits à leur racine (5 lettres) : « confirme » et « confirmer », « ajout » et « ajouter »."""
+    return {w[:5] for w in _mots(t)}
+
+
+def _profondeurs(m: dict) -> dict:
+    succ: dict = {}
+    for t in m["transitions"].values():
+        succ.setdefault(t["de"], []).append(t["vers"])
+    prof = {k: 0 for k, e in m["etats"].items() if e.get("initial")}
+    file = list(prof)
+    while file:
+        x = file.pop(0)
+        for y in succ.get(x, []):
+            if y not in prof:
+                prof[y] = prof[x] + 1
+                file.append(y)
+    return prof
+
+
+def _consequence(critere: str, s: dict) -> str:
+    """Conséquence écrite dans le critère (« l'ajout du bénéficiaire est refusé »), sans la condition ; vide si le
+    critère ne dit rien du résultat (il restera « à confirmer »)."""
+    reste = re.sub(r"(?i)^\s*(si|quand|lorsque|lorsqu'|en cas d[e'])\s*[^,]+,\s*", "", critere).strip(" .")
+    if reste and reste != critere.strip(" .") and len(reste) > 6:
+        return reste[0].lower() + reste[1:]
+    return s.get("resultat") or ""
+
+
+def _transition_proche(m: dict, texte: str, champs: dict | None = None, condition: str = "", profondeur: dict | None = None) -> str:
+    """Transition observée à laquelle s'applique un critère. D'abord la condition : si elle cite un champ SAISI sur un
+    écran (« l'IBAN », « le montant »), le critère s'applique à la soumission de cet écran. Sinon, les mots du critère
+    et de l'action (« confirme un virement » → « Confirmer le virement »). À égalité, la plus avancée dans le parcours
+    (un refus survient au moment de l'engagement, pas en ouvrant l'écran)."""
+    obs = {tid: t for tid, t in m["transitions"].items() if t.get("provenance") == "observé"}
+    champs, prof = champs or {}, profondeur or {}
+    # rareté de chaque racine (un mot présent partout, comme « bénéficiaire » dans une appli de virement, départage peu)
+    docs = [_racines(m["actions"].get(t.get("action"), {}).get("libelle", "")) for t in obs.values()] + list(champs.values()) \
+        + [_racines(e.get("nom", "")) for e in m["etats"].values()]
+    df = lambda w: max(1, sum(1 for d in docs if w in d))  # noqa: E731
+    rc, rt = _racines(condition or texte), _racines(texte)
+    meilleur, cle_max = "", None
+    for tid in sorted(obs):
+        t = obs[tid]
         a = m["actions"].get(t.get("action"), {})
-        s = len(mt & _mots(a.get("libelle", ""))) + 3 * len(mt & (champs or {}).get(t["de"], set()))
-        if s > score:
-            meilleur, score = tid, s
+        score = sum(3 / df(w) for w in rc & champs.get(t["de"], set())) + sum(1 / df(w) for w in rt & _racines(a.get("libelle", "")))
+        if score <= 0:
+            continue
+        cle = (round(score, 3), prof.get(t["de"], 0))
+        if cle_max is None or cle > cle_max:
+            meilleur, cle_max = tid, cle
     return meilleur
 
 
@@ -311,8 +357,11 @@ def _fusionner(ancien: dict | None, neuf: dict) -> dict:
     for c in cm.COLLECTIONS:
         a, n = ancien.get(c) or {}, neuf[c]
         for k, el in a.items():
-            if el.get("provenance") == "déclaré" or el.get("edite") or el.get("hypothese"):
-                n[k] = {**el, **({"source_disparue": True} if k not in n and el.get("provenance") != "déclaré" and not el.get("hypothese") else {})}
+            if el.get("provenance") == "déclaré" or el.get("edite") or el.get("hypothese") or (k not in n and el.get("provenance") == "déduit"
+                                                                                          and (el.get("valide_par") or el.get("auteur") == "ia")):
+                # déclaré, corrigé, hypothèse acceptée, proposition d'IA en attente de décision ou validée par le QA :
+                # une décision (ou une question posée au QA) ne se perd pas à la reconstruction
+                n[k] = {**el, **({"source_disparue": True} if k not in n and el.get("provenance") == "observé" else {})}
                 continue
             if k in n:
                 if el.get("validation") == "rejeté" or el.get("valide_par"):
@@ -636,7 +685,12 @@ def _decrire(m, etats, trans, st, p: list[str], justification: str, strategie: s
         if apport else "Aucune couverture nouvelle (chemin redondant)."
     pid = "P-" + _h(*p)
     hypothese = any(not cm.etabli(e) for e in elements)
-    return {"id": pid, "titre": " → ".join(etats[s]["nom"] for s in sts) + (f" (si « {conds[-1]['libelle'][:60]} » {'non remplie' if conds[-1]['issue'] == 'fausse' else 'remplie'})" if conds else ""),
+    noms = [etats[x]["nom"] for x in sts]
+    court = noms if len(noms) <= 5 else noms[:2] + ["…"] + noms[-2:]  # titre lisible : le chemin complet est dans « etats »
+    cond_finale = next((c for c in reversed(conds) if c["id"] == trans[p[-1]].get("garde")), None) if p else None
+    titre = " → ".join(court) + (f" (si « {cond_finale['libelle'][:70]} » {'non remplie' if cond_finale['issue'] == 'fausse' else 'remplie'})"
+                                 if cond_finale else "")
+    return {"id": pid, "titre": titre, "chemin_complet": " → ".join(noms),
             "description": [_phrase(m, etats, trans[t]) for t in p], "etats": sts, "transitions": p,
             "actions": [trans[t]["action"] for t in p if trans[t].get("action")], "conditions": conds, "type": type_,
             "priorite": {3: "haute", 1: "normale", 0: "basse"}.get(prio, "normale"), "justification": justification, "strategie": strategie,
@@ -1136,7 +1190,7 @@ def _hypotheses(m: dict, g, textes: list[str]) -> dict:
         if t.get("garde") and t.get("validation") != "rejeté":
             issues.setdefault(t["garde"], {})[t.get("issue") or "vraie"] = t
     for cid, par in issues.items():
-        if len(par) == 1 and cid in C:
+        if len(par) == 1 and cid in C and not C[cid].get("contraire"):
             iss, t = next(iter(par.items()))
             contraire = "fausse" if iss == "vraie" else "vraie"
             lib = C[cid].get("libelle", cid)
@@ -1151,9 +1205,12 @@ def _hypotheses(m: dict, g, textes: list[str]) -> dict:
                             "justification": "La condition inverse doit être étudiée ; son résultat n'est proposé que si une règle le décrit."}
     # soumissions : double soumission, perte de connexion, retour arrière, interruption et reprise, session expirée
     authentifie = any(AUTH.search(e.get("nom", "")) for e in E.values())
+    engage = re.compile(r"(?i)valid|confirm|envoy|soumet|payer|signer|souscri|command")
     soumissions = [(k, t) for k, t in sorted(T.items()) if t.get("validation") != "rejeté" and t.get("provenance") == "observé"
-                   and SOUMISSION.search(A.get(t.get("action"), {}).get("libelle", "") + " " + A.get(t.get("action"), {}).get("cle", ""))]
-    for k, t in soumissions[:6]:
+                   and engage.search(A.get(t.get("action"), {}).get("libelle", "") + " " + A.get(t.get("action"), {}).get("cle", ""))]
+    sensibles = [(k, t) for k, t in soumissions if SENSIBLE.search(A.get(t.get("action"), {}).get("libelle", ""))]
+    session_faite = False
+    for k, t in sensibles + [x for x in soumissions if x not in sensibles]:
         a = A.get(t.get("action"), {}).get("libelle", "")
         de = t["de"]
         ajouter("double_soumission", de, f"Double soumission de « {a} »", f"Double soumission de « {a} » : comportement à confirmer",
@@ -1162,12 +1219,13 @@ def _hypotheses(m: dict, g, textes: list[str]) -> dict:
                 "systeme", action=a, evenement="perte de connexion pendant le traitement")
         ajouter("retour_arriere", de, f"Retour arrière pendant « {a} »", f"Retour arrière pendant « {a} » : comportement à confirmer",
                 action=a, evenement="retour arrière pendant le traitement")
-        if SENSIBLE.search(a + " " + E[de].get("nom", "")):
+        if SENSIBLE.search(a):
             ajouter("interruption", de, f"Interruption pendant « {a} »", f"Transaction « {a} » interrompue : comportement à confirmer", "systeme",
                     action=a, evenement="interruption pendant la transaction")
             ajouter("reprise", de, f"Reprise après interruption de « {a} »", f"Reprise de « {a} » après interruption : comportement à confirmer",
                     "metier", action=a, evenement="reprise après interruption")
-        if authentifie and not AUTH.search(E[de].get("nom", "")):
+        if authentifie and not AUTH.search(E[de].get("nom", "")) and not session_faite:
+            session_faite = True  # une fois par modèle, sur l'opération la plus engageante
             ajouter("session_expiree", de, f"Session expirée pendant « {a} »", f"Session expirée pendant « {a} » : comportement à confirmer",
                     "systeme", action=a, evenement="expiration de la session")
     # formulaires : invalide, annulation

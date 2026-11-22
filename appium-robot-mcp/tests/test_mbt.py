@@ -173,6 +173,10 @@ def test_declarations_validation_et_propositions_ia(appli, monkeypatch):
     m3 = cm.exiger(m["id"])
     nouv = next(e for e in m3["etats"].values() if e["nom"] == "Plafond dépassé")
     assert nouv["provenance"] == "déduit" and nouv["validation"] == "à valider" and nouv["confiance"] == "non vérifiée"
+    k = next(k for k, e in m3["etats"].items() if e["nom"] == "Plafond dépassé")
+    assert k in mbt.construire("module", "Comptes")["etats"]                                  # en attente de décision : gardée
+    cm.valider(m["id"], "etats", k)
+    assert k in mbt.construire("module", "Comptes")["etats"]                                  # validée par le QA : jamais perdue
 
 
 def test_mode_automatique_cas_pour_us(appli):
@@ -243,9 +247,19 @@ def test_hypotheses_comportements_exceptionnels(appli):
     from atelier.domain import comportement as cm
     from atelier.intelligence import mbt
 
+    from atelier.discovery import connaissance
+
+    u = "https://banque.exemple.test"
+    vir = next(e for e in appli.ecrans() if e["nom"] == "virement")
+    ok = appli.observer([_el("lien_retour", "Retour aux comptes")], "web", u + "/virement/ok", build="1.0")
+    appli.renommer(ok["id"], "virement_effectue", "Comptes")
+    appli.enregistrer_transition(vir["id"], ok["id"], "web", {"type": "tap", "cle": "bouton_confirmer", "libelle": "Confirmer le virement"})
+    connaissance.vider_cache()
     m = mbt.construire("module", "Comptes")
     cats = {h["categorie"] for h in m["hypotheses"].values()}
-    assert {"double_soumission", "perte_connexion", "session_expiree", "interruption", "condition_inverse", "acces_non_autorise"} <= cats
+    assert {"double_soumission", "perte_connexion", "session_expiree", "interruption", "reprise", "acces_non_autorise"} <= cats
+    assert not any("Effectuer un virement" in h["libelle"] for h in m["hypotheses"].values())   # navigation, pas un engagement
+    assert sum(h["categorie"] == "session_expiree" for h in m["hypotheses"].values()) == 1
     assert all(h["statut"] == "proposée" for h in m["hypotheses"].values())
     assert not any(e.get("hypothese") for e in m["etats"].values())                      # rien dans le modèle sans décision
     dbl = next(h for h in m["hypotheses"].values() if h["categorie"] == "double_soumission")
@@ -261,7 +275,7 @@ def test_hypotheses_comportements_exceptionnels(appli):
     assert m2["hypotheses"][dbl["id"]]["transition_id"] in m2["transitions"]
     assert "géré par l'infrastructure" not in str(mbt.analyser(m2["id"])["hypotheses"])
     c = mbt.couverture(m2["id"])
-    assert c["modele"]["transitions"] == 3                                                   # hypothèses hors indicateurs officiels
+    assert c["modele"]["transitions"] == 4                                                   # hypothèses hors indicateurs officiels
 
 
 def test_comportement_documente_pas_propose(appli):
