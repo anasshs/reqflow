@@ -104,7 +104,7 @@ class GrapheVue {
   _couches(rangs) {
     const parRang = new Map();
     for (const n of this.noeuds) {
-      const r = rangs[n.type] ?? 9;
+      const r = typeof rangs === "function" ? rangs(n) : rangs[n.type] ?? 9;
       if (!parRang.has(r)) parRang.set(r, []);
       parRang.get(r).push(n);
     }
@@ -293,6 +293,7 @@ class GrapheVue {
         el("path", {d: ic, class: "gv-ico", style: `--c:${coul}`}, gi);
         el("text", {x: -44, y: n.plateformes?.length || n.type ? -1 : 4, class: "gv-libelle"}, g).textContent = court(n.libelle, 18);
         el("text", {x: -44, y: 13, class: "gv-sous"}, g).textContent = court(n.type.replace("_", " ") + (n.plateformes?.length ? " · " + n.plateformes.join("/") : ""), 24);
+        el("text", {x: 84, y: -27, class: "gv-prov gv-prov-" + (n.provenance === "déduit" ? "deduit" : n.provenance === "déclaré" ? "declare" : "observe")}, g).textContent = n.provenance;
         if (n.type === "test" && n.proprietes) {
           el("circle", {cx: 74, cy: -10, r: 5, class: n.proprietes.automatise ? "gv-pastille-auto" : "gv-pastille-manuel"}, g);
         }
@@ -342,6 +343,7 @@ class GrapheVue {
     }
     this.racine.setAttribute("transform", `translate(${this.vue.x},${this.vue.y}) scale(${this.vue.k})`);
     this.svg.classList.toggle("gv-loin", this.vue.k < 0.55);
+    this.opts.onVue?.(this.vue.k);
     this._mini();
   }
 

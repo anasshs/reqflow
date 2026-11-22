@@ -15,7 +15,21 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     ["technique", "Technique", "Comment elle est construite : écrans, composants, locators, keywords, resources, endpoints, jeux de données"],
     ["qualite", "Tests & Qualité", "Comment c'est vérifié : exigences, tests BDD, tests Robot, tests Xray, plans, exécutions, résultats"],
     ["", "Tout", "Tous les éléments"]];
-  const VUES = [["connaissance", "Graphe de connaissances"], ["couverture", "Couverture"], ["flux", "Flux"], ["impact", "Impact"]];
+  const VUES = [["connaissance", "Vue", "graphe"], ["couverture", "Couverture", "assertion"], ["flux", "Flux", "branche"], ["impact", "Impact", "impact"]];
+  const TITRES = {connaissance: ["Graphe de connaissances", "Relations entre modules, fonctionnalités, parcours, écrans, actions et tests"],
+    couverture: ["Couverture", "Exigences, parcours et écrans vérifiés par des tests, manuels ou automatisés"],
+    flux: ["Flux d'automatisation", "Du test aux keywords, locators, données et écrans qu'il utilise"],
+    impact: ["Analyse d'impact", "Ce qu'une modification touche : tests, parcours, écrans, et la TNR ciblée"]};
+  /* mises en page du graphe de connaissances (la vue « Explorer » autour d'un élément garde ses régions) */
+  const DISPOSITIONS = [["architecture", "Architecture", "dashboard", "Hiérarchie : application, modules, fonctionnalités et parcours, écrans, actions, technique"],
+    ["parcours", "Parcours utilisateur", "branche", "Ordre de navigation : des écrans d'entrée vers les écrans atteints, actions comprises"],
+    ["dependances", "Dépendances", "graphe", "Disposition libre par attraction des liens (forces)"]];
+  const RANG_ARCHI = {application: 0, plateforme: 0, version: 0, environnement: 0, epic: 1, module: 1, user_story: 2, fonctionnalite: 2, parcours: 2,
+    regle: 3, role: 3, ecran: 3, action: 4, variable: 4, composant: 5, locator: 5, endpoint: 5, keyword: 5, resource: 6, jdd: 6, requete: 7,
+    scenario: 6, test: 6, test_robot: 7, suite: 7, test_plan: 7, test_set: 7, test_execution: 8, resultat: 8, bug: 8};
+  const NAVIGATION = new Set(["navigue_vers", "permet", "aboutit_a"]);  // écran → action → écran (les agrégats entre modules ne fixent pas l'ordre)
+  const AFFICHAGES = [["liens", "Libellés des liens", "Nom de chaque relation sur le trait"], ["types", "Types", "Type et plateforme sous le nom de chaque élément"],
+    ["provenance", "Provenance", "Observé, déclaré ou déduit, en haut à droite de chaque élément"]];
   let dernierAngle = "";  // gardé le temps de l'écran : revenir de Couverture / Flux / Impact retrouve le filtre
   const RANGS = {
     couverture: {module: 0, epic: 1, parcours: 1, user_story: 2, bug: 2, test_plan: 3, test: 4, scenario: 4, test_execution: 5, test_robot: 5},
@@ -24,6 +38,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   const RELATIONS = {contient: "Contient", navigue_vers: "Navigue vers", depend_de: "Dépend de", appelle: "Appelle", verifie: "Vérifie",
     couvre: "Couvre", implemente_par: "Est implémenté par", teste_par: "Est testé par", execute_par: "Est exécuté par", impacte: "Impacte", utilise: "Utilise"};
   let S, G, desabo = [];
+  const lireLocal = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } };
+  const ecrireLocal = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* stockage indisponible */ } };
   /* périmètre (module, parcours, fonctionnalité, epic, US) commun aux vues, gardé quand on change de vue */
   const perim = {
     lire() { try { return sessionStorage.getItem("kg-perimetre") || ""; } catch (e) { return ""; } },
@@ -32,7 +48,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
 
   const E = {
     afficher(zone, sous) {
-      S = {vue: "connaissance", params: {}, data: null, selection: null, famillesMasquees: new Set(), statut: ""};
+      S = {vue: "connaissance", params: {}, data: null, selection: null, famillesMasquees: new Set(), statut: "",
+        dispo: lireLocal("kg-dispo", "architecture"), aff: {liens: true, types: true, provenance: false, ...JSON.parse(lireLocal("kg-aff", "{}"))}};
       if (perim.lire()) S.params.perimetre = perim.lire();
       if (sous === "bdd") { location.hash = "bdd"; return; }
       const [sv, sk, ...sr] = (sous || "").split("/");
@@ -49,25 +66,36 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       if (S.vue === "couverture" && sr.length && sk === "module") S.params.module = sr.join("/");
       zone.className = "g-kg";
       zone.innerHTML = `
-        <section class="carte" aria-label="Graphe" style="position:relative">
+        <aside class="carte kg-gauche" aria-label="Vue du graphe et affichage">
+          <h3 class="kg-bloc">VUE DU GRAPHE</h3>
+          <div class="kg-vues">
+            <button id="kg-direct" aria-pressed="false" title="Suivre la construction du graphe en direct pendant une Discovery (manuelle, guidée ou par l'agent)"><span class="point-direct"></span>En direct</button>
+            ${DISPOSITIONS.map(([id, lib, icone, aide]) => `<button data-dispo="${id}" aria-pressed="false" title="${esc(aide)}">${ico(icone)}${lib}</button>`).join("")}
+          </div>
+          <h3 class="kg-bloc">AFFICHAGE</h3>
+          <div id="kg-legende"></div>
+          <div class="kg-aff">${AFFICHAGES.map(([id, lib, aide]) => `<label title="${esc(aide)}"><input type="checkbox" data-aff="${id}" ${S.aff[id] ? "checked" : ""}> ${lib}</label>`).join("")}</div>
+          <h3 class="kg-bloc">OUTILS</h3>
+          <div class="kg-outils">
+            <button class="icone" id="kg-zp" title="Zoom avant">+</button><span id="kg-zoom" title="Niveau de zoom">100%</span><button class="icone" id="kg-zm" title="Zoom arrière">−</button>
+            <button class="icone" id="kg-aj" title="Ajuster à l'écran">${ico("cible")}</button><button class="icone" id="kg-pe" title="Plein écran">${ico("plein")}</button>
+          </div>
+          <div id="kg-mini-place" class="kg-mini-place"></div>
+        </aside>
+        <section class="carte kg-centre" aria-label="Graphe" style="position:relative">
+          <div class="kg-entete"><h1 id="kg-titre-page">Graphe de connaissances</h1><p class="lib" id="kg-sous-titre"></p></div>
           <div class="barre-graphe">
-            <div class="sous-onglets" role="tablist">${VUES.map(([id, lib]) => `<button role="tab" data-vue="${id}" aria-selected="${id === S.vue}">${lib}</button>`).join("")}</div>
+            <div class="sous-onglets" role="tablist">${VUES.map(([id, lib, icone]) => `<button role="tab" data-vue="${id}" aria-selected="${id === S.vue}">${ico(icone)}${lib}</button>`).join("")}</div>
             <span id="kg-options"></span>
             <input type="search" class="in" id="kg-recherche" placeholder="Rechercher…" aria-label="Rechercher un élément" hidden>
             <button class="icone" id="kg-cherche" title="Rechercher" aria-pressed="false">${ico("recherche")}</button>
-            <button class="btn petit" id="kg-filtres" aria-haspopup="true" aria-expanded="false" title="Application, plateforme, version, type, provenance, confiance, statut">Filtres<span id="kg-nb-filtres"></span></button>
             <button class="icone" id="kg-tout" title="Revenir au graphe complet">${ico("rejouer")}</button>
-            <button class="icone" id="kg-aj" title="Recentrer / ajuster à l'écran">${ico("cible")}</button>
-            <button class="btn petit" id="kg-direct" aria-pressed="false" title="Suivre la construction du graphe en direct pendant une Discovery (manuelle, guidée ou par l'agent)"><span class="point-direct"></span>En direct</button>
             <button class="icone" id="kg-fenetre" title="Ouvrir le graphe en direct dans une autre fenêtre (à garder sur un second écran pendant la Discovery)">${ico("ext")}</button>
-            <button class="icone" id="kg-pe" title="Plein écran">${ico("plein")}</button>
+            <button class="btn petit" id="kg-filtres" aria-haspopup="true" aria-expanded="false" title="Application, plateforme, version, type, provenance, confiance, statut">${ico("parametres")}Filtres<span id="kg-nb-filtres"></span></button>
             <button class="icone" id="kg-menu" title="Plus d'options" aria-haspopup="true" aria-expanded="false" style="font-size:18px;line-height:1">⋮</button>
           </div>
           <div class="menu-graphe" id="kg-menu-liste" hidden>
-            <button id="kg-zp">${ico("zoomp")}Zoom avant</button>
-            <button id="kg-zm">${ico("zoomm")}Zoom arrière</button>
-            <button id="kg-mini">${ico("graphe")}Afficher / masquer la mini-carte</button>
-            <hr><button id="kg-m-src">${ico("donnee")}Sources du graphe</button>
+            <button id="kg-m-src">${ico("donnee")}Sources du graphe</button>
             <button id="kg-m-qual">${ico("assertion")}Qualité du graphe et doublons</button>
             <button id="kg-m-anom">${ico("aide")}Anomalies et recommandations</button>
             <button id="kg-m-histo">${ico("historique")}Historique des modifications</button>
@@ -88,13 +116,10 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
           </div>
           <div class="zone-graphe" id="kg-zone"></div>
         </section>
-        <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
-          <section class="carte" style="flex:none"><h2 class="titre-carte">Types de nœuds</h2><div class="corps-carte" id="kg-legende" style="padding:6px 12px"></div></section>
-          <section class="carte" style="flex:1"><h2 class="titre-carte" id="kg-titre-detail">Détail</h2><div class="corps-carte" id="kg-detail"></div></section>
-        </div>
+        <section class="carte kg-droite"><h2 class="titre-carte" id="kg-titre-detail">Détail</h2><div class="corps-carte" id="kg-detail"></div></section>
 `;
       G = null;
-      $$(".sous-onglets [data-vue]", zone).forEach(b => b.onclick = () => {
+      $$(".barre-graphe [data-vue]", zone).forEach(b => b.onclick = () => {
         location.hash = "graphe/" + b.dataset.vue + (b.dataset.vue === "connaissance" && dernierAngle ? "/" + dernierAngle : ""); });
       let t;
       $("#kg-cherche").onclick = () => { const r = $("#kg-recherche"); r.hidden = !r.hidden; $("#kg-cherche").setAttribute("aria-pressed", !r.hidden); if (!r.hidden) r.focus(); };
@@ -117,7 +142,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
         for (const i of ["#kg-f-plat", "#kg-f-ver", "#kg-f-type", "#kg-prov", "#kg-conf", "#kg-statut"]) $(i).value = "";
         $("#kg-patrimoine").checked = false; nbFiltres(); charger();
       };
-      $("#kg-mini").onclick = () => { const m = $(".gv-mini"); if (m) m.hidden = !m.hidden; G?._mini(); };
+      $$("[data-dispo]", zone).forEach(b => b.onclick = () => { S.dispo = b.dataset.dispo; ecrireLocal("kg-dispo", S.dispo);
+        if (S.params.centre) { delete S.params.centre; S.auto = false; majDispo(); return charger(); } majDispo(); dessiner(); });
+      $$("[data-aff]", zone).forEach(c => c.onchange = () => { S.aff[c.dataset.aff] = c.checked; ecrireLocal("kg-aff", JSON.stringify(S.aff)); appliquerAffichage(); });
       $("#kg-tout").onclick = () => { if (!S.params.centre) return G?.ajuster(); delete S.params.centre; S.auto = false; charger(); };
       $("#kg-recherche").oninput = e => { clearTimeout(t); t = setTimeout(() => { S.params.recherche = e.target.value; charger(); }, 300); };
       $("#kg-statut").onchange = e => { S.statut = e.target.value; nbFiltres(); dessiner(); };
@@ -139,6 +166,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       desabo = [Atelier.on("carte_change", () => S.direct ? rafraichirDirect() : charger(true)), Atelier.on("theme", () => G?.rafraichirTheme()),
         ...["mcp_outil", "discovery", "outil", "locators_change", "mcp_image"].map(t => Atelier.on(t, e => { if (S.direct && (t !== "mcp_outil" || e.etat === "fin")) rafraichirDirect(); }))];
       if (S.direct) basculerDirect(true, false);
+      majDispo();
+      majTitre();
       options();
       const demarrage = async () => {
         await charger();
@@ -175,6 +204,46 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
         ${s.construction.reutilisees?.length ? ` · réutilisé sans relire : ${esc(s.construction.reutilisees.join(", "))}` : ""}.</p>` : ""}`);
     $("#src-disc", m.el).onclick = () => { m.fermer(); DiscoveryFlottant.ouvrir(); };
     $("#src-xray", m.el).onclick = async () => { try { const r = await api("/api/patrimoine/xray-definitions", {method: "POST", body: {}}); toast(`${r.importes} définition(s) importée(s).`, "ok"); m.fermer(); charger(); } catch (e) { toast(e.message, "ko"); } };
+  }
+
+  function majTitre() {
+    const [t, st] = TITRES[S.vue] || TITRES.connaissance;
+    $("#kg-titre-page").textContent = t;
+    $("#kg-sous-titre").textContent = st;
+  }
+
+  function majDispo() {
+    $$("[data-dispo]").forEach(b => { b.setAttribute("aria-pressed", S.vue === "connaissance" && !S.params.centre && b.dataset.dispo === S.dispo);
+      b.disabled = S.vue !== "connaissance"; });
+  }
+
+  function appliquerAffichage() {
+    const svg = $("#kg-zone .gv-svg");
+    if (!svg) return;
+    svg.classList.toggle("gv-sans-liens", !S.aff.liens);
+    svg.classList.toggle("gv-sans-types", !S.aff.types);
+    svg.classList.toggle("gv-avec-prov", !!S.aff.provenance);
+  }
+
+  /* rang de chaque élément dans l'ordre de navigation : écrans d'entrée en haut, puis les écrans atteints */
+  function rangsParcours(data) {
+    const succ = new Map(), entrants = new Map(), nav = new Set();
+    for (const r of data.relations) {
+      if (!NAVIGATION.has(r.type)) continue;
+      nav.add(r.de); nav.add(r.vers);
+      if (!succ.has(r.de)) succ.set(r.de, []);
+      succ.get(r.de).push(r.vers);
+      entrants.set(r.vers, (entrants.get(r.vers) || 0) + 1);
+    }
+    const prof = new Map(), file = [...nav].filter(i => !entrants.get(i)).sort();
+    if (!file.length && nav.size) file.push([...nav].sort()[0]);
+    file.forEach(i => prof.set(i, 0));
+    while (file.length) {
+      const i = file.shift();
+      for (const j of succ.get(i) || []) if (!prof.has(j)) { prof.set(j, prof.get(i) + 1); file.push(j); }
+    }
+    for (const i of nav) if (!prof.has(i)) prof.set(i, 0);
+    return n => n.type === "application" ? -2 : n.type === "module" && !prof.has(n.id) ? -1 : prof.has(n.id) ? prof.get(n.id) * 2 + (n.type === "action" ? 1 : 0) : 99;
   }
 
   /* ------------------------------------------------------------------ options par vue */
@@ -402,10 +471,18 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     const data = {...d, noeuds: d.noeuds.filter(n => ids.has(n.id)), relations: d.relations.filter(r => ids.has(r.de) && ids.has(r.vers) && lienGarde(r)).map(lire)};
     if (!G) {
       $("#kg-zone").innerHTML = "";
-      G = new GrapheVue($("#kg-zone"), {onSelection: n => selectionner(n.id), onDevelopper: id => developper(id), onRelation: r => panneauRelation(r)});
+      G = new GrapheVue($("#kg-zone"), {onSelection: n => selectionner(n.id), onDevelopper: id => developper(id), onRelation: r => panneauRelation(r),
+        onVue: k => { const z = $("#kg-zoom"); if (z) z.textContent = Math.round(k * 100) + "%"; }});
+      const place = $("#kg-mini-place");  // mini-carte dans le panneau « Outils », toujours visible
+      if (place) { place.appendChild(G.mini); G.mini.hidden = false; }
     }
-    const mode = S.vue === "couverture" || S.vue === "flux" ? "couches" : (S.params.centre ? "grappes" : "forces");
-    G.afficher(data, mode, RANGS[S.vue], S.params.centre);
+    let mode = S.vue === "couverture" || S.vue === "flux" ? "couches" : (S.params.centre ? "grappes" : "forces"), rangs = RANGS[S.vue];
+    if (S.vue === "connaissance" && !S.params.centre) {
+      if (S.dispo === "architecture") { mode = "couches"; rangs = RANG_ARCHI; }
+      else if (S.dispo === "parcours") { mode = "couches"; rangs = rangsParcours(data); }
+    }
+    G.afficher(data, mode, rangs, S.params.centre);
+    appliquerAffichage();
     $("#kg-trop")?.remove();
     if (S.vue === "couverture" && d.tronque && !S.params.module) {
       $("#kg-zone").insertAdjacentHTML("beforeend", `<div id="kg-trop" class="vide" style="position:absolute;left:12px;top:12px;max-width:420px;text-align:left">
@@ -429,8 +506,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
   function legende() {  // types de nœuds de la maquette (familles), avec compte réel et filtre
     const comptes = {};
     for (const n of (S.data?.noeuds || []).filter(dansAngle)) { const f = familleDe(n.type).id; comptes[f] = (comptes[f] || 0) + 1; }
-    $("#kg-legende").innerHTML = `<ul class="liste legende-types">${FAMILLES_GRAPHE.map(f => `<li data-cat="${f.id}" class="${S.famillesMasquees.has(f.id) ? "inactif" : ""}"
-      title="Afficher / masquer : ${esc(f.types.join(", "))}"><span class="carre" style="background:var(--f-${f.id})"></span>${f.nom}<span class="compte">${comptes[f.id] || 0}</span></li>`).join("")}</ul>
+    $("#kg-legende").innerHTML = `<ul class="liste legende-types kg-familles">${FAMILLES_GRAPHE.filter(f => comptes[f.id] || S.famillesMasquees.has(f.id)).map(f => `<li data-cat="${f.id}" class="${S.famillesMasquees.has(f.id) ? "inactif" : ""}"
+      title="Afficher / masquer : ${esc(f.types.join(", "))}"><input type="checkbox" tabindex="-1" ${S.famillesMasquees.has(f.id) ? "" : "checked"} style="accent-color:var(--f-${f.id})">${f.nom}<span class="compte">${comptes[f.id] || 0}</span></li>`).join("") || "<li class='lib'>Aucun élément.</li>"}</ul>
       ${S.data?.patrimoine_masque ? `<p class="lib">${S.data.patrimoine_masque} ticket(s) Jira / Xray sans lien avec l'application masqué(s) : <button class="lien" id="kg-patri-tout">tout afficher</button> (ou rechercher une clé).</p>` : ""}
       ${S.data?.tronque ? `<p class="lib">Affichage limité à ${S.data.noeuds.length} éléments sur ${S.data.total} (sélection, périmètre et éléments clés d'abord ; rien n'est perdu).
         Non affichés : ${esc(Object.entries(S.data.masques_par_type || {}).map(([t, n]) => `${n} ${t}`).join(", "))}. Choisir un périmètre ou une perspective pour les voir.</p>` : ""}`;
@@ -447,10 +524,19 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       $$(".sous-onglets [data-vue]").forEach(b => b.setAttribute("aria-selected", b.dataset.vue === "connaissance")); options(); }
     S.params.centre = id;
     S.params.profondeur = 1;
+    majDispo();
+    majTitre();
     charger().then(() => selectionner(id));
   }
 
   /* ------------------------------------------------------------------ panneau de détail */
+  const NOMS_TYPES = {module: "Modules", parcours: "Parcours", scenario: "Scénarios", ecran: "Écrans", action: "Actions", fonctionnalite: "Fonctionnalités",
+    application: "Application", plateforme: "Plateformes", version: "Versions", locator: "Locators", keyword: "Keywords", test: "Tests Xray",
+    test_robot: "Tests Robot", user_story: "User stories", epic: "Epics", regle: "Règles", jdd: "Jeux de données", variable: "Variables",
+    bug: "Anomalies", composant: "Composants", endpoint: "Endpoints", suite: "Suites"};
+  const ICONE_TYPE_DETAIL = {module: "rapports", parcours: "branche", scenario: "bdd", ecran: "ecran", action: "play", fonctionnalite: "assertion",
+    locator: "cible", keyword: "editeur", test: "assertion", test_robot: "play", jdd: "donnee", variable: "donnee", user_story: "bdd", epic: "bdd"};
+  const dateCourte = t => t ? String(t).slice(0, 10).split("-").reverse().join("/") : "";
   const detail = (titre, html) => { $("#kg-titre-detail").textContent = titre; $("#kg-detail").innerHTML = html; lierSelections($("#kg-detail")); };
 
   function lierSelections(r) {
@@ -535,6 +621,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
         ${st ? `<span class="pill ${st[0]}">${st[1]}</span>` : x.relation.statut !== "validé" ? '<span class="pill warn">à valider</span>' : ""}
         ${x.relation.confiance_niveau && x.relation.confiance_niveau !== "confirmée" ? `<span class="pill ${x.relation.confiance_niveau === "probable" ? "info" : "warn"}" title="Niveau de confiance du lien">${esc(x.relation.confiance_niveau)}</span>` : ""}</li>`; };
     const pv = d.provenance || {}, tr = d.tracabilite || {};
+    const voisinsParType = {};
+    for (const x of d.sortants.concat(d.entrants)) (voisinsParType[x.noeud.type] ||= []).push(x.noeud.libelle);
     const module = d.entrants.find(x => x.noeud.type === "module" && x.relation.type === "contient")?.noeud;
     const parType = {};
     for (const x of d.sortants.concat(d.entrants)) { const l = x.relation.metier?.libelle || x.relation.libelle; parType[l] = (parType[l] || 0) + 1; }
@@ -547,11 +635,19 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       ["trac", "Traçabilité"], ["histo", "Historique"]];
     const onglet = ONGLETS.some(o => o[0] === S.ongletDetail) ? S.ongletDetail : "props";
     detail(n.metier ? n.metier.libelle : n.type.replace("_", " "), `
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><span class="carre" style="background:var(--f-${familleDe(n.type).id});width:12px;height:30px"></span>
-        <div class="item"><b style="font-size:14px">${esc(n.libelle)}</b><div class="lib"><code>${esc(n.metier ? n.metier.id : n.id)}</code>${n.metier ? ` · ${esc(n.metier.type)} · univers ${esc(n.metier.univers)}` : ""}</div></div></div>
-      <div class="btns" style="margin-bottom:8px"><span class="pill ${n.statut === "validé" ? "ok" : "warn"}">${esc(n.statut)}</span><span class="pill">${esc(n.provenance)}</span>
-        <span class="pill info" title="Base de l'élément (pas un score calculé)">${esc(baseElement(n))}</span>
-        ${p.completude ? `<span class="pill ${p.completude === "confirmé" || p.completude === "exploré" ? "ok" : "warn"}">parcours ${esc(p.completude)}</span>` : ""}</div>
+      <div class="kg-fiche">
+        <div class="kg-fiche-titre"><b>${esc(n.libelle)}</b><span class="pill" style="background:color-mix(in srgb, var(--f-${familleDe(n.type).id}) 16%, transparent);color:var(--f-${familleDe(n.type).id})">${esc(n.metier ? n.metier.libelle : n.type.replace(/_/g, " "))}</span></div>
+        <dl class="kg-kv"><dt>Plateforme</dt><dd>${esc(n.plateformes.map(x => x.charAt(0).toUpperCase() + x.slice(1)).join(", ") || "Toutes")}</dd>
+          <dt>Version</dt><dd>${esc((p.versions || []).map(v => "Build " + v).join(", ") || "—")}</dd>
+          <dt>Type</dt><dd>${esc(n.type.replace(/_/g, " ").replace(/^./, c => c.toUpperCase()))}</dd>
+          <dt>Provenance</dt><dd title="${esc(baseElement(n))}">${esc(n.provenance.charAt(0).toUpperCase() + n.provenance.slice(1))}</dd>
+          <dt>Statut</dt><dd><span class="pill ${n.statut === "validé" ? "ok" : "warn"}">${esc(n.statut === "validé" ? "Validé" : "À valider")}</span></dd>
+          ${p.completude ? `<dt>Parcours</dt><dd><span class="pill ${p.completude === "confirmé" || p.completude === "exploré" ? "ok" : "warn"}">${esc(p.completude)}</span></dd>` : ""}</dl>
+        ${p.description ? `<h4 class="kg-sous">Description</h4><p style="margin:0 0 8px">${esc(p.description)}</p>` : ""}
+        ${Object.keys(voisinsParType).length ? `<h4 class="kg-sous">Liens (${Object.keys(voisinsParType).length})</h4><ul class="kg-liens-type">${Object.entries(voisinsParType).map(([t, l]) =>
+          `<li><button class="lien" data-explorer-type="${esc(t)}" title="${esc(l.slice(0, 8).join(", "))}">${ico(ICONE_TYPE_DETAIL[t] || "graphe")}${esc(NOMS_TYPES[t] || t.replace(/_/g, " "))} (${l.length})</button></li>`).join("")}</ul>` : ""}
+        <dl class="kg-kv kg-dates"><dt>Créé le</dt><dd>${esc(dateCourte(pv.premiere_trace) || "—")}</dd><dt>Mis à jour le</dt><dd>${esc(dateCourte(pv.derniere_trace || d.construction_date) || "—")}</dd></dl>
+      </div>
       <p class="lib" style="margin:0 0 8px">Voir dans : ${ANGLES.filter(a => a[0] && TYPES_VUE[a[0]].split(",").includes(n.type)).map(a =>
         `<button class="lien" data-persp="${a[0]}">${a[1]}</button>`).join(" · ") || "—"}</p>
       <div class="btns" style="margin:0 0 8px">
@@ -603,6 +699,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       $$("[data-onglet]", $("#kg-detail")).forEach(x => x.setAttribute("aria-selected", x === b));
       $$("[data-panneau]", $("#kg-detail")).forEach(x => { x.hidden = x.dataset.panneau !== b.dataset.onglet; });
     });
+    $$("[data-explorer-type]", $("#kg-detail")).forEach(b => b.onclick = () => developper(id));
     $("#kd-couv").onclick = () => {
       if (n.type === "test") { location.hash = "graphe/couverture/test/" + encodeURIComponent(n.id.slice(5)); return; }
       if (n.type === "module") { location.hash = "graphe/couverture/module/" + encodeURIComponent(n.libelle); return; }
