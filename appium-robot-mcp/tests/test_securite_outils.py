@@ -26,6 +26,7 @@ NATURE = {
     # Jira / Xray
     **dict.fromkeys(["xray_get_test", "xray_search_tests", "xray_inspect_ticket", "jira_subtasks"], "L"),
     **dict.fromkeys(["jira_transition", "qualify_failure", "import_results_to_xray", "run_robot"], "X"),
+    "run_tests": "A",  # run local de tests précis, sans Xray ; garde : consomme_donnee seulement si validé ou dérogation
     # connaissance, couverture, Test Design
     **dict.fromkeys(["knowledge_graph", "impact_analysis", "coverage_report", "automation_flow", "plan_de_test", "cerveau_application",
                      "cerveau_question", "coverage_intelligence", "testabilite_us_a_traiter"], "L"),
@@ -58,7 +59,7 @@ def _outils() -> dict:
 def test_chaque_outil_est_classe():
     o = _outils()
     assert set(o) == set(NATURE), f"non classés : {sorted(set(o) - set(NATURE))} ; disparus : {sorted(set(NATURE) - set(o))}"
-    assert len(o) == 116
+    assert len(o) == 117
 
 
 def test_ecritures_externes_par_demande():

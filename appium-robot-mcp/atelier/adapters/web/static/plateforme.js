@@ -193,7 +193,8 @@ const Atelier = {
      les rubriques de Paramètres qui n'ont pas leur propre entrée */
   NAV: [["", [["dashboard", "Accueil", "maison"]]],
     ["Plateforme", [["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "cible"], ["parcours", "Suivi des fonctionnalités", "historique"],
-      ["conception", "Test Design", "assertion"], ["bdd", "Tests BDD", "bdd"], ["studio", "Automation Studio", "editeur"], ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
+      ["conception", "Test Design", "assertion"], ["bdd", "Tests BDD", "bdd"], ["studio", "Automation Studio", "editeur"], ["tests", "Tests automatisés", "check"],
+      ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
       ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"]]],
     ["Ressources", [["graphe", "Knowledge Graph", "graphe"], ["editeur", "Éditeur de code", "fichier"],
       ["discovery/donnees", "Jeux de données", "donnee"]]],

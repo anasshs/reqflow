@@ -94,9 +94,13 @@ Construire un test (Cursor écrit, l'automaticien valide dans l'atelier) :
    studio_generer_depuis_bdd(cle) en aperçu ; sinon studio_construire_test(...) en aperçu (blocs SI / POUR /
    ESSAYER possibles). Corriger jusqu'à un lint propre, puis écrire (ecrire=True).
 3. Mettre au point une étape douteuse avec studio_executer_etape (suite temporaire hors dépôt), puis
-   run_robot en dry_run sur la suite.
-4. studio_soumettre_revue(fichier) : l'automaticien approuve, refuse ou demande des modifications dans
-   l'atelier (Automation Studio › Revue et publication). Tu ne peux ni approuver ni publier.
+   run_robot en dry_run sur la suite. Le dry run ne lance AUCUN keyword : il ne vérifie ni écran ni assertion.
+   Vérifier ensuite en run réel les tests écrits : run_tests(tests=["<fichier>::<nom du test>", …]) n'exécute que
+   ces tests, permis avant validation tant qu'aucun n'est tagué consomme_donnee (sinon : accord de l'automaticien).
+4. studio_soumettre_revue(fichier) : l'automaticien valide dans l'atelier (Tests automatisés : À valider →
+   Validé, en un clic ; « Valider » exige que les tests aient passé en run réel). Tu ne peux ni valider ni publier.
+   Maintenance demandée depuis Tests automatisés (une demande pour une sélection de tests) : reproduire avec
+   run_tests, corriger dans les pages et locators, revérifier avec run_tests, puis studio_soumettre_revue.
 5. Statut « Modifications demandées » : studio_revue(fichier) pour lire les contrôles et le commentaire,
    corriger, puis resoumettre.
 6. Locators fragiles : studio_corrections_locators donne les valeurs proposées ; studio_corriger_locator les

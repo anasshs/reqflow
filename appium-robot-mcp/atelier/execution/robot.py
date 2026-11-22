@@ -29,18 +29,18 @@ def env_robot(base: dict | None = None) -> dict:
     return env
 
 
-def environnement_des_jeux(target: str) -> dict:
+def environnement_des_jeux(target: str, fichiers: list[str] | None = None) -> dict:
     """Run lancé sans environnement de données alors que la suite utilise &{JDD_<NOM>} : sans injection, Robot échoue
     sur « Variable '&{JDD_…}' not found » avant la première étape. Un seul environnement porte tous les jeux référencés :
     il est retenu ({"env"}). Aucun, ou plusieurs : le run n'est pas lancé ({"bloque": conseil}). Suite sans JDD : {}."""
     import re
 
-    base = projet.safe_path(target)
-    fichiers = [base] if base.is_file() else list(base.rglob("*.robot"))
-    noms = sorted({n for f in fichiers for n in re.findall(r"JDD_([A-Z0-9_]+)", f.read_text("utf-8", errors="ignore"))})
+    cibles = fichiers or [target]
+    chemins = [p for c in cibles for p in ([projet.safe_path(c)] if projet.safe_path(c).is_file() else projet.safe_path(c).rglob("*.robot"))]
+    noms = sorted({n for f in chemins for n in re.findall(r"JDD_([A-Z0-9_]+)", f.read_text("utf-8", errors="ignore"))})
     if not noms:
         return {}
-    complets = [e for e in jdd.environnements() if not jdd.detecter(target, e)["inconnus"]]
+    complets = [e for e in jdd.environnements() if not any(jdd.detecter(c, e)["inconnus"] for c in cibles)]
     if len(complets) == 1:
         return {"env": complets[0], "references": noms}
     jeux = ", ".join(f"JDD_{n}" for n in noms)
@@ -48,6 +48,30 @@ def environnement_des_jeux(target: str) -> dict:
         f"La suite utilise {jeux} : choisir l'environnement des données ({', '.join(complets)}) avant de lancer le run."
         if complets else f"La suite utilise {jeux}, absent(s) de data/jdd : créer le jeu (Discovery › Données › Jeu de données "
                          "des tests) ou corriger la suite.")}
+
+
+def selection_tests(ids: list[str]) -> dict:
+    """Tests choisis un par un (« <fichier>::<nom du test> », identifiants de l'inventaire) : fichiers à passer à Robot,
+    noms pour --test, et cible commune (fichier ou dossier) pour le bilan et l'historique. Un identifiant sans « :: »
+    désigne toute la suite."""
+    fichiers, noms, entiers = [], [], set()
+    for i in ids or []:
+        f, _, nom = str(i).partition("::")
+        f = projet.safe_path(f).relative_to(projet.PROJECT_DIR).as_posix()
+        if not projet.safe_path(f).is_file():
+            raise FileNotFoundError(f"Suite introuvable : {f}")
+        if f not in fichiers:
+            fichiers.append(f)
+        if nom:
+            noms.append(nom)
+        else:
+            entiers.add(f)
+    if not fichiers:
+        raise ValueError("Aucun test choisi.")
+    if entiers and noms:  # --test filtrerait aussi les suites choisies entières
+        raise ValueError("Choisir des suites entières, ou des tests précis, pas les deux dans le même run.")
+    cible = fichiers[0] if len(fichiers) == 1 else Path(os.path.commonpath(fichiers)).as_posix()
+    return {"fichiers": fichiers, "noms": list(dict.fromkeys(noms)), "cible": cible}
 
 
 def arreter_run() -> str:
@@ -109,8 +133,10 @@ def run_robot(target: str, include_tags: list[str] | None = None,
               jira_transition_end_if_fail: str = "",
               attach_screenshots: bool = True, jdd_env: str = "",
               jdd_jeux: list[str] | None = None, events_url: str = "",
-              relancer_echecs: bool = False, cartographie: bool = False, timeout_s: int = 3600) -> dict:
+              relancer_echecs: bool = False, cartographie: bool = False, timeout_s: int = 3600,
+              tests: list[str] | None = None) -> dict:
     """Lance une suite ou un dossier Robot Framework du projet puis renvoie le bilan.
+    tests : tests précis (« <fichier>::<nom> », d'une ou plusieurs suites) au lieu de target : Robot --test.
     variables : ex. {'PLATFORM': 'android', 'DEVICE': 'emulator-5554'} (sélection du device).
 
     xray_ticket : une seule clé Jira, dont le type est détecté automatiquement :
@@ -137,6 +163,9 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     relancer_echecs : rejoue uniquement les tests en échec du run précédent (même output_dir).
       Pour mettre à jour la même exécution Xray, passer sa clé dans xray_ticket.
     La session Appium du MCP est fermée avant le run pour libérer le device."""
+    sel = selection_tests(tests) if tests else None
+    if sel:
+        target = sel["cible"]
     if not dry_run:
         from atelier.domain import prerequis
 
@@ -148,13 +177,14 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     evenements.publier({"type": "run_lance", "suite": target})
     jdd_file = None
     jdd_info: dict | None = None
-    if not jdd_env and not jdd_jeux:  # aucun environnement choisi : celui des jeux référencés par la suite, s'il est seul
-        choix = environnement_des_jeux(target)
+    if not jdd_env and not jdd_jeux and not dry_run:  # aucun environnement choisi : celui des jeux de la suite, s'il est seul
+        # (un dry run ne résout aucune variable : il n'injecte rien et n'est jamais bloqué faute de données)
+        choix = environnement_des_jeux(target, sel["fichiers"] if sel else None)
         if choix.get("bloque"):
             return {"statut": "bloqué données", "jdd": {"env": "", "references": choix["references"]}, "conseil": choix["bloque"]}
         jdd_env = choix.get("env", "")
     if jdd_env and not jdd_jeux:  # environnement seul : jeux référencés (&{JDD_<NOM>}) par la suite
-        jdd_jeux = jdd.detecter(target, jdd_env)["detectes"]
+        jdd_jeux = sorted({j for c in (sel["fichiers"] if sel else [target]) for j in jdd.detecter(c, jdd_env)["detectes"]})
     if jdd_jeux:
         if not jdd_env:
             raise ValueError("jdd_env est obligatoire avec jdd_jeux.")
@@ -224,7 +254,9 @@ def run_robot(target: str, include_tags: list[str] | None = None,
         cmd += ["--variable", f"{k}:{v}"]
     if dry_run:
         cmd.append("--dryrun")
-    cmd.append(projet.safe_path(target).relative_to(projet.PROJECT_DIR).as_posix())
+    for nom in (sel["noms"] if sel else []):
+        cmd += ["--test", nom.replace("[", "[[]")]  # motif Robot : « [ » ouvrirait une classe de caractères
+    cmd += sel["fichiers"] if sel else [projet.safe_path(target).relative_to(projet.PROJECT_DIR).as_posix()]
 
     try:
         # stdin=DEVNULL : Robot ne lit jamais l'entrée ; hériter d'un tube que le parent lit (serveur MCP HTTP) le bloquait
@@ -266,9 +298,9 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     return bilan
 
 
-def derniers_resultats(dossier: str = "results") -> dict:
+def derniers_resultats(dossier: str = "results", reels: bool = False) -> dict:
     """Dernier statut connu de chaque test Robot, lu dans les output.xml du dossier de résultats
-    (le plus récent l'emporte). Clé : « <fichier relatif>::<nom du test> »."""
+    (le plus récent l'emporte). Clé : « <fichier relatif>::<nom du test> ». reels : ignorer les dry runs."""
     from robot.api import ExecutionResult
 
     base = projet.safe_path(dossier)
@@ -286,6 +318,24 @@ def derniers_resultats(dossier: str = "results") -> dict:
                 rel = src.resolve().relative_to(projet.PROJECT_DIR).as_posix() if src else ""
             except ValueError:
                 rel = str(src)
-            out[f"{rel}::{t.name}"] = {"statut": t.status, "message": t.message[:300],
+            reel = _execute(t)
+            if reels and not reel:
+                continue
+            out[f"{rel}::{t.name}"] = {"statut": t.status, "message": t.message[:300], "reel": reel,
                                        "fin": str(t.end_time or ""), "output": f.relative_to(projet.PROJECT_DIR).as_posix()}
     return out
+
+
+def _execute(element) -> bool:
+    """Au moins un keyword réellement exécuté. Un dry run ne lance aucun keyword de bibliothèque (tous « NOT RUN ») :
+    un test « PASS » en dry run n'a vérifié ni écran ni assertion."""
+    for x in [*(getattr(element, "setup", None) and [element.setup] or []), *(getattr(element, "body", None) or [])]:
+        if getattr(x, "type", "") not in ("KEYWORD", "SETUP", "TEARDOWN", "IF/ELSE ROOT", "IF", "ELSE IF", "ELSE", "FOR", "ITERATION",
+                                          "TRY/EXCEPT ROOT", "TRY", "EXCEPT", "FINALLY", "WHILE", "GROUP"):
+            continue
+        if getattr(x, "body", None):
+            if _execute(x):
+                return True
+        elif getattr(x, "type", "") in ("KEYWORD", "SETUP", "TEARDOWN") and getattr(x, "status", "NOT RUN") != "NOT RUN":
+            return True
+    return False

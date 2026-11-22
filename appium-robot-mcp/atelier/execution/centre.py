@@ -144,12 +144,26 @@ def politique_revue() -> str:
     return "avertissement" if os.environ.get("ATELIER_REVUE_EXECUTION", "").strip().lower() == "avertissement" else "bloquante"
 
 
-def controle_revue(target: str, dry_run: bool = False, derogation: str = "") -> dict:
+def controle_revue(target: str, dry_run: bool = False, derogation: str = "", tests: list[str] | None = None) -> dict:
     """Validation humaine avant exécution : un script entré en revue (généré par l'atelier, ou modifié depuis
     son approbation) ne s'exécute qu'à l'état Approved / Published. Le dry-run reste libre. Une dérogation
     exige une justification (10 caractères au moins) et est journalisée. Le patrimoine existant, jamais
-    entré en revue, n'est pas bloqué."""
+    entré en revue, n'est pas bloqué.
+    tests (« Vérifier » des Tests automatisés) : un run réel de tests précis est la vérification qui précède la
+    validation ; il est permis tant qu'aucun de ces tests ne crée de donnée réelle (tag consomme_donnee)."""
     from atelier.generation import studio
+
+    if tests and not dry_run:
+        from atelier.generation import maintenance
+
+        c = maintenance.controle_verification(tests)
+        if not c["bloquants"]:
+            return {"politique": politique_revue(), "non_valides": [], "derogation": False, "verification": True}
+        if len(derogation.strip()) < 10:
+            raise PermissionError("Revue requise : " + ", ".join(c["bloquants"][:5]) + " crée(nt) une donnée réelle à chaque run "
+                                  "(consomme_donnee) : valider d'abord la suite, ou lancer avec une dérogation justifiée.")
+        _journal_derogation(target, c["bloquants"], derogation.strip())
+        return {"politique": politique_revue(), "non_valides": c["bloquants"], "derogation": True, "verification": True}
 
     cible = str(target or "").strip().rstrip("/")
     revues = studio.revues_scripts()

@@ -25,13 +25,16 @@ Pilotage de l'IA (point d'appel unique, journal des tokens, réglages, routage, 
 Chemin de l'utilisateur (Découvrir → Concevoir le test → Automatiser → Exécuter : bandeau « Ton chemin » de l'Accueil, repère
 d'étape en haut des écrans du chemin, prochaine action ; options Jira / Xray affichées seulement s'ils sont utilisés) : atelier/intelligence/chemin.py.
 De l'US au test automatisé (un seul fil dans un périmètre : couverture des US ou parcours, puis automatisation ; guide dans l'outil) : docs/DE_L_US_AU_TEST_AUTOMATISE.md.
+Tests automatisés (vue simple, écran #tests : À valider / Validé / Écarté, « Vérifié » = run réel après la dernière modification de
+la suite et de ses pages ; Vérifier = run Robot --test de la sélection, permis avant validation sauf consomme_donnee ; Valider en un
+clic ; maintenance d'une sélection = une demande à l'agent ; outil MCP run_tests) : atelier/generation/maintenance.py.
 Agents : Cursor, Claude Code (.mcp.json du projet + règles en CLAUDE.md / skills : atelier/integrations/claude_code.py),
 Claude Desktop ; règles du projet mises à niveau automatiquement quand l'atelier en livre de nouvelles (personnalisées gardées).
 Projets multiples : Paramètres › Projets et sélecteur du header (atelier/domain/projets.py, docs/DECISIONS.md).
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
 fonctionnalité, demandes d'action validées côté serveur, 12 règles Cursor versionnées (dont « robot-expert » : qualité du code), couverture parcours / UI, Test
 Design par catégories et doublons, Champ / Anomalie, échecs reliés à la connaissance, jugements délégués à Cursor (granularité, doublons, redondances, liens
-exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 116 outils MCP (76 historiques
+exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 117 outils MCP (76 historiques
 inchangés) ; classement de sécurité de chaque outil : tests/test_securite_outils.py (à compléter pour tout nouvel outil) ;
 client MCP de test : tests/client_mcp.py.
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).

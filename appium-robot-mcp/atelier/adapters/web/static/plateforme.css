@@ -831,3 +831,21 @@ tr.sel td { background: var(--accent-soft); }
 .chemin-suite { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: var(--accent-soft); }
 .chemin-suite .lib { flex: 1; }
 @media (max-width: 900px) { .chemin-accueil { grid-template-columns: repeat(2, minmax(0, 1fr)); } .fil-chemin .suite { display: none; } }
+
+/* Tests automatisés (ecran_tests.js) : vue simple, sélection et barre d'actions */
+#ecran.g-tests { display: flex; flex-direction: column; gap: 12px; padding-bottom: 72px; height: auto; }
+#ecran.g-tests .carte { min-height: 0; height: auto; }
+.ta-entete p { margin: 0 0 8px; }
+.ta-filtres { display: flex; gap: 6px; flex-wrap: wrap; }
+.ta-suite .titre-carte label { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; text-transform: capitalize; }
+.ta-liste { list-style: none; margin: 0; padding: 0 12px 8px; }
+.ta-test { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(120px, 1fr) minmax(200px, 1.4fr); gap: 10px; align-items: start;
+  padding: 8px 4px; border-top: 1px solid var(--bord, #e5e7eb); }
+.ta-test label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.ta-nom { font-weight: 500; }
+.ta-quand { margin-left: 6px; }
+.ta-msg { margin-top: 4px; font-size: 12px; overflow-wrap: anywhere; }
+#ecran.g-tests .ta-barre { position: sticky; bottom: 8px; display: flex; flex-direction: row; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 150px 10px 14px; z-index: 5; }
+#ecran.g-tests .ta-barre[hidden] { display: none; }
+.ta-barre b { margin-right: auto; }
+@media (max-width: 760px) { .ta-test { grid-template-columns: 1fr; } }

@@ -825,6 +825,22 @@ def studio_executer_etape(keyword: str, jdd_nom: str, plateforme: str = "web", e
 
 
 @outil
+def run_tests(tests: list[str], dry_run: bool = False, jdd_env: str = "", output_dir: str = "results/mcp",
+              derogation: str = "") -> dict:
+    """Exécute des tests PRÉCIS (pas toute la suite) : tests = identifiants « <fichier>::<nom du test> » (une ou plusieurs
+    suites ; un fichier seul = toute la suite). Sert à reproduire puis vérifier une maintenance : un run réel est la
+    vérification qui précède la validation ; un dry run ne lance aucun keyword, il ne vérifie aucune assertion.
+    Un test tagué consomme_donnee (donnée réelle créée à chaque run) n'est exécuté que si sa suite est validée, ou avec
+    une dérogation justifiée de l'automaticien. jdd_env vide : l'environnement des jeux de données est déduit."""
+    from atelier.execution import centre
+
+    sel = robot.selection_tests(tests)
+    revue = centre.controle_revue(sel["cible"], dry_run, derogation, tests)
+    r = robot.run_robot(sel["cible"], dry_run=dry_run, output_dir=output_dir, xray_mode="aucun", jdd_env=jdd_env, tests=tests)
+    return {**r, "tests": tests, "revue": revue}
+
+
+@outil
 def studio_revue(fichier: str = "") -> dict:
     """État de la revue technique des scripts. Sans fichier : liste (statut, dernière décision et commentaire).
     Avec fichier : statut, contrôles automatiques (clé Xray, conventions, secrets, assertions, réutilisation, locators,

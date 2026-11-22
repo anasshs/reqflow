@@ -2180,7 +2180,8 @@ def _executer_job(job: dict):
     _call_silencieux(historique.enregistrer, run_id, complet, None, debut)
     emit({"type": "run_lance", "suite": params.get("target"), "relance": bool(params.get("relancer_echecs")), "run_id": run_id})
     try:
-        bilan = centre.executer_avec_retry(outils.run_robot, params, job.get("retry", False))
+        # tests précis (Tests automatisés › Vérifier) : le moteur directement, l'outil MCP run_robot garde sa signature
+        bilan = centre.executer_avec_retry(robot_moteur.run_robot if params.get("tests") else outils.run_robot, params, job.get("retry", False))
     except Exception as e:
         bilan = {"statut": "erreur", "erreur": str(e)}
     state["dernier_bilan"] = bilan
@@ -2194,7 +2195,8 @@ centre.FILE.executer = _executer_job
 
 def _mettre_en_file(params: dict, priorite: str = "Normal", campagne: str = "", nom: str = "") -> dict:
     retry = bool(params.get("retry"))
-    revue = centre.controle_revue(params.get("target", ""), bool(params.get("dry_run")), str(params.get("derogation_revue") or ""))
+    revue = centre.controle_revue(params.get("target", ""), bool(params.get("dry_run")), str(params.get("derogation_revue") or ""),
+                                  params.get("tests") or None)
     params = {k: v for k, v in params.items() if v not in ("", None, []) and k not in CLES_JOB}
     if params.get("relancer_echecs") and params.get("output_dir"):
         params["source_echecs"] = params.pop("output_dir")  # rejeu : nouveau dossier, le run d'origine n'est jamais réécrit
@@ -3223,6 +3225,35 @@ async def studio_revue_action(req: Request):
     b = await req.json()
     return await asyncio.to_thread(_call, studio.transition_script, b.get("fichier", ""), b.get("action", ""), b.get("commentaire", ""),
                                    b.get("derogation", ""))
+
+
+@app.get("/api/tests-automatises")
+async def tests_automatises():
+    """Vue simple : suites et tests, état (À valider / Validé / Écarté / Existant), dernier résultat réel, vérifié."""
+    from atelier.generation import maintenance
+
+    return await asyncio.to_thread(_call, maintenance.vue)
+
+
+@app.post("/api/tests-automatises/{action}")
+async def tests_automatises_action(action: str, req: Request):
+    """verifier (run réel des tests choisis, à la file) · valider · ecarter · maintenance (texte de la demande à l'agent)."""
+    from atelier.generation import maintenance
+
+    b = await req.json()
+    ids = [str(x) for x in (b.get("tests") or [])]
+    if not ids:
+        raise HTTPException(400, "Choisir au moins un test ou une suite.")
+    if action == "verifier":
+        sel = _call(robot_moteur.selection_tests, ids)
+        return await asyncio.to_thread(_call, _mettre_en_file, {"target": sel["cible"], "tests": ids, "xray_mode": "aucun",
+                                                                 "derogation_revue": b.get("derogation", "")}, "High", "", "Vérification")
+    actions = {"valider": lambda: maintenance.valider(ids, b.get("commentaire", ""), b.get("derogation", "")),
+               "ecarter": lambda: maintenance.ecarter(ids, b.get("motif", "")),
+               "maintenance": lambda: maintenance.demande_maintenance(ids, b.get("consigne", ""))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    return await asyncio.to_thread(_call, actions[action])
 
 
 @app.get("/api/studio/mapping/{cle}")

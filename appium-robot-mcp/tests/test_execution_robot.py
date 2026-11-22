@@ -119,3 +119,4 @@ def test_environnement_des_donnees_deduit_ou_run_bloque(projet):
     choix = environnement_des_jeux("tests/t.robot")
     assert "choisir l'environnement" in choix["bloque"] and "prod, recette" in choix["bloque"]
     assert run_robot("tests/t.robot")["statut"] == "bloqué données"  # rien n'est lancé
+    assert run_robot("tests/t.robot", dry_run=True).get("code_retour") is not None  # dry run : jamais bloqué faute de données
