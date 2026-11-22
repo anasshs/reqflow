@@ -93,4 +93,4 @@ def test_outils_et_contrat_mcp(env):
     r = client_mcp.session([("cursor_regles", {}), ("coverage_ui", {}), ("failure_connaissance", {}), ("knowledge_entites", {"type": "champ"}),
                             ("test_design_doublons", {"titre": "Connexion refusée avec un mot de passe invalide"})], e)
     assert not any(x["erreur"] for x in r), [x for x in r if x["erreur"]]
-    assert len(r[0]["valeur"]) == 12 and r[4]["valeur"]["meilleur"]["cle"]
+    assert len(r[0]["valeur"]) == 13 and r[4]["valeur"]["meilleur"]["cle"]

@@ -1,0 +1,52 @@
+---
+description: Model-Based Testing (analyse comportementale) : modèle d'états et de transitions, chemins de test, scénarios BDD qui manquent
+alwaysApply: false
+---
+Quand l'utiliser : « analyse le comportement de … », « quels chemins ne sont pas testés », « complète les tests du
+module / du parcours / de l'US … », « enrichis le modèle … », ou avant de proposer des cas pour une US dont les écrans
+sont connus. Le Knowledge Graph dit ce que l'atelier connaît ; le modèle comportemental dit comment l'application doit
+se comporter ; les chemins disent comment le vérifier. Ne pas confondre les trois.
+
+1. Lire le modèle
+- mbt_modele(perimetre) construit ou actualise le modèle du périmètre ('module:Comptes', 'user_story:DEMO-12',
+  'parcours:<id>', 'fonctionnalite:<id>', 'ecran:<nom>', 'application') et le renvoie : états, transitions, conditions,
+  critères des US, informations manquantes, éléments rejetés. Ne jamais reproposer un élément rejeté.
+- Un écran n'est pas un état métier : un même écran peut porter plusieurs états (formulaire vide, renseigné, invalide,
+  opération en attente, refusée). Les proposer comme états « metier » ou « erreur » rattachés à l'écran.
+
+2. Enrichir (propositions, jamais des décisions)
+- mbt_deposer_propositions(modele, propositions) : états manquants, transitions possibles, conditions et leur issue
+  contraire (vraie / fausse), incohérences. Chaque élément cite sa source (critère, règle, écran observé) dans
+  « justification ». Tout arrive « déduit / à valider » : seul le QA valide, dans l'écran Analyse comportementale.
+- Ne JAMAIS inventer un message d'erreur exact, un plafond, un montant ou une règle métier absente des textes lus.
+  Une information inconnue reste une information manquante (ou une question dans Test Design) ; un résultat attendu
+  non connu s'écrit « à confirmer ».
+- Une condition métier sert plusieurs transitions : la réutiliser (même libellé) plutôt que d'en créer une variante.
+
+3. Choisir les chemins
+- mbt_chemins(modele, strategie, mode) : strategie transitions (défaut, chaque transition une fois), etats, paires
+  (enchaînements de deux transitions), conditions (chaque issue de chaque condition), chemins (de bout en bout,
+  boucles limitées), critiques (priorités métier). mode exploratoire (hypothèses signalées) ou verifie (confirmé seul).
+- Lire pour chaque chemin : justification, manquant, scenarios_existants, automatisation. Un chemin déjà couvert par
+  un scénario existant se réutilise, il ne se regénère pas. Expliquer dans la réponse pourquoi chaque chemin retenu
+  apporte une couverture nouvelle (transition, issue de condition, état d'erreur jamais vérifiés).
+- Préférer le minimum de chemins qui couvre la stratégie : pas un scénario par variante de données (les données vont
+  dans les jeux de données), pas de chemin redondant contenu dans un autre.
+
+4. Générer les scénarios BDD
+- mbt_generer_bdd(modele, chemins, strategie) crée des brouillons dans le référentiel BDD existant (même éditeur), avec
+  la traçabilité modèle → chemin → scénario. Les doublons ne sont pas recréés : lire « ignores » et le dire. Rien n'est
+  fusionné ni validé par l'agent.
+- Les étapes générées « (à confirmer) » ou « (condition à confirmer) » restent signalées tant qu'une exigence ou le QA
+  ne les a pas précisées ; ne pas les réécrire en certitudes.
+- Avant d'automatiser : studio_rapprocher_etapes sur les étapes (keywords existants d'abord). Un chemin n'est « prêt »
+  à automatiser que si chaque action a un locator et un keyword : sinon lister ce qu'il faut découvrir ou créer.
+
+5. Couverture et impact
+- Ne jamais présenter un scénario généré comme une preuve : couverture de conception ≠ automatisation ≠ exécution ≠
+  validée (exécution réussie d'éléments confirmés). Les éléments non confirmés n'entrent ni dans la couverture, ni
+  dans l'impact, ni dans la TNR officiels.
+- Après une évolution (nouvelle version du modèle, écran modifié) : impact_analysis(element) cite les modèles et
+  scénarios générés concernés ; proposer de relire ou de compléter, jamais de supprimer un scénario.
+- Le MBT fonctionne sans Xray. La génération des cas d'une US (test_design_proposer) l'utilise déjà en arrière-plan :
+  inutile de refaire l'analyse si l'utilisateur n'a demandé que les cas de l'US.

@@ -18,7 +18,7 @@ def rc(tmp_path, monkeypatch):
 
 def test_onze_regles_avec_portee(rc):
     e = rc.etat()
-    assert e["active"] == 1 and len(e["regles"]) == 12 and all(r["statut"] == "nouveau" for r in e["regles"])
+    assert e["active"] == 1 and len(e["regles"]) == 13 and all(r["statut"] == "nouveau" for r in e["regles"])
     p = {r["id"]: r["portee"] for r in e["regles"]}
     assert p["global"] == p["security"] == p["mcp-usage"] == p["project-context"] == "toujours"
     assert p["automation"].startswith("fichiers") and p["coverage"] == "à la demande"
@@ -44,7 +44,7 @@ def test_synchronisation_sans_ecrasement_silencieux(rc):
     from atelier.domain import projet
 
     r = rc.synchroniser()
-    assert len(r["copiees"]) == 12
+    assert len(r["copiees"]) == 13
     assert all(x["statut"] == "identique" for x in rc.apercu())
     t = rc.contenu("execution")
     rc.enregistrer("execution", t + "\nConsigne v2.\n", "consigne v2")
@@ -76,7 +76,7 @@ def test_export_zip_sans_secret(rc):
 
     z = zipfile.ZipFile(io.BytesIO(rc.exporter_zip(agents_ia.config(8765))))
     noms = z.namelist()
-    assert sum(n.startswith(".cursor/rules/atelier-") for n in noms) == 12 and "mcp.json.exemple" in noms
+    assert sum(n.startswith(".cursor/rules/atelier-") for n in noms) == 13 and "mcp.json.exemple" in noms
     assert all("SECRET-NE-PAS-EXPORTER" not in z.read(n).decode("utf-8") for n in noms)
 
 
@@ -84,7 +84,7 @@ def test_outil_mcp_cursor_regles(rc):
     from atelier.adapters import facade
 
     l = facade.cursor_regles()
-    assert len(l) == 12 and "contenu" not in l[0] and l[0]["version"] == 1
+    assert len(l) == 13 and "contenu" not in l[0] and l[0]["version"] == 1
     assert "Actions soumises à validation" in facade.cursor_regles("security")[0]["contenu"]
 
 
