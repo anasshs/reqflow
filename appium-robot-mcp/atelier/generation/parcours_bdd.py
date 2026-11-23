@@ -4,7 +4,9 @@ Sources d'un parcours (une seule à la fois) :
 - une suite ordonnée d'écrans (ex. le chemin calculé dans Navigation Explorer) ;
 - un nœud « parcours » du Knowledge Graph (proposé par Cursor / Claude ou déclaré), dont les écrans sont ordonnés
   par la navigation connue ;
-- une session Discovery (écrans dans l'ordre où ils ont été parcourus).
+- une session Discovery : les ACTIONS réellement faites, dans l'ordre (toucher, saisir, revenir, défiler), et l'écran
+  d'arrivée vérifié après chaque changement d'écran ; seuls les champs réellement saisis deviennent des étapes de données
+  (etapes_de_session). Sans action enregistrée, comme pour les autres sources : le chemin de la carte entre les écrans.
 
 Entre deux écrans consécutifs, les transitions viennent de la carte (chemin le plus fiable) : chaque action devient
 une étape « Quand » reliée à son écran et à son locator connu, chaque arrivée une étape « Alors » ; les champs d'un
@@ -18,6 +20,9 @@ Le brouillon arrive dans Test Design (bdd/<clé>.feature + .yaml), étapes non v
 Robot, exécutions stables, merge request, publication Xray) est la chaîne habituelle.
 """
 from __future__ import annotations
+
+import json
+import re
 
 from atelier.generation import bdd
 
@@ -137,6 +142,85 @@ def ecrans_de_session(sid: str) -> list[str]:
     return seq
 
 
+def _evenements_session(sid: str) -> list[dict]:
+    """Journal de la session sans doublons (deux façades peuvent écrire le même événement), dans l'ordre : à horodatage
+    égal, l'action avant la transition qu'elle a provoquée."""
+    from atelier.discovery import sessions_discovery
+
+    vus, out = set(), []
+    for i, e in enumerate(sessions_discovery.timeline(sid, 5000)):
+        k = (e.get("date"), e.get("type"), e.get("detail"), e.get("de"), e.get("vers"), e.get("ecran"))
+        if k not in vus:
+            vus.add(k)
+            out.append((e.get("date") or "", 0 if e.get("type") == "action" else 1, i, e))
+    return [x[3] for x in sorted(out, key=lambda x: x[:3])]
+
+
+def _action(detail: str) -> tuple[str, dict]:
+    """« tap {json} » → (« tap », {locator…}) ; détail illisible → (type, {})."""
+    nom, _, reste = str(detail or "").partition(" ")
+    try:
+        return nom, json.loads(reste) if reste.strip().startswith("{") else {}
+    except ValueError:
+        return nom, {}
+
+
+def etapes_de_session(sid: str, plateforme: str, noms_variables: dict | None = None) -> tuple[list, list]:
+    """Étapes BDD fidèles au déroulé d'une session : chaque action réellement faite (toucher, saisir, revenir,
+    défiler), dans l'ordre, et l'écran d'arrivée vérifié après chaque changement d'écran. Seuls les champs réellement
+    saisis deviennent des étapes de données ; une saisie par référence {{var:CLE}} garde sa variable.
+    Rend (étapes, avertissements)."""
+    from atelier.discovery import carte, classement
+
+    noms_variables = noms_variables or {}
+    regles = classement.regles()
+    etapes, avertissements, courant = [], [], None
+    for e in _evenements_session(sid):
+        t = e.get("type")
+        if t == "transition" and e.get("vers"):
+            if courant is None and e.get("de"):
+                courant = e["de"]
+                etapes.append(bdd._etape("Étant donné", f"que je suis sur l'écran {_lisible(carte.ecran(courant))}", ecran=courant))
+            if e["vers"] != courant:
+                courant = e["vers"]
+                etapes.append(bdd._etape("Alors", f"l'écran {_lisible(carte.ecran(courant))} est affiché", ecran=courant))
+            continue
+        if t == "ecran" and e.get("ecran") and courant is None:
+            courant = e["ecran"]
+            etapes.append(bdd._etape("Étant donné", f"que je suis sur l'écran {_lisible(carte.ecran(courant))}", ecran=courant))
+            continue
+        if t != "action":
+            continue
+        nom, a = _action(e.get("detail", ""))
+        el_cle, el = "", {}
+        if courant and a.get("locator"):
+            try:
+                elements = carte.ecran(courant).get("elements") or {}
+            except (KeyError, ValueError, RuntimeError):
+                elements = {}
+            el_cle, el = next(((k, x) for k, x in elements.items()
+                               if a["locator"] in ((x.get("locators") or {}).get(plateforme) or [])), ("", {}))
+        lib = (el.get("libelle") or el_cle or "l'élément").strip()
+        if nom == "press_back":
+            etapes.append(bdd._etape("Quand", "je reviens en arrière", ecran=courant or ""))
+        elif nom == "swipe":
+            etapes.append(bdd._etape("Et", "je fais défiler l'écran", ecran=courant or ""))
+        elif nom == "tap" and a.get("locator"):
+            c = classement.classer({"key": el_cle, "libelle": lib, "type": el.get("type") or "bouton"}, r=regles)
+            if c["classe"] in ("sensitive", "forbidden"):
+                avertissements.append(f"Action {classement.LIBELLES[c['classe']]} « {lib} » : à autoriser explicitement dans le scénario.")
+            etapes.append(bdd._etape("Quand", f"je touche {lib.lower()}", ecran=courant or "", locator=a["locator"]))
+        elif nom == "type_text" and a.get("locator"):
+            m = re.fullmatch(r"\{\{\s*var\s*:\s*([A-Z0-9_]+)\s*\}\}", str(a.get("text") or "").strip())
+            var = m.group(1) if m else ""
+            champ = (el_cle or "champ").lower()
+            texte = f"je renseigne {lib.lower()} avec " + (f"la donnée {noms_variables.get(var, var)}" if var else "le jeu de données")
+            etapes.append(bdd._etape("Et", texte, ecran=courant or "", locator=a["locator"], jdd=var.lower() or champ, variable=var))
+    # une même étape répétée à la suite (double toucher enregistré) n'apparaît qu'une fois
+    propres = [x for i, x in enumerate(etapes) if not i or (x["texte"], x["type"]) != (etapes[i - 1]["texte"], etapes[i - 1]["type"])]
+    return propres, avertissements
+
+
 def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str = "", titre: str = "",
               plateforme: str = "", cle: str = "") -> dict:
     """Crée le brouillon BDD dans Test Design et renvoie {cle, gherkin, etapes, locators, donnees, avertissements}."""
@@ -166,7 +250,27 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
             profil_donnees = ref_donnees.contexte(session).get("profil", "")
     except Exception:  # noqa: BLE001 — référentiel illisible : le brouillon reste générique
         noms, utilisees = {}, {}
-    etapes.append(bdd._etape("Étant donné", f"que je suis sur l'écran {_lisible(seq[0])}", ecran=_ref(seq[0])))
+    fideles = []
+    if session:  # le déroulé réel de la session plutôt que le chemin de la carte
+        fideles, av = etapes_de_session(session, plat, noms)
+        if any(e["type"] in ("when", "and") for e in fideles):  # au moins une action enregistrée
+            avertissements += av
+            sensible = any("autoriser explicitement" in a for a in av)
+        else:
+            fideles = []
+    if fideles:
+        etapes.extend(fideles)
+        for e in fideles:
+            if e.get("locator"):
+                locators["connus"] += 1
+            if e["type"] != "then" and e.get("jdd") and e["texte"].startswith("je renseigne"):
+                donnees.append(e["jdd"])
+                if e.get("variable"):
+                    variables[e["jdd"]] = e["variable"]
+        seq_trajet = []
+    else:
+        etapes.append(bdd._etape("Étant donné", f"que je suis sur l'écran {_lisible(seq[0])}", ecran=_ref(seq[0])))
+        seq_trajet = list(zip(seq, seq[1:]))
     renseignes = set()
 
     def champs(e):
@@ -184,7 +288,7 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
                 if var:
                     variables[k] = var
 
-    for a, b in zip(seq, seq[1:]):
+    for a, b in seq_trajet:
         if a["id"] == b["id"]:
             continue
         trajet = carte.chemin(a["id"], b["id"], plat)
@@ -231,6 +335,7 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
     from atelier.generation import rangement
 
     m = {"langue": "fr", "feature": titre, "module": rangement.module_des_ecrans([e["id"] for e in seq]), "description": description,
+         "application": carte.app_courante() or "",
          "contexte": [], "tags": [], "source": f"discovery ({source})", "parcours": parcours, "session": session, "titre": titre, "jdd": profil_donnees.upper() if profil_donnees and m_jdd_connu(profil_donnees) else "", "statut": "brouillon",
          **({"profil_donnees": profil_donnees} if profil_donnees else {}),
          "scenarios": [{"id": bdd._id(), "nom": titre, "type": "principal", "tags": tags, "depuis": "", "etapes": etapes}]}

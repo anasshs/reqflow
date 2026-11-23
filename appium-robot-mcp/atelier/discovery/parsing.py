@@ -68,6 +68,10 @@ def parse_elements(source: str, platform: str) -> list[dict]:
             rid, text, desc = a.get("resource-id", ""), a.get("text", ""), a.get("content-desc", "")
             clickable = a.get("clickable") == "true"
             cls = a.get("class", node.tag)
+            if "EditText" in cls or "TextField" in cls:
+                # champ de saisie : son texte est la VALEUR saisie (identifiant, n° de contrat…), jamais un locator ni un
+                # libellé — aucune donnée client dans la carte ; le champ reste repéré par son id ou son libellé voisin
+                text = ""
             if not (rid or text or desc or clickable):
                 continue
             if rid:

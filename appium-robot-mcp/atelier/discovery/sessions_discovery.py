@@ -53,10 +53,86 @@ def _ecrire(s: dict):
     os.replace(tmp, f)
 
 
+class _Verrou:
+    """Verrou inter-processus sur un fichier (le MCP et l'interface web écrivent la même timeline)."""
+
+    def __init__(self, chemin):
+        self.chemin = chemin
+
+    def __enter__(self):
+        self.fh = open(self.chemin, "a+b")
+        fin = time.time() + 5
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    self.fh.seek(0)
+                    msvcrt.locking(self.fh.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(self.fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.tenu = True
+                return self
+            except OSError:
+                if time.time() > fin:  # verrou indisponible : on écrit quand même, jamais d'événement perdu
+                    self.tenu = False
+                    return self
+                time.sleep(0.02)
+
+    def __exit__(self, *exc):
+        try:
+            if self.tenu and os.name == "nt":
+                import msvcrt
+
+                self.fh.seek(0)
+                msvcrt.locking(self.fh.fileno(), msvcrt.LK_UNLCK, 1)
+            elif self.tenu:
+                import fcntl
+
+                fcntl.flock(self.fh.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        self.fh.close()
+
+
+def _cle_ev(e: dict) -> str:
+    return json.dumps({k: v for k, v in e.items() if k != "date"}, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _epoch(iso) -> float:
+    try:
+        return datetime.fromisoformat(str(iso)).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _evenement(sid: str, ev: dict):
+    """Ajoute un événement à la timeline : une ligne complète par écriture, sous verrou ; un événement identique déjà
+    écrit dans les 3 dernières secondes (même action rapportée par le MCP et par l'interface) n'est pas réécrit."""
     _d().mkdir(parents=True, exist_ok=True)
-    with (_d() / f"{sid}.jsonl").open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"date": _maintenant(), **ev}, ensure_ascii=False, default=str) + "\n")
+    f = _d() / f"{sid}.jsonl"
+    e = {"date": _maintenant(), **ev}
+    ligne = (json.dumps(e, ensure_ascii=False, default=str) + "\n").encode("utf-8")
+    with _Verrou(_d() / f".{sid}.verrou"):
+        if f.exists():
+            with open(f, "rb") as fh:
+                fh.seek(max(0, f.stat().st_size - 8192))
+                derniers = fh.read().decode("utf-8", errors="ignore").splitlines()[-20:]
+            cle, maintenant = _cle_ev(e), _epoch(e["date"])
+            for l in derniers:
+                try:
+                    x = json.loads(l)
+                except ValueError:
+                    continue
+                if _cle_ev(x) == cle and abs(maintenant - _epoch(x.get("date"))) <= 3:
+                    return
+        fd = os.open(f, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0))
+        try:
+            os.write(fd, ligne)  # une seule écriture : la ligne n'est jamais coupée
+        finally:
+            os.close(fd)
 
 
 # =========================================================================== photo de la carte
@@ -237,7 +313,16 @@ def annoter(sid: str, texte: str, sensible: bool = False, ecran: str = "", cle: 
 def timeline(sid: str, limite: int = 500) -> list[dict]:
     _lire(sid)
     f = _d() / f"{sid}.jsonl"
-    return [json.loads(x) for x in f.read_text("utf-8").splitlines() if x.strip()][-limite:] if f.exists() else []
+    if not f.exists():
+        return []
+    out = []
+    for x in f.read_text("utf-8", errors="replace").splitlines():
+        if x.strip():
+            try:
+                out.append(json.loads(x))
+            except ValueError:  # ligne illisible (écriture interrompue) : ignorée, la session reste lisible
+                continue
+    return out[-limite:]
 
 
 def lister() -> list[dict]:

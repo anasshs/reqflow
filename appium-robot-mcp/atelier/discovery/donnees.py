@@ -38,6 +38,8 @@ import yaml
 from atelier.domain import projet
 
 CLE = re.compile(r"^[A-Z][A-Z0-9_]{0,59}$")
+# une variable dont la clé ou le nom désigne un secret est toujours « secrète » (coffre du poste, jamais dans un fichier)
+SECRET = re.compile(r"(?i)(password|passwd|pwd|mot_?de_?passe|mdp|secret|token|jeton|api_?key|pin|_pin|cvv|otp)")
 REF = re.compile(r"\{\{\s*(?:var\s*:\s*)?([A-Z][A-Z0-9_]*)\s*\}\}")
 REF_SAISIE = re.compile(r"\{\{\s*var\s*:\s*([A-Z][A-Z0-9_]*)\s*\}\}")
 TYPES = ("texte", "nombre", "entier", "booleen", "date", "email", "telephone", "url", "fichier", "json", "liste")
@@ -148,6 +150,8 @@ def enregistrer_variable(cle: str, champs: dict) -> dict:
         raise ValueError("Clé technique : majuscules, chiffres et _ (ex. CUSTOMER_EMAIL), 60 caractères au plus.")
     tout = _lire("variables")
     v = _normaliser(cle, {**(tout.get(cle) or {}), **{k: x for k, x in (champs or {}).items() if k != "cle"}})
+    if est_secret(v):
+        v["sensibilite"] = "secrète"  # un mot de passe, un jeton… n'est jamais stocké en clair
     if v["type"] not in TYPES:
         raise ValueError(f"Type inconnu : {v['type']} ({', '.join(TYPES)}).")
     if v["sensibilite"] not in SENSIBILITES:
@@ -173,6 +177,52 @@ def enregistrer_variable(cle: str, champs: dict) -> dict:
     _ecrire("variables", tout)
     _tracer("définition enregistrée", cle)
     return v
+
+
+def est_secret(v: dict) -> bool:
+    """La clé ou le nom de la variable désigne un secret (mot de passe, jeton, code PIN, OTP…)."""
+    return bool(SECRET.search(v.get("cle", "")) or SECRET.search(v.get("nom", "")))
+
+
+def secrets_en_clair() -> list[dict]:
+    """Variables qui désignent un secret mais ne sont pas « secrètes » (valeur possiblement en clair dans
+    data/discovery/valeurs.yaml). Rien n'est affiché de leurs valeurs."""
+    vals = _lire("valeurs")
+    out = []
+    for v in variables():
+        if v["sensibilite"] != "secrète" and est_secret(v):
+            r = vals.get(v["cle"]) or {}
+            n = int("defaut" in r) + len(r.get("environnements") or {}) + len(r.get("profils") or {})
+            out.append({"cle": v["cle"], "nom": v["nom"], "sensibilite": v["sensibilite"], "valeurs_en_clair": n})
+    return out
+
+
+def securiser_secrets() -> dict:
+    """Passe en « secrète » les variables qui désignent un secret et déplace leurs valeurs en clair vers le coffre
+    du poste (par défaut, par environnement, par profil), puis les efface de valeurs.yaml. Sans coffre disponible :
+    rien n'est déplacé (les valeurs seraient perdues à l'arrêt de l'atelier)."""
+    from atelier.domain import coffre
+
+    a_traiter = secrets_en_clair()
+    if not a_traiter:
+        return {"securisees": [], "coffre": True}
+    if not coffre.disponible():
+        return {"securisees": [], "coffre": False, "a_traiter": [x["cle"] for x in a_traiter],
+                "message": "Coffre du poste indisponible : rien n'est déplacé."}
+    vals, tout = _lire("valeurs"), _lire("variables")
+    faites = []
+    for x in a_traiter:
+        cle = x["cle"]
+        r = vals.pop(cle, {}) or {}
+        tout[cle] = {**(tout.get(cle) or {}), "sensibilite": "secrète"}
+        for nom, valeur in ([(_nom_coffre(cle), r["defaut"])] if "defaut" in r else [])                 + [(_nom_coffre(cle, e), w) for e, w in (r.get("environnements") or {}).items()]                 + [(_nom_coffre(cle, "", p), w) for p, w in (r.get("profils") or {}).items()]:
+            if valeur not in (None, ""):
+                coffre.ecrire(nom, str(valeur))
+        faites.append(cle)
+        _tracer("secret déplacé au coffre", cle)
+    _ecrire("variables", tout)
+    _ecrire("valeurs", vals)
+    return {"securisees": faites, "coffre": True}
 
 
 def dupliquer_variable(cle: str, nouvelle: str) -> dict:
@@ -284,7 +334,7 @@ def profil_vers_jdd(profil: str, env: str, jeu: str = "") -> dict:
                          + " (Discovery › Données : valeur du profil ou par défaut).")
     import json
 
-    r = jdd.importer(env, json.dumps({jeu: {"description": f"Depuis le profil {profil} (Discovery › Données)", "donnees": donnees}}),
+    r = jdd.importer(env, json.dumps({jeu: {"description": f"Depuis le profil {profil} (Discovery › Données)", "profil": profil, "donnees": donnees}}),
                      "json", ecraser=True, ecrire=True)
     if r.get("erreurs"):
         raise ValueError(" ; ".join(r["erreurs"]))
@@ -411,6 +461,32 @@ def _secret(cle: str, env: str, profil: str):
         if val:
             return val
     return None
+
+
+def valeur_pour_run(cle: str, env: str = "", profil: str = ""):
+    """Valeur d'une variable du référentiel pour un run de tests automatisés : c'est ce que lit {{env:CLE}} dans un jeu de
+    données (data/jdd/<env>.yaml, écrit par profil_vers_jdd) quand la variable d'environnement CLE n'existe pas.
+    Secrète → coffre du poste (environnement, puis défaut) ; source « environnement » → sa variable ; sinon la valeur
+    réglée pour l'environnement, puis par défaut. Variable inconnue ou sans valeur : None. Jamais journalisée."""
+    try:
+        v = variable(cle)
+    except KeyError:
+        return None
+    env, profil = str(env or "").strip(), str(profil or "").strip().upper()
+    src = v["source"]
+    if v["sensibilite"] == "secrète":
+        val = _secret(cle, env, profil) or (_secret(cle, env.lower(), profil) if env != env.lower() else None)
+    elif src.get("type") == "environnement":
+        val = os.environ.get(src.get("variable") or cle)
+    else:
+        regle = _lire("valeurs").get(cle) or {}
+        par_env, par_profil = regle.get("environnements") or {}, regle.get("profils") or {}
+        val = par_profil.get(profil) if profil and par_profil.get(profil) not in (None, "") else None
+        if val in (None, ""):
+            val = next((par_env[k] for k in dict.fromkeys([env, env.lower()]) if k and par_env.get(k) not in (None, "")), None)
+        if val in (None, ""):
+            val = regle.get("defaut")
+    return None if val in (None, "") else str(val)
 
 
 def secrets_etat(env: str = "") -> list[dict]:

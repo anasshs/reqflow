@@ -194,6 +194,12 @@ def stop_exploration() -> str:
 
 
 def where_am_i() -> dict:
+    from atelier.discovery.observation import hors_application
+
+    autre = hors_application()
+    if autre:
+        return {"hors_application": True, "paquet": autre,
+                "message": f"L'application n'est pas au premier plan ({autre}) : rien n'est enregistré dans la carte."}
     obs = observer(attendre_stable(3))
     if not obs:
         raise RuntimeError("Carte inactive : ouvre une session et choisis une application.")

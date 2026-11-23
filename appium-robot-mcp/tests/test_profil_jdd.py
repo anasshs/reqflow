@@ -38,6 +38,30 @@ def test_profil_vers_jeu_de_donnees(projet):
     assert res["demo_date"] == (date.today() + timedelta(days=7)).strftime("%d/%m/%Y")
 
 
+def test_env_lu_dans_le_referentiel_discovery_au_run(projet, monkeypatch):
+    """{{env:CLE}} sans variable d'environnement : la valeur vient de Discovery › Données (secret du coffre ou valeur
+    réglée), sans jamais être écrite dans data/jdd."""
+    from atelier.discovery import donnees as d
+    from atelier.domain import coffre
+    from atelier.execution import jdd
+
+    d.enregistrer_variable("DEMO_LOGIN", {"type": "texte", "description": "identifiant fictif"})
+    d.enregistrer_variable("DEMO_MDP", {"type": "texte", "sensibilite": "secrète"})
+    monkeypatch.setattr(coffre, "disponible", lambda: False)  # pas de coffre en test : secret gardé en mémoire
+    d.definir_valeur("DEMO_LOGIN", "U000001")
+    d.definir_valeur("DEMO_MDP", "mdp-de-test", env="recette")
+    d.enregistrer_profil("CONNEXION_DEMO", ["DEMO_LOGIN", "DEMO_MDP"], "Connexion fictive", "profil")
+    d.profil_vers_jdd("CONNEXION_DEMO", "recette")
+    brut = jdd.lire("recette", "CONNEXION_DEMO")["donnees"]
+    assert brut["demo_mdp"] == "{{env:DEMO_MDP}}"                                 # jamais écrit
+    monkeypatch.delenv("DEMO_MDP", raising=False)
+    res = jdd.resoudre("recette", ["CONNEXION_DEMO"])["jeux"]["CONNEXION_DEMO"]
+    assert res == {"demo_login": "U000001", "demo_mdp": "mdp-de-test"}
+    monkeypatch.setenv("DEMO_MDP", "depuis-environnement")                         # l'environnement reste prioritaire
+    assert jdd.resoudre("recette", ["CONNEXION_DEMO"])["jeux"]["CONNEXION_DEMO"]["demo_mdp"] == "depuis-environnement"
+    assert jdd.valeur_env("INCONNUE_DU_REFERENTIEL", "recette") is None
+
+
 def test_valeur_manquante_et_brouillon_relie(projet):
     import pytest
 
@@ -59,3 +83,44 @@ def test_date_relative():
 
     assert jdd.date_relative("+7") == (date.today() + timedelta(days=7)).strftime("%d/%m/%Y")
     assert jdd.date_relative("-1:%Y-%m-%d") == (date.today() - timedelta(days=1)).isoformat()
+
+
+def test_secret_force_profil_utilise_au_run_et_comptes_masques(projet, monkeypatch):
+    """Une variable « mot de passe » est toujours secrète ; un jeu tiré d'un profil rejoue la valeur du profil ;
+    securiser_secrets déplace au coffre les valeurs en clair ; map_apps ne renvoie jamais les comptes."""
+    from atelier.discovery import carte, carte_outils
+    from atelier.discovery import donnees as d
+    from atelier.domain import coffre
+    from atelier.execution import jdd
+
+    memoire = {}
+    monkeypatch.setattr(coffre, "disponible", lambda: True)
+    monkeypatch.setattr(coffre, "ecrire", lambda n, v: memoire.__setitem__(n, v))
+    monkeypatch.setattr(coffre, "lire", lambda n: memoire.get(n))
+    assert d.enregistrer_variable("CLIENT_PASSWORD", {"type": "texte"})["sensibilite"] == "secrète"
+    d.enregistrer_variable("CLIENT_LOGIN", {"type": "texte"})
+    d.definir_valeur("CLIENT_LOGIN", "U-DEFAUT")
+    d.definir_valeur("CLIENT_LOGIN", "U-PROFIL", profil="CLIENT_B")
+    d.definir_valeur("CLIENT_PASSWORD", "mdp-b", profil="CLIENT_B")
+    d.enregistrer_profil("CLIENT_B", ["CLIENT_LOGIN", "CLIENT_PASSWORD"], "client B", "profil")
+    d.profil_vers_jdd("CLIENT_B", "recette")
+    assert jdd.lire("recette", "CLIENT_B")["donnees"]["client_login"] == "U-PROFIL"
+    monkeypatch.delenv("CLIENT_PASSWORD", raising=False)
+    assert jdd.resoudre("recette", ["CLIENT_B"])["jeux"]["CLIENT_B"]["client_password"] == "mdp-b"   # valeur du profil
+
+    # ancienne variable « normale » avec un mot de passe en clair : signalée puis déplacée au coffre
+    tout = d._lire("variables")
+    tout["OLD_MDP"] = {"nom": "Ancien mot de passe", "type": "texte", "sensibilite": "normale", "source": {"type": "manuelle"}}
+    d._ecrire("variables", tout)
+    vals = d._lire("valeurs")
+    vals["OLD_MDP"] = {"defaut": "en-clair"}
+    d._ecrire("valeurs", vals)
+    assert [x["cle"] for x in d.secrets_en_clair()] == ["OLD_MDP"]
+    assert d.securiser_secrets()["securisees"] == ["OLD_MDP"]
+    assert "OLD_MDP" not in d._lire("valeurs") and d.variable("OLD_MDP")["sensibilite"] == "secrète"
+    assert d.valeur_pour_run("OLD_MDP", "recette") == "en-clair" and d.secrets_en_clair() == []
+
+    carte.creer_app("Appli", ["android"])
+    carte.maj_app(comptes=["${IDENTIFIANT} U1", "${MDP} secret"])
+    a = carte_outils.map_apps()["applications"][0]
+    assert "secret" not in str(a["comptes"]) and "masquée" in a["comptes"]

@@ -73,6 +73,34 @@ def test_brouillon_depuis_une_session_et_champs(carte_virements):
         parcours_bdd.brouillon(ecrans=["accueil"], session=s["id"])
 
 
+def test_brouillon_fidele_aux_actions_de_la_session(carte_virements):
+    """Session avec actions enregistrées : le brouillon rejoue ce qui a été fait (et seulement les champs saisis),
+    sans doublon quand deux façades ont écrit le même événement."""
+    import json as _json
+
+    from atelier.discovery import carte, sessions_discovery as ds
+    from atelier.generation import parcours_bdd
+
+    _, (acc, vir, sai) = carte_virements
+    loc = lambda ecran, cle: ((carte.ecran(ecran)["elements"][cle].get("locators") or {}).get("web") or [""])[0]  # noqa: E731
+    s = ds.creer({})
+    ds.demarrer(s["id"])
+    cle_lien = next(k for k in carte.ecran(acc)["elements"] if k.startswith(("lien", "bouton")))
+    cle_montant = "champ_montant"
+    evts = [{"type": "action", "detail": "tap " + _json.dumps({"locator": loc(acc, cle_lien)})},
+            {"type": "transition", "de": acc, "vers": vir}]
+    for e in evts + evts:  # écrit deux fois, comme avec deux façades
+        ds._evenement(s["id"], {**e, "date": "2026-11-23T10:00:00+00:00"})
+    ds._evenement(s["id"], {"type": "transition", "de": vir, "vers": sai, "date": "2026-11-23T10:00:05+00:00"})
+    ds._evenement(s["id"], {"type": "action", "date": "2026-11-23T10:00:06+00:00",
+                             "detail": "type_text " + _json.dumps({"locator": loc(sai, cle_montant), "text": "{{var:MONTANT}}"})})
+    r = parcours_bdd.brouillon(session=s["id"])
+    g = r["gherkin"]
+    assert g.count("Quand je touche") == 1 and "je renseigne montant avec la donnée MONTANT" in g
+    assert "motif" not in g.lower().split("scénario")[-1]          # champ non saisi : pas d'étape
+    assert r["variables"] == {"montant": "MONTANT"}
+
+
 def test_du_parcours_au_script_robot_sans_xray(carte_virements, monkeypatch):
     """Fil complet par l'interface, sans Jira ni Xray : écrans découverts → test BDD → suite Robot écrite."""
     from fastapi.testclient import TestClient

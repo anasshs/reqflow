@@ -56,7 +56,7 @@ def creer_driver(url: str, platform: str, udid: str = "", app: str = "", app_pac
     if app:
         opts.app = app
     opts.no_reset = no_reset
-    opts.new_command_timeout = 900
+    opts.new_command_timeout = 3600  # une Discovery attend souvent l'automaticien (connexion, OTP) : la session tient 1 h
     for k, v in (extra_caps or {}).items():
         opts.set_capability(k, v)
     return webdriver.Remote(url, options=opts)

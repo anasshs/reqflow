@@ -104,6 +104,30 @@ def date_relative(ref: str) -> str:
     return (date.today() + timedelta(days=n)).strftime(fmt.strip() or "%d/%m/%Y")
 
 
+def valeur_env(nom: str, env: str = "", profil: str = ""):
+    """Valeur de {{env:NOM}} au moment du run : variable d'environnement, puis coffre du projet (secrets de connexion),
+    puis référentiel Discovery › Données (variable NOM : secret du coffre ou valeur réglée), pour que le jeu écrit par
+    profil_vers_jdd rejoue avec les valeurs de la Discovery sans qu'aucune valeur sensible soit écrite dans data/jdd.
+    None si aucune source ne la donne."""
+    val = os.environ.get(nom)
+    if val is not None:
+        return val
+    try:
+        from atelier.domain import projets
+
+        val = projets.valeur_secret(nom)
+    except Exception:  # noqa: BLE001 - coffre ou liste des projets illisible : sources suivantes
+        val = None
+    if val:
+        return val
+    try:
+        from atelier.discovery import donnees
+
+        return donnees.valeur_pour_run(nom, env, profil)
+    except Exception:  # noqa: BLE001 - référentiel illisible : valeur absente, le jeu est bloqué avec son message
+        return None
+
+
 def resoudre(env: str, jeux: list[str]) -> dict:
     """Vérifie les prérequis puis résout les valeurs.
     Retour : {'jeux': {nom: données résolues}, 'bloques': [...], 'controles': [...]}"""
@@ -148,9 +172,10 @@ def resoudre(env: str, jeux: list[str]) -> dict:
             if kind == "date":  # {{date:+7}} = aujourd'hui + 7 jours (jj/mm/aaaa) ; {{date:+7:%Y-%m-%d}} pour un autre format
                 return date_relative(ref)
             if kind == "env":
-                val = os.environ.get(ref)
+                val = valeur_env(ref, env, brut.get("profil", ""))
                 if val is None:
-                    raise KeyError(f"Variable d'environnement {ref} absente (jeu {jeu}).")
+                    raise KeyError(f"Valeur de {ref} absente (jeu {jeu}) : ni variable d'environnement, ni coffre, ni "
+                                   "valeur réglée dans Discovery › Données.")
                 return val
             if kind == "api":
                 nom_api, _, champ = ref.partition(".")
@@ -218,7 +243,8 @@ def _jeux_importes(contenu: str, format_: str) -> dict:
         for nom, v in items:
             v = v or {}
             donnees = v.get("donnees") if isinstance(v.get("donnees"), dict) else {k: x for k, x in v.items() if k not in ("jeu", "description")}
-            jeux[str(nom or "")] = {"description": str(v.get("description") or ""), "donnees": {k: x for k, x in donnees.items()}}
+            jeux[str(nom or "")] = {"description": str(v.get("description") or ""), "donnees": {k: x for k, x in donnees.items()},
+                                    **({"profil": str(v["profil"])} if v.get("profil") else {})}
     else:
         raise ValueError("Format : csv ou json.")
     return jeux
@@ -256,7 +282,7 @@ def importer(env: str, contenu: str, format_: str, ecraser: bool = False, ecrire
     if not ecrire or erreurs:
         return {**apercu, "ecrit": False}
     roles.exiger("importer_donnees")
-    fusion = {**existants, **{n: {k: v for k, v in (("description", j["description"]), ("donnees", j["donnees"])) if v} for n, j in jeux.items()}}
+    fusion = {**existants, **{n: {k: v for k, v in (("description", j["description"]), ("profil", j.get("profil", "")), ("donnees", j["donnees"])) if v} for n, j in jeux.items()}}
     rel = chemin.relative_to(projet.PROJECT_DIR).as_posix()
     entete = chemin.read_text("utf-8").split("\n\n")[0] + "\n\n" if chemin.exists() and chemin.read_text("utf-8").startswith("#") else ""
     editeur.enregistrer(rel, entete + yaml.safe_dump(fusion, allow_unicode=True, sort_keys=False))

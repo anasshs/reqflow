@@ -43,8 +43,23 @@ def attendre_stable(timeout: float = 4.0) -> list[dict]:
     return els
 
 
+def hors_application() -> str:
+    """Paquet Android au premier plan quand ce n'est pas celui de l'application (bureau, réglages, autre app) ; vide
+    sinon, ou si on ne sait pas le dire (web, iOS, paquet non déclaré, driver muet)."""
+    try:
+        if session.etat.get("platform") != "android" or session.etat.get("driver") is None:
+            return ""
+        attendu = ((carte.config_app().get("android") or {}).get("app_package") or "").strip()
+        courant = (session.driver().current_package or "").strip()
+        return courant if attendu and courant and courant != attendu else ""
+    except Exception:  # noqa: BLE001 - dans le doute, on observe comme avant
+        return ""
+
+
 def observer(els: list[dict] | None = None, test_key: str | None = None) -> dict | None:
-    if not carte_active():
+    """Observe l'écran courant dans la carte (créé s'il est inconnu). Hors de l'application (bureau Android, autre
+    app) : rien n'est enregistré, pour ne pas ajouter d'écran fantôme à la carte."""
+    if not carte_active() or hors_application():
         return None
     obs = carte.observer(els if els is not None else session.current_elements(150), session.etat["platform"],
                          contexte(), build=carte.config_app().get("build", ""),

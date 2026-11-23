@@ -51,7 +51,15 @@ def ecran_detail(eid: str) -> dict:
 
 
 def map_apps() -> dict:
-    return {"active": carte.app_courante(), "applications": carte.apps()}
+    """Applications et application active. Le champ « comptes » d'une fiche (identifiants saisis à la création) n'est
+    jamais renvoyé en clair : seul le nombre de lignes est indiqué ; les données de connexion vivent dans
+    Discovery › Données (variables secrètes au coffre)."""
+    apps = []
+    for a in carte.apps():
+        if a.get("comptes"):
+            a = {**a, "comptes": f"{len(a['comptes'])} ligne(s) masquée(s) : utiliser Discovery › Données"}
+        apps.append(a)
+    return {"active": carte.app_courante(), "applications": apps}
 
 
 def map_create_app(nom: str, plateformes: list[str], app_package: str = "", app_activity: str = "",
