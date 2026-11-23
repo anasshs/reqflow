@@ -66,7 +66,7 @@ def _sauver(d: dict):
 def _vue(p: dict) -> dict:
     """Projet tel qu'affiché : chemins résolus, et pour chaque secret seulement s'il est présent dans l'environnement."""
     return {**p, "secrets_presents": {cible: bool(os.environ.get(src)) for cible, src in (p.get("secrets") or {}).items()},
-            "dossier_existe": Path(p["dossier"]).is_dir()}
+            "dossier_existe": Path(p["dossier"]).is_dir(), "depot": p.get("depot") or p["dossier"], "sous_dossier": p.get("sous_dossier", "")}
 
 
 def lister() -> dict:
@@ -100,10 +100,51 @@ def cle_jira() -> str:
     return p.get("jira_projet") or p.get("xray_projet", "")
 
 
+def _sous_dossier(v) -> str:
+    """Sous-dossier du projet Robot dans le repository : chemin relatif simple (« qa/robot »), jamais « .. » ni absolu."""
+    s = str(v or "").strip().replace("\\", "/").strip("/")
+    if not s:
+        return ""
+    if s.startswith("~") or ":" in s or any(x in ("", ".", "..") for x in s.split("/")) or not re.fullmatch(r"[\w .@+-]+(/[\w .@+-]+)*", s):
+        raise ValueError("Sous-dossier des tests : chemin relatif au repository attendu (ex. qa/robot), sans « .. ».")
+    return s
+
+
+def _dossier_demande(p: dict) -> dict:
+    """Repository local (clone Git, par exemple d'un dépôt GitLab multi-applications) + sous-dossier des tests Robot :
+    le dossier du projet est leur réunion. Sans repository, le champ « dossier » historique est gardé tel quel."""
+    depot = str(p.get("depot") or "").strip()
+    if not depot:
+        return p
+    sous = _sous_dossier(p.get("sous_dossier"))
+    return {**p, "dossier": str(Path(depot).expanduser() / sous) if sous else depot, "sous_dossier": sous}
+
+
+def preparer_sous_dossier(p: dict) -> list[str]:
+    """Crée le sous-dossier des tests s'il n'existe pas encore (action explicite : enregistrement du projet), avec un
+    .gitignore pour l'état de travail de l'atelier, propre à chaque poste. Le repository lui-même doit exister."""
+    depot = Path(str(p.get("depot") or "")).expanduser()
+    sous = _sous_dossier(p.get("sous_dossier"))
+    if not sous or not str(p.get("depot") or "").strip():
+        return []
+    if not depot.is_dir():
+        raise ValueError(f"Repository introuvable : {p.get('depot')}")
+    cible = depot / sous
+    if cible.is_dir():
+        return []
+    cible.mkdir(parents=True)
+    from atelier.generation.studio import ETAT_ATELIER
+
+    (cible / ".gitignore").write_text("# État de travail de l'Atelier d'automatisation (propre à chaque poste)\n"
+                                      + "".join(f"/{x}\n" for x in ETAT_ATELIER) + "/.mcp_snapshots/\n", "utf-8")
+    return [str(cible), str(cible / ".gitignore")]
+
+
 def valider(p: dict) -> dict:
     nom = str(p.get("nom") or "").strip()
     if not nom:
         raise ValueError("Nom du projet obligatoire.")
+    p = _dossier_demande(p)
     dossier = Path(str(p.get("dossier") or "")).expanduser()
     if not str(p.get("dossier") or "").strip() or not dossier.is_dir():
         raise ValueError(f"Dossier du repository introuvable : {p.get('dossier')}")
@@ -111,6 +152,11 @@ def valider(p: dict) -> dict:
     if dossier == Path.home().resolve() or dossier == Path(dossier.anchor):
         raise ValueError("Le dossier du repository ne peut pas être le dossier personnel ni la racine du disque.")
     out = {"id": re.sub(r"[^a-z0-9]+", "-", str(p.get("id") or nom).lower()).strip("-")[:40] or "projet", "nom": nom, "dossier": str(dossier)}
+    if str(p.get("depot") or "").strip():
+        depot = Path(str(p["depot"])).expanduser().resolve()
+        if depot == Path.home().resolve() or depot == Path(depot.anchor):
+            raise ValueError("Le repository ne peut pas être le dossier personnel ni la racine du disque.")
+        out["depot"], out["sous_dossier"] = str(depot), p.get("sous_dossier", "")
     for k in ("xray_projet", "jira_projet"):
         v = str(p.get(k) or "").strip().upper()
         if v and not CLE_PROJET.match(v):
@@ -142,6 +188,7 @@ def valider(p: dict) -> dict:
 
 
 def enregistrer(p: dict) -> dict:
+    crees = preparer_sous_dossier(p)
     p = valider(p)
     with _verrou:
         d = _charger()
@@ -150,7 +197,7 @@ def enregistrer(p: dict) -> dict:
             raise ValueError("Ce dossier est déjà déclaré pour un autre projet.")
         d["projets"] = autres + [p]
         _sauver(d)
-    _tracer("enregistrement", vers=p["id"])
+    _tracer("enregistrement", vers=p["id"], **({"cree": ", ".join(crees)} if crees else {}))
     if p["id"] == actif_id():
         _appliquer(p)  # connexions du projet actif mises à jour sans bascule
     return lister()

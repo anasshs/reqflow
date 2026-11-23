@@ -931,3 +931,12 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   Décision : registre des traitements (`ia/operations.TRAITEMENTS`), réglage `traitements` dans atelier_ia.yaml, appliqué
   côté serveur (appel direct refusé, état « aucun » vu par l'écran, dépôt MCP de Cursor refusé). Défaut : l'IA pour tous ;
   les calculs déterministes restent toujours applicatifs.
+
+## 2026-11-23 — Projet de tests dans un sous-dossier d'un repository multi-applications
+- Demande : faire pointer un projet vers le clone local d'un dépôt GitLab qui porte plusieurs applications, et choisir le
+  dossier où vivent les tests Robot, pour que les développeurs les trouvent dans ce sous-dossier.
+- Décision : Paramètres › Projets prend un « repository local » et un « dossier des tests » (relatif, sans « .. ») ; le
+  dossier du projet est leur réunion (les projets à un seul dossier restent valables). Le dossier est créé à
+  l'enregistrement s'il manque, avec un .gitignore pour l'état de travail de l'atelier. État Git, commits, « tirer »,
+  « basculer » et merge request se limitent au dossier des tests, chemins relatifs à lui : le code en cours des
+  développeurs ailleurs dans le dépôt ne bloque rien ; une branche qui touche d'autres dossiers est signalée dans la MR.

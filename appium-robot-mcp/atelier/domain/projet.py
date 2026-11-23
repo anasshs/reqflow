@@ -25,6 +25,29 @@ def snapshots() -> Path:
     return SNAP_DIR
 
 
+def git_prefixe() -> str:
+    """Position du projet de tests dans son dépôt Git (« qa/robot/ » ; vide à la racine du dépôt ou hors dépôt).
+    Un projet peut vivre dans un sous-dossier d'un dépôt multi-applications : les commandes Git de l'atelier se
+    limitent alors à ce sous-dossier et leurs chemins sont rendus relatifs au projet."""
+    import subprocess
+
+    try:
+        r = subprocess.run(["git", "-C", str(PROJECT_DIR), "rev-parse", "--show-prefix"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=5)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def depuis_racine_git(chemin: str, prefixe: str | None = None) -> str | None:
+    """Chemin donné par Git (relatif à la racine du dépôt) → relatif au projet ; None s'il est hors du projet."""
+    prefixe = git_prefixe() if prefixe is None else prefixe
+    chemin = chemin.strip().strip('"')
+    if not prefixe:
+        return chemin
+    return chemin[len(prefixe):] if chemin.startswith(prefixe) else None
+
+
 def safe_path(rel: str) -> Path:
     """Empêche toute lecture/écriture hors du projet de tests."""
     base = PROJECT_DIR

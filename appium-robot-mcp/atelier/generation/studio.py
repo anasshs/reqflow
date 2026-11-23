@@ -18,6 +18,7 @@ import re
 import secrets
 import shutil
 from datetime import datetime
+from pathlib import Path
 
 import yaml
 
@@ -205,10 +206,25 @@ ETAT_ATELIER = ("studio/", "executions/", "results/", "discovery/", "connaissanc
                 "validations/", "parcours/")
 
 
-def _chemins_modifies() -> list[str]:
+def _statut(*options: str) -> list[tuple[str, str]]:
+    """« git status » limité au projet de tests : (code, chemin relatif au projet). Dans un dépôt multi-applications,
+    les modifications des autres dossiers (le code des développeurs) ne concernent pas l'atelier et ne bloquent rien."""
     from atelier.execution.centre import _git
 
-    return [ligne.split(None, 1)[-1] for ligne in _git("status", "--porcelain", "--untracked-files=no").splitlines() if ligne.strip()]
+    prefixe = projet.git_prefixe()
+    out = []
+    for ligne in _git("status", "--porcelain", *options, "--", ".").splitlines():
+        if not ligne.strip():
+            continue
+        code, chemin = (ligne[:2], ligne[3:]) if len(ligne) > 3 and ligne[2] == " " else ("", ligne.split(None, 1)[-1])
+        chemin = " -> ".join(c for c in (projet.depuis_racine_git(x, prefixe) for x in chemin.split(" -> ")) if c is not None)
+        if chemin:
+            out.append((code.strip() or ligne.split(None, 1)[0], chemin))
+    return out
+
+
+def _chemins_modifies() -> list[str]:
+    return [c for _, c in _statut("--untracked-files=no")]
 
 
 def _modifs_bloquantes() -> list[str]:
@@ -221,18 +237,19 @@ def git() -> dict:
 
     if not _git("rev-parse", "--is-inside-work-tree"):
         return {"depot": False, "message": "Le projet de tests n'est pas un dépôt Git (lecture seule ici ; commit et merge request : phase 7)."}
-    log = _git("log", "-15", "--date=iso-strict", "--format=%h%x1f%an%x1f%ad%x1f%s")
+    log = _git("log", "-15", "--date=iso-strict", "--format=%h%x1f%an%x1f%ad%x1f%s", "--", ".")  # commits touchant le projet de tests
     amont = _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     avance, retard = (_git("rev-list", "--left-right", "--count", "HEAD...@{u}").split() + ["0", "0"])[:2] if amont else ("", "")
     distantes = sorted({b.strip().removeprefix("origin/") for b in _git("branch", "-r", "--format=%(refname:short)").splitlines()
                         if b.strip().startswith("origin/") and b.strip() != "origin/HEAD"})
-    return {"depot": True, "amont": amont, "en_avance": int(avance or 0), "en_retard": int(retard or 0), "branches_distantes": distantes,
+    prefixe = projet.git_prefixe()
+    return {"depot": True, "racine": _git("rev-parse", "--show-toplevel"), "sous_dossier": prefixe.rstrip("/"), "amont": amont, "en_avance": int(avance or 0), "en_retard": int(retard or 0), "branches_distantes": distantes,
             "derniere_recuperation": _derniere_recuperation(),
             "etat_atelier_modifie": [f for f in _chemins_modifies() if f.startswith(ETAT_ATELIER)],
             "etat_atelier_versionne": len([f for f in _git("ls-files", "--", *ETAT_ATELIER).splitlines() if f]), "branche": _git("rev-parse", "--abbrev-ref", "HEAD"), "commit": _git("rev-parse", "--short", "HEAD"),
             "distant": _git("remote", "get-url", "origin").split("@")[-1],  # jamais d'identifiant dans l'URL affichée
             "branches": [b.strip("* ").strip() for b in _git("branch", "--list").splitlines()],
-            "modifications": [x for x in _git("status", "--porcelain").splitlines() if x and not x.split(None, 1)[-1].startswith(ETAT_ATELIER)],
+            "modifications": [f"{c} {f}" for c, f in _statut() if not f.startswith(ETAT_ATELIER)],
             "commits": [dict(zip(("hash", "auteur", "date", "message"), x.split("\x1f"))) for x in log.splitlines() if x]}
 
 
@@ -720,7 +737,10 @@ def _commit(message: str, fichiers: list[str]) -> dict:
 
 
 def _derniere_recuperation() -> str:
-    f = projet.PROJECT_DIR / ".git" / "FETCH_HEAD"
+    from atelier.execution.centre import _git
+
+    d = _git("rev-parse", "--absolute-git-dir")  # le projet peut être un sous-dossier du dépôt
+    f = Path(d) / "FETCH_HEAD" if d else projet.PROJECT_DIR / ".git" / "FETCH_HEAD"
     return datetime.fromtimestamp(f.stat().st_mtime).astimezone().isoformat(timespec="seconds") if f.exists() else ""
 
 
@@ -903,7 +923,10 @@ def _proposer_mr(titre: str, description: str = "", cible: str = "", derogation:
         cible = c.projet_info().get("branche_defaut") or "main"
     _git("fetch", "--quiet", "origin", cible)
     base = _git("merge-base", "HEAD", f"origin/{cible}") or _git("merge-base", "HEAD", cible)
-    fichiers = [f for f in _git("diff", "--name-only", f"{base}..HEAD" if base else "HEAD~1..HEAD").splitlines() if f]
+    plage = f"{base}..HEAD" if base else "HEAD~1..HEAD"
+    fichiers = [f for f in _git("diff", "--name-only", "--relative", plage).splitlines() if f]  # relatifs au projet de tests
+    prefixe = projet.git_prefixe()
+    hors_projet = [f for f in _git("diff", "--name-only", plage).splitlines() if f and prefixe and not f.startswith(prefixe)]
     if not fichiers:
         raise ValueError(f"Aucun changement entre « {branche} » et « {cible} ».")
     suites = [f for f in fichiers if f.endswith(".robot")]
@@ -928,7 +951,11 @@ def _proposer_mr(titre: str, description: str = "", cible: str = "", derogation:
     inv = _inv()
     cles = sorted({k for t in inv["tests"].values() if t["fichier"] in suites for k in t.get("cles_xray") or []})
     jira = (os.environ.get("JIRA_BASE_URL") or "").rstrip("/")
-    lignes = [description.strip(), "", "### Fichiers", *[f"- `{f}`" for f in fichiers], "", "### Revue technique (Automation Studio)"]
+    lignes = [description.strip(), "", "### Fichiers" + (f" (dossier `{prefixe.rstrip('/')}`)" if prefixe else ""), *[f"- `{f}`" for f in fichiers]]
+    if hors_projet:  # dépôt multi-applications : la branche touche aussi d'autres dossiers, signalé aux relecteurs
+        lignes += ["", "### Hors du dossier des tests", "> La branche modifie aussi ces fichiers, qui ne viennent pas de l'atelier :",
+                   *[f"- `{f}`" for f in hors_projet[:30]]]
+    lignes += ["", "### Revue technique (Automation Studio)"]
     for f in suites:
         h = ((rev.get(f) or {}).get("historique") or [{}])[-1]
         lignes.append(f"- `{f}` : {rev[f]['statut']} par {h.get('auteur', '?')} le {str(h.get('date', ''))[:10]}")

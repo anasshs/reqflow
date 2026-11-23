@@ -575,7 +575,7 @@ def responsables(f: dict | None = None) -> dict:
 def _fichiers_modifies(depuis: str) -> list[dict]:
     """Fichiers d'automatisation (.robot, .resource) modifiés dans le dépôt local depuis la date (git log, sans réseau)."""
     try:
-        r = subprocess.run(["git", "log", f"--since={depuis}", "--name-only", "--pretty=format:@%ad|%an", "--date=short", "--", "*.robot", "*.resource"],
+        r = subprocess.run(["git", "log", f"--since={depuis}", "--name-only", "--relative", "--pretty=format:@%ad|%an", "--date=short", "--", "*.robot", "*.resource"],
                            cwd=str(projet.PROJECT_DIR), capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.SubprocessError):
         return []

@@ -440,7 +440,8 @@
     const sec = (p, k) => esc((p?.secrets || {})[k] || "");
     const form = p => `<div class="grille-2" style="max-width:900px">
       <div class="champ"><label for="pj-nom">Nom</label><input class="in" id="pj-nom" value="${esc(p?.nom || "")}" placeholder="Banque mobile"></div>
-      <div class="champ"><label for="pj-dos">Dossier du repository de tests</label><input class="in" id="pj-dos" value="${esc(p?.dossier || "")}" placeholder="C:\\Users\\…\\tests-banque"></div>
+      <div class="champ"><label for="pj-dos">Repository local (clone Git)</label><input class="in" id="pj-dos" value="${esc(p?.depot || p?.dossier || "")}" placeholder="C:\\Users\\…\\banque-mobile"></div>
+      <div class="champ"><label for="pj-sd">Dossier des tests Robot dans le repository</label><input class="in" id="pj-sd" value="${esc(p?.sous_dossier || "")}" placeholder="vide = racine ; ex. qa/robot"></div>
       <div class="champ"><label for="pj-xr">Clé du projet Xray</label><input class="in" id="pj-xr" value="${esc(p?.xray_projet || "")}" placeholder="DEMO"></div>
       <div class="champ"><label for="pj-jp">Clé du projet Jira (si différente)</label><input class="in" id="pj-jp" value="${esc(p?.jira_projet || "")}"></div>
       <div class="champ"><label for="pj-ju">URL Jira</label><input class="in" id="pj-ju" value="${esc(p?.jira_url || "")}" placeholder="https://<site>.atlassian.net"></div>
@@ -452,6 +453,9 @@
       <div class="champ"><label for="pj-gu">URL GitLab (entreprise)</label><input class="in" id="pj-gu" value="${esc(p?.gitlab_url || "")}" placeholder="https://gitlab.<entreprise>"></div>
       <div class="champ"><label for="pj-gp">Projet GitLab (groupe/sous-groupe/projet)</label><input class="in" id="pj-gp" value="${esc(p?.gitlab_projet || "")}" placeholder="qa/automatisation/tests-banque"></div>
       <div class="champ"><label for="pj-s4">Variable contenant le jeton d'accès personnel GitLab</label><input class="in mono" id="pj-s4" value="${sec(p, "GITLAB_TOKEN")}" placeholder="GITLAB_TOKEN_DEMO"></div></div>
+      <p class="lib">Repository multi-applications : indiquer le clone local du dépôt GitLab puis le dossier où vivent les tests Robot
+        (créé à l'enregistrement s'il n'existe pas, avec un .gitignore pour l'état de travail de l'atelier). Les commits, l'état Git et les merge requests
+        de l'atelier se limitent à ce dossier : les modifications des développeurs ailleurs dans le dépôt ne bloquent rien.</p>
       <p class="lib">GitLab avec LDAP : l'API n'utilise jamais le mot de passe LDAP mais un jeton d'accès personnel (GitLab › Préférences › Access Tokens, portées <code>api</code> et <code>write_repository</code>). Certificat interne : GITLAB_CA_BUNDLE.</p>
       <p class="lib">Secrets : saisir uniquement le <b>nom</b> de la variable d'environnement (jamais sa valeur). Vide = variables globales XRAY_CLIENT_ID, XRAY_CLIENT_SECRET, JIRA_API_TOKEN.</p>
       <div class="btns"><button class="btn primaire" id="pj-ok">${ico("disque")}Enregistrer</button><button class="btn" id="pj-an">Annuler</button></div>`;
@@ -459,7 +463,7 @@
       sont stockés dans le repository : changer de projet change tout le contexte. Liste enregistrée sur ce poste (<code>${esc(d.fichier)}</code>), sans aucun secret.</p>
       <div id="pj-envs" class="bloc-strat" style="margin:10px 0;max-width:900px"></div>
       ${d.projets.length ? `<table><tr><th>Projet</th><th>Repository</th><th>Xray / Jira</th><th>Secrets</th><th></th></tr>${d.projets.map(p => `<tr><td><b>${esc(p.nom)}</b>${p.id === d.actif ? ' <span class="pill ok">actif</span>' : ""}</td>
-        <td class="mono" style="font-size:11px">${esc(p.dossier)}${p.dossier_existe ? "" : ' <span class="pill ko">introuvable</span>'}</td><td>${esc(p.xray_projet || "—")}${p.jira_url ? ` · <span class="lib">${esc(p.jira_url)}</span>` : ""}</td>
+        <td class="mono" style="font-size:11px">${esc(p.depot || p.dossier)}${p.sous_dossier ? `<br><span class="lib">tests : ${esc(p.sous_dossier)}/</span>` : ""}${p.dossier_existe ? "" : ' <span class="pill ko">introuvable</span>'}</td><td>${esc(p.xray_projet || "—")}${p.jira_url ? ` · <span class="lib">${esc(p.jira_url)}</span>` : ""}</td>
         <td>${Object.entries(p.secrets_presents).map(([k, ok]) => `<span class="pill ${ok ? "ok" : "warn"}" title="${esc(p.secrets[k])}">${esc(k.replace("XRAY_", "").replace("JIRA_", "Jira "))}</span>`).join(" ") || "<span class='lib'>globaux</span>"}</td>
         <td class="btns">${p.id === d.actif ? "" : `<button class="btn petit primaire" data-act="${esc(p.id)}">Activer</button>`}<button class="btn petit" data-mod="${esc(p.id)}">Modifier</button><button class="btn petit" data-dup="${esc(p.id)}">Dupliquer</button>
           ${p.id === d.actif ? "" : `<button class="btn petit danger" data-sup="${esc(p.id)}">Retirer</button>`}</td></tr>`).join("")}</table>`
@@ -467,7 +471,7 @@
       <h3 class="lib" style="margin-top:16px">${edition?.id ? "MODIFIER LE PROJET" : edition?.duplique ? `DUPLIQUER « ${esc(edition.duplique)} » (choisir le nom et le dossier du nouveau repository)` : "AJOUTER UN PROJET"}</h3>${form(edition || (d.projets.length ? null : {dossier: Atelier.ctx.projet_chemin, nom: Atelier.ctx.projet}))}
       ${d.journal.length ? `<h3 class="lib" style="margin-top:16px">JOURNAL</h3><table class="table-strat"><tr><th>Date</th><th>Auteur</th><th>Opération</th><th>De</th><th>Vers</th></tr>${d.journal.map(j => `<tr><td class="mono">${esc(j.date.replace("T", " ").slice(0, 16))}</td><td>${esc(j.auteur)}</td><td>${esc(j.op)}</td><td>${esc(j.de || "")}</td><td>${esc(j.vers || "")}</td></tr>`).join("")}</table>` : ""}`;
     $("#pj-ok").onclick = async () => {
-      const b = {id: edition?.id || "", nom: $("#pj-nom").value, dossier: $("#pj-dos").value, xray_projet: $("#pj-xr").value, jira_projet: $("#pj-jp").value,
+      const b = {id: edition?.id || "", nom: $("#pj-nom").value, dossier: $("#pj-dos").value, depot: $("#pj-dos").value, sous_dossier: $("#pj-sd").value, xray_projet: $("#pj-xr").value, jira_projet: $("#pj-jp").value,
         jira_url: $("#pj-ju").value, jira_email: $("#pj-je").value, xray_url: $("#pj-xu").value,
         gitlab_url: $("#pj-gu").value, gitlab_projet: $("#pj-gp").value,
         secrets: {XRAY_CLIENT_ID: $("#pj-s1").value, XRAY_CLIENT_SECRET: $("#pj-s2").value, JIRA_API_TOKEN: $("#pj-s3").value, GITLAB_TOKEN: $("#pj-s4").value}};
@@ -493,7 +497,8 @@
     envs();
     $$("[data-mod]", z).forEach(b => b.onclick = () => projets(z, d.projets.find(p => p.id === b.dataset.mod)));
     $$("[data-dup]", z).forEach(b => b.onclick = () => { const p = d.projets.find(x => x.id === b.dataset.dup);
-      projets(z, {...p, id: "", nom: `${p.nom} (copie)`, dossier: "", duplique: p.nom}); setTimeout(() => $("#pj-dos")?.focus(), 50); });
+      projets(z, {...p, id: "", nom: `${p.nom} (copie)`, dossier: "", depot: p.sous_dossier ? p.depot : "", sous_dossier: "", duplique: p.nom});  // même repository multi-applications : un autre dossier de tests
+      setTimeout(() => $(p.sous_dossier ? "#pj-sd" : "#pj-dos")?.focus(), 50); });
     $$("[data-act]", z).forEach(b => b.onclick = async () => {
       try { await api("/api/projets/activer", {method: "POST", body: {id: b.dataset.act}}); toast("Projet activé.", "ok"); await Atelier.chargerContexte(); projets(z); } catch (e) { toast(e.message, "ko"); } });
     $$("[data-sup]", z).forEach(b => b.onclick = async () => {
