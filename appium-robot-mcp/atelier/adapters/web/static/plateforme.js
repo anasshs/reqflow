@@ -229,7 +229,7 @@ const Atelier = {
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"], ["pilotage", "Tableaux de bord", "dashboard"],
     ["activites", "Activités", "activite"], ["comportement", "Analyse comportementale", "branche"], ["tests", "Tests automatisés", "check"],
     ["graphe", "Knowledge Graph", "graphe"], ["ia", "Pilotage IA", "ia"], ["rapports", "Rapports", "rapports"], ["operations", "Suivi des runs", "execution"],
-    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"]],
+    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"]],
   /* barre latérale, par groupe : l'Accueil, les six étapes du parcours de qualification, les référentiels, le pilotage,
      les paramètres. Seules des destinations qui existent ; tout écran reste joignable (sous l'étape à laquelle il sert).
      Entrée : [adresse, libellé, icône, {num : étape du parcours de qualification, sl : sous-libellé, sous : écrans de
@@ -241,11 +241,12 @@ const Atelier = {
       ["comportement", "Comprendre le comportement", "branche", {num: 2, sous: [["comportement", "Analyse comportementale (MBT)"]]}],
       ["conception", "Concevoir les tests", "bdd", {num: 3, sous: [["conception", "Test Design"], ["bdd", "Tests BDD"], ["parcours", "Suivi des fonctionnalités"]]}],
       ["lots", "Automatiser les tests", "editeur", {num: 4, sous: [["lots", "Lots TNR"], ["tests", "Tests automatisés"], ["studio", "Automation Studio"], ["editeur", "Éditeur de code"]]}],
-      ["centre", "Exécuter et qualifier", "execution", {num: 5, sous: [["centre", "Execution Center"], ["echecs", "Failure Analysis"]]}],
+      ["centre", "Exécuter et qualifier", "execution", {num: 5, sous: [["centre", "Execution Center"], ["echecs", "Failure Analysis"], ["couverture", "Couverture des tests"]]}],
       ["releases", "Évolutions & non-régression", "calque", {num: 6, sous: [["releases", "Releases"]]}]]],
     ["Référentiels", [["graphe", "Knowledge Graph", "graphe"], ["bdd", "Scénarios BDD", "bdd"], ["studio/keywords", "Composants & Keywords", "editeur"],
       ["discovery/donnees", "Données de test", "donnee"]]],
     ["Pilotage", [["pilotage", "Tableaux de bord", "dashboard", {sous: [["pilotage", "Pilotage"], ["gouvernance", "Quality Governance"], ["operations", "Suivi des runs"]]}],
+      ["couverture", "Couverture des tests", "graphe"],
       ["rapports", "Rapports", "rapports"], ["activites", "Activités", "historique"]]],
     ["", [["parametres", "Paramètres", "parametres", {sous: [["parametres/configuration", "Configuration"], ["parametres/projets", "Projets"],
       ["parametres/connexions", "Connexions"], ["ia", "Pilotage IA"]]}]]]],
@@ -258,7 +259,7 @@ const Atelier = {
   CHEMIN: [["comprendre", "Application", "#discovery/cadrage"], ["comportement", "Comportement", "#comportement"], ["concevoir", "Conception", "#bdd"],
     ["automatiser", "Automatisation", "#studio/direct"], ["executer", "Exécution", "#centre/lancer"], ["evoluer", "Évolutions", "#releases"]],
   ETAPE_DE: {discovery: "comprendre", intelligence: "comprendre", comportement: "comportement", conception: "concevoir", bdd: "concevoir", parcours: "concevoir",
-    studio: "automatiser", editeur: "automatiser", tests: "automatiser", lots: "automatiser", centre: "executer", execution: "executer", "execution-detail": "executer", echecs: "executer", releases: "evoluer"},
+    studio: "automatiser", editeur: "automatiser", tests: "automatiser", lots: "automatiser", centre: "executer", execution: "executer", "execution-detail": "executer", echecs: "executer", couverture: "executer", releases: "evoluer"},
   integrations() { return this.ctx.integrations || {xray: true, jira: true}; },
 
   /* repère « étape n/4 » : où l'on est sur le chemin, les autres étapes à un clic, et la prochaine action */

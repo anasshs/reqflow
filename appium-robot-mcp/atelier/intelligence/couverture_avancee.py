@@ -181,3 +181,91 @@ def calculer(g=None, module: str = "") -> dict:
                           "parcours": [p["libelle"] for p in parcours if p["etapes_associees"] < len(p["etapes"])]},
             "source": "Knowledge Graph (carte, dépôt Robot, patrimoine Xray, résultats des runs)",
             "limites": "Tests manuels : aucune couverture au niveau composant (étapes Xray en texte libre) ; association écran ↔ test Xray déduite via les fonctionnalités."}
+
+
+def _ordre_navigation(g, etapes: list[dict]) -> list[dict]:
+    """Étapes d'un parcours dans l'ordre de navigation observé (écran → navigue vers → écran) : d'abord les écrans où
+    l'on n'arrive depuis aucune autre étape, puis ceux qu'ils ouvrent. Ordre d'origine si rien n'est connu."""
+    ids = [e["id"] for e in etapes]
+    suiv = {i: [r.vers for r in g.sortants(i) if r.type == "navigue_vers" and r.vers in ids and r.vers != i] for i in ids}
+    entrees = {i: sum(i in v for k, v in suiv.items() if k != i) for i in ids}
+    ordre, vus = [], set()
+    file = [i for i in ids if entrees[i] == 0] or ids[:1]
+    while file:
+        i = file.pop(0)
+        if i in vus:
+            continue
+        vus.add(i)
+        ordre.append(i)
+        file += [x for x in suiv[i] if x not in vus]
+    ordre += [i for i in ids if i not in vus]
+    par = {e["id"]: e for e in etapes}
+    return [par[i] for i in ordre]
+
+
+def carte(g=None) -> dict:
+    """Carte de couverture par les tests (écran « Couverture des tests ») : parcours en chaînes d'écrans, écrans par
+    module, et matrice tests × écrans. État d'un écran : couvert (un test y va), echec (son dernier run a échoué),
+    partiel (association déduite seulement), non_couvert. Un écran au nom technique (e_…) est nommé par son titre."""
+    if g is None:
+        from atelier.discovery import connaissance
+
+        g = connaissance.construire()
+    N = g.noeuds
+    c = calculer(g)
+    ordre_deroule: dict = {}  # nœud parcours -> identifiants de carte des écrans, dans l'ordre du déroulé
+    try:
+        from atelier.discovery import parcours_utilisateur
+
+        for pu in parcours_utilisateur.lister():
+            if pu.get("noeud"):
+                ordre_deroule[pu["noeud"]] = [e["id"] for e in parcours_utilisateur.obtenir(pu["id"]).get("ecrans", [])]
+    except Exception:  # noqa: BLE001 — sans cadrage, l'ordre de navigation du graphe suffit
+        pass
+    robots = {n.libelle: (i, n) for i, n in N.items() if n.type == "test_robot"}
+
+    def etat(i):
+        return (N[i].proprietes.get("couverture_tests") or {}).get("etat") or "non_couvert" if i in N else "non_couvert"
+
+    def lisible(i, nom):
+        titre = (N[i].proprietes.get("titre") or "").strip() if i in N else ""
+        return (titre if (nom.startswith("e_") and titre) else nom).replace("_", " ")
+
+    ecrans, tests = [], {}
+    for e in c["ecrans"]:
+        ts = []
+        for nom in e["tests_robot"]:
+            tid, n = robots.get(nom, (None, None))
+            if not n:
+                continue
+            p = n.proprietes
+            cle = (p.get("cles_xray") or [""])[0]
+            tests.setdefault(tid, {"id": tid, "nom": nom, "cle_xray": cle, "statut": p.get("dernier_statut") or "", "fichier": p.get("fichier", "")})
+            ts.append(tid)
+        module = (e["module"] or "").strip()
+        ecrans.append({"id": e["id"], "nom": lisible(e["id"], e["nom"]), "module": module[:1].upper() + module[1:] if module else "",
+                       "etat": etat(e["id"]), "niveau": e["niveau"], "tests": ts,
+                       "tests_xray": sorted({tests[t]["cle_xray"] for t in ts if tests[t]["cle_xray"]})})
+    par_id = {e["id"]: e for e in ecrans}
+    parcours = []
+    for p in c["parcours"]:
+        if not p["etapes"]:
+            continue  # parcours sans écran (préparé, jamais déroulé, ou archivé)
+        etapes = _ordre_navigation(g, [par_id[x["id"]] for x in p["etapes"] if x["id"] in par_id])
+        rang = {i: k for k, i in enumerate(ordre_deroule.get(p["id"]) or [])}
+        if rang:
+            def cle(e):
+                r = rang.get(N[e["id"]].proprietes.get("id_carte"))
+                if r is not None:
+                    return r
+                # écran hors du déroulé (lien ajouté à part) : juste avant le premier écran du déroulé qu'il ouvre, sinon en tête
+                suivants = [rang[N[x.vers].proprietes.get("id_carte")] for x in g.sortants(e["id"]) if x.type == "navigue_vers"
+                            and x.vers in N and N[x.vers].proprietes.get("id_carte") in rang]
+                return min(suivants) - 0.5 if suivants else -1  # souvent l'écran de départ (ajouté à part)
+            etapes.sort(key=cle)
+        parcours.append({"id": p["id"], "libelle": p["libelle"], "etat": etat(p["id"]),
+                         "etapes": [{k: x[k] for k in ("id", "nom", "etat", "tests_xray")} for x in etapes]})
+    nb = {k: sum(e["etat"] == k for e in ecrans) for k in ("couvert", "echec", "partiel", "non_couvert")}
+    return {"date": c["date"], "parcours": parcours, "ecrans": ecrans, "tests": sorted(tests.values(), key=lambda t: (t["cle_xray"] or "~", t["nom"])),
+            "indicateurs": {"parcours": len(parcours), "parcours_couverts": sum(p["etat"] == "couvert" for p in parcours),
+                            "ecrans": len(ecrans), **nb}}

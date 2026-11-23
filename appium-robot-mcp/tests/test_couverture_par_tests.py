@@ -133,3 +133,26 @@ def test_composant_commun_et_socle_ne_couvrent_pas_tous_les_ecrans():
     assert g.noeuds["locator:commun.nav_menu@android"].proprietes["composant_commun"] == 5
     e = {x["nom"]: x for x in ca.calculer(g)["ecrans"]}
     assert all(e[x]["niveau"] == "découvert" for x in ("e1", "e2", "e3", "e4", "e5"))  # ni la barre de navigation, ni le socle
+
+
+def test_carte_de_couverture(tmp_path, monkeypatch):
+    """Écran « Couverture des tests » : parcours en chaînes d'écrans dans l'ordre de navigation, écrans avec leurs tests,
+    matrice tests × écrans (clé Xray, dernier statut)."""
+    from atelier.discovery import connaissance
+    from atelier.domain import projet as p
+    from atelier.intelligence import couverture_avancee as ca
+
+    monkeypatch.setattr(p, "PROJECT_DIR", tmp_path)
+    g = _graphe_carte()
+    g.relier("ecran:accueil", "ecran:notifications", "navigue_vers")
+    connaissance._depuis_depot(g, _depot(tmp_path))
+    tid = next(i for i, n in g.noeuds.items() if n.type == "test_robot")
+    g.noeuds[tid].proprietes["dernier_statut"] = "PASS"
+    connaissance._annoter_couverture_tests(g)
+    c = ca.carte(g)
+    assert c["indicateurs"] == {"parcours": 2, "parcours_couverts": 0, "ecrans": 3, "couvert": 1, "echec": 0, "partiel": 0, "non_couvert": 2}
+    notifs = next(x for x in c["parcours"] if x["libelle"] == "Lire ses notifications")
+    assert [(e["nom"], e["etat"]) for e in notifs["etapes"]] == [("accueil", "couvert"), ("notifications", "non_couvert")]
+    assert c["tests"] == [{"id": tid, "nom": "Ouvrir les notifications", "cle_xray": "DEMO-1", "statut": "PASS",
+                           "fichier": "tests/notifications.robot"}]
+    assert next(e for e in c["ecrans"] if e["nom"] == "accueil")["tests"] == [tid]

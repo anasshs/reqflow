@@ -4154,6 +4154,14 @@ async def connaissance_entites(type: str = "champ", ecran: str = ""):
     return await asyncio.to_thread(_call, entites.champs if type == "champ" else entites.anomalies, *( [ecran] if type == "champ" else []))
 
 
+@app.get("/api/couverture/carte")
+async def couverture_carte():
+    """Carte de couverture par les tests : parcours, écrans par module, matrice tests × écrans."""
+    from atelier.intelligence import couverture_avancee as ca
+
+    return await asyncio.to_thread(_call, ca.carte)
+
+
 @app.get("/api/couverture-avancee")
 async def couverture_avancee(module: str = ""):
     """Couverture des parcours et composants UI par niveau (découvert, associé, automatisé, exécuté, réussi)."""

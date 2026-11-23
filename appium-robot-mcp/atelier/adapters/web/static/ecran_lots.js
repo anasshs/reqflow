@@ -11,6 +11,7 @@
   function entete(d) {
     const c = d.conventions, camp = d.campagne;
     return `<section class="carte"><h2 class="titre-carte">Lots TNR · ${esc(c.application || "application")}
+      <a class="btn petit" href="#couverture" title="Ce que les tests couvrent : parcours, écrans, tests × écrans" style="margin-left:8px">Couverture des tests</a>
         <span class="actions-titre"><button class="btn petit primaire" id="lt-lancer" ${camp ? "" : "disabled"}
           title="Nouvelle Test Execution dans le plan TNR : tous les tests au TNR, statuts, heures, environnement, log joint">Lancer le TNR</button>
           <button class="btn petit contour" id="lt-plan">Plan TNR…</button>
