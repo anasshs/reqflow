@@ -72,7 +72,7 @@
         <td class="acc-plus"><details><summary title="Actions" aria-label="Actions sur ${esc(p.nom)}">⋮</summary><div class="acc-menu">
           <a href="${esc(p.lien)}">Ouvrir le parcours</a>
           ${p.tests.map(t => `<a href="#bdd/${encodeURIComponent(t.cle)}">Test BDD : ${esc(t.titre)}</a>`).join("")}
-          ${p.tests.length ? '<a href="#tests">Tests automatisés</a>' : ""}</div></details></td></tr>`;
+          ${p.tests.length ? '<a href="#tests">Tests automatisés</a>' : '<a href="#studio/candidats">Demander l\'automatisation</a>'}</div></details></td></tr>`;
     return `<div class="corps-carte" style="padding-top:0"><table class="table acc-table"><thead><tr><th>Parcours</th><th>Module</th><th>Statut</th><th>Dernière activité</th><th></th></tr></thead>
       <tbody>${l.slice(0, 6).map(ligne).join("")}</tbody></table>
       ${l.length > 6 ? `<div class="btns" style="justify-content:center;margin-top:8px"><a class="btn" href="#discovery/cadrage">Voir tous les parcours (${l.length})</a></div>` : ""}</div>`;
