@@ -38,6 +38,8 @@ NATURE = {
     **dict.fromkeys(["studio_generer_depuis_bdd", "studio_construire_test", "studio_executer_etape", "studio_corriger_locator",
                      "studio_factoriser_keywords"], "É"),
     "studio_soumettre_revue": "P",
+    # TNR : conventions lues, publication par demande validée
+    "tnr_conventions": "L", "tnr_demander_publication": "X",
     # V2
     **dict.fromkeys(["parcours_lister", "parcours_etat", "cursor_regles", "coverage_ui", "test_design_doublons", "knowledge_entites",
                      "failure_connaissance", "agent_annoncer", "test_design_cas_us", "test_design_doublons_a_juger",
@@ -61,12 +63,12 @@ def _outils() -> dict:
 def test_chaque_outil_est_classe():
     o = _outils()
     assert set(o) == set(NATURE), f"non classés : {sorted(set(o) - set(NATURE))} ; disparus : {sorted(set(NATURE) - set(o))}"
-    assert len(o) == 121  # + 4 Model-Based Testing + run_tests
+    assert len(o) == 123  # + 4 Model-Based Testing + run_tests + 2 TNR
 
 
 def test_ecritures_externes_par_demande():
     o = _outils()
-    for nom in ("jira_transition", "qualify_failure", "import_results_to_xray"):
+    for nom in ("jira_transition", "qualify_failure", "import_results_to_xray", "tnr_demander_publication"):
         assert "demandes.creer(" in o[nom] and "suivi." not in o[nom].split('"""', 2)[-1], nom  # aucune écriture directe
     assert 'transitions = {"début": jira_transition_start' in o["run_robot"] and '"", "", attach_screenshots' in o["run_robot"]
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 from atelier.domain.yaml_rapide import charger as charger_yaml
 
 import json
+import os
 import re
 from collections import Counter
 
@@ -463,8 +464,9 @@ def cle_xray_du_scenario(cle: str) -> str:
 
 def reporter_cle_xray(cle: str, cle_xray: str) -> list[str]:
     """Après la publication d'un scénario dans Xray : la clé du test Xray remplace la clé locale du scénario dans les
-    tags des scripts Robot déjà écrits (seul ce mot de la ligne [Tags] change). Les suites touchées repassent en revue
-    technique. Renvoie les fichiers modifiés."""
+    tags des scripts Robot déjà écrits (seul ce mot de la ligne [Tags] change). Le comportement du test ne change pas :
+    une suite approuvée le reste (empreinte reprise) et un test « Vérifié » le reste (date de modification du fichier
+    conservée). Renvoie les fichiers modifiés."""
     from atelier.execution.depot_robot import lire_depot
     from atelier.generation import studio
 
@@ -481,19 +483,23 @@ def reporter_cle_xray(cle: str, cle_xray: str) -> list[str]:
                     lignes[n] = "".join(cle_xray if x == cle else x for x in mots)
         nouveau = "\n".join(lignes)
         if nouveau != texte:
+            chemin = projet.safe_path(rel)
+            avant = chemin.stat()
             projet.ecrire_fichier(rel, nouveau, True)
+            os.utime(chemin, (avant.st_atime, avant.st_mtime))  # tag seul : « Vérifié » reste acquis
             modifies.append(rel)
     if modifies:
-        studio.renvoyer_en_revue(modifies, f"clé Xray {cle_xray} reportée dans le tag du test (scénario {cle} publié dans Xray)")
+        studio.reprendre_empreinte(modifies, f"clé Xray {cle_xray} reportée dans le tag du test (scénario {cle} publié dans Xray)")
         _journaliser("cle_xray_reportee", cle=cle, xray=cle_xray, fichiers=modifies)
     return modifies
 
 
-def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None) -> dict:
+def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None, libelles: list[str] | None = None) -> dict:
     """Mode C : test absent de Xray -> création d'un test Cucumber (clé récupérée et conservée).
     Mode B : test Cucumber existant -> mise à jour du Gherkin, seulement si Xray n'a pas changé depuis la dernière
     synchronisation ; sinon conflit présenté (decision = « local » pour imposer la version locale, « xray » pour
-    garder celle de Xray). Un test d'un autre type n'est jamais converti. Chaque échange est historisé."""
+    garder celle de Xray). Un test d'un autre type n'est jamais converti. Chaque échange est historisé.
+    libelles : étiquettes Jira posées à la création (mode C), ex. [« banque-demo »]."""
     from atelier.generation import bdd
     from atelier.integrations.xray import KEY_RE, XrayClient
 
@@ -509,7 +515,7 @@ def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None) 
     xray = xray or XrayClient()
     cible = (st or {}).get("xray") or (cle if KEY_RE.match(cle) else "")
     try:
-        return _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision)
+        return _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision, libelles)
     except ValueError:
         raise  # refus métier ou saisie locale incomplète : déjà historisé ou sans échange avec Xray
     except Exception as e:  # RG-X07 : toute erreur d'échange avec Xray est historisée, puis remontée
@@ -517,7 +523,7 @@ def publier_bdd(cle: str, projet_xray: str = "", decision: str = "", xray=None) 
         raise
 
 
-def _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision) -> dict:
+def _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision, libelles=None) -> dict:
     existant = xray.lire_gherkin(cible) if cible else None
     if existant:
         if (existant.get("type") or "").lower() not in {"", *noms_gherkin()}:
@@ -545,7 +551,8 @@ def _publier(cle, m, local, sync, st, xray, cible, projet_xray, decision) -> dic
         if not projet_xray:
             raise ValueError("Projet Xray requis pour créer le test (mode C).")
         tg = type_gherkin()  # nom du type Gherkin dans le Xray du projet ; passé seulement s'il diffère du défaut
-        r = xray.creer_test_cucumber(projet_xray, m.get("titre") or cle, local, **({"type_test": tg} if tg != "Cucumber" else {}))
+        r = xray.creer_test_cucumber(projet_xray, m.get("titre") or cle, local, **({"type_test": tg} if tg != "Cucumber" else {}),
+                                     **({"libelles": libelles} if libelles else {}))
         cible = r["cle"]
         sync[cle] = {"xray": cible, "issueId": r["issueId"], "empreinte": _empreinte(local), "date": _maintenant()}
         resultat, statut, mode = f"test Gherkin créé ({cible}, type Xray « {tg} »)", "Succès", "C (publication)"

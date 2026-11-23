@@ -212,18 +212,18 @@ const Atelier = {
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"], ["pilotage", "Tableaux de bord", "dashboard"],
     ["activites", "Activités", "activite"], ["comportement", "Analyse comportementale", "branche"], ["tests", "Tests automatisés", "check"],
     ["graphe", "Knowledge Graph", "graphe"], ["ia", "Pilotage IA", "ia"], ["rapports", "Rapports", "rapports"], ["operations", "Suivi des runs", "execution"],
-    ["editeur", "Éditeur de code", "fichier"]],
+    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"]],
   /* barre latérale, par groupe : l'Accueil, les six étapes du parcours de qualification, les référentiels, le pilotage,
      les paramètres. Seules des destinations qui existent ; tout écran reste joignable (sous l'étape à laquelle il sert).
      Entrée : [adresse, libellé, icône, {num : étape du parcours de qualification, sl : sous-libellé, sous : écrans de
      l'entrée, affichés sous elle quand on y est}]. */
   NAV: [["", [["dashboard", "Accueil", "maison", {sl: "Vue d'ensemble"}]]],
-    ["Applications", [["parametres/applications", "Applications", "grille"]]],
+    ["Applications", [["parametres/applications", "Applications", "grille"], ["lots", "Lots TNR", "check", {sl: "Du parcours au TNR"}]]],
     ["Parcours de qualification", [
       ["discovery", "Comprendre l'application", "recherche", {num: 1, sous: [["discovery", "Discovery"], ["intelligence", "Application Intelligence"]]}],
       ["comportement", "Comprendre le comportement", "branche", {num: 2, sous: [["comportement", "Analyse comportementale (MBT)"]]}],
       ["conception", "Concevoir les tests", "bdd", {num: 3, sous: [["conception", "Test Design"], ["bdd", "Tests BDD"], ["parcours", "Suivi des fonctionnalités"]]}],
-      ["studio", "Automatiser les tests", "editeur", {num: 4, sous: [["studio", "Automation Studio"], ["tests", "Tests automatisés"], ["editeur", "Éditeur de code"]]}],
+      ["lots", "Automatiser les tests", "editeur", {num: 4, sous: [["lots", "Lots TNR"], ["tests", "Tests automatisés"], ["studio", "Automation Studio"], ["editeur", "Éditeur de code"]]}],
       ["centre", "Exécuter et qualifier", "execution", {num: 5, sous: [["centre", "Execution Center"], ["echecs", "Failure Analysis"]]}],
       ["releases", "Évolutions & non-régression", "calque", {num: 6, sous: [["releases", "Releases"]]}]]],
     ["Référentiels", [["graphe", "Knowledge Graph", "graphe"], ["bdd", "Scénarios BDD", "bdd"], ["studio/keywords", "Composants & Keywords", "editeur"],
@@ -233,7 +233,7 @@ const Atelier = {
     ["", [["parametres", "Paramètres", "parametres", {sous: [["parametres/configuration", "Configuration"], ["parametres/projets", "Projets"],
       ["parametres/connexions", "Connexions"], ["ia", "Pilotage IA"]]}]]]],
   /* écrans de travail rattachés à un module, quand ils n'ont pas leur propre entrée dans la barre latérale */
-  PARENT: {editeur: "studio", execution: "centre"},
+  PARENT: {editeur: "studio", execution: "centre", "execution-detail": "centre"},
 
   /* entrées qui n'ont de sens qu'avec Jira (suivi d'une fonctionnalité par ses US) : cachées sinon */
   SI_JIRA: ["parcours"],
@@ -241,7 +241,7 @@ const Atelier = {
   CHEMIN: [["comprendre", "Application", "#discovery/cadrage"], ["comportement", "Comportement", "#comportement"], ["concevoir", "Conception", "#bdd"],
     ["automatiser", "Automatisation", "#studio/direct"], ["executer", "Exécution", "#centre/lancer"], ["evoluer", "Évolutions", "#releases"]],
   ETAPE_DE: {discovery: "comprendre", intelligence: "comprendre", comportement: "comportement", conception: "concevoir", bdd: "concevoir", parcours: "concevoir",
-    studio: "automatiser", editeur: "automatiser", tests: "automatiser", centre: "executer", execution: "executer", echecs: "executer", releases: "evoluer"},
+    studio: "automatiser", editeur: "automatiser", tests: "automatiser", lots: "automatiser", centre: "executer", execution: "executer", "execution-detail": "executer", echecs: "executer", releases: "evoluer"},
   integrations() { return this.ctx.integrations || {xray: true, jira: true}; },
 
   /* repère « étape n/4 » : où l'on est sur le chemin, les autres étapes à un clic, et la prochaine action */
@@ -348,7 +348,7 @@ const Atelier = {
 
   /* Réduite aux icônes : par choix (mémorisé), ou d'office sur un écran de travail dense quand la fenêtre est étroite.
      Sur un tel écran, le bouton ne vaut que jusqu'au prochain changement d'écran. */
-  ECRANS_DENSES: ["bdd", "editeur", "execution", "graphe"],
+  ECRANS_DENSES: ["bdd", "editeur", "execution-detail", "graphe"],
   _navAuto(nom) { return this.ECRANS_DENSES.includes(nom) && innerWidth < 1700; },
   _navEtat(reduite, signaler = false) {
     const b = $("#b-nav");

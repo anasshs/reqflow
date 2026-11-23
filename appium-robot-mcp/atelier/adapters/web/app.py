@@ -47,7 +47,7 @@ from atelier.domain import projets  # noqa: E402
 from atelier.discovery import sessions_discovery  # noqa: E402  (abonne la timeline au bus d'événements)
 from atelier.generation import sessions_agent  # noqa: E402
 from atelier.execution import jdd  # noqa: E402
-from atelier.execution import centre, echecs, historique  # noqa: E402
+from atelier.execution import centre, direct, echecs, historique  # noqa: E402
 from atelier.discovery import intelligence_app  # noqa: E402
 from atelier.execution import robot as robot_moteur  # noqa: E402
 from atelier.generation import bdd, conception, editeur, studio  # noqa: E402
@@ -113,6 +113,7 @@ def emit(ev: dict):
             state["produits"].append(chemin)
             ev = {**ev, "produits": state["produits"]}
     history.append(ev)
+    _call_silencieux(direct.observer, ev)  # état « en direct » du run, relu par l'écran Exécution à tout moment
     if state["loop"]:
         asyncio.run_coroutine_threadsafe(_broadcast(ev), state["loop"])
 
@@ -2381,10 +2382,14 @@ def _executer_job(job: dict):
     state["dernier_run"] = params
     debut = time.strftime("%Y-%m-%dT%H:%M:%S")
     _call_silencieux(historique.enregistrer, run_id, complet, None, debut)
+    _call_silencieux(direct.demarrer, run_id, params.get("target", ""), params.get("tests"), job.get("nom", ""))
     emit({"type": "run_lance", "suite": params.get("target"), "relance": bool(params.get("relancer_echecs")), "run_id": run_id})
     try:
         # tests précis (Tests automatisés › Vérifier) : le moteur directement, l'outil MCP run_robot garde sa signature
-        bilan = centre.executer_avec_retry(robot_moteur.run_robot if params.get("tests") else outils.run_robot, params, job.get("retry", False))
+        # tests précis, ou TNR lancé par l'automaticien avec transitions / champs Jira : le moteur directement (transitions
+        # appliquées en direct) ; sinon l'outil MCP run_robot (transitions en demandes à valider)
+        par_moteur = params.get("tests") or any(params.get(k) for k in ("jira_transition_start", "jira_transition_end", "jira_champs_execution"))
+        bilan = centre.executer_avec_retry(robot_moteur.run_robot if par_moteur else outils.run_robot, params, job.get("retry", False))
     except Exception as e:
         bilan = {"statut": "erreur", "erreur": str(e)}
     state["dernier_bilan"] = bilan
@@ -3282,6 +3287,12 @@ async def centre_vue():
     return await asyncio.to_thread(_call, centre.vue_ensemble)
 
 
+@app.get("/api/execution/direct")
+async def execution_direct(run: str = ""):
+    """Écran Exécution : run en cours (tests, étape et keyword courants), file d'attente, dernières exécutions, run choisi."""
+    return await asyncio.to_thread(_call, direct.vue, run)
+
+
 @app.get("/api/centre/file")
 def centre_file():
     return {"en_cours": {k: v for k, v in (centre.FILE.en_cours or {}).items() if k != "params"} or None, "attente": centre.FILE.attente()}
@@ -3508,12 +3519,150 @@ async def studio_revue_action(req: Request):
                                    b.get("derogation", ""))
 
 
+@app.get("/api/donnees/secrets-en-clair")
+async def donnees_secrets_en_clair():
+    from atelier.discovery import donnees
+
+    return await asyncio.to_thread(_call, donnees.secrets_en_clair)
+
+
+@app.post("/api/donnees/securiser")
+async def donnees_securiser():
+    from atelier.discovery import donnees
+
+    return await asyncio.to_thread(_call, donnees.securiser_secrets)
+
+
+@app.get("/api/lots")
+async def lots_vue(lot: str = ""):
+    """Lots TNR : une ligne par scénario (statut unique, étapes, prochaine action), conventions et campagne TNR."""
+    from atelier.generation import lots
+
+    return await asyncio.to_thread(_call, lots.vue, lot)
+
+
+@app.post("/api/lots")
+async def lots_creer(req: Request):
+    from atelier.generation import lots
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, lots.creer, b.get("nom", ""), b.get("parcours", ""), b.get("description", ""))
+
+
+@app.post("/api/lots/rattacher")
+async def lots_rattacher(req: Request):
+    from atelier.generation import lots
+
+    b = await req.json()
+    return {"rattaches": await asyncio.to_thread(_call, lots.rattacher, b.get("lot", ""), [str(x) for x in b.get("scenarios") or []])}
+
+
+@app.get("/api/tnr/plans")
+async def tnr_plans(q: str = ""):
+    """Test Plans du projet Xray pour choisir le plan TNR de l'application (lecture seule)."""
+    from atelier.generation import tnr
+
+    return await asyncio.to_thread(_call, tnr.plans_disponibles, q)
+
+
+@app.post("/api/tnr/plan")
+async def tnr_plan(req: Request):
+    """Plan TNR de l'application : un plan existant ({"cle"}) ou un nouveau plan ({"nouveau": nom}) ; la campagne suit."""
+    from atelier.generation import tnr
+
+    b = await req.json()
+    if b.get("cle"):
+        r = await asyncio.to_thread(_call, tnr.choisir_plan, str(b["cle"]))
+    else:
+        r = await asyncio.to_thread(_call, tnr.creer_plan, str(b.get("nouveau") or ""))
+    emit({"type": "tnr_publie", "plan": r["plan"], "n": 0})
+    return r
+
+
+@app.post("/api/tnr/lancer")
+async def tnr_lancer(req: Request):
+    """Lance la campagne TNR de l'application : une nouvelle Test Execution dans le plan TNR par run (statuts, heures,
+    environnement, log joint au ticket)."""
+    from atelier.generation import tnr
+
+    b = await req.json()
+    conv = tnr.conventions()
+    if not conv["campagne"]:
+        raise HTTPException(400, "Aucune campagne TNR : publier d'abord des scénarios au TNR.")
+    c = _call(centre.campagne, conv["campagne"])
+    derog = str(b.get("derogation") or "")
+    # lancé par l'automaticien : transitions et champs Jira de la Test Execution appliqués en direct
+    jira = {"jira_transition_start": conv["transition_debut"], "jira_transition_end": conv["transition_fin"],
+            "jira_champs_execution": tnr.payload_champs(conv["champs_execution"])}
+    jira = {k: v for k, v in jira.items() if v}
+    jobs = [await asyncio.to_thread(_call, _mettre_en_file, {**centre.params_campagne(c, p, bool(b.get("dry_run"))), **jira, "derogation_revue": derog},
+                                    c["priorite"], c["id"], f"{c['nom']} · {p} (Lots TNR)") for p in c["plateformes"]]
+    return {"ok": True, "campagne": c["id"], "plan": c.get("plan_xray"), "jobs": jobs}
+
+
+@app.get("/api/tnr/conventions")
+async def tnr_conventions():
+    from atelier.generation import tnr
+
+    return await asyncio.to_thread(_call, tnr.conventions)
+
+
+@app.post("/api/tnr/conventions")
+async def tnr_regler(req: Request):
+    from atelier.generation import tnr
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, tnr.regler, b.get("etiquette"), b.get("dossier"), b.get("plan"), b.get("campagne"),
+                                   b.get("champs_plan"), b.get("champs_execution"), b.get("transition_debut"), b.get("transition_fin"))
+
+
+@app.post("/api/tnr/execution/{cle}/finaliser")
+async def tnr_finaliser(cle: str, req: Request):
+    """Champs Jira et transitions des conventions TNR appliqués à une Test Execution existante."""
+    from atelier.generation import tnr
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, tnr.finaliser_execution, cle, b.get("transitions"), str(b.get("joindre") or ""))
+
+
+@app.get("/api/tnr/champs-jira")
+async def tnr_champs_jira():
+    """Champs Jira du Test Plan et de la Test Execution (valeurs autorisées) et transitions de l'exécution."""
+    from atelier.generation import tnr
+
+    return await asyncio.to_thread(_call, tnr.champs_jira)
+
+
+@app.post("/api/tnr/publier")
+async def tnr_publier(req: Request):
+    """Publier au TNR (décision de l'automaticien dans l'atelier) : scénarios BDD, ou tests Robot dont on lit la clé."""
+    from atelier.generation import tnr
+
+    b = await req.json()
+    scenarios = [str(x) for x in b.get("scenarios") or []]
+    if b.get("tests"):
+        from atelier.generation import lots
+
+        scenarios += lots.scenarios_des_tests([str(x) for x in b["tests"]])
+    r = await asyncio.to_thread(_call, tnr.publier, sorted(set(scenarios)))
+    emit({"type": "tnr_publie", "plan": (r.get("plan") or {}).get("plan"), "n": len(r["publies"])})
+    return r
+
+
 @app.get("/api/tests-automatises")
 async def tests_automatises():
     """Vue simple : suites et tests, état (À valider / Validé / Écarté / Existant), dernier résultat réel, vérifié."""
     from atelier.generation import maintenance
 
     return await asyncio.to_thread(_call, maintenance.vue)
+
+
+@app.get("/api/tests-automatises/executions")
+async def tests_automatises_executions():
+    """Vérifications en cours, en file et dernières terminées (lien vers #execution/<id>)."""
+    from atelier.generation import maintenance
+
+    return await asyncio.to_thread(_call, maintenance.executions_verification)
 
 
 @app.post("/api/tests-automatises/{action}")
@@ -3528,7 +3677,8 @@ async def tests_automatises_action(action: str, req: Request):
     if action == "verifier":
         sel = _call(robot_moteur.selection_tests, ids)
         return await asyncio.to_thread(_call, _mettre_en_file, {"target": sel["cible"], "tests": ids, "xray_mode": "aucun",
-                                                                 "derogation_revue": b.get("derogation", "")}, "High", "", "Vérification")
+                                                                 "derogation_revue": b.get("derogation", "")}, "High", "",
+                                                                 maintenance.NOM_JOB_VERIFICATION)
     actions = {"valider": lambda: maintenance.valider(ids, b.get("commentaire", ""), b.get("derogation", "")),
                "ecarter": lambda: maintenance.ecarter(ids, b.get("motif", "")),
                "maintenance": lambda: maintenance.demande_maintenance(ids, b.get("consigne", ""))}

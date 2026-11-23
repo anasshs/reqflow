@@ -228,7 +228,7 @@ def test_la_cle_du_test_xray_arrive_dans_le_code_robot(banque):
     apres = pj.lire_fichier(g["chemin"])
     assert "[Tags]    DEMO-501" in apres and "parcours_releve" not in [x for l in apres.splitlines() if "[Tags]" in l for x in l.split()]
     assert apres == avant.replace("[Tags]    parcours_releve", "[Tags]    DEMO-501")              # seul le tag change
-    assert studio.revues_scripts()[g["chemin"]]["statut"] == "Technical Review"                    # la suite repasse en revue
+    assert studio.revues_scripts()[g["chemin"]]["statut"] == "Generated"                           # tag seul : revue inchangée
     assert conception.cle_xray_du_scenario("parcours_releve") == "DEMO-501"
     assert conception.reporter_cle_xray("parcours_releve", "DEMO-501") == []                       # rien à refaire
 

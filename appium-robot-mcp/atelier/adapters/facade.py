@@ -820,6 +820,29 @@ def studio_scenario_bdd(cle: str) -> dict:
 
 
 @outil
+def tnr_conventions() -> dict:
+    """Conventions TNR de l'application active : étiquette Jira des tests publiés, dossier Xray, Test Plan TNR et
+    campagne de l'Execution Center (vides tant que rien n'a été publié). Lecture seule."""
+    from atelier.generation import tnr
+
+    return tnr.conventions()
+
+
+@outil
+def tnr_demander_publication(scenarios: list[str]) -> str:
+    """Publier au TNR des scénarios BDD vérifiés (clés de Test Design) : un test Xray Cucumber par scénario (découpage
+    automatique), étiquette et dossier de l'application, ajout au Test Plan TNR (créé s'il manque), campagne à jour.
+    Écriture Xray : déposée en demande, exécutée après validation de l'automaticien dans l'atelier."""
+    from atelier.domain import demandes
+
+    if not scenarios:
+        raise ValueError("Donner au moins un scénario.")
+    d = demandes.creer("tnr_publier", {"scenarios": [str(s) for s in scenarios]}, f"Publier au TNR : {', '.join(map(str, scenarios[:6]))}"
+                       + (f" (+{len(scenarios) - 6})" if len(scenarios) > 6 else ""))
+    return demandes.message(d)
+
+
+@outil
 def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "", remplacer: bool = False) -> dict:
     """Génère la suite Robot d'un scénario BDD en Page Object Model : la suite (tests seulement) et, dans « pages », la
     ressource de chaque écran où ajouter les keywords à implémenter (stubs). ecrire=False :

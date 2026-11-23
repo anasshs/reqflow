@@ -51,6 +51,8 @@ def lister(limite: int = 50) -> list[dict]:
                     "xray": (b.get("xray") or {}).get("execution"), "xray_plan": (b.get("xray") or {}).get("plan"), "dry_run": bool((d.get("params") or {}).get("dry_run")),
                     "campagne": (d.get("params") or {}).get("campagne", ""), "priorite": (d.get("params") or {}).get("priorite", ""),
                     "contexte": (d.get("params") or {}).get("contexte") or {},
+                    "tests": list((d.get("params") or {}).get("tests") or []),  # tests précis (Tests automatisés › Vérifier)
+                    "erreur": str(b.get("erreur") or b.get("conseil") or "")[:300],  # run qui n'a pas pu se lancer
                     "tentatives": len(b.get("tentatives") or []) or (1 if "resultat" in b else 0), "instables": b.get("instables") or []})
     return out
 

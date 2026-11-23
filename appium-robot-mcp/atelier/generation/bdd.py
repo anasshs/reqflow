@@ -507,6 +507,16 @@ def statistiques(m: dict) -> dict:
 
 
 # =========================================================================== génération Robot
+def jeux_des_exemples(s: dict) -> list[str]:
+    """Jeux de données des variantes d'un Plan du Scénario : colonne « jeu » (ou « jdd ») du tableau d'exemples."""
+    lignes = [[c.strip() for c in l.strip().strip("|").split("|")] for l in s.get("exemples") or [] if l.strip().startswith("|")]
+    if len(lignes) < 2:
+        return []
+    entete = [c.lower() for c in lignes[0]]
+    col = next((i for i, c in enumerate(entete) if c in ("jeu", "jdd", "jeu de données")), None)
+    return [r[col].upper() for r in lignes[1:] if col is not None and col < len(r) and r[col]]
+
+
 def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> dict:
     """Suite Robot qui suit les conventions : INITIALISATION (Initialiser Le Test + &{JDD_<NOM>}) puis
     les étapes BDD. Chaque étape est rapprochée d'un keyword existant du dépôt (réutilisation) ;
@@ -519,7 +529,7 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
     inv = inventaire if inventaire is not None else depot_robot.lire_depot()
     kws = inv["keywords"]
     rapprochement, confirmes = reutilisation(m, inv), set()  # mots, jugement d'une IA et décisions de l'automaticien
-    a_creer, reutilises, resources, proches, ecran_de = [], [], set(), {}, {}
+    a_creer, reutilises, resources, proches, ecran_de, etape_de = [], [], set(), {}, {}, {}
     lignes_tests = []
     from atelier.generation import conception
 
@@ -530,10 +540,10 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
         # les tags de provenance (« discovery ») ne décrivent pas le test et ne sont pas repris
         tags = list(dict.fromkeys([cle_xray or m["cle"]] + (["negatif"] if s["type"] == "negatif" else [])
                                   + [t for t in [*(m.get("tags") or []), *(s.get("tags") or [])] if t not in TAGS_PROVENANCE]))
-        lignes_tests += ["", s["nom"], f"    [Tags]    {'    '.join(tags)}"]
-        # bloc INITIALISATION de chaque test (convention) : avec le jeu de données s'il y en a un, sans argument sinon
-        # (test de consultation) : sans lui, le navigateur du socle (headless, contexte) n'est pas ouvert proprement
-        lignes_tests.append(f"    Initialiser Le Test    &{{JDD_{m['jdd'].upper()}}}" if m.get("jdd") else "    Initialiser Le Test")
+        # variantes : un Plan du Scénario dont le tableau d'exemples a une colonne « jeu » donne un test Robot par ligne,
+        # chacun avec son jeu de données (un test, une variante par donnée) ; sinon un seul test
+        variantes = jeux_des_exemples(s) or [""]
+        corps = []
         for e in s["etapes"]:
             prefixe = MOTS_EN[e["type"]]
             x = rapprochement[e["id"]]
@@ -543,11 +553,20 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
             elif e["texte"] not in a_creer:
                 a_creer.append(e["texte"])
                 ecran_de[e["texte"]] = e.get("ecran") or ""
+                etape_de[e["texte"]] = {"type": e["type"], "locator": e.get("locator") or "", "jdd": e.get("jdd") or "",
+                                        "texte": e["texte"]}
                 if x["proches"]:
                     proches[e["texte"]] = x["proches"]
             if x.get("confirme"):
                 confirmes.add(e["texte"])
-            lignes_tests.append(f"    {prefixe} {e['texte']}")
+            corps.append(f"    {prefixe} {e['texte']}")
+        for jeu in variantes:
+            jdd_test = jeu or m.get("jdd") or ""
+            lignes_tests += ["", f"{s['nom']} — {jeu}" if jeu else s["nom"], f"    [Tags]    {'    '.join(tags)}"]
+            # bloc INITIALISATION de chaque test (convention) : avec le jeu de données s'il y en a un, sans argument sinon
+            # (test de consultation) : sans lui, le navigateur du socle (headless, contexte) n'est pas ouvert proprement
+            lignes_tests.append(f"    Initialiser Le Test    &{{JDD_{jdd_test.upper()}}}" if jdd_test else "    Initialiser Le Test")
+            lignes_tests += corps
     if "initialiserletest" in kws:
         resources.add(kws["initialiserletest"]["fichier"])
     else:
@@ -567,7 +586,7 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
         if k in proches:
             doc = (f"À implémenter (nouveau keyword confirmé ; proche de « {proches[k][0]['keyword']} »)." if k in confirmes
                    else f"Doublon probable de « {proches[k][0]['keyword']} » ({proches[k][0]['fichier']}) : le réutiliser.")
-        a_ecrire.append({"nom": k, "doc": doc, "ecran": ecran_de.get(k, ""),
+        a_ecrire.append({"nom": k, "doc": doc, "ecran": ecran_de.get(k, ""), "etape": etape_de.get(k),
                          "args": ["    [Arguments]    &{jdd}"] if k == "Initialiser Le Test" else []})
     fin = next((kws[k] for k in ("terminerletest", "finaliserletest", "cloturerletest", "fermerletest") if k in kws), None)
     if fin:  # Test Teardown du socle : capture si échec, fermeture propre (style professionnel)
@@ -608,7 +627,7 @@ def ecrire_generation(m: dict, g: dict, remplacer: bool = False, origine: str = 
     from atelier.generation import pom, studio
 
     refuser_doublons(m)  # étape proche d'un keyword existant : à trancher avant d'écrire
-    if not m.get("jdd") and etapes_avec_donnees(m):
+    if not m.get("jdd") and etapes_avec_donnees(m) and not any(jeux_des_exemples(s) for s in m.get("scenarios") or []):
         raise ValueError(f"Le test {m['cle']} utilise des données (« {etapes_avec_donnees(m)[0]} ») mais aucun jeu de données n'est "
                          "associé : le script échouerait au run (« Variable '${JDD}' not found »). Associer un jeu de données au "
                          "test BDD (Tests BDD › le test › Jeu de données), puis régénérer.")
@@ -655,3 +674,44 @@ def associer_jdd(cle: str, jdd: str) -> dict:
     m = _exiger(cle)
     m["jdd"] = jdd.strip()
     return sauver(m)
+
+
+def separer_scenarios(cle: str) -> list[str]:
+    """Un test Xray Cucumber porte un seul scénario : un fichier BDD à plusieurs scénarios est découpé avant la
+    publication. Le scénario principal garde la clé ; chaque autre scénario devient un BDD à part (clé « <clé>_<nom> »,
+    mêmes module, jeu de données et contexte), et le test Robot qui lui correspond (même nom) prend sa clé en tag.
+    Renvoie toutes les clés obtenues, la clé d'origine en premier."""
+    m = _exiger(cle)
+    if len(m.get("scenarios") or []) <= 1:
+        return [cle]
+    p = next((s for s in m["scenarios"] if s["type"] == "principal"), m["scenarios"][0])
+    cles = [cle]
+    for s in [x for x in m["scenarios"] if x is not p]:
+        nouvelle = f"{cle}_{projet.slug(s['nom'], 40, 'scenario')}".upper()[:80]
+        if charger(nouvelle):
+            raise FileExistsError(f"Le scénario {nouvelle} existe déjà : découpage de {cle} arrêté.")
+        n = {k: v for k, v in m.items() if k not in ("scenarios", "maj")}
+        n.update(cle=nouvelle, titre=s["nom"], feature=s["nom"], scenarios=[s], source=f"séparé de {cle} (1 test Xray = 1 scénario)")
+        sauver(n, auteur="découpage")
+        _retaguer_test(cle, nouvelle, s["nom"])
+        cles.append(nouvelle)
+    m["scenarios"] = [p]
+    sauver(m, auteur="découpage")
+    return cles
+
+
+def _retaguer_test(ancienne: str, nouvelle: str, nom_test: str) -> None:
+    """Dans les suites Robot, le test nommé nom_test qui porte le tag « ancienne » le remplace par « nouvelle »."""
+    from atelier.execution.depot_robot import lire_depot
+
+    for rel in sorted({t["fichier"] for t in lire_depot()["tests"].values() if ancienne in (t.get("tags") or []) and t["nom"] == nom_test}):
+        lignes = projet.lire_fichier(rel).split("\n")
+        dans_le_test = False
+        for n, ligne in enumerate(lignes):
+            if ligne and not ligne[0].isspace():
+                dans_le_test = ligne.strip() == nom_test
+            elif dans_le_test and ligne.strip().startswith("[Tags]"):
+                mots = re.split(r"(\s{2,}|\t)", ligne)
+                lignes[n] = "".join(nouvelle if x == ancienne else x for x in mots)
+                break
+        projet.ecrire_fichier(rel, "\n".join(lignes), True)

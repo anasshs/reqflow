@@ -50,22 +50,31 @@
       $("#x-diff").onchange = e => { S.ongletEtape = e.target.checked ? "diff" : "mobile"; etape(); };
       desabo = [
         Atelier.on("run_lance", ev => { S.live = {run_id: ev.run_id, suite: ev.suite, tests: new Map(), kws: [], debut: new Date().toISOString()}; S.runId = ev.run_id;
-          history.replaceState(null, "", "#execution/" + ev.run_id); charger(); }),
-        Atelier.on("run_debut", ev => { if (!S.live) return; ev.tests.forEach(t => S.live.tests.set(t.id, {id: t.id, nom: t.nom, statut: "QUEUED", cles_xray: t.tags.filter(x => /^[A-Z][A-Z0-9_]+-\d+$/.test(x))})); vueLive(); }),
-        Atelier.on("test_debut", ev => { const t = S.live?.tests.get(ev.id); if (!t) return; Object.assign(t, {statut: "RUNNING", debut: ev.heure}); S.live.kws = []; S.live.courant = ev.id; vueLive(); }),
+          history.replaceState(null, "", "#execution-detail/" + ev.run_id); charger(); }),
+        Atelier.on("run_debut", ev => { if (!S.live) return; ev.tests.forEach(t => { const cles = t.tags.filter(x => /^[A-Z][A-Z0-9_]+-\d+$/.test(x)), deja = testLive(t);
+          if (deja) deja.cles_xray = cles; else S.live.tests.set(t.id, {id: t.id, nom: t.nom, statut: "QUEUED", cles_xray: cles}); }); vueLive(); }),
+        Atelier.on("test_debut", ev => { const t = testLive(ev); if (!t) return; Object.assign(t, {statut: "RUNNING", debut: ev.heure}); S.live.kws = []; S.live.courant = t.id; vueLive(); }),
         Atelier.on("kw_debut", ev => { if (!S.live || ev.niveau !== 1) return; S.live.kws.push({nom: ev.nom, args: ev.args, statut: "RUNNING", debut: ev.heure}); vueLive(); }),
         Atelier.on("kw_fin", ev => { if (!S.live || ev.niveau !== 1) return; const k = [...S.live.kws].reverse().find(x => x.statut === "RUNNING"); if (k) { k.statut = ev.statut; k.fin = ev.heure; } vueLive(); }),
-        Atelier.on("test_fin", ev => { const t = S.live?.tests.get(ev.id); if (!t) return; Object.assign(t, {statut: ev.statut, fin: ev.fin, message: ev.message,
+        Atelier.on("kw_debut", ev => { if (S.live) { S.live.keyword = ev.nom; S.live.keyword_debut = new Date().toISOString(); } }),
+        Atelier.on("test_fin", ev => { const t = testLive(ev); if (!t) return; Object.assign(t, {statut: ev.statut, fin: ev.fin, message: ev.message,
           duree_s: t.debut ? (new Date(ev.fin) - new Date(t.debut)) / 1000 : null}); vueLive(); }),
         Atelier.on("run_bilan", ev => { S.live = null; if (ev.run_id) S.runId = ev.run_id; charger(); suites(); }),
       ];
       typesXray();
       suites();
       charger();
+      // filet de sécurité : tant que le run affiché est en cours, l'état du serveur est relu toutes les 2 s
+      // (page ouverte après le début du run, flux d'événements coupé)
+      S.minuteur = setInterval(async () => {
+        if (!S.live) return;
+        const encore = await synchroLive();
+        if (encore) vueLive(); else charger();
+      }, 2000);
     },
-    quitter() { desabo.forEach(f => f()); desabo = []; },
+    quitter() { desabo.forEach(f => f()); desabo = []; clearInterval(S.minuteur); },
   };
-  Atelier.enregistrer("execution", E);
+  Atelier.enregistrer("execution-detail", E);  // vue détaillée ; la vue simple « execution » est dans ecran_suivi.js
 
   /* ------------------------------------------------------------------ colonne gauche */
   const statutRun = r => r.statut;
@@ -105,7 +114,7 @@
       || "<li class='lib'>Aucune suite dans le dépôt.</li>";
     $$("#x-suites [data-suite]").forEach(li => li.onclick = () => {
       const r = S.runs.find(x => x.suite === li.dataset.suite);
-      if (r) location.hash = "execution/" + r.id; else lancer(li.dataset.suite);
+      if (r) location.hash = "execution-detail/" + r.id; else lancer(li.dataset.suite);
     });
   }
 
@@ -116,10 +125,32 @@
   }
 
   /* ------------------------------------------------------------------ données */
+  /* État « en direct » tenu par le serveur (/api/execution/direct) : la page ouverte ou rechargée en cours de run reprend
+     le suivi (statut de chaque test, test, étape et keyword en cours) au lieu de rester figée. */
+  const STATUT_SERVEUR = {"en attente": "QUEUED", "en cours": "RUNNING", "réussi": "PASS", "échec": "FAIL", "ignoré": "SKIP", "non exécuté": "SKIP"};
+  const testLive = ev => S.live && (S.live.tests.get(ev.id) || [...S.live.tests.values()].find(x => x.nom === ev.nom));
+  async function synchroLive() {
+    const r = (await api("/api/execution/direct").catch(() => null))?.en_cours;
+    if (!r || (S.runId && r.id !== S.runId)) { if (S.live && !r) S.live = null; return false; }
+    const ancien = S.live && S.live.run_id === r.id ? S.live : null, tests = new Map();
+    r.tests.forEach(t => {
+      const prev = ancien && [...ancien.tests.values()].find(x => x.nom === t.nom), id = prev?.id || t.nom;
+      tests.set(id, {...(prev || {}), id, nom: t.nom, statut: STATUT_SERVEUR[t.statut] || prev?.statut || "QUEUED", debut: t.debut || prev?.debut,
+        fin: t.fin, message: t.message, cles_xray: prev?.cles_xray || [], duree_s: t.duree_s});
+    });
+    const courant = r.courant ? [...tests.values()].find(x => x.nom === r.courant)?.id : null;
+    const kws = ancien && ancien.courant === courant && ancien.kws.length ? ancien.kws
+      : r.etape ? [{nom: r.etape, statut: "RUNNING", debut: r.keyword_debut}] : [];
+    S.live = {run_id: r.id, suite: r.suite, debut: r.debut, tests, courant, kws, keyword: r.keyword, keyword_debut: r.keyword_debut};
+    S.runId = r.id;
+    return true;
+  }
+
   async function charger() {
     S.runs = await api("/api/executions").catch(() => []);
     runsMenu(); filtres();
     if (!S.runId && S.runs.length) S.runId = S.runs[0].id;
+    if (!S.live || S.live.run_id !== S.runId) await synchroLive();
     if (S.live && S.live.run_id === S.runId) return vueLive();
     if (!S.runId) return aucun();
     try { S.detail = await api("/api/executions/" + encodeURIComponent(S.runId)); } catch (e) { return aucun(e.message); }
@@ -148,7 +179,7 @@
       <span class="actions-titre"><button class="btn primaire" id="x-rejouer" ${!d || d.enCours ? "disabled" : ""}>${ico("rejouer")}Rejouer les échecs</button>
         <button class="btn" id="x-stop" ${d?.enCours ? "" : "disabled"}>${ico("stop")}Arrêter</button>
         <button class="btn" id="x-actions" ${d ? "" : "disabled"}>Actions ▾</button></span>`;
-    $("#x-run").onchange = e => { location.hash = "execution/" + e.target.value; };
+    $("#x-run").onchange = e => { location.hash = "execution-detail/" + e.target.value; };
     $("#x-rejouer").onclick = rejouer;
     $("#x-stop").onclick = async () => { const r = await api("/api/run/arreter", {method: "POST", body: {}}).catch(e => ({message: e.message})); toast(r.message); };
     $("#x-actions").onclick = actions;
@@ -306,9 +337,10 @@
     if (!t) { $("#x-deroule").innerHTML = vide("En attente du premier test…"); return; }
     $("#x-deroule-tete").innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px">${statutIco(t.statut)}<b>${esc((t.cles_xray || []).join(", "))}</b><span>${esc(t.nom)}</span></div>`;
     $("#x-d-onglets").innerHTML = `<button aria-selected="true">Étapes <span class="compteur" style="display:inline-grid">${t.id === L.courant ? L.kws.length : 0}</span></button>`;
-    $("#x-deroule").innerHTML = t.id === L.courant ? `<table class="etapes-exe"><tr><th></th><th>Étape / Keyword</th><th>Statut</th><th>Début</th></tr>${L.kws.map((k, i) => `<tr class="${k.statut === "FAIL" ? "ko" : ""}"><td class="lib">${i + 1}</td>
+    const kwCourant = t.id === L.courant && L.keyword ? `<div class="x-kw-courant"><span class="lib">Keyword en cours</span> <code>${esc(L.keyword)}</code></div>` : "";
+    $("#x-deroule").innerHTML = kwCourant + (t.id === L.courant ? `<table class="etapes-exe"><tr><th></th><th>Étape / Keyword</th><th>Statut</th><th>Début</th></tr>${L.kws.map((k, i) => `<tr class="${k.statut === "FAIL" ? "ko" : ""}"><td class="lib">${i + 1}</td>
       <td><b>${esc(k.nom)}</b><span class="sous ellipse">${esc((k.args || []).join("  "))}</span></td><td>${statutIco(k.statut)}</td><td class="mono">${esc(heure(k.debut))}</td></tr>`).join("")}</table>
-      ${t.statut === "FAIL" ? echecHtml(t.message) : ""}` : `<p class="lib">Étapes détaillées disponibles à la fin du run.</p>`;
+      ${t.statut === "FAIL" ? echecHtml(t.message) : ""}` : `<p class="lib">Étapes détaillées disponibles à la fin du run.</p>`);
     $("#x-etape").innerHTML = vide("Run en cours", "Le détail des étapes, les logs et les preuves s'affichent à la fin du run.");
   }
 

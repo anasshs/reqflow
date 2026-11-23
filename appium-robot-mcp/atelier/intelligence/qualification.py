@@ -20,7 +20,7 @@ STATUTS = {"valide": "Validé", "en_cours": "En cours", "a_completer": "À compl
 ETAPES = (("comprendre", 1, "Comprendre l'application", "Discovery", "recherche", "#discovery/cadrage"),
           ("comportement", 2, "Comprendre le comportement", "MBT & Analyse", "branche", "#comportement"),
           ("concevoir", 3, "Concevoir les tests", "BDD & Scénarios", "bdd", "#bdd"),
-          ("automatiser", 4, "Automatiser les tests", "Automation Studio", "editeur", "#studio"),
+          ("automatiser", 4, "Automatiser les tests", "Lots TNR", "editeur", "#lots"),
           ("executer", 5, "Exécuter et qualifier", "Execution Center", "execution", "#centre"),
           ("evoluer", 6, "Évolutions & non-régression", "Impact & Maintenance", "branche", "#releases"))
 REVUES = {"Generated": "généré", "Technical Review": "en revue technique", "Changes Requested": "corrections demandées",

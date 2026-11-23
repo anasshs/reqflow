@@ -287,6 +287,24 @@ def entrer_en_revue(fichier: str, origine: str) -> dict:
     return r
 
 
+def reprendre_empreinte(fichiers: list[str], motif: str) -> list[str]:
+    """Modification sans effet sur le comportement (ex. clé Xray reportée dans un tag) : un script approuvé ou publié
+    le reste ; son empreinte est recalculée et la reprise est historisée. Renvoie les suites concernées."""
+    st = _stock()
+    reprises = []
+    for f in sorted(set(fichiers)):
+        r = st.get(f)
+        if not r or r.get("statut") not in ("Approved", "Published"):
+            continue
+        r["empreinte"] = _empreinte(f)
+        r["historique"].append({"date": _maintenant(), "auteur": _auteur(), "de": r["statut"], "vers": r["statut"], "commentaire": motif})
+        reprises.append(f)
+    if reprises:
+        _ecrire_atomique(_dossier() / "revues_scripts.json", json.dumps(st, ensure_ascii=False, indent=1))
+        _journaliser("empreinte_reprise", fichiers=reprises, commentaire=motif)
+    return reprises
+
+
 def renvoyer_en_revue(fichiers: list[str], motif: str) -> list[str]:
     """Suites touchées par une modification du socle (locator corrigé, keywords factorisés) : de nouveau en revue
     technique, même si leur propre fichier n'a pas changé. Renvoie les suites renvoyées."""

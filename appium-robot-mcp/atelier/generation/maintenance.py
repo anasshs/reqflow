@@ -221,6 +221,29 @@ def controle_verification(ids: list[str]) -> dict:
     return {"tests": [t["id"] for t in choisis], "bloquants": bloquants}
 
 
+NOM_JOB_VERIFICATION = "Vérification"  # nom du job mis en file par Tests automatisés › Vérifier
+
+
+def executions_verification(limite: int = 3) -> dict:
+    """Suivi des vérifications depuis l'écran Tests automatisés : celle en cours (avec ses tests, pour les marquer « en
+    cours »), celles en file d'attente, et les dernières terminées avec leur statut et, si le run n'a pas pu se lancer
+    (données, erreur de lecture d'un fichier…), le message d'erreur. Chaque entrée porte l'identifiant du run, que
+    l'écran Exécution (#execution/<id>) sait afficher."""
+    from atelier.execution import centre, historique
+
+    job = centre.FILE.en_cours or {}
+    en_cours = None
+    if job.get("nom") == NOM_JOB_VERIFICATION:
+        en_cours = {"id": job.get("id", ""), "etat": job.get("etat", ""), "entre_le": job.get("entre_le", ""),
+                    "tests": list((job.get("params") or {}).get("tests") or [])}
+    attente = [{"id": j.get("id", ""), "entre_le": j.get("entre_le", "")} for j in centre.FILE.attente()
+               if j.get("nom") == NOM_JOB_VERIFICATION]
+    actifs = {x["id"] for x in attente} | ({en_cours["id"]} if en_cours else set())
+    recents = [{k: r.get(k) for k in ("id", "debut", "fin", "statut", "passes", "echecs", "erreur")} | {"nb_tests": len(r["tests"])}
+               for r in historique.lister(30) if r.get("tests") and r.get("fin") and r["id"] not in actifs][:limite]
+    return {"en_cours": en_cours, "attente": attente, "recents": recents}
+
+
 def demande_maintenance(ids: list[str], consigne: str = "") -> dict:
     """Une seule demande à l'agent (Cursor, Claude Code) pour toute la sélection : derniers résultats réels, corrections de
     locators proposées par l'atelier, contrôles de la revue en écart, et la méthode imposée."""

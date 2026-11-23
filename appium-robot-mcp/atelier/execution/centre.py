@@ -433,7 +433,10 @@ def params_campagne(c: dict, plateforme: str, dry_run: bool = False) -> dict:
         p["jdd_env"] = c["environnement"]
     if c.get("xray_ticket"):
         p["xray_ticket"] = c["xray_ticket"]
-    return {k: v for k, v in p.items() if v not in (None, "", [])}
+    for k in ("jira_transition_start", "jira_transition_end", "jira_champs_execution"):
+        if c.get(k):
+            p[k] = c[k]
+    return {k: v for k, v in p.items() if v not in (None, "", [], {})}
 
 
 # =========================================================================== référentiel et contrôle préalable

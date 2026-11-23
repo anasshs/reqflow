@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 
 ETAPES = [("decouvrir", "Découvrir", "#discovery/cadrage"), ("concevoir", "Concevoir le test", "#bdd"),
-          ("automatiser", "Automatiser", "#studio/direct"), ("executer", "Exécuter", "#centre/lancer")]
+          ("automatiser", "Automatiser", "#lots"), ("executer", "Exécuter", "#centre/lancer")]
 MARQUE_A_IMPLEMENTER = "Keyword à implémenter"
 
 
@@ -127,7 +127,7 @@ def etat() -> dict:
          "detail": f"{len(parcours)} parcours · {nb_ecrans} écran(s)"},
         {"id": "concevoir", "num": 2, "titre": "Concevoir le test", "lien": "#bdd", "fait": bool(bdds),
          "detail": f"{len(bdds)} test(s) BDD" + (f" · {len(brouillons)} à valider" if brouillons else "")},
-        {"id": "automatiser", "num": 3, "titre": "Automatiser", "lien": "#studio/direct", "fait": bool(avec_script),
+        {"id": "automatiser", "num": 3, "titre": "Automatiser", "lien": "#lots", "fait": bool(avec_script),
          "detail": f"{len(avec_script)} script(s)" + (f" · {len(a_construire)} à construire" if a_construire else "")
                    + (f" · {len(en_revue)} en revue" if en_revue else "")},
         {"id": "executer", "num": 4, "titre": "Exécuter", "lien": "#centre/lancer", "fait": bool(executes),

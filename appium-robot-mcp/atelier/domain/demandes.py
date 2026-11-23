@@ -23,6 +23,7 @@ TYPES = {
     "qualify_failure": "Qualification d'un test run Xray (commentaire)",
     "fusion_ecrans": "Fusion de deux écrans de la carte",
     "remplacer_locator": "Remplacement d'un locator capturé",
+    "tnr_publier": "Publication de scénarios au TNR (tests Xray, plan TNR, campagne)",
 }
 
 
@@ -102,6 +103,9 @@ def _executer(d: dict):
     if d["type"] == "remplacer_locator":
         from atelier.generation import locators
         return locators.add_screen_locator(p["screen_name"], p["key"], p["locator"], p["platform"])
+    if d["type"] == "tnr_publier":
+        from atelier.generation import tnr
+        return tnr.publier(p["scenarios"])
     raise ValueError(f"Type non exécutable : {d['type']}")
 
 

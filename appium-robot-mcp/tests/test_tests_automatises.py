@@ -204,3 +204,30 @@ def test_controle_donnees_ignore_un_test_de_consultation(projet):
     donnees = lambda f: next(c for c in studio.controles_script(f) if c["code"] == "donnees")  # noqa: E731
     assert donnees("tests/consultation.robot")["gravite"] == "ok"
     assert donnees("tests/saisie.robot") == {"code": "donnees", "gravite": "basse", "message": "Utilise ${JDD} sans jeu de données : Saisir"}
+
+
+def test_suivi_des_verifications_en_cours_en_file_et_terminees(demo, monkeypatch):
+    """Tests automatisés › Exécutions : la vérification en cours (avec ses tests), celles en file, et les dernières
+    terminées avec l'erreur d'un run qui n'a pas pu se lancer ; les autres runs (campagnes, suites) n'y figurent pas."""
+    from atelier.execution import centre, historique
+    from atelier.generation import maintenance
+
+    historique.enregistrer("RUN-20261123-100000", {"target": SUITE, "tests": [INVALIDE]},
+                           {"statut": "erreur", "erreur": "mapping values are not allowed in this context"},
+                           "2026-11-23T10:00:00", "2026-11-23T10:00:01")
+    historique.enregistrer("RUN-20261123-100100", {"target": SUITE}, {"resultat": {"passes": 2, "echecs": 0}},
+                           "2026-11-23T10:01:00", "2026-11-23T10:02:00")  # run de suite : hors de ce suivi
+    file = centre.FileExecution()
+    file.en_cours = {"id": "RUN-20261123-110000", "nom": maintenance.NOM_JOB_VERIFICATION, "etat": "Running",
+                     "entre_le": "2026-11-23T11:00:00", "params": {"tests": [INCONNU]}}
+    file._tas = [(0, 0, {"id": "RUN-20261123-110100", "nom": maintenance.NOM_JOB_VERIFICATION, "entre_le": "2026-11-23T11:01:00",
+                         "params": {}}),
+                 (1, 1, {"id": "RUN-20261123-110200", "nom": "Campagne", "entre_le": "2026-11-23T11:02:00", "params": {}})]
+    monkeypatch.setattr(centre, "FILE", file)
+
+    e = maintenance.executions_verification()
+    assert e["en_cours"]["id"] == "RUN-20261123-110000" and e["en_cours"]["tests"] == [INCONNU]
+    assert [j["id"] for j in e["attente"]] == ["RUN-20261123-110100"]
+    assert [r["id"] for r in e["recents"]] == ["RUN-20261123-100000"]
+    assert e["recents"][0]["statut"] == "erreur" and "mapping values" in e["recents"][0]["erreur"]
+    assert e["recents"][0]["nb_tests"] == 1
