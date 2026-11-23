@@ -300,7 +300,7 @@ def ecran(ref: str, s: str | None = None) -> dict:
         raise KeyError("Écran non précisé.")
     ref_n = _norm(ref)
     for e in ecrans(s):
-        if ref in (e.get("id"), e.get("nom")) or ref_n in [_norm(a) for a in e.get("alias", [])] \
+        if ref in (e.get("id"), e.get("nom")) or ref in (e.get("ids_fusionnes") or []) or ref_n in [_norm(a) for a in e.get("alias", [])] \
                 or (e.get("nom") and _norm(e["nom"]) == ref_n):
             return e
     raise KeyError(f"Écran « {ref} » inconnu dans la carte.")
@@ -669,6 +669,8 @@ def fusionner(source: str, cible: str, s: str | None = None) -> dict:
         b.setdefault(champ, []).extend(a.get(champ, []))
     b["utilise_par"] = sorted(set(b.get("utilise_par", [])) | set(a.get("utilise_par", [])))
     b["alias"] = sorted(set(b.get("alias", [])) | set(a.get("alias", [])) | ({a["nom"]} if a.get("nom") else set()))
+    # identifiants absorbés : un scénario BDD ou un déroulé qui cite l'ancien écran le retrouve
+    b["ids_fusionnes"] = sorted(set(b.get("ids_fusionnes", [])) | set(a.get("ids_fusionnes", [])) | {a["id"]})
     _save_ecran(b, s)
     ts = []
     for t in transitions(s):

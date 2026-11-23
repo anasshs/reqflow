@@ -58,17 +58,22 @@
 
   /* une seule boîte de validation */
   async function aValider(z) {
-    const l = await api("/api/cerveau/a-valider");
+    const l = (await api("/api/cerveau/a-valider")).sort((a, b) => (b.bloque_discovery ? 1 : 0) - (a.bloque_discovery ? 1 : 0));  // la carte d'abord
     const sources = [...new Set(l.map(x => x.source))];
-    z.innerHTML = `${entete("À valider", `<a class="btn" href="#intelligence/couverture" title="Coverage Intelligence : proposer des Stories, analyser les liens exigence ↔ test">Coverage Intelligence</a>`)}<div class="corps-carte">
+    const nbBloque = l.filter(x => x.bloque_discovery).length;
+    const nbSansNom = l.filter(x => x.type === "nom_ecran").length;
+    z.innerHTML = `${entete("À valider", `<button class="btn primaire" id="av-noms" title="Donner en une fois un nom à chaque écran qui n'a que son identifiant technique">Nommer les écrans${nbSansNom ? ` (${nbSansNom} proposés)` : ""}</button><a class="btn" href="#intelligence/couverture" title="Coverage Intelligence : proposer des Stories, analyser les liens exigence ↔ test">Coverage Intelligence</a>`)}<div class="corps-carte">
       <p class="lib">Toutes les propositions en attente, quelle que soit leur origine (Discovery, Cursor, actions demandées par Cursor vers Jira / Xray / la carte, relations déduites du graphe, Coverage Intelligence). Rien n'est utilisé ni écrit dans Jira / Xray avant validation ; un rejet est motivé et définitif.</p>
+      <p class="lib"><b>${nbBloque} concernent la carte</b> (noms d'écrans, parcours) et sont en tête : ce sont les seules qui retiennent la Discovery.
+        Les autres (règles extraites des tickets Jira, liens déduits) ne bloquent rien ; elles servent au Test Design. Les écrans d'un parcours que tu as déroulé sont validés d'office.</p>
       <div class="btns" style="margin-bottom:8px">${["", ...sources].map(x => `<button class="btn petit ${x ? "" : "primaire"}" data-src="${esc(x)}" title="Filtrer par origine">${esc(x || "Tout")} (${x ? l.filter(y => y.source === x).length : l.length})</button>`).join("")}</div>
       ${l.length ? `<table class="table-strat" id="av-t"><tr><th>Origine</th><th>Proposition</th><th>Type</th><th>Justification / source</th><th>Confiance</th><th></th></tr>
-        ${l.map((x, i) => `<tr data-s="${esc(x.source)}"><td><span class="pill">${esc(x.source)}</span></td><td>${x.relation ? RelationVisuelle(x.relation) : `<b>${esc(x.libelle)}</b>`}</td><td>${esc(x.relation ? "relation" : x.type)}</td><td class="lib">${esc(x.detail || "")}</td>
+        ${l.map((x, i) => `<tr data-s="${esc(x.source)}"><td><span class="pill">${esc(x.source)}</span>${x.bloque_discovery ? ' <span class="pill warn" title="Retient la Discovery">carte</span>' : ""}</td><td>${x.relation ? RelationVisuelle(x.relation) : `<b>${esc(x.libelle)}</b>`}</td><td>${esc(x.relation ? "relation" : x.type)}</td><td class="lib">${esc(x.detail || "")}</td>
           <td>${x.confiance === null || x.confiance === undefined ? "—" : esc(String(x.confiance > 1 ? x.confiance : Math.round(x.confiance * 100))) + " %"}</td>
           <td style="white-space:nowrap">${x.decision === "ci" ? `<a class="btn petit" href="#intelligence/couverture" title="Ouvrir le détail (critères, observations, synchronisation) dans Coverage Intelligence">Détail</a>` : ""}
             <button class="btn petit succes" data-av="${i}" data-v="1" title="Valider">Valider</button><button class="btn petit danger" data-av="${i}" data-v="0" title="Rejeter (motif obligatoire, définitif)">Rejeter</button></td></tr>`).join("")}</table>`
         : vide("Rien à valider", "Aucune proposition en attente.")}</div>`;
+    $("#av-noms", z).onclick = () => nommerEcrans(() => aValider(z));
     $$("[data-src]", z).forEach(b => b.onclick = () => { $$("[data-src]", z).forEach(x => x.classList.toggle("primaire", x === b));
       $$("#av-t tr[data-s]", z).forEach(tr => { tr.hidden = !!b.dataset.src && tr.dataset.s !== b.dataset.src; }); });
     $$("[data-av]", z).forEach(b => b.onclick = async () => {
@@ -86,6 +91,38 @@
         toast(valider ? "Validé (historisé)." : "Rejeté (historisé).", "ok"); aValider(z);
       } catch (e) { toast(e.message, "ko"); } });
   }
+
+  /* noms d'écrans en une fois : proposition de l'agent (rôle dans le parcours), sinon titre ; doublons probables à cocher */
+  async function nommerEcrans(apres) {
+    const m = modale("Nommer les écrans", vide("Lecture de la carte…"));
+    const corps = m.el.querySelector(".corps-carte");
+    let l;
+    try { l = await api("/api/discovery/noms-ecrans"); } catch (e) { corps.innerHTML = vide("Erreur", esc(e.message)); return; }
+    if (!l.length) { corps.innerHTML = vide("Tous les écrans ont un nom", "Rien à nommer."); return; }
+    const nf = l.filter(x => x.fusion_avec).length;
+    corps.innerHTML = `<p class="lib">${l.length} écran(s) n'ont que leur identifiant technique. Nom proposé selon leur rôle : celui choisi par l'agent pendant le déroulé
+      du parcours, sinon le titre de l'écran. Modifiable avant d'appliquer.${nf ? ` <b>${nf} écran(s) semblent être le même qu'un autre</b> (même titre) : cochés, ils sont fusionnés avec lui.` : ""}</p>
+      <p class="btns"><button class="btn petit" id="nm-fusions">Cocher aussi les fusions</button></p>
+      <table class="table-strat"><tr><th></th><th>Écran (titre)</th><th>Nom</th><th>Module</th><th>D'où vient le nom</th></tr>
+      ${l.map((x, i) => `<tr><td><input type="checkbox" data-n="${i}" ${x.nom && !x.fusion_avec ? "checked" : ""}></td>
+        <td>${esc(x.titre || "(sans titre)")}<div class="lib mono">${esc(x.ecran)} · ${x.elements} élément(s)</div></td>
+        <td><input data-nom="${i}" value="${esc(x.nom)}" placeholder="à nommer">${x.fusion_avec ? `<div><span class="pill warn" title="Un autre écran porte déjà ce nom ou ce titre">fusion avec ${esc(x.fusion_avec)}</span></div>` : ""}</td>
+        <td><input data-mod="${i}" value="${esc(x.module)}" style="width:110px"></td><td class="lib">${esc(x.source || "—")}</td></tr>`).join("")}</table>`;
+    $("#nm-fusions", m.el).onclick = () => l.forEach((x, i) => { if (x.fusion_avec) $(`[data-n="${i}"]`, m.el).checked = true; });
+    m.el.querySelector('[role="dialog"]').insertAdjacentHTML("beforeend",
+      `<div class="btns" style="padding:10px 14px;border-top:1px solid var(--line);justify-content:flex-end"><button class="btn primaire" id="nm-ok">Appliquer les noms cochés</button></div>`);
+    $("#nm-ok", m.el).onclick = async () => {
+      const choix = $$("[data-n]", m.el).filter(c => c.checked).map(c => { const i = c.dataset.n;
+        return {ecran: l[i].ecran, nom: $(`[data-nom="${i}"]`, m.el).value.trim(), module: $(`[data-mod="${i}"]`, m.el).value.trim()}; }).filter(c => c.nom);
+      if (!choix.length) return toast("Aucun nom coché.", "ko");
+      try {
+        const r = await api("/api/discovery/noms-ecrans", {method: "POST", body: {choix}});
+        toast(`${r.nommes} écran(s) nommé(s)${r.fusionnes ? `, dont ${r.fusionnes} fusionné(s)` : ""}.${r.erreurs.length ? " Erreurs : " + r.erreurs.join(" ; ") : ""}`, r.erreurs.length ? "ko" : "ok");
+        m.fermer(); if (apres) apres();
+      } catch (e) { toast(e.message, "ko"); }
+    };
+  }
+  window.NommerEcrans = nommerEcrans;
 
   const entete = (t, a = "") => `<h2 class="titre-carte">${esc(t)}<span class="actions-titre">${a}</span></h2>`;
 

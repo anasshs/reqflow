@@ -2166,6 +2166,24 @@ async def discovery_correlation_gitlab(req: Request):
     return await asyncio.to_thread(_call, correlation.commits_gitlab, (await req.json()).get("fichiers") or [])
 
 
+@app.get("/api/discovery/noms-ecrans")
+def discovery_noms_ecrans():
+    """Un nom pour chaque écran sans nom (proposition de l'agent, sinon titre), et les doublons probables (fusion)."""
+    from atelier.discovery import apprentissage
+
+    return _call(apprentissage.noms_ecrans)
+
+
+@app.post("/api/discovery/noms-ecrans")
+async def discovery_appliquer_noms(req: Request):
+    """Décision humaine en une fois : les noms cochés sont appliqués (un nom déjà porté fusionne les écrans)."""
+    from atelier.discovery import apprentissage
+
+    r = await asyncio.to_thread(_call, apprentissage.appliquer_noms, (await req.json()).get("choix") or [])
+    emit({"type": "carte_change"})
+    return r
+
+
 @app.get("/api/discovery/propositions")
 def discovery_propositions(session: str = ""):
     from atelier.discovery import apprentissage

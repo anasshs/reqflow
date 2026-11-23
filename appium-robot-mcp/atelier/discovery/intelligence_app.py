@@ -241,12 +241,19 @@ RE_RESULTAT = re.compile(r"(?i)\b(doit|doivent|ne doit pas|ne peut pas|est refus
 RE_REGLE = re.compile(r"(?i)\b(doit|ne doit pas|ne peut pas|empêch|obligatoire|maximum|minimum|au plus|au moins|plafond|bloqu|refus|interdit)")
 
 
+RE_RECIT = re.compile(r"(?i)^\s*(en tant qu|je souhaite|je veux|afin d|pour que|pour pouvoir)")
+RE_CRITERES = re.compile(r"(?i)crit[èe]res? d.acceptation\s*:?")
+
+
 def criteres(e: dict) -> list[str]:
-    """Critères d'acceptation d'un ticket : champ « criteres » (liste) ou puces de la description."""
+    """Critères d'acceptation d'un ticket : champ « criteres » (liste) ou puces de la description. Une puce qui mêle le
+    récit de la story et ses critères (« Afin de … Critères d'acceptation : … ») n'en garde que les critères."""
     if isinstance(e.get("criteres"), list):
-        return [str(c).strip() for c in e["criteres"] if str(c).strip()]
-    lignes = (e.get("description") or "").splitlines()
-    return [re.sub(r"^\s*[-*•]\s*", "", l).strip() for l in lignes if re.match(r"^\s*[-*•]\s+\S", l)]
+        bruts = [str(c).strip() for c in e["criteres"] if str(c).strip()]
+    else:
+        lignes = (e.get("description") or "").splitlines()
+        bruts = [re.sub(r"^\s*[-*•]\s*", "", l).strip() for l in lignes if re.match(r"^\s*[-*•]\s+\S", l)]
+    return [RE_CRITERES.split(c, 1)[1].strip() if RE_CRITERES.search(c) else c for c in bruts]
 
 
 def structurer(texte: str) -> dict:
@@ -256,7 +263,8 @@ def structurer(texte: str) -> dict:
     r = RE_RESULTAT.search(reste)
     action = reste.replace(r.group(0), " ") if r else reste
     return {"texte": texte, "condition": c.group(2).strip() if c else "", "resultat": (r.group(1) + r.group(2)).strip() if r else "",
-            "action": re.sub(r"\s+", " ", action).strip(" ,."), "regle_candidate": bool(RE_REGLE.search(texte))}
+            "action": re.sub(r"\s+", " ", action).strip(" ,."),
+            "regle_candidate": bool(RE_REGLE.search(texte)) and not RE_RECIT.match(texte)}  # le récit (« En tant que… ») n'est pas une règle
 
 
 def analyser_jira(proposer: bool = True) -> list[dict]:

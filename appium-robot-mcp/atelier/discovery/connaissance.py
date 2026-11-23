@@ -472,7 +472,7 @@ def _depuis_carte(g: Graphe):
         par_id[e["id"]] = eid
         plats = sorted((e.get("plateformes") or {}).keys())
         n = g.noeud(eid, "ecran", e.get("nom") or e.get("titre") or e["id"], source="carte", plateformes=plats,
-                    proprietes={"id_carte": e["id"], "titre": e.get("titre", ""), "a_revoir": e.get("a_revoir", False),
+                    proprietes={"id_carte": e["id"], "ids_fusionnes": e.get("ids_fusionnes", []), "titre": e.get("titre", ""), "a_revoir": e.get("a_revoir", False),
                                 "versions": sorted(({p.get("vu_build") or "" for p in (e.get("plateformes") or {}).values()}
                                                    | {c.get("build") or "" for c in e.get("changements") or []}) - {""}),
                                 "etats": len(e.get("etats", [])),
@@ -745,6 +745,11 @@ def _depuis_bdd(g: Graphe, inv: dict):
             par_tag.setdefault(tag, []).append(f"test_robot:{tid}")
     from atelier.integrations.xray import KEY_RE
 
+    par_id_carte = {}
+    for n in g.noeuds.values():
+        if n.type == "ecran" and n.proprietes.get("id_carte"):
+            for i in [n.proprietes["id_carte"], *(n.proprietes.get("ids_fusionnes") or [])]:
+                par_id_carte.setdefault(i, n.id)
     for b, m in lus:
         cle = b["cle"]
         cle_xray = (publiees.get(cle) or {}).get("xray") or (cle if KEY_RE.match(cle or "") else "") or m.get("cle_xray") or ""
@@ -760,8 +765,9 @@ def _depuis_bdd(g: Graphe, inv: dict):
         if m.get("parcours"):  # le parcours vient des déclarations (appliquées plus loin) : relié dans _relations_fonctionnelles
             g.noeuds[sid].proprietes["parcours"] = m["parcours"]
         for ref in sorted({e.get("ecran") for e in etapes if e.get("ecran")}):
-            if f"ecran:{ref}" in g.noeuds:
-                g.relier(sid, f"ecran:{ref}", "couvre", source="bdd (étapes)")
+            cible = f"ecran:{ref}" if f"ecran:{ref}" in g.noeuds else par_id_carte.get(ref, "")  # id technique d'un écran renommé depuis
+            if cible:
+                g.relier(sid, cible, "couvre", source="bdd (étapes)")
         for tag in {cle, cle_xray} - {""}:
             for tr in par_tag.get(tag, []):
                 if tr in g.noeuds:

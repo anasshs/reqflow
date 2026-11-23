@@ -443,10 +443,22 @@ def rattacher_session(pid: str, sid: str):
             _ecrire(p)
 
 
+TRANSITOIRE = re.compile(r"(?i)loading|chargement|erreur|error|indisponible|permission|popup|dialog|toast|sablier")
+
+
+def ecran_transitoire(e: dict) -> bool:
+    """Écran de passage qui n'est pas une étape du parcours : chargement, erreur, permission système, fenêtre sans titre
+    ni élément. Il reste proposé (à valider) au lieu d'entrer d'office dans le parcours."""
+    texte = " ".join(str(e.get(k) or "") for k in ("nom", "titre", "module"))
+    return bool(TRANSITOIRE.search(texte)) or (not e.get("titre") and not e.get("nom") and len(e.get("elements") or {}) < 3)
+
+
 def session_terminee(s: dict) -> dict | None:
-    """À la fin d'une session rattachée : les écrans traversés, dans l'ordre, sont proposés comme écrans du parcours
-    (« contient », à valider). Un écran déjà validé ou rejeté pour ce parcours n'est pas reproposé."""
-    from atelier.discovery import connaissance, sessions_discovery
+    """À la fin d'une session rattachée : les écrans traversés, dans l'ordre, deviennent les écrans du parcours.
+    Le parcours a été cadré par l'utilisateur et l'écran a été réellement traversé : c'est un fait observé, il est
+    validé d'office (retirable ensuite) ; seuls les écrans de passage (chargement, erreur, permission) restent à
+    valider. Un écran retiré ou rejeté pour ce parcours n'est jamais repris."""
+    from atelier.discovery import carte, connaissance, sessions_discovery
     from atelier.domain import declarations
 
     pid = (s.get("config") or {}).get("parcours")
@@ -462,7 +474,7 @@ def session_terminee(s: dict) -> dict | None:
         p["deroules"].append({"session": s["id"], "date": s.get("fin") or _maintenant(), "chemin": chemin[:300]})
         source = f"déroulé du parcours « {p['nom']} » · session {s['id']}"
         relations = declarations.charger()["relations"]
-        proposes = 0
+        proposes = valides = 0
         for eid in dict.fromkeys(chemin):
             if eid in p.get("ecrans_retires", []):
                 continue
@@ -472,21 +484,35 @@ def session_terminee(s: dict) -> dict | None:
                 continue  # écran retiré de la carte entre-temps
             if eid not in p["ecrans"]:
                 p["ecrans"].append(eid)
-            if f"{p['noeud']}|contient|{nid_ecran}" not in relations:
-                try:
-                    declarations.ajouter_relation(p["noeud"], nid_ecran, "contient", auteur="ia", source=source)
-                    proposes += 1
-                except PermissionError:
-                    p["ecrans"].remove(eid)  # lien rejeté auparavant : jamais reproposé
-        _journal(p, "déroulé terminé", detail=f"{s['id']} · {len(set(chemin))} écran(s) traversé(s), {proposes} proposé(s) au parcours")
+            try:
+                passage = ecran_transitoire(carte.ecran(eid))
+            except (KeyError, ValueError, RuntimeError):
+                passage = True
+            rid = f"{p['noeud']}|contient|{nid_ecran}"
+            if declarations.est_rejete(rid):
+                p["ecrans"].remove(eid)  # lien rejeté auparavant : jamais reproposé
+                continue
+            if rid not in relations:
+                declarations.ajouter_relation(p["noeud"], nid_ecran, "contient", auteur="ia" if passage else "automaticien",
+                                              source=source + (" (écran de passage, à confirmer)" if passage else " (traversé)"))
+                proposes += passage
+                valides += not passage
+            elif relations[rid].get("statut") != "validé" and not passage:
+                declarations.valider_relation(rid)
+                valides += 1
+        _journal(p, "déroulé terminé", detail=f"{s['id']} · {len(set(chemin))} écran(s) traversé(s), {valides} ajouté(s) au parcours, "
+                                              f"{proposes} écran(s) de passage à confirmer")
+        if valides and not proposes and not p.get("valide"):
+            p["valide"] = {"par": f"déroulé {s['id']}", "date": _maintenant(), "ecrans": len(p["ecrans"]), "automatique": True}
         p["modifie"] = _maintenant()
         _ecrire(p)
     connaissance.vider_cache()
     try:
-        sessions_discovery._evenement(s["id"], {"type": "parcours", "detail": f"{p['nom']} : {proposes} écran(s) proposé(s) au parcours"})
+        sessions_discovery._evenement(s["id"], {"type": "parcours", "detail": f"{p['nom']} : {valides} écran(s) ajouté(s) au parcours"
+                                            + (f", {proposes} écran(s) de passage à confirmer" if proposes else "")})
     except OSError:
         pass
-    return {"parcours": pid, "ecrans": len(p["ecrans"]), "proposes": proposes}
+    return {"parcours": pid, "ecrans": len(p["ecrans"]), "proposes": proposes, "valides": valides}
 
 
 def valider(pid: str, ecrans: list[str] | None = None) -> dict:

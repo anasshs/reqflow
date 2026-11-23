@@ -124,12 +124,12 @@ def test_deroule_puis_validation_des_ecrans(banque):
     assert (c["parcours"], c["perimetre"], c["profil_donnees"], c["environnement"], c["point_depart"]) == \
         (p["id"], "Faire un virement", "CLIENT_STANDARD", "recette", "accueil")
     p = pu.obtenir(p["id"])
-    assert p["statut"] == "Exploré" and [x["id"] for x in p["sessions"]] == [s["id"]]
+    assert p["statut"] == "Validé" and [x["id"] for x in p["sessions"]] == [s["id"]]        # déroulé d'un parcours cadré : validé d'office
     assert [e["nom"] for e in p["ecrans"]] == ["accueil", "virement_saisie", "virement_recap"]             # ordre du déroulé, sans répétition
-    assert {e["lien"] for e in p["ecrans"]} == {"à valider"} and p["ecrans_a_valider"] == 3
+    assert {e["lien"] for e in p["ecrans"]} == {"validé"} and p["ecrans_a_valider"] == 0
     g = _graphe()
     rel = g.relations["parcours:faire_un_virement|contient|ecran:virement_saisie"]
-    assert rel.statut == "à valider" and s["id"] in rel.source               # proposé, avec le déroulé pour origine
+    assert rel.statut == "validé" and s["id"] in rel.source                  # fait observé, avec le déroulé pour origine
 
     # Corrélation : l'exigence du parcours est présélectionnée d'abord pour ses écrans (à faire juger par l'IA), jamais un lien
     co = correlation.ecran(banque["virement_recap"])
@@ -139,7 +139,7 @@ def test_deroule_puis_validation_des_ecrans(banque):
     cand = correlation.correlations_a_juger(banque["virement_recap"])["ecrans"][0]["candidats"][0]
     assert cand["cle"] == "DEMO-2" and cand["parcours"] == ["Faire un virement"]
 
-    # validation humaine : l'accueil n'appartient pas au parcours
+    # l'utilisateur retire l'accueil, qui n'appartient pas au parcours
     with pytest.raises(ValueError, match="au moins un écran"):
         pu.valider(p["id"], [])
     p = pu.valider(p["id"], [banque["virement_saisie"], banque["virement_recap"]])
@@ -163,7 +163,7 @@ def test_ecran_renomme_reste_dans_le_parcours(banque):
     _derouler(p["id"], [banque["virement_saisie"]])
     carte.renommer(banque["virement_saisie"], "virement_formulaire", "Virements")
     e = pu.obtenir(p["id"])["ecrans"][0]
-    assert (e["nom"], e["lien"]) == ("virement_formulaire", "à valider")      # le lien a suivi le renommage
+    assert (e["nom"], e["lien"]) == ("virement_formulaire", "validé")         # le lien a suivi le renommage
     assert pu.valider(p["id"])["ecrans"][0]["lien"] == "validé"
 
 
@@ -229,13 +229,13 @@ def test_reste_a_explorer(banque):
     assert accueil["a_essayer"] == 1 and accueil["a_essayer_exemples"][0]["libelle"] == "Virements"       # un lien de navigation est sûr
     assert next(x for x in r["ecrans"] if x["nom"] == "virement_recap")["non_sures"] == 1                # « Confirmer » : jamais en autonome
 
-    # un parcours déroulé ne suffit pas : ses écrans ne sont que proposés tant qu'il n'est pas validé
+    # un parcours cadré puis déroulé : ses écrans traversés en font partie d'office
     p = pu.enregistrer("", {"nom": "Faire un virement", "plateforme": "web"})
     _derouler(p["id"], [banque["accueil"], banque["virement_saisie"]])
     r = reste.a_explorer()
-    assert r["synthese"]["hors_parcours"] == 3
-    assert next(x for x in r["ecrans"] if x["nom"] == "accueil")["parcours_proposes"] == ["Faire un virement"]
-    pu.valider(p["id"], [banque["virement_saisie"]])
+    assert (r["synthese"]["hors_parcours"], r["synthese"]["parcours_valides"]) == (1, 1)
+    assert next(x for x in r["ecrans"] if x["nom"] == "accueil")["parcours"] == ["Faire un virement"]
+    pu.valider(p["id"], [banque["virement_saisie"]])                                                    # l'accueil retiré
     r = reste.a_explorer()
     par_nom = {x["nom"]: x for x in r["ecrans"]}
     assert (r["synthese"]["hors_parcours"], r["synthese"]["parcours_valides"]) == (2, 1)
@@ -281,8 +281,7 @@ def test_perimetre_d_exploration(banque):
 
     p = pu.enregistrer("", {"nom": "Saisir un virement", "plateforme": "web"})             # un parcours validé est aussi un périmètre
     _derouler(p["id"], [banque["virement_saisie"]])
-    assert "parcours:saisir_un_virement" not in [x["noeud"] for x in reste.perimetres()]   # seulement proposé : pas encore un périmètre
-    pu.valider(p["id"])
+    assert "parcours:saisir_un_virement" in [x["noeud"] for x in reste.perimetres()]       # déroulé : écrans validés, déjà un périmètre
     assert reste.perimetre("parcours:saisir_un_virement")["ecrans"] == [banque["virement_saisie"]]
 
     # la session porte le périmètre ; un texte libre qui ne désigne rien reste un simple libellé
@@ -309,3 +308,16 @@ def test_perimetre_d_exploration(banque):
     assert dedans["perimetre"]["dans_le_perimetre"] and [x["cle"] for x in dedans["suggestions"]] == ["lien_plafonds"]
     sessions_discovery.arreter(s["id"])
     assert assistance.suggerer([], {"id": banque["accueil"]}, "web", ia=False)["perimetre"] is None       # hors session : rien n'est borné
+
+
+def test_ecran_de_passage_reste_a_confirmer(banque):
+    """Un écran de chargement ou d'erreur traversé pendant le déroulé n'entre pas d'office dans le parcours."""
+    from atelier.discovery import carte, parcours_utilisateur as pu
+
+    attente = carte.observer([_el("sablier", "Chargement en cours")], "web", "https://recette.exemple.fr/attente")
+    carte.renommer(attente["id"], "loading_screen", "Virements")
+    p = pu.enregistrer("", {"nom": "Virement", "plateforme": "web"})
+    _derouler(p["id"], [banque["accueil"], attente["id"], banque["virement_saisie"]])
+    liens = {e["nom"]: e["lien"] for e in pu.obtenir(p["id"])["ecrans"]}
+    assert liens == {"accueil": "validé", "loading_screen": "à valider", "virement_saisie": "validé"}
+    assert pu.obtenir(p["id"])["statut"] == "Exploré"                     # un écran reste à confirmer : pas validé d'office

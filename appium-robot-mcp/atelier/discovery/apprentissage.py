@@ -239,3 +239,104 @@ def action_mcp(nom: str, locator: str, fn):
         pass
     return res
 
+
+
+# --------------------------------------------------------------------------- noms des écrans, en une fois
+_TITRES_VIDES = {"", "annuler", "retour", "ok", "hello", "bonjour", "menu", "accueil", "fermer", "valider", "suivant", "ios", "android"}
+
+
+def _plus_proche(e: dict, candidats: list[dict]) -> str:
+    """Nom de l'écran nommé le plus ressemblant (clés d'éléments communes, au moins la moitié), sinon « »."""
+    import re
+
+    def structure(x):  # éléments de structure : sans les lignes de liste numérotées ni les textes affichés (contenu variable)
+        return {re.sub(r"_\d+$", "", k) for k in (x.get("elements") or {}) if not k.startswith("texte_")}
+
+    cles = structure(e)
+    meilleur, score = "", 0.0
+    for c in candidats:
+        autres = structure(c)
+        s = len(cles & autres) / len(cles | autres) if cles | autres else 0.0
+        if s > score:
+            meilleur, score = c["nom"], s
+    return meilleur if score >= 0.5 or (len(candidats) == 1 and not cles) else ""
+
+
+def noms_ecrans() -> list[dict]:
+    """Un nom pour chaque écran qui n'a que son identifiant technique (e_…), selon son rôle :
+    1. le nom proposé par l'agent pendant le déroulé (il a vu l'écran dans son parcours) ;
+    2. sinon le titre de l'écran (hors titres sans sens : « Annuler », « Hello », nom du client…) ;
+    le module est celui proposé, sinon celui de l'écran d'où l'on vient. Un nom déjà porté par un autre écran
+    signale le même écran probable (fusion, jamais faite sans être cochée). Rien n'est appliqué ici."""
+    from collections import Counter
+
+    from atelier.discovery import carte
+
+    tous = carte.ecrans()
+    par_id = {e["id"]: e for e in tous}
+    nommes = {e["nom"]: e for e in tous if e.get("nom")}
+    titres_nommes = Counter((e.get("titre") or "").strip().lower() for e in nommes.values())
+    venant_de: dict = {}
+    for t in carte.transitions():
+        venant_de.setdefault(t["vers"], []).append(t["de"])
+    out, pris = [], {}
+    # nom choisi par l'agent pour un titre donné (unique) : les écrans de même titre sans proposition le rejoignent
+    par_titre: dict = {}
+    for e in tous:
+        if not e.get("nom") and e.get("propositions_nom") and (e.get("titre") or "").strip():
+            par_titre.setdefault(e["titre"].strip().lower(), set()).add(e["propositions_nom"][0]["nom"])
+    for e in sorted(tous, key=lambda x: not x.get("propositions_nom")):  # les noms de l'agent d'abord
+        if e.get("nom"):
+            continue
+        titre = (e.get("titre") or "").strip()
+        props = e.get("propositions_nom") or []
+        module = ""
+        if props:
+            nom, source, module = props[0]["nom"], f"proposé par l'agent ({props[0].get('source', '')})", props[0].get("module", "")
+        elif titre.lower() not in _TITRES_VIDES and len(titre) > 2:
+            nom, source = carte.slug(titre), "titre de l'écran"
+        else:
+            nom, source = "", ""
+        if not module:
+            mods = Counter(par_id[d].get("module") for d in venant_de.get(e["id"], []) if d in par_id and par_id[d].get("module"))
+            module = mods.most_common(1)[0][0] if mods else ""
+        fusion = ""
+        if nom in nommes:
+            fusion = nom
+        elif nom in pris:
+            fusion = pris[nom]
+        elif not props and len(par_titre.get(titre.lower(), ())) == 1:
+            fusion = next(iter(par_titre[titre.lower()]))
+        elif not props and titre:  # même titre qu'un écran déjà nommé et mêmes éléments : même écran probable
+            fusion = _plus_proche(e, [x for x in nommes.values() if (x.get("titre") or "").strip().lower() == titre.lower()])
+        if nom and not fusion:
+            pris[nom] = nom
+        out.append({"ecran": e["id"], "titre": titre, "nom": fusion or nom, "module": module, "source": source,
+                    "fusion_avec": fusion, "elements": len(e.get("elements") or {}),
+                    "autres_propositions": [p["nom"] for p in props[1:]]})
+    return out
+
+
+def appliquer_noms(choix: list[dict]) -> dict:
+    """Décision humaine en une fois : chaque {ecran, nom, module} cochée est appliquée (un nom déjà porté fusionne les
+    deux écrans, comme un renommage). Les propositions de nom de ces écrans sont soldées."""
+    from atelier.discovery import carte, connaissance
+
+    faits, fusions, erreurs = 0, 0, []
+    for c in choix or []:
+        nom = carte.slug(str(c.get("nom") or ""))
+        if not nom:
+            continue
+        try:
+            e = carte.ecran(c["ecran"])
+            if e.get("propositions_nom"):
+                e["propositions_nom"] = []
+                carte._save_ecran(e)
+            existe = any(x.get("nom") == nom and x["id"] != e["id"] for x in carte.ecrans())
+            carte.renommer(e["id"], nom, c.get("module") or None)
+            faits += 1
+            fusions += existe
+        except Exception as ex:  # noqa: BLE001 — un écran disparu n'empêche pas les autres
+            erreurs.append(f"{c.get('ecran')} : {ex}")
+    connaissance.vider_cache()
+    return {"nommes": faits, "fusionnes": fusions, "erreurs": erreurs}

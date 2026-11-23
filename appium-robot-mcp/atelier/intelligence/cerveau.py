@@ -108,7 +108,7 @@ def modules(g=None) -> list[dict]:
 
 
 # =========================================================================== lacunes et prochaines actions
-def lacunes(srcs: list[dict], mods: list[dict], a_valider: int) -> list[dict]:
+def lacunes(srcs: list[dict], mods: list[dict], a_valider: int, bloquantes: int | None = None) -> list[dict]:
     """Ce que le cerveau ne sait pas (ou plus) et l'action qui le comble, du plus important au moins important."""
     out = []
     for s in srcs:
@@ -133,7 +133,8 @@ def lacunes(srcs: list[dict], mods: list[dict], a_valider: int) -> list[dict]:
             out.append({"priorite": 3, "sujet": f"Module {m['module']}", "texte": f"locators fragiles sur {m['ecrans_fragiles']} écran(s)",
                         "action": "#studio/locators", "action_lib": "Corriger les locators"})
     if a_valider:
-        out.append({"priorite": 2, "sujet": "Connaissances à valider", "texte": f"{a_valider} proposition(s) (Discovery, Cursor, graphe, Coverage Intelligence) attendent une décision",
+        out.append({"priorite": 2, "sujet": "Connaissances à valider", "texte": f"{a_valider} proposition(s) (Discovery, Cursor, graphe, Coverage Intelligence) attendent une décision"
+                    + (f", dont {bloquantes} sur la carte (noms d'écrans, parcours) : les autres ne bloquent rien" if bloquantes is not None else ""),
                     "action": "#intelligence/a_valider", "action_lib": "Valider"})
     return sorted(out, key=lambda x: x["priorite"])
 
@@ -170,14 +171,16 @@ def vue() -> dict:
     g = connaissance.construire()
     srcs = sources()
     mods = modules(g)
+    bloquantes = None
     try:
-        a_valider_n = len(a_valider())
+        liste = a_valider()
+        a_valider_n, bloquantes = len(liste), sum(1 for x in liste if x.get("bloque_discovery"))
     except Exception:  # noqa: BLE001 — une source illisible ne bloque pas le cerveau
         a_valider_n = sum(1 for n in g.noeuds.values() if n.statut == "à valider")
     app, _, _ = intelligence_app._ecrans_carte()
     slug = carte.app_courante() if carte.app_courante() else ""
     connues = sum(1 for s in srcs if s["fraicheur"] != "jamais")
-    lac = lacunes(srcs, mods, a_valider_n)
+    lac = lacunes(srcs, mods, a_valider_n, bloquantes)
     try:  # documentation Jira (Coverage Intelligence) : anomalies hautes signalées au cerveau
         from atelier.intelligence import intelligence_couverture
 
@@ -262,6 +265,14 @@ def demander(question: str) -> dict:
 
 
 # =========================================================================== une seule boîte « À valider »
+def bloque_discovery(p: dict) -> bool:
+    """Une proposition retient la Discovery si elle porte sur la carte : nom d'écran, parcours, écran d'un parcours.
+    Les règles extraites des tickets Jira (et leurs liens aux stories) ne bloquent rien : elles servent au Test Design."""
+    if p.get("objet") == "nom_ecran" or p.get("type") == "parcours":
+        return True
+    return p.get("objet") == "relation" and str(p.get("id") or "").startswith("parcours:")  # id = « de|type|vers »
+
+
 def a_valider() -> list[dict]:
     """Toutes les propositions en attente d'une décision humaine, d'où qu'elles viennent, sans doublon :
     Discovery / agent (déclarations et noms d'écrans), relations déduites du graphe, Coverage Intelligence
@@ -280,7 +291,7 @@ def a_valider() -> list[dict]:
         src = str(p.get("source") or "")
         origine = src.split(" (MCP)")[0] if " (MCP)" in src else "Cursor" if "cursor" in src.lower() else "Jira (règles extraites)" if src.startswith("jira:") or src == "déduit" else "Discovery"
         out.append({"source": origine, "decision": "discovery", "id": p["id"], "type": p.get("type", ""), "libelle": p.get("libelle", ""),
-                    "relation": p.get("relation"), "detail": p.get("source") or "", "confiance": None})
+                    "relation": p.get("relation"), "detail": p.get("source") or "", "confiance": None, "bloque_discovery": bloque_discovery(p)})
     for v in intelligence_app.validation():
         if v["id"] not in vus:
             out.append({"source": "Knowledge Graph (déduit)", "decision": "graphe", "id": v["id"], "type": v["type"], "libelle": v["libelle"],
