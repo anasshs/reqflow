@@ -151,7 +151,7 @@ class xray_live_listener:  # même nom que le module : Robot instancie cette cla
             self._log("avertissement", "Aucun tag de clé Xray sur les tests sélectionnés.")
         self._ecrire("preparation", ticket=self.cfg["ticket"], cles_tests=keys,
                      exec_summary=self.cfg["exec_summary"], plan_summary=self.cfg.get("plan_summary", ""),
-                     envs=self.cfg.get("test_environments") or [])
+                     envs=self.cfg.get("test_environments") or [], champs=self.cfg.get("champs_execution") or {})
         if self.cfg.get("transition_start"):
             self._ecrire("transition", moment="début", nom=self.cfg["transition_start"])
 

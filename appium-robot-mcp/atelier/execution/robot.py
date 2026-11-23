@@ -134,7 +134,7 @@ def run_robot(target: str, include_tags: list[str] | None = None,
               attach_screenshots: bool = True, jdd_env: str = "",
               jdd_jeux: list[str] | None = None, events_url: str = "",
               relancer_echecs: bool = False, cartographie: bool = False, timeout_s: int = 3600,
-              tests: list[str] | None = None) -> dict:
+              tests: list[str] | None = None, jira_champs_execution: dict | None = None) -> dict:
     """Lance une suite ou un dossier Robot Framework du projet puis renvoie le bilan.
     tests : tests précis (« <fichier>::<nom> », d'une ou plusieurs suites) au lieu de target : Robot --test.
     variables : ex. {'PLATFORM': 'android', 'DEVICE': 'emulator-5554'} (sélection du device).
@@ -230,6 +230,7 @@ def run_robot(target: str, include_tags: list[str] | None = None,
             "transition_start": jira_transition_start,
             "transition_end": jira_transition_end,
             "transition_end_if_fail": jira_transition_end_if_fail,
+            "champs_execution": jira_champs_execution or {},  # champs Jira de la Test Execution créée (environnement, build…)
             "attach_screenshots": attach_screenshots,
             "output_dir": str(out_abs),
             "outbox_dir": str(out_abs / "xray" / f"{datetime.now():%Y%m%d-%H%M%S-%f}"),

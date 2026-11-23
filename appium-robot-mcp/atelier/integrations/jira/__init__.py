@@ -50,6 +50,27 @@ class JiraClient:
             raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")
         http("PUT", f"{self.base}/rest/api/3/issue/{key}", json.dumps({"fields": champs}).encode(), self._h())
 
+    def champs_type(self, projet: str, type_ticket: str) -> list[dict]:
+        """Champs de création d'un type de ticket du projet (createmeta) : id, nom, type, valeurs autorisées.
+        Lecture seule ; sert à proposer les valeurs réelles de Jira (ex. « Type de campagne » d'un Test Plan)."""
+        types = self.get(f"/rest/api/3/issue/createmeta/{projet}/issuetypes?maxResults=100") or {}
+        t = next((x for x in types.get("issueTypes") or types.get("values") or [] if x.get("name", "").lower() == type_ticket.lower()), None)
+        if not t:
+            return []
+        out, debut = [], 0
+        while True:
+            page = self.get(f"/rest/api/3/issue/createmeta/{projet}/issuetypes/{t['id']}?maxResults=100&startAt={debut}") or {}
+            champs = page.get("fields") or page.get("values") or []
+            for c in champs:
+                schema = c.get("schema") or {}
+                out.append({"id": c.get("fieldId") or c.get("key"), "nom": c.get("name", ""), "type": schema.get("type", ""),
+                            "items": schema.get("items", ""), "obligatoire": bool(c.get("required")),
+                            "valeurs": [v.get("value") or v.get("name") for v in c.get("allowedValues") or [] if v.get("value") or v.get("name")]})
+            debut += len(champs)
+            if not champs or debut >= (page.get("total") or 0):
+                break
+        return out
+
     def get(self, path: str):
         if not self.enabled:
             raise RuntimeError("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN non configurés.")

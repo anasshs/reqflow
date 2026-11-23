@@ -93,6 +93,7 @@ def test_resultats_robot_joints_apres_le_run(projet, xray, monkeypatch):
 
     (projet / "tests").mkdir()
     (projet / "tests" / "v.robot").write_text(SUITE, "utf-8")
+    monkeypatch.setenv("XRAY_ARTEFACTS", "tous")
     bilan = server.run_robot("tests/v.robot", xray_ticket="DEMO")
     art = bilan["xray"]["artefacts"]
     assert art["envoye"] and art["test_runs"] == ["DEMO-1", "DEMO-2"], art
@@ -102,3 +103,22 @@ def test_resultats_robot_joints_apres_le_run(projet, xray, monkeypatch):
     monkeypatch.setenv("XRAY_ARTEFACTS", "echecs")
     bilan = server.run_robot("tests/v.robot", xray_ticket="DEMO")
     assert bilan["xray"]["artefacts"]["test_runs"] == ["DEMO-2"]
+
+
+def test_log_total_joint_au_ticket_test_execution(projet, xray, monkeypatch):
+    """En plus des test runs, l'archive des résultats (log, report, output) est jointe au ticket Test Execution."""
+    import server
+    from atelier.integrations import jira as jira_mod
+
+    joints = []
+    monkeypatch.setenv("JIRA_BASE_URL", "https://jira.exemple.invalid")
+    monkeypatch.setenv("JIRA_EMAIL", "testeur@exemple.test")
+    monkeypatch.setenv("JIRA_API_TOKEN", "jeton-de-test")
+    monkeypatch.setattr(jira_mod.JiraClient, "joindre", lambda self, cle, chemin: joints.append((cle, chemin)))
+    (projet / "tests").mkdir()
+    (projet / "tests" / "v.robot").write_text(SUITE, "utf-8")
+    bilan = server.run_robot("tests/v.robot", xray_ticket="DEMO")         # défaut : ticket + test runs en échec
+    execution = bilan["xray"]["execution"]
+    assert bilan["xray"]["artefacts"]["test_runs"] == ["DEMO-2"]
+    assert bilan["xray"]["artefacts"]["envoye"], bilan["xray"]["artefacts"]
+    assert joints and joints[0][0] == execution and joints[0][1].endswith("robot-resultats.zip")

@@ -419,12 +419,12 @@ class XrayClient:
         return r["testExecution"]["issueId"], r["testExecution"]["jira"]["key"]
 
     def add_execs_to_plan(self, plan_id: str, exec_ids: list[str]):
-        q = ('mutation($p: String!, $e: [String]) { addTestExecutionsToTestPlan(issueId: $p, '
+        q = ('mutation($p: String!, $e: [String]!) { addTestExecutionsToTestPlan(issueId: $p, '
              'testExecIssueIds: $e) { addedTestExecutions warning } }')
         return self.gql(q, {"p": plan_id, "e": exec_ids})
 
     def add_tests_to_plan(self, plan_id: str, test_ids: list[str]):
-        q = 'mutation($p: String!, $t: [String]) { addTestsToTestPlan(issueId: $p, testIssueIds: $t) { addedTests warning } }'
+        q = 'mutation($p: String!, $t: [String]!) { addTestsToTestPlan(issueId: $p, testIssueIds: $t) { addedTests warning } }'
         return self.gql(q, {"p": plan_id, "t": test_ids})
 
     def add_tests_to_exec(self, exec_id: str, test_ids: list[str]):
@@ -432,13 +432,21 @@ class XrayClient:
         return self.gql(q, {"e": exec_id, "t": test_ids})
 
     # ------------------------------------------------------------ tests Cucumber (Test Design, mode C / B)
-    def creer_test_cucumber(self, projet: str, resume: str, gherkin: str, type_test: str = "Cucumber") -> dict:
+    def creer_test_cucumber(self, projet: str, resume: str, gherkin: str, type_test: str = "Cucumber",
+                            libelles: list[str] | None = None) -> dict:
         """Crée un Test Xray dont la définition est du Gherkin (mutation createTest, vérifiée par xray-verifier).
         type_test : nom de ce type de test dans le Xray du projet (« Cucumber » par défaut dans Xray Cloud ; certains
-        projets le nomment « Gherkin ») — réglable dans Test Design › Réglages."""
+        projets le nomment « Gherkin ») — réglable dans Test Design › Réglages.
+        libelles : étiquettes Jira du test (champ « labels », sans espace : Jira refuse un libellé qui en contient)."""
         q = ('mutation($tt: UpdateTestTypeInput, $g: String, $j: JSON!) { createTest(testType: $tt, gherkin: $g, jira: $j) '
              '{ test { issueId jira(fields: ["key"]) } warnings } }')
-        r = self.gql(q, {"tt": {"name": type_test or "Cucumber"}, "g": gherkin, "j": {"fields": {"summary": resume, "project": {"key": projet}}}})
+        champs = {"summary": resume, "project": {"key": projet}}
+        libelles = [str(x).strip() for x in (libelles or []) if str(x).strip()]
+        if any(" " in x for x in libelles):
+            raise ValueError("Une étiquette Jira ne peut pas contenir d'espace : " + ", ".join(x for x in libelles if " " in x))
+        if libelles:
+            champs["labels"] = libelles
+        r = self.gql(q, {"tt": {"name": type_test or "Cucumber"}, "g": gherkin, "j": {"fields": champs}})
         t = r["createTest"]["test"]
         return {"cle": t["jira"]["key"], "issueId": t["issueId"], "avertissements": r["createTest"].get("warnings") or []}
 

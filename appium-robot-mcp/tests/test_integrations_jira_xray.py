@@ -391,3 +391,28 @@ def test_scenario_de_construire_toutes_sources(demo, monkeypatch):
     assert "copie locale" in t["avertissement"] and t["scenario"]
     with pytest.raises(KeyError):
         patrimoine.xray_get_test("DEMO-404")
+
+
+def test_creation_du_test_cucumber_avec_etiquettes():
+    """Les étiquettes demandées (ex. « banque-demo ») partent dans le champ Jira labels de createTest ; une étiquette
+    avec un espace est refusée avant tout appel (Jira la rejetterait)."""
+    import pytest
+
+    from atelier.integrations.xray import XrayClient
+
+    appels = []
+
+    class Client(XrayClient):
+        def __init__(self):
+            pass
+
+        def gql(self, q, v=None):
+            appels.append(v)
+            return {"createTest": {"test": {"issueId": "9", "jira": {"key": "DEMO-9"}}, "warnings": []}}
+
+    r = Client().creer_test_cucumber("DEMO", "Connexion", "Given x", libelles=["banque-demo"])
+    assert r["cle"] == "DEMO-9" and appels[0]["j"]["fields"]["labels"] == ["banque-demo"]
+    Client().creer_test_cucumber("DEMO", "Sans étiquette", "Given x")
+    assert "labels" not in appels[1]["j"]["fields"]
+    with pytest.raises(ValueError, match="espace"):
+        Client().creer_test_cucumber("DEMO", "X", "Given x", libelles=["tnr s1"])

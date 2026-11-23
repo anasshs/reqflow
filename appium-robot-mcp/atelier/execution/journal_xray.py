@@ -235,16 +235,21 @@ class Synchroniseur:
                 cible = self.jira.transition(etat["exec_key"], d["nom"])
                 self.journaliser("info", f"{etat['exec_key']} -> {cible} ({d.get('moment', '')})")
             return
-        run_id = (etat.get("runs") or {}).get(d.get("cle_xray"))
-        if not run_id:
-            raise ErreurDefinitive(f"{d.get('cle_xray')} : test introuvable dans l'exécution")
         if ev["type"] == "artefacts":  # output.xml, log.html, report.html (zip) joints aux test runs, après le run
             runs = etat.get("runs") or {}
             for cle in d.get("cles") or []:
                 if cle in runs and Path(d["fichier"]).exists():
                     self.xray.add_evidence(runs[cle], [d["fichier"]])
             self.journaliser("info", f"résultats Robot joints à {len(d.get('cles') or [])} test run(s)")
+            # log total de l'exécution sur le ticket Test Execution lui-même (pièce jointe Jira)
+            execution = d.get("execution") or etat.get("exec_key")
+            if execution and d.get("sur_execution", True) and self.jira.enabled and Path(d["fichier"]).exists():
+                self.jira.joindre(execution, d["fichier"])
+                self.journaliser("info", f"résultats Robot joints au ticket {execution}")
             return
+        run_id = (etat.get("runs") or {}).get(d.get("cle_xray"))
+        if not run_id:
+            raise ErreurDefinitive(f"{d.get('cle_xray')} : test introuvable dans l'exécution")
         if ev["type"] == "test_debut":
             self.xray.update_run(run_id, started=d["debut"])
             self.xray.set_status(run_id, statuts_xray()["EXECUTING"])
@@ -310,6 +315,14 @@ class Synchroniseur:
                 etat["exec_id"], etat["exec_key"] = x.create_execution(info["projet"], d["exec_summary"], tids,
                                                                        d.get("envs") or [])
                 j.sauver_etat(etat)
+            if d.get("champs") and not etat.get("champs_poses"):
+                try:  # environnement, build testé… : un refus de Jira n'empêche jamais la remontée des résultats
+                    if self.jira.enabled:
+                        self.jira.maj_champs(etat["exec_key"], d["champs"])
+                        etat["champs_poses"] = True
+                except Exception as e:  # noqa: BLE001
+                    etat["avertissements"].append(f"Champs Jira de {etat['exec_key']} non posés : {str(e)[:200]}")
+                j.sauver_etat(etat)
             if not etat.get("exec_dans_plan"):
                 x.add_execs_to_plan(etat["plan_id"], [etat["exec_id"]])
                 etat["exec_dans_plan"] = True
@@ -361,15 +374,17 @@ def envoyer_artefacts(outbox_dir: str | Path, sortie: str | Path, rapport: dict 
     idempotent, rejouable par xray-sync ; une erreur n'interrompt jamais le run."""
     import zipfile
 
-    mode = (mode or os.environ.get("XRAY_ARTEFACTS", "tous")).strip().lower()
+    # défaut « echecs » : l'archive va sur le ticket Test Execution (log total) et sur les seuls test runs en échec ;
+    # « tous » : aussi sur chaque test run (lent : une copie par test) ; « aucun » : rien
+    mode = (mode or os.environ.get("XRAY_ARTEFACTS", "echecs")).strip().lower()
     if mode == "aucun" or not rapport:
         return {"mode": mode, "envoye": False}
     tests = rapport.get("tests") or []
     cles = sorted({t["cle_xray"] for t in tests if t.get("cle_xray") and (mode == "tous" or t.get("statut_robot") == "FAIL")})
     sortie = Path(sortie)
     fichiers = [sortie / n for n in ("output.xml", "log.html", "report.html") if (sortie / n).exists()]
-    if not cles or not fichiers:
-        return {"mode": mode, "envoye": False, "raison": "aucun test run concerné ou aucun fichier"}
+    if not fichiers or not (cles or rapport.get("execution")):
+        return {"mode": mode, "envoye": False, "raison": "aucun test run ni ticket concerné, ou aucun fichier"}
     archive = sortie / "robot-resultats.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
         for f in fichiers:
@@ -377,6 +392,7 @@ def envoyer_artefacts(outbox_dir: str | Path, sortie: str | Path, rapport: dict 
     max_mo = float(os.environ.get("XRAY_ARTEFACTS_MAX_MO", 10))
     if archive.stat().st_size > max_mo * 1024 * 1024:
         return {"mode": mode, "envoye": False, "raison": f"archive de plus de {max_mo:g} Mo (XRAY_ARTEFACTS_MAX_MO)"}
-    Journal(outbox_dir).ajouter("artefacts", "artefacts", "robot-resultats", fichier=str(archive), cles=cles)
+    Journal(outbox_dir).ajouter("artefacts", "artefacts", "robot-resultats", fichier=str(archive), cles=cles,
+                                execution=rapport.get("execution") or "")
     bilan = Synchroniseur(outbox_dir).envoyer_tout()
     return {"mode": mode, "envoye": not bilan["restants"], "test_runs": cles, "fichier": archive.name, **bilan}
