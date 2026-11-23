@@ -33,7 +33,7 @@
     if (!d) return;
     d.prise = d.prise || t;
     d.derniere_t = Math.max(d.derniere_t || 0, t);
-    if (e.type === "mcp_annonce") { d.dernier = {phrase: `Cursor annonce : ${e.intention || e.etape || ""}`, t}; return; }
+    if (e.type === "mcp_annonce") { d.dernier = {phrase: `${e.agent || "L'agent"} annonce : ${e.intention || e.etape || ""}`, t}; return; }
     if (e.etat === "debut") { d.appels++; d.dernier = {phrase: e.phrase || e.nom, t}; }
     else if (e.etat === "erreur") { d.erreurs++; d.erreur = `${e.nom} : ${e.message || "erreur"}`; }
     else if (e.etat === "fin" && (d.attendus || []).includes(e.nom)) { d.depots++; d.depot = t; }

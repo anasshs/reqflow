@@ -15,9 +15,87 @@ ACTIONS_ECRAN = {"start_session", "open_url", "tap", "type_text", "swipe", "pres
 # famille affichée (couleur, icône) dans la vue « Cursor en direct »
 FAMILLES = [("ecran", ACTIONS_ECRAN | {"stop_session", "where_am_i", "screen_info", "name_screen", "list_screens", "check_locator"}),
             ("ecriture", {"write_project_file", "studio_construire_test", "studio_generer_depuis_bdd", "studio_corriger_locator",
-                          "studio_factoriser_keywords", "generate_locators_resource", "export_screen_resource", "add_screen_locator"}),
-            ("revue", {"studio_soumettre_revue", "studio_revue", "propose_step"}),
-            ("execution", {"run_robot", "studio_executer_etape", "parse_robot_output", "import_results_to_xray"})]
+                          "studio_factoriser_keywords", "generate_locators_resource", "export_screen_resource", "add_screen_locator",
+                          "discovery_proposer", "discovery_parcours_vers_bdd", "discovery_terminer", "discovery_donnee_definir",
+                          "discovery_profil_vers_jdd"}),
+            ("revue", {"studio_soumettre_revue", "studio_revue", "propose_step", "tnr_demander_publication"}),
+            ("execution", {"run_robot", "run_tests", "studio_executer_etape", "parse_robot_output", "import_results_to_xray"})]
+
+# étape du cycle de référence (domain/cycle.py) où l'outil fait avancer le travail ; les lectures générales n'en ont pas
+ETAPES_OUTILS = {
+    "cadrer": {"discovery_parcours_cadre", "map_apps", "map_create_app", "discovery_donnees_catalogue", "plan_de_test"},
+    "explorer": {"start_session", "discovery_demarrer", "discovery_ecran_courant", "where_am_i", "tap", "type_text", "swipe",
+                 "press_back", "open_url", "wait_for", "goto_screen", "explore", "screenshot", "get_screen_elements",
+                 "get_page_source", "element_at", "capture_screen_locators", "name_screen", "discovery_proposer",
+                 "discovery_donnees_pour_champs", "discovery_donnee", "discovery_donnee_definir", "discovery_donnees_contexte",
+                 "discovery_terminer", "stop_session", "discovery_correlations_a_juger", "discovery_juger_correlations"},
+    "scenariser": {"discovery_parcours_vers_bdd", "studio_scenario_bdd", "test_design_proposer", "test_design_cas_us",
+                   "test_design_doublons", "testabilite_deposer_proposition", "discovery_profil_vers_jdd"},
+    "automatiser": {"studio_socle", "studio_rapprocher_etapes", "studio_keywords_a_juger", "studio_juger_keywords",
+                    "studio_generer_depuis_bdd", "studio_construire_test", "write_project_file", "generate_locators_resource",
+                    "studio_soumettre_revue", "run_robot", "run_tests", "check_locator"},
+    "publier": {"tnr_conventions", "tnr_demander_publication", "import_results_to_xray", "xray_search_tests", "xray_get_test"},
+}
+TITRES_ETAPES = {"cadrer": "Cadrer", "explorer": "Explorer", "scenariser": "Scénariser", "automatiser": "Automatiser et vérifier",
+                 "publier": "Publier au TNR"}
+NOMS_AGENTS = ((re.compile(r"claude[- _]?code", re.I), "Claude Code"), (re.compile(r"claude", re.I), "Claude Desktop"),
+               (re.compile(r"cursor", re.I), "Cursor"))
+
+
+def nom_agent(client: str) -> str:
+    """Nom affiché de l'agent d'après le client MCP déclaré (« claude-code 1 » → Claude Code) ; « L'agent » sinon."""
+    return next((n for r, n in NOMS_AGENTS if r.search(client or "")), "L'agent")
+
+
+def etape_outil(nom: str) -> str:
+    return next((e for e, noms in ETAPES_OUTILS.items() if nom in noms), "")
+
+
+def libelle_element(locator: str) -> str:
+    """Libellé lisible de l'élément visé (carte de l'application active), sinon « » : « Identifiant oublié » plutôt que
+    « android=new UiSelector().resourceId(…) ». Jamais bloquant."""
+    if not locator:
+        return ""
+    try:
+        from atelier.discovery import carte
+        from atelier.discovery.connaissance import identifiant_locator
+
+        ident = identifiant_locator(locator)
+        for e in carte.ecrans() if carte.app_courante() else []:
+            for cle, el in (e.get("elements") or {}).items():
+                locs = [l for ls in (el.get("locators") or {}).values() for l in ls]
+                if locator in locs or (ident and any(identifiant_locator(l) == ident for l in locs)):
+                    lib = (el.get("libelle") or "").strip()
+                    if lib and not ("_" in lib and " " not in lib):  # un identifiant technique n'est pas un libellé
+                        return lib
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
+
+
+def jalon(ev: dict) -> str:
+    """Ce qui mérite une notification à l'automaticien (popup) : début et fin des grandes étapes, écritures, erreurs.
+    « » pour un appel ordinaire (il reste dans la console)."""
+    nom, etat, a, res = ev.get("nom", ""), ev.get("etat", ""), ev.get("args") or {}, str(ev.get("resultat") or "")
+    if etat == "erreur":
+        return f"Erreur sur {nom} : {str(ev.get('message') or '')[:140]}"
+    if etat == "debut":
+        return {"discovery_demarrer": f"Discovery lancée {_a(a, 'parcours', 'perimetre')}".strip(),
+                "run_robot": f"Tests lancés {_a(a, 'target')}".strip(), "run_tests": "Tests lancés"}.get(nom, "")
+    if etat != "fin":
+        return ""
+    return {"start_session": f"Session ouverte {_a(a, 'platform')}".strip(),
+            "discovery_terminer": "Discovery terminée : bilan disponible (écrans, transitions, propositions)",
+            "discovery_proposer": f"Proposition déposée au Knowledge Graph {_a(a, 'libelle')} (à valider)".replace("  ", " "),
+            "discovery_parcours_vers_bdd": "Brouillon BDD créé dans Test Design",
+            "discovery_profil_vers_jdd": "Jeu de données des tests créé",
+            "write_project_file": f"Fichier écrit {_a(a, 'path')}".strip(),
+            "studio_generer_depuis_bdd": "Suite Robot écrite (revue technique)" if str(a.get("ecrire")).lower() == "true" else "",
+            "studio_soumettre_revue": f"Script soumis à la revue {_a(a, 'fichier')}".strip(),
+            "run_robot": f"Tests terminés · {res}" if res else "Tests terminés",
+            "run_tests": f"Tests terminés · {res}" if res else "Tests terminés",
+            "tnr_demander_publication": "Publication au TNR demandée : à valider dans l'atelier",
+            "stop_session": "Session de test fermée"}.get(nom, "")
 
 
 def famille(nom: str) -> str:
@@ -115,8 +193,20 @@ PHRASES = {
     "parcours_initialiser": lambda a: f"Cursor ouvre un parcours de fonctionnalité {_a(a, 'fonctionnalite', 'libelle')}",
     "discovery_proposer": lambda a: f"Cursor propose au Knowledge Graph : {_a(a, 'libelle')} ({_a(a, 'nature')})",
     "start_session": lambda a: f"Cursor ouvre une session {_a(a, 'platform')}",
-    "tap": lambda a: f"Cursor touche l'élément {_a(a, 'locator')}",
-    "type_text": lambda a: "Cursor saisit du texte" + (f" dans {_a(a, 'locator')}" if _a(a, "locator") else ""),
+    "tap": lambda a: f"Cursor touche {_a(a, 'element')}" if _a(a, "element") else f"Cursor touche l'élément {_a(a, 'locator')}",
+    "type_text": lambda a: "Cursor saisit une valeur" + (f" dans {_a(a, 'element')}" if _a(a, "element") else f" dans {_a(a, 'locator')}" if _a(a, "locator") else ""),
+    "press_back": lambda a: "Cursor revient à l'écran précédent",
+    "stop_session": lambda a: "Cursor ferme la session de test",
+    "discovery_demarrer": lambda a: f"Cursor démarre une Discovery {_a(a, 'parcours', 'perimetre')}",
+    "discovery_terminer": lambda a: "Cursor termine la Discovery et en fait le bilan",
+    "discovery_parcours_cadre": lambda a: f"Cursor lit le cadrage du parcours {_a(a, 'parcours')}",
+    "discovery_parcours_vers_bdd": lambda a: f"Cursor crée le brouillon BDD du parcours {_a(a, 'parcours', 'titre')}",
+    "discovery_profil_vers_jdd": lambda a: f"Cursor crée le jeu de données des tests depuis le profil {_a(a, 'profil')}",
+    "run_tests": lambda a: f"Cursor lance les tests {_a(a, 'tests')}",
+    "coverage_ui": lambda a: f"Cursor consulte la couverture des parcours et des écrans {_a(a, 'module')}",
+    "tnr_conventions": lambda a: "Cursor lit les conventions TNR de l'application (étiquette, plan, champs Jira)",
+    "tnr_demander_publication": lambda a: "Cursor demande la publication de scénarios au TNR (à valider dans l'atelier)",
+    "stop_session_web": lambda a: "Cursor ferme le navigateur",
     "open_url": lambda a: f"Cursor ouvre la page {_a(a, 'url')}",
     "swipe": lambda a: f"Cursor fait défiler l'écran {_a(a, 'direction')}",
     "screenshot": lambda a: "Cursor prend une capture de l'écran",
@@ -140,8 +230,14 @@ def _premiere_phrase(doc: str) -> str:
     return t.rstrip(".")[:140]
 
 
-def decrire(nom: str, args: dict | None = None, doc: str = "") -> str:
-    """Ce que fait l'agent, en français : phrase dédiée, sinon tirée de la documentation de l'outil."""
+def decrire(nom: str, args: dict | None = None, doc: str = "", agent: str = "Cursor") -> str:
+    """Ce que fait l'agent, en français : phrase dédiée, sinon tirée de la documentation de l'outil. agent : nom de
+    l'agent connecté (Claude Code, Cursor…), qui remplace « Cursor » en tête de phrase."""
+    p = _decrire(nom, args, doc)
+    return agent + p[len("Cursor"):] if agent and agent != "Cursor" and p.startswith("Cursor") else p
+
+
+def _decrire(nom: str, args: dict | None = None, doc: str = "") -> str:
     f = PHRASES.get(nom)
     if f:
         return " ".join(f(args or {}).split())

@@ -1143,3 +1143,21 @@ body.nav-reduite .onglets .nav-sous { display: none; }
   border-radius: 8px; font-size: 11px; color: #fff; vertical-align: middle; }
 .kg-couv-cle.kg-couv-couvert { background: var(--ok); } .kg-couv-cle.kg-couv-echec { background: var(--orange); }
 .kg-couv-cle.kg-couv-partiel { background: var(--warn); } .kg-couv-cle.kg-couv-non_couvert { background: var(--ko); }
+
+/* Console de l'agent : frise du cycle, étape de chaque action, notifications des jalons */
+.ca-cycle { display: flex; gap: 4px; list-style: none; margin: 6px 10px; padding: 0; flex-wrap: wrap; }
+.ca-cycle li { flex: 1 1 0; min-width: 70px; text-align: center; font-size: 11px; padding: 3px 4px; border-radius: 6px;
+  background: var(--surface-3); color: var(--muted); }
+.ca-cycle li.fait { background: var(--ok-soft); color: var(--ok); }
+.ca-cycle li.cour { background: var(--accent); color: #fff; font-weight: 600; }
+.ca-etape-chip { font-size: 10.5px; padding: 1px 6px; border-radius: 8px; background: var(--surface-3); color: var(--muted); margin-left: 4px; }
+.ca-popups { position: fixed; top: 64px; right: 16px; z-index: 1200; display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100vw - 32px)); }
+.ca-popup { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 9px 12px; border-radius: 10px; cursor: pointer;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+  box-shadow: 0 6px 22px rgba(0,0,0,.18); font: inherit; animation: ca-entree .2s ease-out; }
+.ca-popup.ca-p-ok { border-left-color: var(--ok); } .ca-popup.ca-p-ko { border-left-color: var(--ko); } .ca-popup.ca-p-info { border-left-color: var(--accent); }
+.ca-popup-tete { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.ca-popup-tete .ca-h { margin-left: auto; color: var(--muted); }
+.ca-popup-etape { font-size: 10.5px; padding: 1px 6px; border-radius: 8px; background: var(--surface-3); color: var(--muted); }
+.ca-popup-texte { font-size: 13px; line-height: 1.35; }
+@keyframes ca-entree { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }

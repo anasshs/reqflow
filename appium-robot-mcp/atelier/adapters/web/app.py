@@ -306,8 +306,16 @@ def _expliquer_appel(ev: dict) -> dict:
     from atelier.domain import activite_agent
 
     nom = ev.get("nom", "")
-    return {"phrase": activite_agent.decrire(nom, ev.get("args") or {}, _DOCS_OUTILS.get(nom, "")),
-            "regles": _regles_outils()["outils"].get(nom, [])}
+    args = dict(ev.get("args") or {})
+    if nom in ("tap", "type_text") and args.get("locator") and ev.get("etat") == "debut":
+        lib = activite_agent.libelle_element(str(args["locator"]))
+        if lib:
+            args["element"] = lib
+    agent = activite_agent.nom_agent(ev.get("client") or state.get("agent", {}).get("client", ""))
+    etape = activite_agent.etape_outil(nom)
+    return {"phrase": activite_agent.decrire(nom, args, _DOCS_OUTILS.get(nom, ""), agent=agent),
+            "regles": _regles_outils()["outils"].get(nom, []), "agent": agent, "etape_cycle": etape,
+            "etape_titre": activite_agent.TITRES_ETAPES.get(etape, ""), "jalon": activite_agent.jalon({**ev, "args": args})}
 
 
 SANS_CACHE = {"Cache-Control": "no-cache"}  # le navigateur revalide : après un git pull, les nouveaux écrans apparaissent

@@ -4,6 +4,10 @@
    - le client MCP (nom et version transmis à la connexion ; le protocole ne transmet pas le modèle) ;
    - pause, arrêt et reprise de l'agent (mêmes commandes que la vue « Avec Cursor (en direct) »).
    - l'agent connecté et son état (connecté, inactif, déconnecté), su dès la poignée de main MCP, avant tout outil ;
+   - l'étape du cycle de référence où en est l'agent (Cadrer → Explorer → Scénariser → Automatiser et vérifier → Publier au
+     TNR), sur une frise en tête et sur chaque action ;
+   - des notifications (popups) pour les jalons : Discovery lancée / terminée, proposition au graphe, brouillon BDD,
+     fichier écrit, tests lancés / terminés, publication demandée, et toute erreur. Désactivables (préférence locale).
    Données : /api/mcp/activite au chargement, puis les événements temps réel mcp_outil / mcp_annonce / mcp_connexion. */
 "use strict";
 (() => {
@@ -14,6 +18,25 @@
   const appels = new Map();        // appel (ou clé de secours) -> entrée affichée
   let ordre = [], agent = {}, toujours = [], controle = "actif", dernier = 0, filtre = "tout", details = false, el = null, pastille = null;
   let connexions = [];             // agents connus du serveur MCP : [{agent, client, etat, depuis, vu_il_y_a_s}]
+  const CYCLE = [["cadrer", "Cadrer"], ["explorer", "Explorer"], ["scenariser", "Scénariser"], ["automatiser", "Automatiser et vérifier"], ["publier", "Publier au TNR"]];
+  let etapeCourante = "";          // dernière étape du cycle où l'agent a agi
+
+  /* ------------------------------------------------------------------ notifications (popups) des jalons */
+  const notifier = () => lire().notifications !== false;
+  function popup(e) {
+    if (!notifier() || !e.jalon || e.rejeu) return;
+    let pile = document.querySelector(".ca-popups");
+    if (!pile) { pile = document.createElement("div"); pile.className = "ca-popups"; pile.setAttribute("aria-live", "polite"); document.body.appendChild(pile); }
+    const p = document.createElement("button");
+    p.className = "ca-popup " + (e.etat === "erreur" ? "ca-p-ko" : e.etat === "debut" ? "ca-p-info" : "ca-p-ok");
+    p.title = "Ouvrir la console de l'agent";
+    p.innerHTML = `<span class="ca-popup-tete">${ico("ia")}<b>${esc(e.agent || nom())}</b>${e.etape_titre ? `<span class="ca-popup-etape">${esc(e.etape_titre)}</span>` : ""}<span class="ca-h mono">${esc(e.heure || "")}</span></span>
+      <span class="ca-popup-texte">${esc(e.jalon)}</span>`;
+    p.onclick = () => { p.remove(); basculer(true); };
+    pile.prepend(p);
+    while (pile.children.length > 4) pile.lastChild.remove();
+    setTimeout(() => p.remove(), e.etat === "erreur" ? 15000 : 7000);
+  }
 
   /* nom de l'agent : celui de la connexion la plus pertinente, sinon celui du dernier client vu dans un appel d'outil */
   const NOMS = [[/claude[- ]code/i, "Claude Code"], [/claude/i, "Claude Desktop"], [/cursor/i, "Cursor"]];
@@ -34,6 +57,7 @@
     }
     if (e.type !== "mcp_outil") return;
     if (e.client) agent.client = e.client;
+    if (e.etape_cycle && e.etat !== "pause") etapeCourante = e.etape_cycle;
     if (e.nom === "agent_annoncer") return;  // l'annonce elle-même est affichée (mcp_annonce), pas l'appel technique
     if (!e.rejeu) dernier = Date.now();  // un événement rejoué à la reconnexion ne rend pas l'agent « actif »
     // « en pause » arrive avant le début et sans identifiant d'appel : une seule ligne par outil, retirée dès que l'appel démarre
@@ -85,7 +109,7 @@
     const args = Object.entries(x.args || {}).map(([k, v]) => `${esc(k)} = ${esc(String(v))}`).join(" · ");
     return `<li class="ca-${esc(cls)}"><span class="ca-h mono">${esc(x.heure || "")}</span><div class="ca-corps">
         <div>${esc(x.phrase || `${nom()} appelle ${x.nom}`)}</div>
-        <div class="ca-meta"><span class="pill ${esc(cls)}">${esc(lib)}${x.duree !== undefined ? " · " + esc(duree(x.duree)) : ""}</span>${(x.regles || []).map(regleChip).join("")}
+        <div class="ca-meta"><span class="pill ${esc(cls)}">${esc(lib)}${x.duree !== undefined ? " · " + esc(duree(x.duree)) : ""}</span>${x.etape_titre ? `<span class="ca-etape-chip" title="Étape du cycle (du parcours au TNR)">${esc(x.etape_titre)}</span>` : ""}${(x.regles || []).map(regleChip).join("")}
           ${details ? `<span class="mono lib">${esc(x.nom)}</span>` : ""}</div>
         ${x.etat === "erreur" && x.message ? `<div class="ko-t">${esc(x.message)}</div>` : ""}
         ${details && (args || x.resultat) ? `<div class="ca-tech mono">${args ? "arguments : " + args : ""}${x.resultat ? `<br>résultat : ${esc(x.resultat)}` : ""}</div>` : ""}</div></li>`;
@@ -118,6 +142,9 @@
       <div><span class="lib">Projet</span> ${esc(Atelier.ctx.projet || "—")} · ${esc(Atelier.ctx.application || "—")}</div>`;
     $(".ca-intention", el).innerHTML = agent.intention ? `<div class="lib">Intention actuelle${agent.heure ? ` (${esc(agent.heure)})` : ""}</div><div class="ca-int">${esc(agent.intention)}</div>${agent.etape ? `<div class="lib">Étape : ${esc(agent.etape)}</div>` : ""}`
       : `<div class="lib">${esc(nom())} n'a encore rien annoncé. Il le fait au début de chaque tâche (règle atelier-mcp-usage) ; en attendant, chaque appel est décrit ci-dessous.</div>`;
+    const iCour = CYCLE.findIndex(([k]) => k === etapeCourante);
+    $(".ca-cycle", el).innerHTML = CYCLE.map(([k, l], i) => `<li class="${i < iCour ? "fait" : i === iCour ? "cour" : ""}" title="${i === iCour ? "Étape où agit l'agent" : ""}">${esc(l)}</li>`).join("");
+    $("[data-ca-notif]", el).checked = notifier();
     $(".ca-fil", el).innerHTML = liste.map(ligne).join("") || `<li class="lib" style="padding:14px">${ordre.length ? "Rien pour ce filtre." : `Aucune activité de ${esc(nom())} pour l'instant. Lancez une demande dans l'agent : chaque action apparaîtra ici, en français.`}</li>`;
     $$("[data-ca-f]", el).forEach(b => b.classList.toggle("primaire", b.dataset.caF === filtre));
     $(".ca-toujours", el).innerHTML = toujours.length ? `Toujours appliquées : ${toujours.map(regleChip).join("")}` : "";
@@ -139,9 +166,11 @@
         <button class="icone" data-ca-fermer title="Réduire en pastille">${ico("x")}</button></header>
       <div class="ca-id"></div>
       <div class="ca-intention"></div>
+      <ol class="ca-cycle" aria-label="Étape du cycle, du parcours au TNR"></ol>
       <div class="ca-barre"><span class="lib">Afficher</span>${[["tout", "Tout"], ["annonces", "Annonces"], ["actions", "Actions et écritures"], ["erreurs", "Erreurs"]]
         .map(([k, l]) => `<button class="btn petit" data-ca-f="${k}">${l}</button>`).join("")}
-        <label class="lib" title="Nom de l'outil MCP, arguments (secrets masqués) et résultat"><input type="checkbox" data-ca-details> détails techniques</label></div>
+        <label class="lib" title="Nom de l'outil MCP, arguments (secrets masqués) et résultat"><input type="checkbox" data-ca-details> détails techniques</label>
+        <label class="lib" title="Popup à chaque jalon de l'agent (Discovery, BDD, fichiers, tests, publication) et à chaque erreur"><input type="checkbox" data-ca-notif> notifications</label></div>
       <ol class="ca-fil"></ol>
       <footer><span class="ca-toujours"></span><span class="ca-esp"></span><a href="#parametres/agents">Règles du projet</a> · <a href="#studio/direct">Vue en direct</a></footer>`;
     document.body.appendChild(el);
@@ -151,6 +180,7 @@
     $("[data-ca-taille]", el).onclick = () => { el.classList.toggle("ca-grand"); };
     $$("[data-ca-f]", el).forEach(b => b.onclick = () => { filtre = b.dataset.caF; rendre(); });
     $("[data-ca-details]", el).onchange = e => { details = e.target.checked; rendre(); };
+    $("[data-ca-notif]", el).onchange = e => { ecrire({notifications: e.target.checked}); };
     $$("[data-ca-pilote]", el).forEach(b => b.onclick = async () => {
       if (b.dataset.caPilote === "arret" && !confirm(`Arrêter ${nom()} ? Son prochain outil échouera avec un message lui demandant d'attendre vos instructions.`)) return;
       try { controle = (await api("/api/agent/pilotage", {method: "POST", body: {etat: b.dataset.caPilote}})).etat; rendre(); } catch (e) { toast(e.message, "ko"); }
@@ -183,7 +213,7 @@
     pastille.className = "ca-pastille btn";
     pastille.onclick = () => basculer(true);
     document.body.appendChild(pastille);
-    Atelier.on("mcp_outil", e => { integrer(e); rendre(); });
+    Atelier.on("mcp_outil", e => { integrer(e); popup(e); rendre(); });
     Atelier.on("mcp_annonce", e => { integrer(e); rendre(); });
     Atelier.on("mcp_connexion", e => { integrer(e); rendre(); });
     Atelier.on("agent_pilotage", e => { controle = e.etat; rendre(); });
