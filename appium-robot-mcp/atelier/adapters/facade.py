@@ -732,14 +732,18 @@ def discovery_proposer(nature: str, libelle: str, ecran: str = "", description: 
 
 
 @outil
-def discovery_parcours_vers_bdd(ecrans: list | None = None, parcours: str = "", titre: str = "") -> dict:
+def discovery_parcours_vers_bdd(ecrans: list | None = None, parcours: str = "", titre: str = "", forcer: bool = False) -> dict:
     """Crée dans Test Design un brouillon de scénario BDD depuis la carte : soit une suite ordonnée d'écrans
     (identifiants ou noms), soit un parcours du Knowledge Graph (ex. « parcours:virement_interne »). Étapes reliées
     aux écrans et locators connus, données par le jeu de données, actions sensibles signalées. À relire et valider
-    dans l'atelier avant l'automatisation."""
+    dans l'atelier avant l'automatisation. Un déroulé qu'un test BDD existant fait déjà n'est pas recréé : la réponse
+    donne ce test (deja_couvert) ; forcer=True crée quand même une variante."""
     from atelier.generation import parcours_bdd
 
-    r = parcours_bdd.brouillon(ecrans=ecrans or None, parcours=parcours, titre=titre)
+    try:
+        r = parcours_bdd.brouillon(ecrans=ecrans or None, parcours=parcours, titre=titre, forcer=forcer)
+    except parcours_bdd.DejaCouvert as e:
+        return {"cle": "", "deja_couvert": e.existant, "message": str(e)}
     return {k: r[k] for k in ("cle", "titre", "gherkin", "locators", "donnees", "avertissements")}
 
 

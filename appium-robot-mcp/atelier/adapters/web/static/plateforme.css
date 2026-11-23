@@ -1127,3 +1127,19 @@ body.nav-reduite .onglets .nav-sous { display: none; }
 .lt-champs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 16px; margin: 6px 0 10px; }
 .lt-champ { display: flex; flex-direction: column; gap: 4px; }
 .lt-champ span { font-size: 12px; color: var(--muted); }
+
+/* Knowledge Graph : affichage « Couverture des tests » (écrans et parcours) */
+.gv-couv-pastille { display: none; }
+.gv-avec-couverture .gv-couv-pastille { display: block; stroke: var(--surface); stroke-width: 1.5; }
+.gv-avec-couverture .gv-noeud:not(.gv-couv):not(.gv-centre) { opacity: .35; }
+.gv-avec-couverture .gv-couv-couvert .gv-boite { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 2; }
+.gv-avec-couverture .gv-couv-echec .gv-boite { fill: var(--ko-soft); stroke: var(--orange); stroke-width: 2; stroke-dasharray: 6 3; }
+.gv-avec-couverture .gv-couv-partiel .gv-boite { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 2; }
+.gv-avec-couverture .gv-couv-non_couvert .gv-boite { fill: var(--ko-soft); stroke: var(--ko); stroke-width: 2; }
+.gv-couv-couvert .gv-couv-pastille { fill: var(--ok); } .gv-couv-echec .gv-couv-pastille { fill: var(--orange); }
+.gv-couv-partiel .gv-couv-pastille { fill: var(--warn); } .gv-couv-non_couvert .gv-couv-pastille { fill: var(--ko); }
+.kg-couv-legende { margin: 6px 0; } .kg-couv-legende li { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.kg-couv-cle { display: inline-flex; align-items: center; justify-content: center; min-width: 12px; height: 16px; padding: 0 4px; margin-right: 4px;
+  border-radius: 8px; font-size: 11px; color: #fff; vertical-align: middle; }
+.kg-couv-cle.kg-couv-couvert { background: var(--ok); } .kg-couv-cle.kg-couv-echec { background: var(--orange); }
+.kg-couv-cle.kg-couv-partiel { background: var(--warn); } .kg-couv-cle.kg-couv-non_couvert { background: var(--ko); }

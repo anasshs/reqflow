@@ -198,6 +198,43 @@ def construire(avec_declarations: bool = True, inventaire: dict | None = None) -
     return pickle.loads(octets)
 
 
+ETATS_COUVERTURE = {"couvert": "Couvert par un test", "echec": "Couvert, dernier run en échec", "partiel": "Partiellement couvert",
+                    "non_couvert": "Non couvert"}
+
+
+def _annoter_couverture_tests(g: Graphe):
+    """Couverture par les tests, posée sur chaque écran et chaque parcours (vue « Couverture des tests » du graphe) :
+    écran couvert (un test l'utilise, ou un scénario BDD automatisé le parcourt), couvert mais en échec (dernier run KO),
+    partiel (association déduite via une fonctionnalité), non couvert ; parcours couvert (toutes ses étapes),
+    partiel (une partie), non couvert. Calcul de couverture_avancee : jamais bloquant."""
+    try:
+        from atelier.intelligence import couverture_avancee
+
+        c = couverture_avancee.calculer(g)
+    except Exception:  # noqa: BLE001
+        return
+    for e in c["ecrans"]:
+        n = g.noeuds.get(e["id"])
+        if not n:
+            continue
+        if e["tests_robot"]:
+            echec = e["niveau"] == "exécuté"  # exécuté sans être réussi : dernier run en échec
+            etat = "echec" if echec else "couvert"
+        else:
+            etat = "partiel" if e["tests_xray_deduits"] else "non_couvert"
+        n.proprietes["couverture_tests"] = {"etat": etat, "libelle": ETATS_COUVERTURE[etat], "niveau": e["niveau"],
+                                            "tests": e["tests_robot"][:20], "tests_xray": e.get("tests_xray", [])[:20]}
+    for p in c["parcours"]:
+        n = g.noeuds.get(p["id"])
+        if not n:
+            continue
+        total, faites = len(p["etapes"]), p["etapes_associees"]
+        etat = "non_couvert" if not faites else "couvert" if faites == total else "partiel"
+        n.proprietes["couverture_tests"] = {"etat": etat, "libelle": ETATS_COUVERTURE[etat], "niveau": p["niveau"],
+                                            "etapes": total, "etapes_couvertes": faites,
+                                            "non_couvertes": [x["ecran"] for x in p["etapes"] if x["niveau"] == "découvert"]}
+
+
 COMPLETUDES = ("déclaré", "découvert", "partiellement exploré", "exploré", "confirmé")
 
 
@@ -299,6 +336,7 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
     _enrichir_champs(g)
     _depuis_anomalies(g)
     _marquer_automatisation(g)
+    _annoter_couverture_tests(g)
     if inventaire is None and avec_declarations:
         DERNIERE_CONSTRUCTION["delta"] = _delta(g)
     DERNIERE_CONSTRUCTION.update(duree_s=round(time.perf_counter() - debut, 3), noeuds=len(g.noeuds), relations=len(g.relations),
@@ -540,10 +578,50 @@ def _verifiees_sur(g: Graphe, masquees: set | None = None):
                                                   "locators": sorted(p["locators"]), "origines": sorted(p["origines"])})
 
 
+_IDENTIFIANTS = (
+    ("rid", re.compile(r"""resourceId(?:Matches)?\("(?:[\w.]+:id/)?([^"]+)"\)|@resource-id\s*=\s*["'](?:[\w.]+:id/)?([^"']+)["']|^id=(?:[\w.]+:id/)?(\S+)$""")),
+    ("acc", re.compile(r"""^accessibility_id=(.+)$|description\("([^"]+)"\)|@content-desc\s*=\s*["']([^"']+)["']""")),
+    ("txt", re.compile(r"""\.text\("([^"]+)"\)|@text\s*=\s*["']([^"']+)["']""")),
+)
+
+
+def identifiant_locator(valeur: str) -> str:
+    """Identité d'un locator indépendante de sa syntaxe : premier resource-id, sinon accessibility id, sinon texte exact.
+    « android=new UiSelector().resourceId("x") », « id=app:id/x » et « //*[@resource-id="x"] » ont la même : rid:x."""
+    for genre, rx in _IDENTIFIANTS:
+        m = rx.search(valeur or "")
+        if m:
+            return f"{genre}:{next(x for x in m.groups() if x)}"
+    return ""
+
+
+def _correspondances_carte(g: Graphe) -> tuple[dict, dict]:
+    """Locators de la carte indexés par valeur exacte et par identité (pour relier le dépôt à la carte)."""
+    par_valeur, par_ident = {}, {}
+    for lid, n in g.noeuds.items():
+        if n.type != "locator" or n.source != "carte":
+            continue
+        p = n.proprietes
+        for v in [p.get("valeur") or ""] + list(p.get("secours") or []):
+            if v:
+                par_valeur.setdefault((v.strip(), p.get("plateforme")), set()).add(lid)
+        i = identifiant_locator(p.get("valeur") or "")
+        if i:
+            par_ident.setdefault((i, p.get("plateforme")), set()).add(lid)
+    return par_valeur, par_ident
+
+
 def _depuis_depot(g: Graphe, inv: dict):
     from atelier.discovery import carte
     from atelier.execution.depot_robot import BIBLIOTHEQUES_UI, nom_bibliotheque
 
+    par_valeur, par_ident = _correspondances_carte(g)
+    carte_de: dict = {}  # locator du dépôt -> locators de la carte de même valeur (ou de même identité)
+    for lid, loc in inv["locators"].items():
+        v, plat = (loc.get("valeur") or "").strip(), loc["plateforme"]
+        cibles = par_valeur.get((v, plat)) or par_ident.get((identifiant_locator(v), plat)) if v else None
+        if cibles:
+            carte_de[f"locator:{lid}"] = sorted(cibles - {f"locator:{lid}"})
     for lid, loc in inv["locators"].items():
         nid = f"locator:{lid}"
         g.noeud(nid, "locator", loc["cle"], source=f"dépôt ({loc['fichier']})", plateformes=[loc["plateforme"]],
@@ -554,6 +632,10 @@ def _depuis_depot(g: Graphe, inv: dict):
         n.proprietes.setdefault("fichier", loc["fichier"])
         if loc["valeur"]:
             n.proprietes["valeur_depot"] = loc["valeur"]
+        if carte_de.get(nid):
+            n.proprietes["correspond_a"] = carte_de[nid]
+        if loc.get("scalaire"):  # le nom du fichier de locators n'est pas un écran : rattaché à la carte par sa valeur
+            continue
         eid = f"ecran:{loc['ecran']}"
         g.noeud(eid, "ecran", loc["ecran"], source="dépôt", plateformes=[loc["plateforme"]])
         g.relier(eid, nid, "contient", source="dépôt")
@@ -589,6 +671,8 @@ def _depuis_depot(g: Graphe, inv: dict):
                 cibles = [nid]
             for c in cibles:
                 g.relier(src, c, "utilise", source="dépôt")
+                for m in carte_de.get(c, []):  # même élément dans la carte : le test couvre l'écran découvert
+                    g.relier(src, m, "utilise", source="dépôt (même locator que la carte)")
         for ecran in bloc["ecrans"]:
             if not any(e == ecran for e, _ in bloc["locators"]):
                 g.noeud(f"ecran:{ecran}", "ecran", ecran, source="dépôt")

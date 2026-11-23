@@ -1,0 +1,100 @@
+"""Couverture des écrans et des parcours par les tests : locators « scalaires » du dépôt reliés à la carte par leur
+valeur, écrans parcourus par un scénario BDD automatisé, état de couverture posé sur le Knowledge Graph."""
+from atelier.domain.graphe import Graphe
+
+LOCATORS = """*** Variables ***
+${DASH_CLOCHE}          android=new UiSelector().resourceId("cloche")
+${DASH_SOLDE}           xpath=//*[@resource-id="compte_0"]//*[contains(@text,"EUR")]
+${URL_RECETTE}          https://recette.exemple.fr
+"""
+PAGE = """*** Settings ***
+Resource    ../locators/dashboard.resource
+
+*** Keywords ***
+j'ouvre les notifications
+    Click Element    ${DASH_CLOCHE}
+"""
+SUITE = """*** Settings ***
+Library     AppiumLibrary
+Resource    ../resources/pages/dashboard.resource
+
+*** Test Cases ***
+Ouvrir les notifications
+    [Tags]    DEMO-1
+    j'ouvre les notifications
+"""
+
+
+def _depot(tmp_path):
+    (tmp_path / "resources" / "locators").mkdir(parents=True)
+    (tmp_path / "resources" / "pages").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "resources" / "locators" / "dashboard.resource").write_text(LOCATORS, "utf-8")
+    (tmp_path / "resources" / "pages" / "dashboard.resource").write_text(PAGE, "utf-8")
+    (tmp_path / "tests" / "notifications.robot").write_text(SUITE, "utf-8")
+    from atelier.execution import depot_robot
+
+    return depot_robot.lire_depot(tmp_path)
+
+
+def test_locators_scalaires_du_depot(tmp_path):
+    inv = _depot(tmp_path)
+    loc = inv["locators"]["dashboard.dash_cloche@android"]
+    assert loc["scalaire"] and loc["valeur"].startswith("android=") and "dashboard.url_recette@android" not in inv["locators"]
+    kw = next(k for k in inv["keywords"].values() if k["nom"] == "j'ouvre les notifications")
+    assert ("dashboard", "dash_cloche") in kw["locators"]
+
+
+def test_identite_d_un_locator_independante_de_la_syntaxe():
+    from atelier.discovery.connaissance import identifiant_locator as i
+
+    assert i('android=new UiSelector().resourceId("cloche")') == i("id=com.exemple:id/cloche") == i('//*[@resource-id="cloche"]') == "rid:cloche"
+    assert i("accessibility_id=Se connecter") == "acc:Se connecter"
+    assert i("xpath=//android.widget.Button") == ""
+
+
+def _graphe_carte():
+    g = Graphe("essai")
+    for e in ("accueil", "notifications", "aide"):
+        g.noeud(f"ecran:{e}", "ecran", e, source="carte")
+    # même élément que le dépôt, écrit autrement (id= au lieu de UiSelector) : relié par son resource-id
+    g.noeud("locator:accueil.bouton_cloche@android", "locator", "bouton_cloche", source="carte",
+            proprietes={"valeur": "id=com.exemple:id/cloche", "plateforme": "android"})
+    g.relier("ecran:accueil", "locator:accueil.bouton_cloche@android", "contient")
+    g.noeud("parcours:notifs", "parcours", "Lire ses notifications")
+    g.relier("parcours:notifs", "ecran:accueil", "contient")
+    g.relier("parcours:notifs", "ecran:notifications", "contient")
+    g.noeud("parcours:aide", "parcours", "Consulter l'aide")
+    g.relier("parcours:aide", "ecran:aide", "contient")
+    return g
+
+
+def test_test_du_depot_relie_a_l_ecran_de_la_carte(tmp_path):
+    from atelier.discovery import connaissance
+    from atelier.intelligence import couverture_avancee as ca
+
+    g = _graphe_carte()
+    connaissance._depuis_depot(g, _depot(tmp_path))
+    assert "ecran:dashboard" not in g.noeuds  # le fichier de locators n'est pas un écran
+    e = {x["nom"]: x for x in ca.calculer(g)["ecrans"]}
+    assert e["accueil"]["niveau"] == "automatisé" and e["accueil"]["tests_robot"] == ["Ouvrir les notifications"]
+    assert e["notifications"]["niveau"] == "découvert"
+
+
+def test_ecran_parcouru_par_un_scenario_bdd_automatise(tmp_path):
+    from atelier.discovery import connaissance
+
+    g = _graphe_carte()
+    connaissance._depuis_depot(g, _depot(tmp_path))
+    tid = next(i for i, n in g.noeuds.items() if n.type == "test_robot")
+    g.noeuds[tid].proprietes["dernier_statut"] = "PASS"
+    g.noeud("scenario:NOTIFS", "scenario", "Lire ses notifications")
+    g.relier("scenario:NOTIFS", "ecran:notifications", "couvre")
+    g.relier("scenario:NOTIFS", tid, "implemente_par")
+    connaissance._annoter_couverture_tests(g)
+    etat = lambda i: g.noeuds[i].proprietes["couverture_tests"]["etat"]  # noqa: E731
+    assert etat("ecran:accueil") == etat("ecran:notifications") == "couvert" and etat("ecran:aide") == "non_couvert"
+    assert etat("parcours:notifs") == "couvert" and etat("parcours:aide") == "non_couvert"
+    g.noeuds[tid].proprietes["dernier_statut"] = "FAIL"
+    connaissance._annoter_couverture_tests(g)
+    assert etat("ecran:notifications") == "echec"

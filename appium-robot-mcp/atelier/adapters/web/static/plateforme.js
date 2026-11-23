@@ -16,8 +16,25 @@ async function api(url, opt = {}) {
     if (j && j.trim().length >= 10) return api(url, {...opt, body: {...opt.body, derogation_revue: j.trim()}});
     throw new Error(j ? "Justification trop courte (10 caractères au moins)." : d.detail);
   }
-  if (!r.ok) throw new Error(d.detail || r.statusText);
+  if (!r.ok) { const err = new Error(d.detail || r.statusText); err.donnees = d; throw err; }
   return d;
+}
+
+/* brouillon BDD depuis la Discovery : un déroulé déjà fait par un test BDD existant n'est pas recréé
+   (choix : ouvrir le test existant, ou créer quand même une variante). Rend le brouillon, ou null. */
+async function creerBrouillonBdd(body) {
+  try { return await api("/api/discovery/parcours-bdd", {method: "POST", body}); }
+  catch (e) {
+    const x = e.donnees && e.donnees.deja_couvert;
+    if (!x) throw e;
+    if (confirm(`${e.message}
+
+OK : créer quand même une variante.
+Annuler : ouvrir le test existant.`))
+      return api("/api/discovery/parcours-bdd", {method: "POST", body: {...body, forcer: true}});
+    location.hash = "bdd/" + encodeURIComponent(x.cle);
+    return null;
+  }
 }
 
 /* icônes (traits simples, couleur courante) */

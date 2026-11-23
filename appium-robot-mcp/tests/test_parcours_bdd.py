@@ -41,7 +41,12 @@ def test_brouillon_depuis_un_chemin(carte_virements):
     quand = [e for e in sc["etapes"] if e["type"] == "when"]
     assert quand[0]["locator"] == "id=lien_virements" and quand[0]["ecran"] == "accueil"
     assert not [c for c in r["controles"] if c["code"] == "donnee_litterale"]
-    assert parcours_bdd.brouillon(ecrans=["accueil", "virement_saisie"], titre="Initier un virement")["cle"] == r["cle"] + "_2"
+    # même déroulé : pas de doublon (le test existant est désigné), sauf variante voulue
+    with pytest.raises(parcours_bdd.DejaCouvert) as e:
+        parcours_bdd.brouillon(ecrans=["accueil", "virements"], titre="Aller aux virements")  # contenu dans le premier
+    assert e.value.existant["cle"] == r["cle"] and e.value.existant["inclus"]
+    v = parcours_bdd.brouillon(ecrans=["accueil", "virement_saisie"], titre="Initier un virement", forcer=True)
+    assert v["cle"] == r["cle"] + "_2" and any("Variante" in a for a in v["avertissements"])
 
 
 def test_brouillon_depuis_un_parcours_propose(carte_virements, monkeypatch):

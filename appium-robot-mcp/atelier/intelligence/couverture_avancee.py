@@ -2,7 +2,9 @@
 
 Tout est calculé sur le Knowledge Graph existant (aucun second référentiel) :
   écran ─contient→ locator (un composant = une clé métier de l'écran, toutes plateformes)
-  keyword ─utilise→ locator ; test Robot ─appelle→ keyword (et keyword ─appelle→ keyword)
+  keyword ─utilise→ locator ; test Robot ─appelle→ keyword (et keyword ─appelle→ keyword) ; un locator du dépôt de même
+  valeur (ou de même resource-id) qu'un locator de la carte est relié à celui-ci (connaissance._depuis_depot)
+  scénario BDD ─couvre→ écran (écrans de ses étapes) et ─implémenté par→ test Robot : l'écran est couvert par ce test
   test Xray ─implémenté par→ test Robot (clé en tag) ; dernier statut du test Robot (runs réels)
   fonctionnalité ─contient→ écran et user story ─testée par→ test Xray (association déduite, écran seulement)
   parcours ─contient→ écrans (étapes).
@@ -24,7 +26,7 @@ from datetime import datetime
 NIVEAUX = ["découvert", "associé", "automatisé", "exécuté", "réussi"]
 DEFINITIONS = {
     "découvert": "Présent dans la carte de l'application (Discovery, cartographie des runs, import des .resource).",
-    "associé": "Utilisé par au moins un test Robot (keyword → locator) ; pour un écran, aussi via une fonctionnalité dont une US a un test Xray (déduit).",
+    "associé": "Utilisé par au moins un test Robot (keyword → locator) ; pour un écran, aussi parcouru par un scénario BDD automatisé, ou via une fonctionnalité dont une US a un test Xray (déduit).",
     "automatisé": "Utilisé par un test Robot rattaché à un test Xray (clé Xray en tag).",
     "exécuté": "Un de ces tests a au moins une exécution réelle connue (effectivement vérifié).",
     "réussi": "La dernière exécution d'un de ces tests est réussie (PASS).",
@@ -81,6 +83,16 @@ def calculer(g=None, module: str = "") -> dict:
         p = N[tid].proprietes
         return {"id": tid, "nom": N[tid].libelle, "xray": list(p.get("cles_xray") or []), "statut": p.get("dernier_statut") or ""}
 
+    # écrans des étapes d'un scénario BDD automatisé -> tests Robot qui l'implémentent
+    tests_par_ecran_bdd: dict[str, set] = {}
+    for sid, n in N.items():
+        if n.type != "scenario":
+            continue
+        robots = [t for t in sortants(sid, "implemente_par") if N[t].type == "test_robot"]
+        for e in sortants(sid, "couvre"):
+            if N[e].type == "ecran" and robots:
+                tests_par_ecran_bdd.setdefault(e, set()).update(robots)
+
     # tests Xray associés à un écran par sa fonctionnalité (déduit)
     xray_par_ecran: dict[str, set] = {}
     for fid, n in N.items():
@@ -113,14 +125,16 @@ def calculer(g=None, module: str = "") -> dict:
                  "niveau": _niveau_tests(infos), "tests": [t["nom"] for t in infos], "tests_xray": sorted({k for t in infos for k in t["xray"]})}
             comps.append(c)
         composants += comps
-        tous = sorted({t for c in comps for t in c["tests"]})
-        niv_comp = max((_rang(c["niveau"]) for c in comps), default=0)
+        par_bdd = [info_test(t) for t in sorted(tests_par_ecran_bdd.get(eid, set()))]
+        tous = sorted({t for c in comps for t in c["tests"]} | {t["nom"] for t in par_bdd})
+        niv_comp = max([_rang(c["niveau"]) for c in comps] + [_rang(_niveau_tests(par_bdd))], default=0)
         deduits = sorted(N[t].libelle for t in xray_par_ecran.get(eid, set()))
         niveau = NIVEAUX[niv_comp] if niv_comp else ("associé" if deduits else "découvert")
         ecrans.append({"id": eid, "nom": n.libelle, "module": mod, "composants": len(comps),
                        "composants_par_niveau": {lv: sum(_rang(c["niveau"]) >= _rang(lv) for c in comps) for lv in NIVEAUX},
                        "niveau": niveau, "association_deduite": niveau == "associé" and not niv_comp,
-                       "tests_robot": tous, "tests_xray_deduits": deduits})
+                       "tests_robot": tous, "tests_xray_deduits": deduits,
+                       "tests_xray": sorted({k for c in comps for k in c["tests_xray"]} | {k for t in par_bdd for k in t["xray"]})})
 
     rang_ecran = {e["id"]: _rang(e["niveau"]) for e in ecrans}
     parcours = []

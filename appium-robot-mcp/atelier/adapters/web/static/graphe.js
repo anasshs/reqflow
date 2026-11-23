@@ -276,7 +276,8 @@ class GrapheVue {
     for (const n of this.noeuds) {
       if (!this.pos.has(n.id)) continue;
       const centre = n.id === this.centre;
-      const g = el("g", {class: "gv-noeud" + (centre ? " gv-centre" : ""), tabindex: 0, role: "button", "data-id": n.id,
+      const couv = n.proprietes?.couverture_tests?.etat;  // écran / parcours : couverture par les tests (affichage « Couverture des tests »)
+      const g = el("g", {class: "gv-noeud" + (centre ? " gv-centre" : "") + (couv ? " gv-couv gv-couv-" + couv : ""), tabindex: 0, role: "button", "data-id": n.id,
         "aria-label": `${n.type} ${n.libelle}`}, this.gNoeuds);
       const coul = couleurNoeud(n);
       if (centre) {  // nœud central : grand cercle lumineux
@@ -295,6 +296,12 @@ class GrapheVue {
         el("text", {x: -44, y: n.plateformes?.length || n.type ? -1 : 4, class: "gv-libelle"}, g).textContent = court(n.libelle, 18);
         el("text", {x: -44, y: 13, class: "gv-sous"}, g).textContent = court(n.type.replace("_", " ") + (n.plateformes?.length ? " · " + n.plateformes.join("/") : ""), 24);
         el("text", {x: 84, y: -27, class: "gv-prov gv-prov-" + (n.provenance === "déduit" ? "deduit" : n.provenance === "déclaré" ? "declare" : "observe")}, g).textContent = n.provenance;
+        if (couv) {  // pastille de couverture (visible avec l'affichage « Couverture des tests »)
+          const ct = n.proprietes.couverture_tests;
+          el("circle", {cx: 74, cy: 10, r: 6, class: "gv-couv-pastille"}, g);
+          el("title", {}, g).textContent = `${n.libelle} — ${ct.libelle}` + (ct.etapes ? ` (${ct.etapes_couvertes}/${ct.etapes} étapes)` : "")
+            + (ct.tests?.length ? ` · ${ct.tests.length} test(s)` : "");
+        }
         if (n.type === "test" && n.proprietes) {
           el("circle", {cx: 74, cy: -10, r: 5, class: n.proprietes.automatise ? "gv-pastille-auto" : "gv-pastille-manuel"}, g);
         }

@@ -511,7 +511,8 @@
     const titre = prompt("Titre du scénario (vide = généré depuis les écrans) :", source.titre || "");
     if (titre === null) return;
     try {
-      const r = await api("/api/discovery/parcours-bdd", {method: "POST", body: {...source, titre}});
+      const r = await creerBrouillonBdd({...source, titre});
+      if (!r) return;
       const m = modale(`Brouillon BDD ${r.cle}`, `<p>${r.etapes} étape(s) · locators connus ${r.locators.connus}, manquants ${r.locators.manquants} · données du jeu : ${esc(r.donnees.join(", ") || "aucune")}</p>
         ${r.avertissements.length ? `<ul class="liste">${r.avertissements.map(a => `<li class="warn-t">${esc(a)}</li>`).join("")}</ul>` : ""}
         <pre class="mono" style="white-space:pre-wrap;font-size:12px">${esc(r.gherkin)}</pre>

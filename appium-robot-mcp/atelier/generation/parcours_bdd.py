@@ -221,9 +221,68 @@ def etapes_de_session(sid: str, plateforme: str, noms_variables: dict | None = N
     return propres, avertissements
 
 
+class DejaCouvert(ValueError):
+    """Le brouillon referait un test BDD existant (mêmes actions sur les mêmes écrans)."""
+
+    def __init__(self, existant: dict, inclus: bool):
+        self.existant = existant
+        quoi = "est déjà contenu dans" if inclus else "refait exactement"
+        super().__init__(f"Déjà couvert : ce déroulé {quoi} le test BDD « {existant['titre']} » ({existant['cle']}, "
+                         f"{existant['statut']}). Rien n'a été créé ; ouvrir ce test, ou forcer pour créer une variante.")
+
+
+def signature(etapes: list[dict]) -> tuple:
+    """Ce que fait un scénario, indépendamment du libellé : actions (locator touché ou saisi, retour, défilement) et
+    écrans vérifiés, dans l'ordre. Deux scénarios de même signature font le même test."""
+    sig = []
+    for e in etapes:
+        if e.get("type") == "given":
+            continue
+        if e.get("locator"):
+            x = ("action", e.get("ecran", ""), e["locator"])
+        elif e.get("resultat_attendu"):  # une assertion métier en plus fait un test plus fort, pas un doublon
+            x = ("attendu", e["resultat_attendu"])
+        elif e.get("type") == "then" and e.get("ecran"):
+            x = ("ecran", e["ecran"])
+        elif e["texte"] in ("je reviens en arrière", "je fais défiler l'écran"):
+            x = ("geste", e.get("ecran", ""), e["texte"])
+        else:
+            continue
+        if not sig or sig[-1] != x:
+            sig.append(x)
+    return tuple(sig)
+
+
+def _contient(grand: tuple, petit: tuple) -> bool:
+    n = len(petit)
+    return any(grand[i:i + n] == petit for i in range(len(grand) - n + 1))
+
+
+def deja_couvert(etapes: list[dict], application: str = "", profil: str = "") -> dict | None:
+    """Test BDD existant (de la même application, même profil de données) qui fait déjà ce déroulé, tel quel ou en plus
+    long ; None sinon. Un déroulé qui PROLONGE un test existant, ou le rejoue avec un autre profil de données, n'est pas
+    un doublon (variante plus complète, ou variante de données)."""
+    sig = signature(etapes)
+    if not any(x[0] in ("action", "geste") for x in sig):  # aucune action : rien à comparer (trajet générique)
+        return None
+    for b in bdd.lister():
+        m = bdd.charger(b["cle"]) or {}
+        if application and m.get("application") and m["application"] != application:
+            continue
+        if (m.get("profil_donnees") or "").upper() != (profil or "").upper():
+            continue
+        for s in m.get("scenarios", []):
+            autre = signature(s.get("etapes", []))
+            if autre and _contient(autre, sig):
+                return {"cle": b["cle"], "titre": b.get("titre") or b["cle"], "statut": b.get("statut", ""),
+                        "scenario": s.get("nom", ""), "inclus": autre != sig}
+    return None
+
+
 def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str = "", titre: str = "",
-              plateforme: str = "", cle: str = "") -> dict:
-    """Crée le brouillon BDD dans Test Design et renvoie {cle, gherkin, etapes, locators, donnees, avertissements}."""
+              plateforme: str = "", cle: str = "", forcer: bool = False) -> dict:
+    """Crée le brouillon BDD dans Test Design et renvoie {cle, gherkin, etapes, locators, donnees, avertissements}.
+    Refuse (DejaCouvert) un déroulé qu'un test BDD existant fait déjà, sauf forcer=True (variante voulue)."""
     from atelier.discovery import carte, classement
 
     if sum(bool(x) for x in (ecrans, parcours, session)) != 1:
@@ -339,6 +398,11 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
          "contexte": [], "tags": [], "source": f"discovery ({source})", "parcours": parcours, "session": session, "titre": titre, "jdd": profil_donnees.upper() if profil_donnees and m_jdd_connu(profil_donnees) else "", "statut": "brouillon",
          **({"profil_donnees": profil_donnees} if profil_donnees else {}),
          "scenarios": [{"id": bdd._id(), "nom": titre, "type": "principal", "tags": tags, "depuis": "", "etapes": etapes}]}
+    existant = deja_couvert(etapes, m["application"], profil_donnees)
+    if existant and not forcer:
+        raise DejaCouvert(existant, existant["inclus"])
+    if existant:
+        avertissements.append(f"Variante créée à la demande : le test BDD {existant['cle']} fait déjà ce déroulé.")
     base = bdd._slug(cle or f"parcours_{titre}")
     cle, n = base, 2
     while bdd.charger(cle):

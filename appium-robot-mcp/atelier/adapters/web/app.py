@@ -35,7 +35,7 @@ sys.path.insert(0, str(ROOT))
 
 import uvicorn  # noqa: E402
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect  # noqa: E402
-from fastapi.responses import FileResponse, Response  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse, Response  # noqa: E402
 
 from atelier.adapters import facade as outils  # noqa: E402
 from atelier.adapters.web.agent import Agent  # noqa: E402
@@ -2189,8 +2189,13 @@ async def discovery_parcours_bdd(req: Request):
     from atelier.generation import parcours_bdd
 
     b = await req.json()
-    r = await asyncio.to_thread(_call, parcours_bdd.brouillon, b.get("ecrans") or None, b.get("parcours", ""), b.get("session", ""),
-                                b.get("titre", ""), b.get("plateforme", ""))
+    try:
+        r = await asyncio.to_thread(parcours_bdd.brouillon, b.get("ecrans") or None, b.get("parcours", ""), b.get("session", ""),
+                                    b.get("titre", ""), b.get("plateforme", ""), "", bool(b.get("forcer")))
+    except parcours_bdd.DejaCouvert as e:  # pas une erreur : le test existe déjà, l'interface propose de l'ouvrir
+        return JSONResponse({"detail": str(e), "deja_couvert": e.existant}, status_code=409)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
     emit({"type": "bdd_change", "cle": r["cle"]})
     return r
 

@@ -29,7 +29,9 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     scenario: 6, test: 6, test_robot: 7, suite: 7, test_plan: 7, test_set: 7, test_execution: 8, resultat: 8, bug: 8};
   const NAVIGATION = new Set(["navigue_vers", "permet", "aboutit_a"]);  // écran → action → écran (les agrégats entre modules ne fixent pas l'ordre)
   const AFFICHAGES = [["liens", "Libellés des liens", "Nom de chaque relation sur le trait"], ["types", "Types", "Type et plateforme sous le nom de chaque élément"],
-    ["provenance", "Provenance", "Observé, déclaré ou déduit, en haut à droite de chaque élément"]];
+    ["provenance", "Provenance", "Observé, déclaré ou déduit, en haut à droite de chaque élément"],
+    ["couverture", "Couverture des tests", "Écrans et parcours colorés : couverts par un test, en échec, partiels ou non couverts"]];
+  const ETATS_COUV = [["couvert", "Couvert"], ["echec", "Couvert, en échec"], ["partiel", "Partiel"], ["non_couvert", "Non couvert"]];
   let dernierAngle = "";  // gardé le temps de l'écran : revenir de Couverture / Flux / Impact retrouve le filtre
   const RANGS = {
     couverture: {module: 0, epic: 1, parcours: 1, user_story: 2, bug: 2, test_plan: 3, test: 4, scenario: 4, test_execution: 5, test_robot: 5},
@@ -223,6 +225,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     svg.classList.toggle("gv-sans-liens", !S.aff.liens);
     svg.classList.toggle("gv-sans-types", !S.aff.types);
     svg.classList.toggle("gv-avec-prov", !!S.aff.provenance);
+    svg.classList.toggle("gv-avec-couverture", !!S.aff.couverture);
+    legende();
   }
 
   /* rang de chaque élément dans l'ordre de navigation : écrans d'entrée en haut, puis les écrans atteints */
@@ -503,11 +507,26 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     }
   }
 
+  function legendeCouverture() {  // écrans et parcours affichés, par état de couverture par les tests
+    const c = {ecran: {}, parcours: {}};
+    for (const n of (S.data?.noeuds || []).filter(dansAngle)) {
+      const e = n.proprietes?.couverture_tests?.etat;
+      if (e && c[n.type]) c[n.type][e] = (c[n.type][e] || 0) + 1;
+    }
+    const ligne = (t, nom) => { const tot = Object.values(c[t]).reduce((a, b) => a + b, 0);
+      return tot ? `<li><b>${nom}</b> ${ETATS_COUV.filter(([e]) => c[t][e]).map(([e, l]) => `<span class="kg-couv-cle kg-couv-${e}" title="${l}">${c[t][e]}</span>`).join("")}
+        <span class="lib">${Math.round(100 * ((c[t].couvert || 0) + (c[t].echec || 0)) / tot)} % couverts</span></li>` : ""; };
+    const lignes = ligne("parcours", "Parcours") + ligne("ecran", "Écrans");
+    return `<div class="kg-couv-legende"><ul class="liste">${lignes || "<li class='lib'>Aucun écran ni parcours dans la vue.</li>"}</ul>
+      <p class="lib">${ETATS_COUV.map(([e, l]) => `<span class="kg-couv-cle kg-couv-${e}"></span>${l}`).join(" ")}</p></div>`;
+  }
+
   function legende() {  // types de nœuds de la maquette (familles), avec compte réel et filtre
     const comptes = {};
     for (const n of (S.data?.noeuds || []).filter(dansAngle)) { const f = familleDe(n.type).id; comptes[f] = (comptes[f] || 0) + 1; }
     $("#kg-legende").innerHTML = `<ul class="liste legende-types kg-familles">${FAMILLES_GRAPHE.filter(f => comptes[f.id] || S.famillesMasquees.has(f.id)).map(f => `<li data-cat="${f.id}" class="${S.famillesMasquees.has(f.id) ? "inactif" : ""}"
       title="Afficher / masquer : ${esc(f.types.join(", "))}"><input type="checkbox" tabindex="-1" ${S.famillesMasquees.has(f.id) ? "" : "checked"} style="accent-color:var(--f-${f.id})">${f.nom}<span class="compte">${comptes[f.id] || 0}</span></li>`).join("") || "<li class='lib'>Aucun élément.</li>"}</ul>
+      ${S.aff.couverture ? legendeCouverture() : ""}
       ${S.data?.patrimoine_masque ? `<p class="lib">${S.data.patrimoine_masque} ticket(s) Jira / Xray sans lien avec l'application masqué(s) : <button class="lien" id="kg-patri-tout">tout afficher</button> (ou rechercher une clé).</p>` : ""}
       ${S.data?.tronque ? `<p class="lib">Affichage limité à ${S.data.noeuds.length} éléments sur ${S.data.total} (sélection, périmètre et éléments clés d'abord ; rien n'est perdu).
         Non affichés : ${esc(Object.entries(S.data.masques_par_type || {}).map(([t, n]) => `${n} ${t}`).join(", "))}. Choisir un périmètre ou une perspective pour les voir.</p>` : ""}`;
@@ -654,6 +673,10 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
           <dt>Type</dt><dd>${esc(n.type.replace(/_/g, " ").replace(/^./, c => c.toUpperCase()))}</dd>
           <dt>Provenance</dt><dd title="${esc(baseElement(n))}">${esc(n.provenance.charAt(0).toUpperCase() + n.provenance.slice(1))}</dd>
           <dt>Statut</dt><dd><span class="pill ${n.statut === "validé" ? "ok" : "warn"}">${esc(n.statut === "validé" ? "Validé" : "À valider")}</span></dd>
+          ${p.couverture_tests ? `<dt>Tests</dt><dd><span class="pill ${{couvert: "ok", echec: "ko", partiel: "warn", non_couvert: "ko"}[p.couverture_tests.etat]}">${esc(p.couverture_tests.libelle)}</span>
+            ${p.couverture_tests.etapes ? `<span class="lib">${p.couverture_tests.etapes_couvertes}/${p.couverture_tests.etapes} étapes</span>` : ""}
+            ${(p.couverture_tests.tests || []).length ? `<div class="lib">${esc(p.couverture_tests.tests.slice(0, 5).join(" · "))}</div>` : ""}
+            ${(p.couverture_tests.non_couvertes || []).length ? `<div class="lib">Sans test : ${esc(p.couverture_tests.non_couvertes.join(", "))}</div>` : ""}</dd>` : ""}
           ${p.completude ? `<dt>Parcours</dt><dd><span class="pill ${p.completude === "confirmé" || p.completude === "exploré" ? "ok" : "warn"}">${esc(p.completude)}</span></dd>` : ""}</dl>
         ${p.description ? `<h4 class="kg-sous">Description</h4><p style="margin:0 0 8px">${esc(p.description)}</p>` : ""}
         ${Object.keys(voisinsParType).length ? `<h4 class="kg-sous">Liens (${Object.keys(voisinsParType).length})</h4><ul class="kg-liens-type">${Object.entries(voisinsParType).map(([t, l]) =>

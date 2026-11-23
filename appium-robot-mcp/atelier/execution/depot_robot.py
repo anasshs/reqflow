@@ -8,6 +8,9 @@ Flow Graph et de l'analyse d'impact.
 Références de locators reconnues dans les arguments :
   ${LOC_ECRAN_ANDROID.cle}   ${LOC_ECRAN_${PLATFORM}.cle}   ${LOC_ECRAN_IOS}[cle]
 Une référence au dictionnaire sans clé lisible (ex. via Set Variable) est rattachée à l'écran.
+Locators « scalaires » aussi (format des pages générées par l'atelier) : ${NOM}    android=… dans un fichier de locators
+(resources/locators/<page>.resource) ; l'écran est le nom du fichier, la clé le nom de la variable, et ${NOM} dans un
+keyword en est une référence.
 """
 from __future__ import annotations
 
@@ -23,6 +26,21 @@ REF_CLE = re.compile(r"LOC_([A-Z0-9_]+?)_(ANDROID|IOS|WEB|\$\{PLATFORM\})(?:_SEC
 REF_ECRAN = re.compile(r"LOC_([A-Z0-9_]+?)_(ANDROID|IOS|WEB|\$\{PLATFORM\})")
 DEF_LOC = re.compile(r"^&\{LOC_([A-Z0-9_]+?)_(ANDROID|IOS|WEB)(_SECOURS)?\}$")
 REF_JDD = re.compile(r"JDD_([A-Z0-9_]+)")
+DEF_SCALAIRE = re.compile(r"^\$\{([A-Za-z_]\w*)\}$")
+REF_VAR = re.compile(r"\$\{([A-Za-z_]\w*)\}")
+# valeur qui est sans ambiguïté un locator (hors d'un fichier de locators) / qui peut l'être (dans un fichier de locators)
+LOC_SUR = re.compile(r"^(android|accessibility_id|xpath|nsp|chain|-android uiautomator|-ios \w+)=|^//")
+LOC_POSSIBLE = re.compile(r"^(id|name|class|css|text|identifier|predicate|link|partial link)=")
+
+
+def plateforme_locator(valeur: str) -> str:
+    """Plateforme d'un locator scalaire, lue dans sa syntaxe (android par défaut pour un locator mobile)."""
+    v = valeur.strip()
+    if re.match(r"^(nsp|chain|-ios \w+|predicate|identifier)=", v) or "XCUIElement" in v:
+        return "ios"
+    if re.match(r"^(css|text|link|partial link)=", v) or "data-testid" in v:
+        return "web"
+    return "android"
 PREFIXES_BDD = re.compile(r"^(given|when|then|and|but|étant donné|etant donne|soit|quand|lorsque|alors|et|mais)\s+",
                           re.IGNORECASE)
 BIBLIOTHEQUES_UI = {"AppiumLibrary": ["android", "ios"], "Browser": ["web"], "SeleniumLibrary": ["web"],
@@ -111,6 +129,7 @@ def _lire_depot(racine: Path, fichiers: list[Path]) -> dict:
             def visit_Variable(self, n):
                 m = DEF_LOC.match(n.name or "")
                 if not m:
+                    self._scalaire(n)
                     return
                 ecran, plat, secours = m.group(1).lower(), PLATEFORMES[m.group(2)], bool(m.group(3))
                 for v in n.value or ():
@@ -127,11 +146,28 @@ def _lire_depot(racine: Path, fichiers: list[Path]) -> dict:
                     if lid not in info["locators"]:
                         info["locators"].append(lid)
 
+            def _scalaire(self, n):
+                s = DEF_SCALAIRE.match(n.name or "")
+                vals = [str(v) for v in (n.value or ())]
+                if not s or len(vals) != 1:
+                    return
+                val = vals[0].strip()
+                dans_locators = "locator" in rel.lower()
+                if not (LOC_SUR.match(val) or (dans_locators and LOC_POSSIBLE.match(val))):
+                    return
+                ecran, cle, plat = f.stem.lower(), s.group(1).lower(), plateforme_locator(val)
+                lid = f"{ecran}.{cle}@{plat}"
+                inv["locators"].setdefault(lid, {"id": lid, "ecran": ecran, "cle": cle, "plateforme": plat, "valeur": val,
+                                                 "secours": [], "fichier": rel, "scalaire": True, "variable": s.group(1)})
+                if lid not in info["locators"]:
+                    info["locators"].append(lid)
+
             def _bloc(self, n, genre: str):
                 self.courant = {"nom": n.name, "fichier": rel, "ligne": n.lineno, "appels": [], "args": [],
                                 "tags": [], "doc": ""}
                 self.generic_visit(n)
                 c, self.courant = self.courant, None
+                c["variables"] = sorted({v for a in c["args"] for v in REF_VAR.findall(a)})
                 c["locators"], c["ecrans"], c["jdd"] = _refs(c.pop("args"))
                 return c
 
@@ -181,7 +217,14 @@ def _lire_depot(racine: Path, fichiers: list[Path]) -> dict:
 
 
 def _resoudre(inv: dict):
-    """Appels -> keywords du dépôt ou bibliothèque ; plateformes de chaque test."""
+    """Appels -> keywords du dépôt ou bibliothèque ; plateformes de chaque test ; ${NOM} -> locators scalaires."""
+    scalaires: dict = {}
+    for loc in inv["locators"].values():
+        if loc.get("scalaire"):
+            scalaires.setdefault(loc["variable"].upper(), (loc["ecran"], loc["cle"]))
+    for c in list(inv["tests"].values()) + list(inv["keywords"].values()):
+        refs = {scalaires[v.upper()] for v in c.pop("variables", []) if v.upper() in scalaires}
+        c["locators"] = sorted({tuple(x) for x in c["locators"]} | refs)
     for c in list(inv["tests"].values()) + list(inv["keywords"].values()):
         c["keywords"] = list(dict.fromkeys(k for k in (cle_appel(a) for a in c["appels"]) if k in inv["keywords"]))
         c["externes"] = list(dict.fromkeys(a for a in c["appels"] if cle_appel(a) not in inv["keywords"]))

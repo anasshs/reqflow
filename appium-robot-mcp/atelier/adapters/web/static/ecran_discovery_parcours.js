@@ -293,9 +293,8 @@
     if ($("#cad-encore")) $("#cad-encore").onclick = () => { etape = "cible"; rendre(); };
     $$("[data-suite-bdd]", c).forEach(b => b.onclick = () => allerA(b.dataset.suiteBdd, b.dataset.etape));
     if ($("#cad-bdd")) $("#cad-bdd").onclick = async () => {
-      const deja = (P.bdd || []).length;
-      if (deja && !confirm(`Ce parcours a déjà ${deja} test(s) BDD. En créer un autre (variante) ?`)) return;
-      try { const r = await api("/api/discovery/parcours-bdd", {method: "POST", body: {parcours: P.noeud, titre: P.nom}}); toast(`Test BDD ${r.cle} créé (brouillon). Relire, puis « Générer le script Robot ».`, "ok"); location.hash = "bdd/" + encodeURIComponent(r.cle); }
+      // un déroulé déjà fait par un test BDD existant est détecté côté serveur (creerBrouillonBdd propose de l'ouvrir)
+      try { const r = await creerBrouillonBdd({parcours: P.noeud, titre: P.nom}); if (!r) return; toast(`Test BDD ${r.cle} créé (brouillon). Relire, puis « Générer le script Robot ».`, "ok"); location.hash = "bdd/" + encodeURIComponent(r.cle); }
       catch (e) { toast(e.message, "ko"); }
     };
   }
