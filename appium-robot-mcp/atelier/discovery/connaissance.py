@@ -595,6 +595,11 @@ def identifiant_locator(valeur: str) -> str:
     return ""
 
 
+# un élément présent sur plus d'écrans que cela (barre de navigation, bouton retour de l'en-tête, bouton de popup) est un
+# composant commun : un test qui le touche ne couvre pas pour autant chacun de ces écrans
+COMPOSANT_COMMUN_MAX = 3
+
+
 def _correspondances_carte(g: Graphe) -> tuple[dict, dict]:
     """Locators de la carte indexés par valeur exacte et par identité (pour relier le dépôt à la carte)."""
     par_valeur, par_ident = {}, {}
@@ -617,11 +622,17 @@ def _depuis_depot(g: Graphe, inv: dict):
 
     par_valeur, par_ident = _correspondances_carte(g)
     carte_de: dict = {}  # locator du dépôt -> locators de la carte de même valeur (ou de même identité)
+    communs: dict = {}   # locator du dépôt -> nombre d'écrans où l'élément existe (barre de navigation, retour…)
     for lid, loc in inv["locators"].items():
         v, plat = (loc.get("valeur") or "").strip(), loc["plateforme"]
         cibles = par_valeur.get((v, plat)) or par_ident.get((identifiant_locator(v), plat)) if v else None
-        if cibles:
-            carte_de[f"locator:{lid}"] = sorted(cibles - {f"locator:{lid}"})
+        if not cibles:
+            continue
+        ecrans_cibles = {c.split(":", 1)[1].rsplit("@", 1)[0].rsplit(".", 1)[0] for c in cibles}
+        if len(ecrans_cibles) > COMPOSANT_COMMUN_MAX:  # composant commun : le toucher ne dit pas sur quel écran on est
+            communs[f"locator:{lid}"] = len(ecrans_cibles)
+            continue
+        carte_de[f"locator:{lid}"] = sorted(cibles - {f"locator:{lid}"})
     for lid, loc in inv["locators"].items():
         nid = f"locator:{lid}"
         g.noeud(nid, "locator", loc["cle"], source=f"dépôt ({loc['fichier']})", plateformes=[loc["plateforme"]],
@@ -634,6 +645,8 @@ def _depuis_depot(g: Graphe, inv: dict):
             n.proprietes["valeur_depot"] = loc["valeur"]
         if carte_de.get(nid):
             n.proprietes["correspond_a"] = carte_de[nid]
+        if communs.get(nid):
+            n.proprietes["composant_commun"] = communs[nid]
         if loc.get("scalaire"):  # le nom du fichier de locators n'est pas un écran : rattaché à la carte par sa valeur
             continue
         eid = f"ecran:{loc['ecran']}"

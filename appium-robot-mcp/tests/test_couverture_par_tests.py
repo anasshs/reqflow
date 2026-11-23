@@ -98,3 +98,38 @@ def test_ecran_parcouru_par_un_scenario_bdd_automatise(tmp_path):
     g.noeuds[tid].proprietes["dernier_statut"] = "FAIL"
     connaissance._annoter_couverture_tests(g)
     assert etat("ecran:notifications") == "echec"
+
+
+def test_composant_commun_et_socle_ne_couvrent_pas_tous_les_ecrans():
+    """Une barre de navigation présente sur beaucoup d'écrans, ou un keyword du socle appelé par presque tous les tests
+    (initialisation, popups au démarrage), ne rendent pas « couverts » tous les écrans où ces éléments existent."""
+    from atelier.discovery import connaissance
+    from atelier.intelligence import couverture_avancee as ca
+
+    g = Graphe("essai")
+    for e in ("e1", "e2", "e3", "e4", "e5"):
+        g.noeud(f"ecran:{e}", "ecran", e, source="carte")
+        g.noeud(f"locator:{e}.nav_menu@android", "locator", "nav_menu", source="carte",
+                proprietes={"valeur": 'android=new UiSelector().resourceId("nav_menu")', "plateforme": "android"})
+        g.relier(f"ecran:{e}", f"locator:{e}.nav_menu@android", "contient")
+    g.noeud("locator:e1.popup_ok@android", "locator", "popup_ok", source="carte",
+            proprietes={"valeur": 'android=new UiSelector().resourceId("popup_ok")', "plateforme": "android"})
+    g.relier("ecran:e1", "locator:e1.popup_ok@android", "contient")
+    inv = {"locators": {
+        "commun.nav_menu@android": {"id": "commun.nav_menu@android", "ecran": "commun", "cle": "nav_menu", "plateforme": "android",
+                                    "valeur": 'android=new UiSelector().resourceId("nav_menu")', "secours": [], "fichier": "l.resource", "scalaire": True},
+        "commun.popup_ok@android": {"id": "commun.popup_ok@android", "ecran": "commun", "cle": "popup_ok", "plateforme": "android",
+                                    "valeur": 'android=new UiSelector().resourceId("popup_ok")', "secours": [], "fichier": "l.resource", "scalaire": True}},
+        "fichiers": {}, "suites": {}, "keywords": {}, "tests": {}}
+    vide = {"keywords": [], "locators": [], "ecrans": [], "jdd": []}
+    inv["keywords"]["ouvrirmenu"] = {**vide, "nom": "ouvrir menu", "fichier": "p.resource", "ligne": 1, "doc": "", "externes": [],
+                                     "locators": [("commun", "nav_menu")]}
+    inv["keywords"]["initialiser"] = {**vide, "nom": "initialiser", "fichier": "c.resource", "ligne": 1, "doc": "", "externes": [],
+                                      "locators": [("commun", "popup_ok")]}
+    for i in range(6):
+        inv["tests"][f"t{i}"] = {**vide, "nom": f"t{i}", "fichier": "s.robot", "ligne": 1, "doc": "", "tags": [], "cles_xray": [],
+                                 "plateformes": ["android"], "bibliotheques": [], "keywords": ["initialiser"] + (["ouvrirmenu"] if i == 0 else [])}
+    connaissance._depuis_depot(g, inv)
+    assert g.noeuds["locator:commun.nav_menu@android"].proprietes["composant_commun"] == 5
+    e = {x["nom"]: x for x in ca.calculer(g)["ecrans"]}
+    assert all(e[x]["niveau"] == "découvert" for x in ("e1", "e2", "e3", "e4", "e5"))  # ni la barre de navigation, ni le socle

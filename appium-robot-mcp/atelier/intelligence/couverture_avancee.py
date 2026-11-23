@@ -33,6 +33,9 @@ DEFINITIONS = {
 }
 
 
+SOCLE_PART, SOCLE_MIN_TESTS = 0.6, 5  # keyword appelé par 60 % des tests (5 tests au moins) : socle commun
+
+
 def _rang(niveau: str) -> int:
     return NIVEAUX.index(niveau)
 
@@ -64,7 +67,7 @@ def calculer(g=None, module: str = "") -> dict:
         return [r.vers for r in g.sortants(i) if r.type == t and r.vers in N]
 
     # tests Robot → keywords (fermeture) → locators
-    tests_par_locator: dict[str, set] = {}
+    fermetures: dict[str, set] = {}
     for tid, n in N.items():
         if n.type != "test_robot":
             continue
@@ -75,7 +78,17 @@ def calculer(g=None, module: str = "") -> dict:
                 continue
             vus.add(k)
             pile += sortants(k, "appelle")
+        fermetures[tid] = vus
+    # socle commun : keyword appelé (directement ou non) par la plupart des tests (initialisation, popups au démarrage,
+    # teardown). Les écrans qu'il touche « au cas où » ne sont pas couverts par chacun de ces tests.
+    appels: dict[str, int] = {}
+    for vus in fermetures.values():
         for k in vus:
+            appels[k] = appels.get(k, 0) + 1
+    socle = {k for k, nb in appels.items() if len(fermetures) >= SOCLE_MIN_TESTS and nb / len(fermetures) >= SOCLE_PART}
+    tests_par_locator: dict[str, set] = {}
+    for tid, vus in fermetures.items():
+        for k in vus - socle:
             for loc in sortants(k, "utilise"):
                 tests_par_locator.setdefault(loc, set()).add(tid)
 
