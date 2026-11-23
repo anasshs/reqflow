@@ -453,6 +453,26 @@ def ecran_transitoire(e: dict) -> bool:
     return bool(TRANSITOIRE.search(texte)) or (not e.get("titre") and not e.get("nom") and len(e.get("elements") or {}) < 3)
 
 
+def chemin_de_session(sid: str) -> list[str]:
+    """Écrans traversés, dans l'ordre : d'après les transitions (l'écran de départ déjà connu de la carte n'a pas
+    d'événement « écran », seulement une transition qui en part), sinon d'après les événements « écran »."""
+    from atelier.discovery import sessions_discovery
+
+    evts = sessions_discovery.timeline(sid, 5000)
+    chemin: list[str] = []
+    for e in evts:
+        if e.get("type") == "transition" and e.get("vers"):
+            for x in ([e["de"]] if e.get("de") and not chemin else []) + [e["vers"]]:
+                if not chemin or chemin[-1] != x:
+                    chemin.append(x)
+    if chemin:
+        return chemin
+    for e in evts:
+        if e.get("type") == "ecran" and e.get("ecran") and (not chemin or chemin[-1] != e["ecran"]):
+            chemin.append(e["ecran"])
+    return chemin
+
+
 def session_terminee(s: dict) -> dict | None:
     """À la fin d'une session rattachée : les écrans traversés, dans l'ordre, deviennent les écrans du parcours.
     Le parcours a été cadré par l'utilisateur et l'écran a été réellement traversé : c'est un fait observé, il est
@@ -464,10 +484,7 @@ def session_terminee(s: dict) -> dict | None:
     pid = (s.get("config") or {}).get("parcours")
     if not pid:
         return None
-    chemin = []
-    for e in sessions_discovery.timeline(s["id"], 5000):
-        if e.get("type") == "ecran" and e.get("ecran") and (not chemin or chemin[-1] != e["ecran"]):
-            chemin.append(e["ecran"])
+    chemin = chemin_de_session(s["id"])
     with _verrou:
         p = _lire(pid)
         p["deroules"] = [d for d in p.get("deroules", []) if d.get("session") != s["id"]]
@@ -500,6 +517,8 @@ def session_terminee(s: dict) -> dict | None:
             elif relations[rid].get("statut") != "validé" and not passage:
                 declarations.valider_relation(rid)
                 valides += 1
+        ordre = {e: i for i, e in enumerate(dict.fromkeys(chemin))}  # l'ordre du déroulé fait foi pour les écrans traversés
+        p["ecrans"] = sorted(p["ecrans"], key=lambda e: ordre.get(e, len(ordre)))
         _journal(p, "déroulé terminé", detail=f"{s['id']} · {len(set(chemin))} écran(s) traversé(s), {valides} ajouté(s) au parcours, "
                                               f"{proposes} écran(s) de passage à confirmer")
         if valides and not proposes and not p.get("valide"):

@@ -127,3 +127,27 @@ def test_du_parcours_au_script_robot_sans_xray(carte_virements, monkeypatch):
     assert ecrit.status_code == 200, ecrit.text
     from atelier.domain import projet
     assert (projet.PROJECT_DIR / ecrit.json()["ecrit"]).exists()
+
+
+def test_session_d_un_agent_mcp_remise_dans_l_ordre(carte_virements):
+    """Un agent MCP journalise l'écran ouvert et la transition AVANT son action, puis range l'application (retour) :
+    le brouillon part bien de l'écran de départ, l'action précède l'écran affiché, le retour final n'est pas une étape."""
+    import json as _json
+
+    from atelier.discovery import carte, parcours_utilisateur as pu, sessions_discovery as ds
+    from atelier.generation import parcours_bdd
+
+    _, (acc, vir, _sai) = carte_virements
+    loc = ((carte.ecran(acc)["elements"]["lien_virements"].get("locators") or {}).get("web") or [""])[0]
+    s = ds.creer({})
+    ds.demarrer(s["id"])
+    for i, e in enumerate([{"type": "ecran", "ecran": vir, "detail": "nouvel écran"},
+                           {"type": "transition", "de": acc, "vers": vir},
+                           {"type": "action", "detail": "tap " + _json.dumps({"locator": loc})},
+                           {"type": "transition", "de": vir, "vers": acc},
+                           {"type": "action", "detail": "press_back {}"}]):
+        ds._evenement(s["id"], {**e, "date": f"2026-11-23T10:00:{10 + 2 * i:02d}+00:00"})
+    etapes, _ = parcours_bdd.etapes_de_session(s["id"], "web")
+    assert [(e["type"], e["ecran"]) for e in etapes] == [("given", acc), ("when", acc), ("then", vir)]
+    assert etapes[1]["texte"] == "je touche virements"
+    assert pu.chemin_de_session(s["id"]) == [acc, vir, acc]          # l'écran de départ connu fait partie du chemin

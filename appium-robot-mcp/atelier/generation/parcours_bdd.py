@@ -156,6 +156,53 @@ def _evenements_session(sid: str) -> list[dict]:
     return [x[3] for x in sorted(out, key=lambda x: x[:3])]
 
 
+def _element(ecran_id: str, locator: str, plateforme: str) -> tuple[str, dict]:
+    """(clé, élément) de l'écran que vise le locator : locator identique, sinon même identité (resource-id,
+    accessibility id) — « //*[@resource-id="x"]//EditText » vise le conteneur « x ». (« », {}) si aucun."""
+    from atelier.discovery import carte
+    from atelier.discovery.connaissance import identifiant_locator
+
+    try:
+        elements = carte.ecran(ecran_id).get("elements") or {}
+    except (KeyError, ValueError, RuntimeError):
+        return "", {}
+    for k, x in elements.items():
+        if locator in ((x.get("locators") or {}).get(plateforme) or []):
+            return k, x
+    ident = identifiant_locator(locator)
+    if ident:
+        for k, x in elements.items():
+            if any(identifiant_locator(l) == ident for l in ((x.get("locators") or {}).get(plateforme) or [])):
+                return k, x
+    return "", {}
+
+
+def _remettre_actions_en_ordre(evts: list[dict], plateforme: str) -> list[dict]:
+    """Un agent (MCP) journalise son action APRÈS l'écran qu'elle a ouvert (écran puis transition, puis l'action). Une
+    action dont l'élément est sur l'écran de départ de la transition qui la précède est remise avant cette transition :
+    les étapes suivent alors l'ordre réel (toucher, puis l'écran affiché)."""
+    out = list(evts)
+    i = 0
+    while i < len(out):
+        e = out[i]
+        if e.get("type") == "action":
+            # la transition que l'action a provoquée : la dernière juste avant elle (et son écho « écran » éventuel)
+            j = i - 1
+            while j >= 0 and out[j].get("type") == "ecran":
+                j -= 1
+            trans = out[j] if j >= 0 and out[j].get("type") == "transition" and out[j].get("de") else None
+            if trans and j > 0 and out[j - 1].get("type") == "ecran" and out[j - 1].get("ecran") == trans.get("vers"):
+                j -= 1
+            if trans:
+                nom, a = _action(e.get("detail", ""))
+                sur_depart = nom == "press_back" or (a.get("locator") and _element(trans["de"], a["locator"], plateforme)[0]
+                                                      and not _element(trans["vers"], a["locator"], plateforme)[0])
+                if sur_depart:
+                    out.insert(j, out.pop(i))
+        i += 1
+    return out
+
+
 def _action(detail: str) -> tuple[str, dict]:
     """« tap {json} » → (« tap », {locator…}) ; détail illisible → (type, {})."""
     nom, _, reste = str(detail or "").partition(" ")
@@ -175,7 +222,16 @@ def etapes_de_session(sid: str, plateforme: str, noms_variables: dict | None = N
     noms_variables = noms_variables or {}
     regles = classement.regles()
     etapes, avertissements, courant = [], [], None
-    for e in _evenements_session(sid):
+    evts = _evenements_session(sid)
+    if any(x.get("type") == "transition" for x in evts):  # les transitions disent l'ordre ; « nouvel écran » n'en est que l'écho
+        evts = [x for x in evts if x.get("type") != "ecran"]
+    evts = _remettre_actions_en_ordre(evts, plateforme)
+    depart = next((x["de"] for x in evts if x.get("type") == "transition" and x.get("de")), None) \
+        or next((x["ecran"] for x in evts if x.get("type") == "ecran" and x.get("ecran")), None)
+    if depart and evts and next((x for x in evts if x.get("type") in ("transition", "ecran", "action")), {}).get("type") == "action":
+        courant = depart  # la session commence par une action sur l'écran de départ
+        etapes.append(bdd._etape("Étant donné", f"que je suis sur l'écran {_lisible(carte.ecran(courant))}", ecran=courant))
+    for e in evts:
         t = e.get("type")
         if t == "transition" and e.get("vers"):
             if courant is None and e.get("de"):
@@ -192,15 +248,9 @@ def etapes_de_session(sid: str, plateforme: str, noms_variables: dict | None = N
         if t != "action":
             continue
         nom, a = _action(e.get("detail", ""))
-        el_cle, el = "", {}
-        if courant and a.get("locator"):
-            try:
-                elements = carte.ecran(courant).get("elements") or {}
-            except (KeyError, ValueError, RuntimeError):
-                elements = {}
-            el_cle, el = next(((k, x) for k, x in elements.items()
-                               if a["locator"] in ((x.get("locators") or {}).get(plateforme) or [])), ("", {}))
+        el_cle, el = _element(courant, a["locator"], plateforme) if courant and a.get("locator") else ("", {})
         lib = (el.get("libelle") or el_cle or "l'élément").strip()
+        technique = "_" in lib and " " not in lib  # libellé = identifiant technique : pas un texte lisible
         if nom == "press_back":
             etapes.append(bdd._etape("Quand", "je reviens en arrière", ecran=courant or ""))
         elif nom == "swipe":
@@ -214,10 +264,19 @@ def etapes_de_session(sid: str, plateforme: str, noms_variables: dict | None = N
             m = re.fullmatch(r"\{\{\s*var\s*:\s*([A-Z0-9_]+)\s*\}\}", str(a.get("text") or "").strip())
             var = m.group(1) if m else ""
             champ = (el_cle or "champ").lower()
-            texte = f"je renseigne {lib.lower()} avec " + (f"la donnée {noms_variables.get(var, var)}" if var else "le jeu de données")
+            if etapes and etapes[-1]["type"] in ("when", "and") and etapes[-1].get("locator") and etapes[-1]["texte"].startswith("je touche") \
+                    and _element(courant, etapes[-1]["locator"], plateforme)[0] == el_cle and el_cle:
+                etapes.pop()  # toucher le champ pour y mettre le curseur : pas une étape
+            nom_var = noms_variables.get(var, var)
+            if technique or lib == "l'élément":
+                lib = re.sub(r"\s*\(fictif\)\s*$", "", nom_var) if var else "le champ"
+            texte = f"je renseigne {lib.lower()} avec " + (f"la donnée {nom_var}" if var else "le jeu de données")
             etapes.append(bdd._etape("Et", texte, ecran=courant or "", locator=a["locator"], jdd=var.lower() or champ, variable=var))
     # une même étape répétée à la suite (double toucher enregistré) n'apparaît qu'une fois
     propres = [x for i, x in enumerate(etapes) if not i or (x["texte"], x["type"]) != (etapes[i - 1]["texte"], etapes[i - 1]["type"])]
+    # retour en arrière final (on range l'application en fin de session) : pas une étape du test
+    while len(propres) > 2 and propres[-1]["type"] == "then" and propres[-2]["texte"] == "je reviens en arrière":
+        propres = propres[:-2]
     return propres, avertissements
 
 
