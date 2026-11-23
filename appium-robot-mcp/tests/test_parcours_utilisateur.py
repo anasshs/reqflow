@@ -309,3 +309,35 @@ def test_perimetre_d_exploration(banque):
     assert dedans["perimetre"]["dans_le_perimetre"] and [x["cle"] for x in dedans["suggestions"]] == ["lien_plafonds"]
     sessions_discovery.arreter(s["id"])
     assert assistance.suggerer([], {"id": banque["accueil"]}, "web", ia=False)["perimetre"] is None       # hors session : rien n'est borné
+
+
+def test_explorations_libres_a_automatiser(banque):
+    """Une exploration terminée sans parcours préparé, d'au moins deux écrans, se propose à l'automatisation (À automatiser)
+    et son brouillon BDD lui est rattaché ; une session de parcours ou d'un seul écran n'en est pas une."""
+    from fastapi.testclient import TestClient
+
+    from atelier.discovery import carte, parcours_utilisateur, sessions_discovery
+    from atelier.domain import evenements
+    from web_app_loader import charger_app_web
+
+    def explorer(ecrans, **config):
+        s = sessions_discovery.creer({"plateforme": "web", "device": "navigateur", **config})
+        sessions_discovery.demarrer(s["id"])
+        for eid in ecrans:
+            evenements.publier({"type": "carte_change", "ecran": {"id": eid, "nom": carte.ecran(eid).get("nom")}})
+        return sessions_discovery.arreter(s["id"])
+
+    libre = explorer([banque["accueil"], banque["virement_saisie"], banque["virement_recap"]], perimetre="Virements")
+    explorer([banque["accueil"]])  # un seul écran : rien à automatiser
+    pid = parcours_utilisateur.enregistrer("", {"nom": "Virement", "plateforme": "web"})["id"]
+    _derouler(pid, [banque["accueil"], banque["virement_saisie"]])  # rattachée au parcours : listée avec lui, pas ici
+    l = parcours_utilisateur.explorations_libres()
+    assert [x["id"] for x in l] == [libre["id"]] and l[0]["ecrans_visites"] >= 2 and l[0]["perimetre"] == "Virements"
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200
+    v = c.get("/api/discovery/cadrage").json()
+    assert v["explorations"][0]["id"] == libre["id"] and v["explorations"][0]["bdd"] == []
+    assert v["parcours"][0]["ecrans"] == 2 and v["parcours"][0]["bdd"] == []
+    r = c.post("/api/discovery/parcours-bdd", json={"session": libre["id"], "titre": "Exploration des virements"}).json()
+    v = c.get("/api/discovery/cadrage").json()
+    assert [b["cle"] for b in v["explorations"][0]["bdd"]] == [r["cle"]] and v["explorations"][0]["bdd"][0]["suivante"]["etape"] == "valider_bdd"

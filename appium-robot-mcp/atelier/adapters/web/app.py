@@ -2222,9 +2222,11 @@ def discovery_cadrage(archives: bool = False):
     from atelier.generation import maintenance
 
     l = _call(parcours_utilisateur.lister, archives)
-    tous = _bdd_avec_cycle() if l else []
+    ex = _call(parcours_utilisateur.explorations_libres)
+    tous = _bdd_avec_cycle() if l or ex else []
     l = [{**x, "bdd": [b for b in tous if maintenance.du_parcours(b, _reperes_parcours(x))]} if isinstance(x, dict) else x for x in l]
-    return {"parcours": l, "options": _call(parcours_utilisateur.options)}
+    ex = [{**x, "bdd": [b for b in tous if b.get("session") == x["id"]]} for x in ex]
+    return {"parcours": l, "explorations": ex, "options": _call(parcours_utilisateur.options)}
 
 
 def _reperes_parcours(p: dict) -> dict:

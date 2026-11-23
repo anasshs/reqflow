@@ -322,6 +322,23 @@ def lister(archives: bool = False) -> list[dict]:
     return sorted((_resume(p) for p in _tous(app) if archives or not p.get("archive")), key=lambda x: x["modifie"], reverse=True)
 
 
+def explorations_libres() -> list[dict]:
+    """Sessions Discovery terminées de l'application active, sans parcours préparé, qui ont traversé au moins deux
+    écrans : chacune peut devenir un test (brouillon BDD depuis la session), comme un parcours déroulé."""
+    from atelier.discovery import carte, sessions_discovery
+
+    app = carte.app_courante()
+    out = []
+    for s in sessions_discovery.lister() if app else []:
+        c, r = s.get("config") or {}, s.get("resultats") or {}
+        if c.get("app") != app or c.get("parcours") or s.get("statut") != "Terminée" or (r.get("ecrans_visites") or 0) < 2:
+            continue
+        out.append({"id": s["id"], "debut": s.get("debut") or s.get("cree"), "fin": s.get("fin"), "auteur": s.get("auteur", ""),
+                    "plateforme": c.get("plateforme", ""), "perimetre": c.get("perimetre", ""), "mode": c.get("mode", ""),
+                    "ecrans_visites": r.get("ecrans_visites"), "nouveaux_ecrans": r.get("nouveaux_ecrans")})
+    return out
+
+
 def options() -> dict:
     """Ce que l'écran de cadrage propose : plateformes de l'application, profils de données, environnements, écrans connus."""
     from atelier.discovery import carte, donnees

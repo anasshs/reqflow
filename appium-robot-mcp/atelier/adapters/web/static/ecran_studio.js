@@ -320,23 +320,43 @@
     const MAX_US = 40;
     /* Parcours déroulés en Discovery (des écrans enregistrés) : chacun s'affiche ici pour demander son automatisation,
        qu'il ait déjà un test BDD ou non ; une seule action, celle de l'étape suivante. */
-    const deroules = (cad.parcours || []).filter(p => p.ecrans > 0 && !p.archive);
-    const duParcours = new Set(deroules.flatMap(p => (p.bdd || []).map(b => b.cle)));
+    /* Ce que la Discovery a déroulé : parcours (avec des écrans, ou une session lancée) et explorations libres terminées.
+       Chacun s'affiche ici pour demander son automatisation ; une seule action, celle de l'étape suivante. Les écrans
+       d'un parcours ne sont enregistrés qu'à l'arrêt de sa session : un parcours encore « En cours » le dit. */
+    const appNom = cad.options?.application?.nom || "";
+    const deroules = (cad.parcours || []).filter(p => (p.ecrans > 0 || p.sessions > 0) && !p.archive);
+    const explorations = cad.explorations || [];
+    const duParcours = new Set([...deroules, ...explorations].flatMap(p => (p.bdd || []).map(b => b.cle)));
     const RANG_P = {valider_bdd: 0, generer: 1, verifier: 2, valider_test: 3, fait: 4};
     const enRetard = l => [...l].sort((x, y) => (RANG_P[x.suivante?.etape] ?? 0) - (RANG_P[y.suivante?.etape] ?? 0))[0];
-    const aAutomatiser = deroules.filter(p => !(p.bdd || []).length || (p.bdd || []).some(b => b.suivante?.etape !== "fait"));
-    const ligneParcours = p => { const l = p.bdd || [], b = l.length ? enRetard(l) : null;
-      return `<tr><td><a href="#discovery/cadrage/${encodeURIComponent(p.id)}"><b>${esc(p.nom || p.id)}</b></a>${p.objectif ? `<div class="lib">${esc(p.objectif)}</div>` : ""}</td>
+    const reste = p => !(p.bdd || []).length || (p.bdd || []).some(b => b.suivante?.etape !== "fait");
+    const aAutomatiser = deroules.filter(p => p.ecrans > 0 && reste(p)), aTerminer = deroules.filter(p => !p.ecrans);
+    const btnDemande = (attr, val, nom) => `<button class="btn petit primaire" ${attr}="${esc(val)}" data-nom="${esc(nom)}"
+      title="Écrit le brouillon du test BDD à partir des écrans parcourus (sans IA, sans Jira ni Xray) ; ensuite : relire, valider, puis construire le script avec l'agent">${ico("ia")}Demander l'automatisation</button>`;
+    const tests = l => l.length ? l.map(x => `<a class="mono" href="#bdd/${encodeURIComponent(x.cle)}" title="${esc(x.titre || "")}">${esc(x.cle)}</a>`).join(", ") : '<span class="lib">aucun</span>';
+    const ligneParcours = p => { const l = p.bdd || [], b = l.length ? enRetard(l) : null, lien = `#discovery/cadrage/${encodeURIComponent(p.id)}`;
+      const action = b ? prochaineEtape(b) : p.ecrans > 0 ? btnDemande("data-auto-parcours", p.noeud, p.nom || "")
+        : p.statut === "En cours" ? `<a class="btn petit primaire" href="${lien}" title="Les écrans traversés sont enregistrés dans le parcours à l'arrêt de la session Discovery">Terminer le déroulé</a>
+            <div class="lib">session en cours : les écrans sont enregistrés à l'arrêt</div>`
+        : `<a class="btn petit" href="${lien}">Ouvrir le parcours</a><div class="lib">aucun écran enregistré : le dérouler à nouveau</div>`;
+      return `<tr><td><a href="${lien}"><b>${esc(p.nom || p.id)}</b></a>${p.objectif ? `<div class="lib">${esc(p.objectif)}</div>` : ""}</td>
         <td><span class="pill ${p.statut === "Validé" ? "ok" : p.statut === "En cours" ? "info" : ""}">${esc(p.statut)}</span></td>
         <td>${p.ecrans} écran(s)${p.plateforme ? ` <span class="lib">· ${esc(p.plateforme)}</span>` : ""}</td>
-        <td>${l.length ? l.map(x => `<a class="mono" href="#bdd/${encodeURIComponent(x.cle)}" title="${esc(x.titre || "")}">${esc(x.cle)}</a>`).join(", ") : '<span class="lib">aucun</span>'}</td>
-        <td>${b ? prochaineEtape(b) : `<button class="btn petit primaire" data-auto-parcours="${esc(p.noeud)}" data-nom="${esc(p.nom || "")}"
-          title="Écrit le brouillon du test BDD à partir des écrans parcourus (sans IA, sans Jira ni Xray) ; ensuite : relire, valider, puis construire le script avec l'agent">${ico("ia")}Demander l'automatisation</button>`}</td></tr>`; };
-    const blocParcours = deroules.length ? `<section class="bloc-strat"><h3>Parcours découverts <span class="lib">(Discovery : ${deroules.length} parcours déroulé(s),
-        ${aAutomatiser.length ? `${aAutomatiser.length} à automatiser` : "tous automatisés"})</span>
+        <td>${tests(l)}</td><td>${action}</td></tr>`; };
+    const ligneExploration = x => { const l = x.bdd || [], b = l.length ? enRetard(l) : null, quand = String(x.fin || x.debut || "").replace("T", " ").slice(0, 16);
+      return `<tr><td><a href="#discovery/historique" title="Session ${esc(x.id)}"><b>Exploration du ${esc(quand)}</b></a><div class="lib">${esc(x.perimetre || "sans parcours préparé")} · ${esc(x.auteur || "")}</div></td>
+        <td><span class="pill">Terminée</span></td><td>${x.ecrans_visites} écran(s)${x.plateforme ? ` <span class="lib">· ${esc(x.plateforme)}</span>` : ""}</td>
+        <td>${tests(l)}</td><td>${b ? prochaineEtape(b) : btnDemande("data-auto-session", x.id, `Exploration du ${quand}`)}</td></tr>`; };
+    const nAuto = aAutomatiser.length + explorations.filter(reste).length;
+    const blocParcours = deroules.length || explorations.length ? `<section class="bloc-strat"><h3>Parcours découverts <span class="lib">(Discovery${appNom ? ` · ${esc(appNom)}` : ""} :
+        ${nAuto ? `${nAuto} à automatiser` : "rien à automatiser"}${aTerminer.length ? `, ${aTerminer.length} sans écran enregistré` : ""})</span>
         <span class="lien lib"><a href="#discovery/cadrage/nouveau">${ico("plus")}Découvrir un parcours</a></span></h3>
         <table class="table-strat"><tr><th>Parcours</th><th>Statut</th><th>Écrans</th><th>Tests BDD</th><th>Prochaine étape</th></tr>
-        ${[...aAutomatiser, ...deroules.filter(p => !aAutomatiser.includes(p))].map(ligneParcours).join("")}</table></section>` : "";
+        ${[...aAutomatiser, ...aTerminer, ...deroules.filter(p => !aAutomatiser.includes(p) && !aTerminer.includes(p))].map(ligneParcours).join("")}
+        ${explorations.map(ligneExploration).join("")}</table></section>`
+      : `<p class="lib" style="margin:0 0 10px">Aucun parcours déroulé en Discovery pour ${appNom ? `l'application « <b>${esc(appNom)}</b> »` : "l'application choisie"}.
+        Un parcours apparaît ici dès qu'une session Discovery le déroule (ses écrans sont enregistrés à l'arrêt de la session), ainsi que les
+        explorations terminées d'au moins deux écrans. Vérifier l'application choisie dans le header. <a href="#discovery/cadrage/nouveau">Découvrir un parcours</a></p>`;
     const atelier = bdds.filter(b => !parTest[b.cle] && !duParcours.has(b.cle));
     const blocAtelier = atelier.length ? `<section class="bloc-strat"><h3>Tests conçus dans l'atelier <span class="lib">(Discovery ou saisis à la main, sans test Xray)</span></h3>
         <table class="table-strat"><tr><th>Test BDD</th><th>Statut</th><th>Prochaine étape</th></tr>${atelier.map(b => `<tr><td><a href="#bdd/${encodeURIComponent(b.cle)}">${esc(b.titre || b.cle)}</a> <span class="lib mono">${esc(b.cle)}</span></td>
@@ -345,7 +365,7 @@
     const ix = Atelier.integrations(), seul = !ix.jira && !ix.xray && !d.total;  // sans Jira ni Xray : seuls les tests conçus dans l'atelier
     z.innerHTML = `${entete(ix.jira ? "De l'US au test automatisé" : "À automatiser", seul ? "" : menu)}<div class="corps-carte">
       ${blocParcours}${blocAtelier}
-      ${seul ? (blocAtelier || blocParcours ? "" : vide("Aucun test à automatiser", "Découvrir un parcours (Discovery › Préparer un parcours), puis « Créer le test BDD » : il apparaîtra ici.")) : `
+      ${seul ? (blocAtelier || deroules.length || explorations.length ? "" : vide("Aucun test à automatiser", "Découvrir un parcours (Discovery › Préparer un parcours), puis « Créer le test BDD » : il apparaîtra ici.")) : `
       ${d.perimetre ? `<p style="margin:0 0 8px"><span class="pill info">Périmètre</span> <b>${esc(d.perimetre.libelle)}</b>${d.perimetre.us !== undefined ? ` · ${d.perimetre.us} US${d.perimetre.fige ? " (photo figée du sprint)" : ""}` : ""}
         · ${plan.length} test(s) sur ${d.total}</p>` : ""}
       <ol class="workflow ca-fil" aria-label="Étapes des US du périmètre">${d.etapes.map(e => `<li class="${ETAPE_FILTRE === e.id ? "actif" : e.id === "automatisee" && e.us ? "fait" : ""}">
@@ -360,10 +380,11 @@
     if ($("#ca-perimetre")) $("#ca-perimetre").onchange = e => borner(e.target.value);
     $$("[data-etape]", z).forEach(b => b.onclick = () => { ETAPE_FILTRE = ETAPE_FILTRE === b.dataset.etape ? "" : b.dataset.etape; candidats(z, arg); });
     $$("[data-per]", z).forEach(b => b.onclick = () => borner(b.dataset.per));
-    $$("[data-auto-parcours]", z).forEach(b => b.onclick = async () => {
+    $$("[data-auto-parcours], [data-auto-session]", z).forEach(b => b.onclick = async () => {
       b.disabled = true;
-      try { const r = await api("/api/discovery/parcours-bdd", {method: "POST", body: {parcours: b.dataset.autoParcours, titre: b.dataset.nom}});
-        toast(`Test BDD ${r.cle} créé (brouillon) depuis le parcours. Relire et valider le scénario, puis « Construire avec Cursor ».`, "ok");
+      const corps = b.dataset.autoParcours ? {parcours: b.dataset.autoParcours, titre: b.dataset.nom} : {session: b.dataset.autoSession, titre: b.dataset.nom};
+      try { const r = await api("/api/discovery/parcours-bdd", {method: "POST", body: corps});
+        toast(`Test BDD ${r.cle} créé (brouillon) depuis ${corps.parcours ? "le parcours" : "l'exploration"}. Relire et valider le scénario, puis « Construire avec Cursor ».`, "ok");
         location.hash = "bdd/" + encodeURIComponent(r.cle); }
       catch (e) { b.disabled = false; toast(e.message, "ko"); }
     });
