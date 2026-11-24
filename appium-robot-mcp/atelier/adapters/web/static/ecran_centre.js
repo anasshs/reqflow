@@ -59,6 +59,17 @@
     p.innerHTML = `${entete(titre, `<button class="icone" id="pn-x" aria-label="Fermer">${ico("x")}</button>`)}<div class="corps-carte">${html}</div>`;
     $("#pn-x").onclick = () => { p.hidden = true; }; return p; };
   const envs = async () => ((await api("/api/jdd").catch(() => ({environnements: []}))).environnements || []);
+  /* profils de données : variantes d'un jeu (ex. LOGIN_DEMO → client +18 / -18), choisies au lancement */
+  async function profils(zone, env) {
+    if (!zone) return;
+    zone.innerHTML = "";
+    if (!env) return;
+    const v = await api(`/api/jdd-variantes?env=${encodeURIComponent(env)}`).catch(() => ({}));
+    zone.innerHTML = Object.entries(v).map(([base, l]) => `<div class="champ"><label title="Les tests qui utilisent &{JDD_${esc(base)}} reçoivent les valeurs du profil choisi">Profil de données · ${esc(base)}</label>
+      <select class="in" data-profil="${esc(base)}"><option value="">standard (${esc(base)})</option>${l.map(x => `<option value="${esc(x.jeu)}" title="${esc(x.description)}">${esc(x.libelle)} (${esc(x.jeu)})</option>`).join("")}</select></div>`).join("");
+  }
+  const choixProfils = zone => Object.fromEntries($$("[data-profil]", zone).filter(s => s.value).map(s => [s.dataset.profil, s.value]));
+
   const lancer = async corps => {
     try { const r = await api("/api/run", {method: "POST", body: corps}); toast(`${r.run_id} : ${r.etat === "Queued" ? "en file d'attente" : "démarré"}.`, "ok"); return r; }
     catch (e) { toast(e.message, "ko"); return null; }
@@ -406,6 +417,7 @@
       <div class="bloc-strat"><h3>Sélection (${choisis.length})</h3><ul class="liste">${choisis.map(t => `<li><span class="item">${esc(t.cle_xray || t.nom)}</span><button class="icone" data-retirer="${esc(t.id)}" title="Retirer ce test de la sélection">${ico("x")}</button></li>`).join("") || "<li class='lib'>Aucun test.</li>"}</ul>
         <div class="champ"><label for="se-p">Plateforme</label><select class="in" id="se-p">${["web", "android", "ios", "api"].map(p => `<option ${p === Atelier.plateforme ? "selected" : ""}>${p}</option>`).join("")}</select></div>
         <div class="champ"><label for="se-e">Environnement</label><select class="in" id="se-e"><option value=""></option>${es.map(e => `<option ${e === Atelier.env ? "selected" : ""}>${esc(e)}</option>`).join("")}</select></div>
+        <div id="se-prof"></div>
         <div class="champ"><label for="se-xr">Publier les résultats dans Xray</label><select class="in" id="se-xr"><option value="">Nouvelle exécution${Atelier.ctx.projet_xray ? " (projet " + esc(Atelier.ctx.projet_xray) + ")" : ""}</option>
           ${ex.executions.map(e => `<option value="${esc(e.cle)}" ${F.exec === e.cle ? "selected" : ""}>Mettre à jour ${esc(e.cle)}</option>`).join("")}</select></div>
         <div class="champ"><label for="se-pr">Priorité</label><select class="in" id="se-pr">${["Critical", "High", "Normal", "Low"].map(t => `<option ${t === "Normal" ? "selected" : ""}>${t}</option>`).join("")}</select></div>
@@ -429,6 +441,8 @@
       return v;
     };
     $("#se-v").onclick = verifier;
+    profils($("#se-prof"), $("#se-e").value);
+    $("#se-e").onchange = () => profils($("#se-prof"), $("#se-e").value);
     $("#se-l").onclick = async () => {
       const v = await verifier();
       const ok = v.tests.filter(t => t.executable);
@@ -437,7 +451,7 @@
       if (sansCle.length) return toast("Tests sans clé Xray : sélection individuelle impossible (tag requis).", "ko");
       if (v.bloques && !confirm(`${v.bloques} test(s) bloqué(s) seront exclus. Lancer les ${ok.length} autres ?`)) return;
       const r = await lancer({target: "tests", include_tags: [...new Set(ok.map(t => t.cle_xray))], variables: {PLATFORM: $("#se-p").value},
-        jdd_env: $("#se-e").value, priorite: $("#se-pr").value, ...($("#se-xr").value ? {xray_ticket: $("#se-xr").value} : {})});
+        jdd_env: $("#se-e").value, jdd_variantes: choixProfils($("#se-prof")), priorite: $("#se-pr").value, ...($("#se-xr").value ? {xray_ticket: $("#se-xr").value} : {})});
       if (r) { SEL.clear(); location.hash = "centre/file"; }
     };
   }
@@ -445,12 +459,15 @@
   /* ------------------------------------------------------------------ 4 configuration */
   async function configuration(z) {
     const [es, suites] = await Promise.all([envs(), api("/api/depot/suites").catch(() => [])]);
-    const cibles = [...new Set(suites.flatMap(s => [s.dossier, s.fichier]).filter(Boolean))];
+    // dossiers parents compris (ex. tests/simple_one = toute la TNR de l'application), puis sous-dossiers et suites
+    const parents = d => { const p = (d || "").split("/"), l = []; for (let i = 1; i <= p.length; i++) l.push(p.slice(0, i).join("/")); return l; };
+    const cibles = [...new Set(suites.flatMap(s => [...parents(s.dossier), s.fichier]).filter(Boolean))].sort();
     z.innerHTML = `${entete("Paramétrer un run")}<div class="corps-carte" style="max-width:900px"><div class="grille-2">
       <div class="champ"><label for="rc-cible">Suite ou dossier</label><select class="in" id="rc-cible">${cibles.map(c => `<option>${esc(c)}</option>`).join("")}</select></div>
       <div class="champ"><label for="rc-tags">Tags à inclure</label><input class="in" id="rc-tags" placeholder="smoke, DEMO-301"></div>
       <div class="champ"><label for="rc-plat">Plateforme</label><select class="in" id="rc-plat">${["web", "android", "ios", "api"].map(p => `<option ${p === Atelier.plateforme ? "selected" : ""}>${p}</option>`).join("")}</select></div>
       <div class="champ"><label for="rc-env">Environnement (JDD)</label><select class="in" id="rc-env"><option value=""></option>${es.map(e => `<option ${e === Atelier.env ? "selected" : ""}>${esc(e)}</option>`).join("")}</select></div>
+      <div id="rc-prof" style="grid-column:1/-1"></div>
       <div class="champ"><label for="rc-device">Device (Android / iOS)</label><input class="in" id="rc-device" placeholder="UDID (voir Device Farm)"></div>
       <div class="champ"><label for="rc-prio">Priorité</label><select class="in" id="rc-prio">${["Critical", "High", "Normal", "Low"].map(t => `<option ${t === "Normal" ? "selected" : ""}>${t}</option>`).join("")}</select></div>
       <div class="champ"><label for="rc-xray">Ticket Xray (plan, exécution, US ou projet)</label><input class="in" id="rc-xray" placeholder="${Atelier.ctx.projet_xray ? `optionnel (projet ${esc(Atelier.ctx.projet_xray)})` : "optionnel"}"></div>
@@ -460,13 +477,15 @@
       <div class="btns" style="margin-top:12px"><button class="btn primaire" id="rc-ok" title="Lance le run avec ce paramétrage (mis en file d'attente)">${ico("play")}Mettre en file</button></div>
       <p class="lib" style="margin-top:10px">Contexte figé à l'entrée dans la file : projet, application et version (carte), environnement, plateforme, commit Git du projet, statut de revue des scripts.
         Navigateur, résolution, langue, Appium / XCUITest : variables passées à Robot (PLATFORM, DEVICE, variables libres). Secrets : JDD {{env:…}} uniquement.</p></div>`;
+    profils($("#rc-prof"), $("#rc-env").value);
+    $("#rc-env").onchange = () => profils($("#rc-prof"), $("#rc-env").value);
     $("#rc-ok").onclick = async () => {
       const vars = {PLATFORM: $("#rc-plat").value};
       if ($("#rc-device").value.trim()) vars.DEVICE = $("#rc-device").value.trim();
       for (const l of $("#rc-vars").value.split("\n")) { const [k, ...v] = l.split("="); if (k.trim() && v.length) vars[k.trim()] = v.join("=").trim(); }
       if (Object.keys(vars).some(k => /pass|secret|token|mdp/i.test(k))) return toast("Variable sensible refusée : passer par un JDD {{env:…}}.", "ko");
       const r = await lancer({target: $("#rc-cible").value, include_tags: $("#rc-tags").value.split(",").map(x => x.trim()).filter(Boolean), variables: vars,
-        jdd_env: $("#rc-env").value, priorite: $("#rc-prio").value, xray_ticket: $("#rc-xray").value.trim(), retry: $("#rc-retry").checked, dry_run: $("#rc-dry").checked});
+        jdd_env: $("#rc-env").value, jdd_variantes: choixProfils($("#rc-prof")), priorite: $("#rc-prio").value, xray_ticket: $("#rc-xray").value.trim(), retry: $("#rc-retry").checked, dry_run: $("#rc-dry").checked});
       if (r) location.hash = "centre/file";
     };
   }
@@ -486,13 +505,56 @@
 
   /* ------------------------------------------------------------------ 7 devices, 8 runners */
   async function devices(z) {
-    const d = await api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []}));
+    const [d, pm] = await Promise.all([api("/api/devices").catch(() => ({android: [], ios_simulateurs: [], ios_physiques: []})),
+      api("/api/postes-mac").catch(() => ({postes: [], appareils: []}))]);
+    const dist = Object.fromEntries((d.distants || []).filter(a => a.udid).map(a => [a.udid, a]));
+    const ou = u => dist[u] ? `Mac ${dist[u].poste_nom}` : "ce poste";
     const l = [...d.android.map(x => ["Android", x.udid, x.details, "physique / émulateur"]), ...d.ios_simulateurs.map(x => ["iOS", x.udid, `${x.nom} ${x.runtime}`, "simulateur"]),
-      ...d.ios_physiques.map(u => ["iOS", u, "", "physique"])];
-    z.innerHTML = `${entete("Appareils")}<div class="corps-carte">${l.length ? `<table class="table-strat"><tr><th>Plateforme</th><th>UDID</th><th>Détails</th><th>Type</th><th>État</th></tr>
-      ${l.map(([p, u, det, t]) => `<tr><td>${esc(p)}</td><td class="mono">${esc(u)}</td><td>${esc(det || "")}</td><td>${esc(t)}</td><td><span class="pill ok">connecté</span></td></tr>`).join("")}</table>`
-      : vide("Aucun device détecté", "adb et xcrun simctl ne voient aucun appareil sur ce poste.")}
-      <p class="lib" style="margin-top:10px">Inventaire réel (adb, simctl, idevice_id). Réservation, historique par device, batterie, endpoints Appium distants : à venir avec les runners distants.</p></div>`;
+      ...d.ios_physiques.map(u => ["iOS", u, dist[u] ? dist[u].details : "", "physique"])];
+    const hs = (pm.appareils || []).filter(a => a.erreur);
+    z.innerHTML = `${entete("Appareils")}<div class="corps-carte">${l.length ? `<table class="table-strat"><tr><th>Plateforme</th><th>UDID</th><th>Détails</th><th>Type</th><th>Branché sur</th><th>État</th></tr>
+      ${l.map(([p, u, det, t]) => `<tr><td>${esc(p)}</td><td class="mono">${esc(u)}</td><td>${esc(det || "")}</td><td>${esc(t)}</td><td>${esc(ou(u))}</td><td><span class="pill ok">connecté</span></td></tr>`).join("")}</table>`
+      : vide("Aucun device détecté", "adb et xcrun ne voient aucun appareil sur ce poste, et aucun Mac appairé n'en prête.")}
+      <h3 class="lib" style="margin-top:18px">MAC DU RÉSEAU WI-FI (IPHONE BRANCHÉS SUR UN MAC)</h3>
+      <p class="lib">Sur le Mac : <span class="mono">./lancer-agent-mac.sh</span> affiche un code d'appairage. Ici : chercher les Mac, saisir le code.
+        Les tests restent lancés d'ici (Xray, graphe en direct, jeux de données) ; seul Appium tourne sur le Mac. Marche à suivre : docs/POSTE_MAC.md.</p>
+      ${(pm.postes || []).length ? `<table class="table-strat"><tr><th>Mac appairé</th><th>Adresse</th><th>Appareils</th><th></th></tr>
+        ${pm.postes.map(p => { const a = (pm.appareils || []).filter(x => x.poste === p.id), e = a.find(x => x.erreur);
+          return `<tr><td><b>${esc(p.nom)}</b><div class="lib">appairé le ${esc(p.appaire_le)}</div></td><td class="mono">${esc(p.hote)}:${p.port}</td>
+          <td>${e ? `<span class="pill ko">injoignable</span> <span class="lib">${esc(e.erreur)}</span>` : a.length ? a.map(x => `<span class="pill ${x.appium ? "ok" : "warn"}" title="${x.appium ? "Appium prêt sur le Mac" : "Appium ne répond pas sur le Mac"}">${x.plateforme === "ios" ? "" : "Android "}${esc(x.details || x.udid)}</span>`).join(" ") : '<span class="lib">aucun appareil branché</span>'}</td>
+          <td><button class="btn petit" data-oublier-mac="${esc(p.id)}">Oublier</button></td></tr>`; }).join("")}</table>` : ""}
+      <div class="btns" style="margin-top:8px"><button class="btn primaire" id="pm-scan">Chercher les Mac du réseau</button>
+        <input class="in" id="pm-ip" placeholder="ou adresse IP du Mac (ex. 192.168.1.20)" style="width:260px"><button class="btn" id="pm-ajout">Ajouter par adresse</button></div>
+      <div id="pm-trouves"></div>
+      <p class="lib" style="margin-top:10px">Inventaire réel : adb, simctl, devicectl / idevice_id de ce poste, et agents des Mac appairés.${hs.length ? ` ${hs.length} Mac injoignable(s).` : ""}</p></div>`;
+    const appairage = liste => {
+      const zt = $("#pm-trouves", z);
+      zt.innerHTML = liste.length ? `<table class="table-strat" style="margin-top:8px"><tr><th>Mac trouvé</th><th>Adresse</th><th>Empreinte</th><th>Code affiché sur le Mac</th></tr>
+        ${liste.map((m, i) => `<tr><td><b>${esc(m.nom)}</b></td><td class="mono">${esc(m.hote)}:${m.port}</td><td class="mono" title="Doit correspondre au début de l'empreinte affichée par l'agent">${esc((m.empreinte || "").slice(0, 16))}…</td>
+          <td>${m.appaire ? '<span class="pill ok">déjà appairé</span>' : `<input class="in mono" data-code="${i}" placeholder="XXXX-XXXX" style="width:120px"> <button class="btn petit primaire" data-appairer="${i}">Appairer</button>`}</td></tr>`).join("")}</table>`
+        : vide("Aucun Mac n'a répondu", "Vérifier que l'agent tourne sur le Mac et que les deux sont sur le même Wi-Fi ; sinon, ajouter le Mac par son adresse IP (affichée par l'agent).");
+      $$("[data-appairer]", zt).forEach(b => b.onclick = async () => {
+        const m = liste[+b.dataset.appairer], code = $(`[data-code="${b.dataset.appairer}"]`, zt).value.trim();
+        if (!code) return toast("Saisir le code affiché sur le Mac.", "ko");
+        b.disabled = true;
+        try { const p = await api("/api/postes-mac/appairer", {method: "POST", body: {hote: m.hote, port: m.port, code}}); toast(`Mac ${p.nom} appairé.`, "ok"); devices(z); }
+        catch (e) { toast(e.message, "ko"); b.disabled = false; }
+      });
+    };
+    $("#pm-scan", z).onclick = async () => {
+      const b = $("#pm-scan", z); b.disabled = true; b.textContent = "Recherche…";
+      try { appairage(await api("/api/postes-mac/scanner", {method: "POST", body: {}})); } catch (e) { toast(e.message, "ko"); }
+      b.disabled = false; b.textContent = "Chercher les Mac du réseau";
+    };
+    $("#pm-ajout", z).onclick = async () => {
+      const hote = $("#pm-ip", z).value.trim();
+      if (!hote) return toast("Saisir l'adresse IP du Mac.", "ko");
+      try { appairage([{...(await api("/api/postes-mac/identite", {method: "POST", body: {hote}})), appaire: false}]); } catch (e) { toast(e.message, "ko"); }
+    };
+    $$("[data-oublier-mac]", z).forEach(b => b.onclick = async () => {
+      if (!confirm("Oublier ce Mac ? Ses appareils ne seront plus proposés ; il faudra l'appairer de nouveau.")) return;
+      try { await api(`/api/postes-mac/${encodeURIComponent(b.dataset.oublierMac)}/oublier`, {method: "POST", body: {}}); devices(z); } catch (e) { toast(e.message, "ko"); }
+    });
   }
 
   async function runners(z) {
@@ -502,7 +564,7 @@
         <td><span class="pill ${r.etat === "Idle" ? "ok" : "info"}">${esc(r.etat)}</span></td>
         <td>${Object.entries(r.plateformes).map(([p, ok]) => `<span class="pill ${ok ? "ok" : ""}">${esc(p)}</span>`).join(" ")}</td>
         <td class="lib">${Object.entries(r.bibliotheques).filter(([, v]) => v).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(" · ")}</td></tr>`).join("")}</table>
-      <p class="lib" style="margin-top:10px">Seul le poste local exécute aujourd'hui. Runners distants (serveur, GitLab, Kubernetes, macOS pour iOS) : à venir ; l'orchestration (file, contexte) est déjà indépendante du framework.</p></div>`;
+      <p class="lib" style="margin-top:10px">Robot s'exécute sur ce poste. Les iPhone d'un Mac du même Wi-Fi s'utilisent à travers l'agent du Mac (Appareils › Mac du réseau) : le run part d'ici, Appium tourne sur le Mac.</p></div>`;
   }
 
   /* ------------------------------------------------------------------ 9 résultats, 10 preuves, 11 historique */

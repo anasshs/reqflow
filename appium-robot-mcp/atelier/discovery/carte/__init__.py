@@ -36,6 +36,7 @@ from atelier.domain import projet
 
 SEUIL = float(os.environ.get("MAP_SEUIL_SIMILARITE", "0.72"))
 SEUIL_LIBELLES = 0.85  # reconnaissance par les seuls libellés (identifiants tous renommés) : plus exigeante
+SEUIL_CROISE = float(os.environ.get("MAP_SEUIL_CROISE", "0.6"))  # même écran vu sur l'autre plateforme (iOS ↔ Android)
 ID_PREFIX = ("id=", "accessibility_id=", "data-testid=", UIA_ID)  # UIA_ID : testTag Jetpack Compose
 INTERACTIFS = ("champ", "bouton", "case", "lien", "liste", "element")
 
@@ -360,6 +361,50 @@ def _libelles_connus(e: dict, platform: str) -> list[str]:
     return sorted(toks)
 
 
+def _id_court(locator: str) -> str:
+    """Identifiant sans paquet (« com.x:id/btn_valider » → « btn_valider ») : un testID React Native / Flutter est
+    souvent le même sur Android (resource-id) et sur iOS (accessibilityIdentifier)."""
+    return _norm(valeur_id(locator).split("/")[-1]) if locator.startswith(ID_PREFIX) else ""
+
+
+def _traits_croises(libelles: list[str], ids: list[str]) -> set:
+    """Ce qui est commun à un écran quelle que soit la plateforme : ses libellés fixes, et ses identifiants de test
+    (un identifiant qui n'est que le libellé, fréquent sur iOS, ne compte qu'une fois)."""
+    libs = {_norm(x) for x in libelles if x and not est_dynamique(x) and len(_norm(x)) >= 2}
+    return {"l:" + x for x in libs} | {"i:" + x for x in ids if x and x not in libs}
+
+
+def _traits_observes(elements: list[dict]) -> set:
+    return _traits_croises([e.get("libelle") or "" for e in elements],
+                           [_id_court(l) for e in elements for l in (e.get("locators") or [])])
+
+
+def _traits_connus(e: dict, platform: str) -> set:
+    """Traits de l'écran cartographié tel qu'il est connu sur les AUTRES plateformes."""
+    libs, ids = [], []
+    for el in (e.get("elements") or {}).values():
+        autres = [l for p, ls in (el.get("locators") or {}).items() if p != platform for l in (ls or [])]
+        if not autres:
+            continue
+        libs.append(el.get("libelle") or "")
+        ids += [_id_court(l) for l in autres]
+    return _traits_croises(libs, ids)
+
+
+def score_croise(elements: list[dict], e: dict, platform: str) -> float:
+    """Ressemblance d'un écran observé sur une plateforme avec un écran connu seulement sur une autre : libellés et
+    identifiants de test communs (une Discovery iOS retrouve les écrans de la Discovery Android au lieu d'en créer)."""
+    a, b = _traits_observes(elements), _traits_connus(e, platform)
+    commun = len(a & b)
+    if commun < 3:  # trop peu pour affirmer que c'est le même écran
+        return 0.0
+    sc = commun / min(len(a), len(b))  # l'écran le plus petit (souvent l'iOS, plus dépouillé) est presque tout en commun
+    titre = titre_probable(elements)
+    if titre and e.get("titre") and _norm(titre) != _norm(e["titre"]):
+        sc *= 0.6  # titres différents : deux formulaires qui se ressemblent ne sont pas le même écran
+    return sc
+
+
 def _sans_texte_porte(toks: list[str]) -> list[str]:
     """En Compose, le libellé d'un bouton est un nœud texte enfant : il apparaît deux fois (« bouton:valider » et
     « texte:valider »), une seule fois dans une vue classique. On ne garde que l'élément qui le porte."""
@@ -388,6 +433,10 @@ def reconnaitre(sig: list[str], platform: str, contexte: str = "", elements: lis
         else:  # écran importé sans empreinte : on compare les locators connus
             connus = {l for el in (e.get("elements") or {}).values() for l in (el.get("locators", {}).get(platform) or [])}
             sc = (len(connus & obs_locs) / len(connus)) * 0.9 if connus else 0.0
+            if platform in ("android", "ios") and elements and any(x != platform for x in (e.get("plateformes") or {})):
+                croise = score_croise(elements, e, platform)  # connu sur l'autre plateforme mobile : même écran ?
+                if croise >= SEUIL_CROISE:
+                    sc = max(sc, SEUIL + (1 - SEUIL) * (croise - SEUIL_CROISE) / (1 - SEUIL_CROISE))
         if sc > score:
             best, score = e, sc
     return (best, score) if score >= SEUIL else (None, score)
@@ -416,6 +465,28 @@ def _cle_connue(els: dict, x: dict, platform: str, pris: set, unique: bool = Tru
     return None
 
 
+def _cle_autre_plateforme(els: dict, x: dict, platform: str, pris: set) -> str | None:
+    """Clé de l'élément déjà connu sur l'autre plateforme que cet élément désigne : même identifiant de test, sinon
+    même type et même libellé, s'il est le seul de part et d'autre. Les locators des deux plateformes partagent alors
+    la même clé métier (&{LOC_<ECRAN>_ANDROID} et &{LOC_<ECRAN>_IOS} ont les mêmes clés)."""
+    libres = {k: el for k, el in els.items() if k not in pris and not (el.get("locators") or {}).get(platform)
+              and any(p != platform for p in (el.get("locators") or {}))}
+    if not libres:
+        return None
+    ids = {_id_court(l) for l in x.get("locators") or []} - {""}
+    if ids:
+        memes = [k for k, el in libres.items() if ids & {_id_court(l) for p, ls in el["locators"].items() for l in ls or []}]
+        if len(memes) == 1:
+            return memes[0]
+    lib = _norm(x.get("libelle") or "")
+    if lib and not est_dynamique(lib):
+        memes = [k for k, el in libres.items() if _norm(el.get("libelle") or "") == lib
+                 and (el.get("type") == x.get("type") or {el.get("type"), x.get("type")} <= {"bouton", "element", "lien"})]
+        if len(memes) == 1:
+            return memes[0]
+    return None
+
+
 def _fusion_elements(e: dict, elements: list[dict], platform: str, s: str | None = None):
     els = e.setdefault("elements", {})
     gardes = [x for x in elements if x.get("type") in INTERACTIFS
@@ -430,6 +501,10 @@ def _fusion_elements(e: dict, elements: list[dict], platform: str, s: str | None
         retrouve = None
         if k not in els:  # identifiant de test arrivé ou renommé : l'élément déjà connu garde sa clé métier
             retrouve = _cle_connue(els, x, platform, pris, nb[(x.get("type"), _norm(x.get("libelle") or ""))] == 1)
+            if not retrouve and nb[(x.get("type"), _norm(x.get("libelle") or ""))] == 1:
+                croise = _cle_autre_plateforme(els, x, platform, pris)  # même élément vu sur l'autre plateforme
+                if croise:
+                    x["key"] = k = croise
             k = x["key"] = retrouve or k
         pris.add(k)
         entry = els.setdefault(k, {"type": x.get("type"), "libelle": "" if est_dynamique(x.get("libelle", "")) else x.get("libelle", ""),
@@ -465,6 +540,9 @@ def observer(elements: list[dict], platform: str, contexte: str = "", build: str
              "plateformes": {}, "elements": {}, "etats": [], "changements": [], "utilise_par": [],
              "essayes": {}, "cree": _now()}
         score = 1.0
+    if not nouveau and platform not in (e.get("plateformes") or {}) and e.get("plateformes"):
+        e.setdefault("changements", []).append({"type": "rapprochement_plateforme", "plateforme": platform,
+                                                "depuis": sorted(e["plateformes"]), "score": round(score, 2), "date": _now()})
     p = e.setdefault("plateformes", {}).setdefault(platform, {})
     arrives = sorted(t for t in set(sig) - set(p.get("signature") or []) if t.startswith("id:"))
     if not p.get("signature"):

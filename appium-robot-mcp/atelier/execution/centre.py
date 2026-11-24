@@ -75,6 +75,7 @@ def contexte(params: dict) -> dict:
     return {"projet": projet.PROJECT_DIR.name, "projet_dir": str(projet.PROJECT_DIR),
             "application": app.get("nom", ""), "version_application": app.get("build", ""),
             "environnement": params.get("jdd_env", ""), "plateforme": (params.get("variables") or {}).get("PLATFORM", ""),
+            "profils_donnees": params.get("jdd_variantes") or {},  # variantes de jeux choisies (ex. LOGIN → profil +18)
             "commit": _git("rev-parse", "--short", "HEAD") or "(projet hors Git)", "branche": _git("rev-parse", "--abbrev-ref", "HEAD"),
             "revue_scripts": {f: s for f, s in revues.items() if f.startswith(cible)} if cible else revues,
             "fige_le": _maintenant()}

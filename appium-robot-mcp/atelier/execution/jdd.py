@@ -58,6 +58,37 @@ def lister(env: str) -> list[dict]:
             for k, v in _load(env).items()]
 
 
+def variantes(env: str) -> dict:
+    """Profils interchangeables : {jeu de base: [{jeu, libelle, description}]}. Un jeu déclare « variante_de: <base> »
+    (ex. LOGIN_DEMO_PLUS18 pour LOGIN_DEMO) ; au lancement d'un run on choisit le profil, et les tests qui
+    utilisent &{JDD_<BASE>} reçoivent les valeurs de la variante, sans modifier leur code."""
+    out: dict = {}
+    for k, v in _load(env).items():
+        base = (v or {}).get("variante_de")
+        if base:
+            out.setdefault(base, []).append({"jeu": k, "libelle": (v or {}).get("libelle") or k,
+                                             "description": (v or {}).get("description", "")})
+    return out
+
+
+def appliquer_variantes(env: str, jeux: list[str], choix: dict | None) -> tuple[list[str], dict]:
+    """Jeux à résoudre avec les variantes choisies, et {variante: base} pour renommer le résultat (&{JDD_<BASE>})."""
+    if not choix:
+        return list(jeux), {}
+    connues = variantes(env)
+    renommer, out = {}, []
+    for j in jeux:
+        v = choix.get(j)
+        if v and v != j:
+            if v not in {x["jeu"] for x in connues.get(j, [])}:
+                raise ValueError(f"« {v} » n'est pas une variante de {j} dans {env}.yaml (variante_de: {j}).")
+            renommer[v] = j
+            out.append(v)
+        else:
+            out.append(j)
+    return out, renommer
+
+
 def lire(env: str, jeu: str) -> dict:
     """Jeu brut, secrets masqués (seul le nom de la variable d'environnement apparaît)."""
     data = _load(env)
@@ -128,12 +159,17 @@ def valeur_env(nom: str, env: str = "", profil: str = ""):
         return None
 
 
-def resoudre(env: str, jeux: list[str]) -> dict:
+def resoudre(env: str, jeux: list[str], factice: bool = False) -> dict:
     """Vérifie les prérequis puis résout les valeurs.
+    factice (dry run) : aucun secret lu, aucune requête ni API appelée ; chaque référence {{…}} devient « •••• » :
+    Robot ne lance aucun keyword en dry run, il lui faut seulement les noms (&{JDD_<NOM>} et ses champs).
     Retour : {'jeux': {nom: données résolues}, 'bloques': [...], 'controles': [...]}"""
     resolus, bloques, controles = {}, [], []
     for jeu in jeux:
         brut = lire(env, jeu)
+        if factice:
+            resolus[jeu] = {k: TOKEN_RE.sub("••••", v) if isinstance(v, str) else v for k, v in (brut.get("donnees") or {}).items()}
+            continue
         cache: dict = {}
         cache_api: dict = {}
         ok = True

@@ -52,6 +52,10 @@ L'intégration continue (`.github/workflows/atelier.yml`) passe la suite de test
 L'iPhone apparaît alors dans Discovery, l'Execution Center et l'orchestrateur (détecté par `xcrun devicectl`, sans
 autre outil ; `idevice_id` est aussi lu s'il est installé). Les simulateurs démarrés apparaissent sans rien de plus.
 
+**L'atelier sur un PC, les iPhone sur un Mac du même Wi-Fi** : lancer `./lancer-agent-mac.sh` sur le Mac, puis
+Execution Center › Appareils › « Chercher les Mac du réseau » et saisir le code affiché. Marche à suivre complète :
+[docs/POSTE_MAC.md](docs/POSTE_MAC.md).
+
 Installation à la main (sans l'assistant) :
 
 ```bash

@@ -134,7 +134,8 @@ def run_robot(target: str, include_tags: list[str] | None = None,
               attach_screenshots: bool = True, jdd_env: str = "",
               jdd_jeux: list[str] | None = None, events_url: str = "",
               relancer_echecs: bool = False, cartographie: bool = False, timeout_s: int = 3600,
-              tests: list[str] | None = None, jira_champs_execution: dict | None = None) -> dict:
+              tests: list[str] | None = None, jira_champs_execution: dict | None = None,
+              jdd_variantes: dict | None = None) -> dict:
     """Lance une suite ou un dossier Robot Framework du projet puis renvoie le bilan.
     tests : tests précis (« <fichier>::<nom> », d'une ou plusieurs suites) au lieu de target : Robot --test.
     variables : ex. {'PLATFORM': 'android', 'DEVICE': 'emulator-5554'} (sélection du device).
@@ -157,6 +158,8 @@ def run_robot(target: str, include_tags: list[str] | None = None,
       ['VIREMENT_STANDARD']). Les prérequis sont vérifiés AVANT le run : s'il manque des
       données, le run n'est pas lancé et le bilan indique « bloqué données ». Chaque jeu
       devient un dictionnaire &{JDD_<NOM>} utilisable dans « Initialiser Le Test ».
+    jdd_variantes : profil choisi pour un jeu, ex. {'LOGIN_DEMO': 'LOGIN_DEMO_PLUS18'} : les tests qui
+      utilisent &{JDD_LOGIN_DEMO} reçoivent les valeurs de la variante (déclarée « variante_de » dans le JDD).
     events_url : URL qui reçoit les événements du run en direct (interface web).
     cartographie : enrichit la carte de l'application pendant le run (écrans et transitions des
       tests mobiles, test Xray qui passe par chaque écran). Ralentit un peu chaque action.
@@ -166,6 +169,10 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     sel = selection_tests(tests) if tests else None
     if sel:
         target = sel["cible"]
+    if not dry_run:
+        from atelier.integrations import postes_mac
+
+        variables = postes_mac.variables_run(variables)
     if not dry_run:
         from atelier.domain import prerequis
 
@@ -188,12 +195,16 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     if jdd_jeux:
         if not jdd_env:
             raise ValueError("jdd_env est obligatoire avec jdd_jeux.")
-        res = jdd.resoudre(jdd_env, jdd_jeux)
-        jdd_info = {"env": jdd_env, "controles": res["controles"], "bloques": res["bloques"]}
+        a_resoudre, renommer = jdd.appliquer_variantes(jdd_env, jdd_jeux, jdd_variantes)
+        res = jdd.resoudre(jdd_env, a_resoudre, factice=dry_run)  # dry run : noms seulement, aucun secret lu
+        res["jeux"] = {renommer.get(k, k): v for k, v in res["jeux"].items()}  # la variante prend la place de sa base
+        jdd_info = {"env": jdd_env, "controles": res["controles"], "bloques": res["bloques"],
+                    **({"variantes": {b: v for v, b in renommer.items()}} if renommer else {})}
         if res["bloques"]:
             return {"statut": "bloqué données", "jdd": jdd_info,
                     "conseil": "Préparer les données manquantes ou choisir un autre jeu, puis relancer."}
-        jdd_info["valeurs"] = jdd.masquer(jdd_env, res["jeux"])
+        jdd_info["valeurs"] = jdd.masquer(jdd_env, {k: v for k, v in res["jeux"].items() if k not in renommer.values()}) | \
+            {b: jdd.masquer(jdd_env, {v: res["jeux"][b]})[v] for v, b in renommer.items()}
     out_abs = projet.safe_path(output_dir)
     out_abs.mkdir(parents=True, exist_ok=True)
     report_path = out_abs / "xray_live_report.json"

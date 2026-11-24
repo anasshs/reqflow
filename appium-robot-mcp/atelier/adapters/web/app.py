@@ -550,6 +550,44 @@ def devices():
     return _call(outils.list_devices)
 
 
+@app.get("/api/postes-mac")
+async def postes_mac_liste():
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, lambda: {"postes": postes_mac.postes(), "appareils": postes_mac.appareils(forcer=True)})
+
+
+@app.post("/api/postes-mac/scanner")
+async def postes_mac_scanner():
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, postes_mac.scanner)
+
+
+@app.post("/api/postes-mac/identite")
+async def postes_mac_identite(req: Request):
+    b = await req.json()
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, postes_mac.identite, str(b.get("hote", "")).strip(), int(b.get("port") or 47610))
+
+
+@app.post("/api/postes-mac/appairer")
+async def postes_mac_appairer(req: Request):
+    b = await req.json()
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, postes_mac.appairer, str(b.get("hote", "")).strip(), int(b.get("port") or 47610),
+                                   str(b.get("code", "")))
+
+
+@app.post("/api/postes-mac/{pid}/oublier")
+async def postes_mac_oublier(pid: str):
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, postes_mac.oublier, pid)
+
+
 @app.get("/api/devices/diagnostic")
 def devices_diagnostic():
     return _call(session.diagnostic_devices)
@@ -658,6 +696,10 @@ def _grab() -> bytes | None:
                 return session.screenshot_png()
             im = state.get("image_mcp")  # navigateur piloté par l'agent dans le processus MCP
             return im["png"] if im and time.time() - im["t"] < 1800 else None
+        from atelier.integrations import postes_mac
+
+        if udid and postes_mac.postes() and postes_mac.appareil(udid):
+            return session.screenshot_png() if session.etat.get("driver") is not None else None
         adb = session.chemin_adb() if p == "android" else None
         if adb:
             cmd = [adb] + (["-s", udid] if udid else []) + ["exec-out", "screencap", "-p"]
@@ -2430,7 +2472,9 @@ def _executer_job(job: dict):
         # tests précis (Tests automatisés › Vérifier) : le moteur directement, l'outil MCP run_robot garde sa signature
         # tests précis, ou TNR lancé par l'automaticien avec transitions / champs Jira : le moteur directement (transitions
         # appliquées en direct) ; sinon l'outil MCP run_robot (transitions en demandes à valider)
-        par_moteur = params.get("tests") or any(params.get(k) for k in ("jira_transition_start", "jira_transition_end", "jira_champs_execution"))
+        # profil de données choisi (jdd_variantes) : le moteur aussi, l'outil MCP historique garde sa signature
+        par_moteur = params.get("tests") or any(params.get(k) for k in ("jira_transition_start", "jira_transition_end", "jira_champs_execution",
+                                                                         "jdd_variantes"))
         bilan = centre.executer_avec_retry(robot_moteur.run_robot if par_moteur else outils.run_robot, params, job.get("retry", False))
     except Exception as e:
         bilan = {"statut": "erreur", "erreur": str(e)}
@@ -2461,6 +2505,16 @@ def _mettre_en_file(params: dict, priorite: str = "Normal", campagne: str = "", 
     emit({"type": "file_execution", "file": centre.FILE.attente()})
     return {"ok": True, "run_id": run_id, "etat": "Running" if (centre.FILE.en_cours or {}).get("id") == run_id else "Queued",
             "contexte": job["contexte"], "revue": revue}
+
+
+@app.get("/api/jdd-variantes")
+async def jdd_variantes(env: str = ""):
+    """Profils interchangeables d'un environnement (jeux « variante_de ») : choisis au lancement d'un run."""
+    from atelier.execution import jdd as jdd_mod
+
+    if not env:
+        return {}
+    return await asyncio.to_thread(_call, jdd_mod.variantes, env)
 
 
 @app.post("/api/run")

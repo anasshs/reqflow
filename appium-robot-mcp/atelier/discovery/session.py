@@ -105,6 +105,19 @@ def list_devices() -> dict:
         out["ios_physiques"] = [u for u in r.stdout.split() if u]
     if shutil.which("xcrun"):  # Xcode 15+ : les iPhone appairés, sans libimobiledevice
         out["ios_physiques"] += [u for u in iphones_devicectl() if u not in out["ios_physiques"]]
+    from atelier.integrations import postes_mac
+
+    if postes_mac.postes():  # Mac du Wi-Fi appairés : leurs iPhone et téléphones, pilotés à travers l'agent du Mac
+        out["distants"] = postes_mac.appareils()
+        for a in out["distants"]:
+            if a.get("erreur"):
+                continue
+            if a["plateforme"] == "android":
+                out["android"].append({"udid": a["udid"], "details": f"{a['details']} · Mac {a['poste_nom']}", "poste": a["poste"]})
+            elif a["type"] == "simulateur":
+                out["ios_simulateurs"].append({"nom": a["nom"], "udid": a["udid"], "runtime": f"Mac {a['poste_nom']}", "poste": a["poste"]})
+            elif a["udid"] not in out["ios_physiques"]:
+                out["ios_physiques"].append(a["udid"])
     return out
 
 
@@ -153,7 +166,10 @@ def start_session(platform: str, udid: str = "", app: str = "", app_package: str
         return {"statut": "session ouverte", "platform": "web", **info}
     if p not in ("android", "ios"):
         raise ValueError("platform doit valoir 'android', 'ios' ou 'web'")
-    etat["driver"] = appium_int.creer_driver(APPIUM_URL, p, udid, app, app_package, app_activity, bundle_id,
+    from atelier.integrations import postes_mac
+
+    url = postes_mac.url_appium(udid) or APPIUM_URL  # appareil d'un Mac du Wi-Fi : Appium du Mac, par le relais local
+    etat["driver"] = appium_int.creer_driver(url, p, udid, app, app_package, app_activity, bundle_id,
                                              no_reset, extra_caps)
     etat["platform"] = p
     evenements.publier({"type": "session", "etat": "ouverte", "platform": p, "udid": udid})

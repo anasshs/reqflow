@@ -931,3 +931,14 @@ Cerveau 28 s → 2,2 s ; qualité documentaire 22 s → 0,3 s ; stratégie 1,2 s
   Décision : registre des traitements (`ia/operations.TRAITEMENTS`), réglage `traitements` dans atelier_ia.yaml, appliqué
   côté serveur (appel direct refusé, état « aucun » vu par l'écran, dépôt MCP de Cursor refusé). Défaut : l'IA pour tous ;
   les calculs déterministes restent toujours applicatifs.
+
+
+## 2026-11-24 — iPhone d'un Mac du même Wi-Fi (agent Mac)
+
+Décision de l'utilisateur : lancer les tests sur les appareils branchés à un Mac du même réseau Wi-Fi, avec un scan du
+réseau depuis l'atelier. Choix d'architecture : Robot reste sur le poste de l'atelier (Xray, graphe en direct, JDD et
+secrets inchangés) ; seul Appium tourne sur le Mac, derrière `agent_mac.py`. L'interface de l'atelier reste sur
+127.0.0.1 (invariant conservé) : c'est l'agent du Mac qui écoute sur le réseau local, en HTTPS (certificat propre au
+Mac, épinglé), appairage par code affiché sur le Mac (preuve HMAC, le code ne circule pas ; 15 min, 5 essais, un seul
+usage), puis jeton (coffre du système côté atelier, empreinte SHA-256 côté Mac) ; adresses du réseau local seulement ;
+Appium du Mac sur 127.0.0.1. Détail : docs/POSTE_MAC.md.
