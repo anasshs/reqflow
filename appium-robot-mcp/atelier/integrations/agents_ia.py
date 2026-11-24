@@ -127,12 +127,14 @@ def etat_serveur_http(attendre_s: float = 0) -> dict:
     sur 127.0.0.1 et ::1, fin du journal en cas d'échec ; et Cursor configuré par URL sans serveur attendu."""
     import time
 
+    from atelier.domain import prerequis
+
     port = port_http()
     url_cursor = cursor_par_url()
     if not port:
         return {"attendu": False, "url_cursor": url_cursor, "ok": not url_cursor,
                 "message": (f"Cursor attend {url_cursor}, mais l'atelier n'a pas été lancé avec MCP_HTTP_PORT : le serveur MCP n'est pas démarré. "
-                            "Lancer l'atelier avec lancer-atelier.cmd (il retient le port), ou définir MCP_HTTP_PORT=8000 avant de le lancer.")
+                            f"Lancer l'atelier avec {prerequis.commande_lancement()} (il retient le port), ou définir MCP_HTTP_PORT=8000 avant de le lancer.")
                 if url_cursor else "mode stdio : Cursor lance lui-même le serveur MCP"}
     def a_pris_le_port() -> bool:  # notre serveur écrit cette ligne une fois le port pris (journal réécrit à chaque démarrage)
         try:

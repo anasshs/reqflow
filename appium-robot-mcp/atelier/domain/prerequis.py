@@ -15,6 +15,27 @@ import sys
 from pathlib import Path
 
 
+def systeme() -> str:
+    """« windows », « macos » ou « linux » : les consignes affichées citent les commandes du poste."""
+    return "windows" if sys.platform.startswith("win") else "macos" if sys.platform == "darwin" else "linux"
+
+
+def commande_lancement() -> str:
+    """Commande qui lance l'atelier sur ce poste (elle retient le port MCP)."""
+    return "lancer-atelier.cmd" if systeme() == "windows" else "./lancer-atelier.sh"
+
+
+def python_venv() -> str:
+    """Python de l'environnement de l'atelier, tel qu'on le tape dans un terminal du poste."""
+    return ".venv\\Scripts\\python" if systeme() == "windows" else ".venv/bin/python"
+
+
+def installer_node() -> str:
+    """Façon d'installer Node.js LTS sur ce poste."""
+    return {"windows": "https://nodejs.org ou « winget install OpenJS.NodeJS.LTS »",
+            "macos": "https://nodejs.org ou « brew install node »"}.get(systeme(), "https://nodejs.org ou le gestionnaire de paquets de la distribution")
+
+
 def dossier_atelier() -> Path:
     """Dossier du code de l'atelier (appium-robot-mcp)."""
     return Path(__file__).resolve().parents[2]
@@ -55,7 +76,7 @@ def navigateur() -> dict:
     if exe:
         ok = Path(exe).expanduser().is_file()
         return {"ok": ok, "detail": f"navigateur imposé : {exe}" if ok else f"WEB_BROWSER_EXECUTABLE introuvable : {exe}",
-                "solution": "" if ok else "Corriger le chemin de WEB_BROWSER_EXECUTABLE (chrome.exe ou msedge.exe), ou le retirer."}
+                "solution": "" if ok else "Corriger le chemin de WEB_BROWSER_EXECUTABLE (exécutable de Chrome ou d'Edge), ou le retirer."}
     try:
         import playwright  # noqa: F401
     except ImportError:
@@ -82,8 +103,8 @@ def browser_robot() -> dict:
     sans_node = not shutil.which("node")
     return {"ok": False, "detail": "bibliothèque Robot Browser installée mais pas initialisée (les tests web échouent au démarrage)"
                                    + (" ; Node.js absent" if sans_node else ""),
-            "solution": ("Installer Node.js LTS (https://nodejs.org ou « winget install OpenJS.NodeJS.LTS »), puis " if sans_node else "")
-                        + "lancer une fois « .venv\\Scripts\\python -m Browser.entry init » (ou relancer lancer-atelier.cmd)."}
+            "solution": (f"Installer Node.js LTS ({installer_node()}), puis " if sans_node else "")
+                        + f"lancer une fois « {python_venv()} -m Browser.entry init » (ou relancer {commande_lancement()})."}
 
 
 def suites_web(cible: str = "") -> bool:

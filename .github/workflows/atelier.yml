@@ -1,0 +1,44 @@
+name: Atelier (macOS, Windows, Linux)
+
+# Les tests de l'atelier sur les trois systèmes : un poste macOS doit pouvoir installer, lancer et tester comme un poste
+# Windows. Aucun vrai service n'est appelé (Xray, Jira, Appium… sont simulés par les tests).
+on:
+  push:
+    paths: ["appium-robot-mcp/**", ".github/workflows/atelier.yml"]
+  pull_request:
+    paths: ["appium-robot-mcp/**", ".github/workflows/atelier.yml"]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: appium-robot-mcp
+    env:
+      PYTHONIOENCODING: utf-8
+      ATELIER_COFFRE: non   # pas de trousseau interactif sur une machine d'intégration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: appium-robot-mcp/requirements.txt
+      - name: Dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Navigateur Chromium (Discovery web et tests Playwright)
+        run: python -m playwright install --with-deps chromium
+        if: runner.os == 'Linux'
+      - name: Navigateur Chromium (Discovery web et tests Playwright)
+        run: python -m playwright install chromium
+        if: runner.os != 'Linux'
+      - name: Tests
+        run: python -m pytest -q -p no:warnings

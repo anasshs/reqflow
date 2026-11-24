@@ -23,7 +23,7 @@ def orch(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrateur, "HOOKS", {"mettre_en_file": mettre_en_file, "emit": None})
     monkeypatch.setattr(historique, "lister", lambda n=50: [{"id": k, "statut": v, "passes": 1, "echecs": 0, "erreur": ""} for k, v in runs.items()])
     monkeypatch.setattr(robot, "selection_tests", lambda tests: {"cible": "tests/x.robot"})
-    monkeypatch.setattr(orchestrateur, "telephones", lambda: ["tel-1"])
+    monkeypatch.setattr(orchestrateur, "telephones", lambda plateforme="android": ["tel-1"])
     monkeypatch.setattr(orchestrateur, "_tests_du_bdd", lambda *tags: ["tests/x.robot::Le test"])
     return orchestrateur, runs, file
 
@@ -122,3 +122,13 @@ def test_au_redemarrage_un_run_en_cours_garde_son_telephone(orch):
     b = o.creer("B", [{"titre": "Run", "type": "atelier", "action": "run", "params": {"bdd": "B"}}])
     o.avancer()
     assert o.obtenir(b["id"])["etapes"][0]["statut"] == "attente_ressource"
+
+
+def test_les_iphone_et_simulateurs_sont_des_telephones_sur_mac(monkeypatch):
+    from atelier.discovery import session
+    from atelier.execution import orchestrateur
+
+    monkeypatch.setattr(session, "list_devices", lambda: {"android": [{"udid": "and-1"}], "ios_physiques": ["iph-1"],
+                                                          "ios_simulateurs": [{"udid": "sim-1", "nom": "iPhone 15"}]})
+    assert orchestrateur.telephones() == ["and-1"]
+    assert orchestrateur.telephones("ios") == ["iph-1", "sim-1"]

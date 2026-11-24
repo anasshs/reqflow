@@ -530,7 +530,7 @@
         <div class="champ"><label for="cg-xu">URL Xray (si région particulière)</label><input class="in" id="cg-xu" value="${esc(cx.general.xray_url)}" placeholder="https://xray.cloud.getxray.app/api/v2"></div></div>
       <div class="btns"><button class="btn" id="cg-ok">${ico("disque")}Enregistrer les connexions générales</button></div>
       <h3 class="lib" style="margin-top:18px">SECRETS (JETONS, IDENTIFIANTS)</h3>
-      <p class="lib">${cx.coffre.disponible ? `Source unique : le <b>coffre du système</b> (${esc(cx.coffre.systeme)} : Gestionnaire d'identifiants Windows sur un poste Windows), chiffré par le système.
+      <p class="lib">${cx.coffre.disponible ? `Source unique : le <b>coffre du système</b> (${esc(cx.coffre.systeme)} : Gestionnaire d'identifiants sous Windows, trousseau sous macOS), chiffré par le système.
         Toute l'application l'utilise : interface, Cursor / Claude (MCP), ligne de commande, runs Robot ; un secret saisi ici est pris en compte sans redémarrage.
         Le coffre prime sur une variable d'environnement du poste, qui ne sert que de repli : la verser dans le coffre avec « Verser dans le coffre ».`
         : `<span class="warn-t">Coffre du système indisponible</span> : secrets gardés <b>en mémoire</b> jusqu'à l'arrêt du serveur (installer « keyring », ou retirer ATELIER_COFFRE=non).`}

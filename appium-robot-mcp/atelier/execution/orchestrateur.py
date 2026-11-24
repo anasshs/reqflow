@@ -161,19 +161,23 @@ def annuler(tid: str) -> dict:
 
 
 # --------------------------------------------------------------------------- ressources : téléphones
-def telephones() -> list[str]:
-    """Téléphones Android branchés (adb), dans l'ordre ; vide si adb est indisponible."""
+def telephones(plateforme: str = "android") -> list[str]:
+    """Téléphones de la plateforme, dans l'ordre : Android branchés (adb) ; iOS (macOS) : iPhone branchés puis simulateurs
+    démarrés. Vide si l'outil du système est indisponible."""
     try:
         from atelier.discovery import session
 
-        return [d["udid"] for d in session.list_devices().get("android", [])]
+        d = session.list_devices()
+        if plateforme == "ios":
+            return list(d.get("ios_physiques", [])) + [s["udid"] for s in d.get("ios_simulateurs", [])]
+        return [x["udid"] for x in d.get("android", [])]
     except Exception:  # noqa: BLE001
         return []
 
 
-def _reserver(tid: str) -> str:
+def _reserver(tid: str, plateforme: str = "android") -> str:
     with _verrou:
-        libres = [u for u in telephones() if u not in _reservations]
+        libres = [u for u in telephones(plateforme) if u not in _reservations]
         if not libres:
             return ""
         _reservations[libres[0]] = tid
@@ -331,7 +335,7 @@ def _etape_run(t: dict, e: dict, dry_run: bool):
         if not tests:
             e.update(statut="echec", fin=_maintenant(), erreur=f"aucun test Robot ne porte le tag {cle or t['id']} : l'automatisation n'a pas abouti")
             return
-        udid = "" if dry_run else _reserver(t["id"])
+        udid = "" if dry_run else _reserver(t["id"], t.get("plateforme") or "android")
         if not dry_run and not udid:
             e.update(statut="attente_ressource", resultat="en attente d'un téléphone libre")
             return

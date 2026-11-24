@@ -144,7 +144,8 @@ def etape_dependances(forcer: bool = False) -> bool:
 
 NAVIGATEURS_POSTE = [r"C:\Program Files\Google\Chrome\Application\chrome.exe", r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
                      r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-                     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome", "/usr/bin/chromium"]
+                     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                     "/Applications/Chromium.app/Contents/MacOS/Chromium", "/usr/bin/google-chrome", "/usr/bin/chromium"]
 
 
 def etape_navigateur(env: dict) -> bool:
@@ -323,6 +324,9 @@ def etape_browser_robot(env: dict, interactif: bool, saisie=input) -> bool:
         if sys.platform.startswith("win") and shutil.which("winget") and interactif and _oui(
                 "  Node.js est requis pour les tests web (bibliothèque Robot Browser). L'installer avec winget ? [O/n] ", saisie):
             executer(["winget", "install", "-e", "--id", "OpenJS.NodeJS.LTS", "--accept-package-agreements", "--accept-source-agreements"])
+        elif sys.platform == "darwin" and shutil.which("brew") and interactif and _oui(
+                "  Node.js est requis pour les tests web (bibliothèque Robot Browser). L'installer avec Homebrew (brew install node) ? [O/n] ", saisie):
+            executer(["brew", "install", "node"])
         if not shutil.which("node"):
             alerte("Tests web : Node.js absent (https://nodejs.org, version LTS). Après installation, fermer et rouvrir la fenêtre, "
                    "puis relancer : l'atelier initialisera la bibliothèque Browser. La Discovery et le mobile fonctionnent sans.")
@@ -332,7 +336,7 @@ def etape_browser_robot(env: dict, interactif: bool, saisie=input) -> bool:
         ok("Tests web : bibliothèque Robot Browser initialisée")
         return True
     alerte("Initialisation de la bibliothèque Browser impossible. Derrière un proxy : régler HTTPS_PROXY (et NODE_EXTRA_CA_CERTS "
-           "pour le certificat), puis « .venv\\Scripts\\python -m Browser.entry init ».")
+           "pour le certificat), puis « " + (".venv\\Scripts\\python" if os.name == "nt" else ".venv/bin/python") + " -m Browser.entry init ».")
     return True
 
 

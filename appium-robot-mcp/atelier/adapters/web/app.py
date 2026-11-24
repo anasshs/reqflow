@@ -497,7 +497,7 @@ def _sante_items() -> list[dict]:
         mh = agents_ia.etat_serveur_http()
         if mh.get("attendu") or mh.get("url_cursor"):
             item("mcp_http", "MCP pour Cursor (URL)", mh["ok"], mh["message"],
-                 "Lancer l'atelier avec lancer-atelier.cmd (ou MCP_HTTP_PORT=8000) ; port occupé : fermer l'autre programme. "
+                 f"Lancer l'atelier avec {prerequis.commande_lancement()} (ou MCP_HTTP_PORT=8000) ; port occupé : fermer l'autre programme. "
                  f"Journal du serveur : {mh.get('journal', '')}", optionnel=True)
     except Exception:  # noqa: BLE001
         pass

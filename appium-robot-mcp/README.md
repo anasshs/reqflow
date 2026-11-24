@@ -15,10 +15,11 @@ les locators, générer la couche locators Robot Framework (POM) et lancer / ana
 
 | Étape | Si c'est en place | Sinon |
 |---|---|---|
-| Python 3.10+ | utilisé | Windows : propose de l'installer (winget, Python 3.13), sinon ouvre python.org |
+| Python 3.10+ | utilisé | Windows : propose de l'installer (winget, Python 3.13) ; macOS : `brew install python@3.13` ; sinon python.org |
 | Environnement `.venv` | utilisé | créé |
 | Dépendances (`requirements.txt`) | « à jour » | installées (et réinstallées si le fichier change) |
 | Navigateur Chromium (Playwright) | utilisé | installé ; si le proxy bloque : Chrome ou Edge du poste |
+| Node.js (tests web, bibliothèque Browser) | utilisé | Windows : propose winget ; macOS : propose Homebrew (`brew install node`) |
 | Projet de tests | utilisé | demandé (dépôt existant, ou un dossier créé) et enregistré dans Paramètres › Projets |
 | Cursor (s'il est sur le poste) | « branché » | propose de brancher l'atelier (MCP, sauvegarde `.bak`) et de copier ses règles ; mode « ligne de commande » sans agent Cursor installé : propose la boîte de demandes |
 
@@ -32,6 +33,15 @@ d'une seconde de vérification, rien n'est réinstallé. Options : `--verifier` 
 `python installer.py`), `--sans-ouvrir`, `--reinstaller`, `--port N`.
 
 ## Installation (macOS)
+
+Sur Mac, tout ce que fait l'atelier sous Windows marche aussi : Discovery web et Android, runs, Knowledge Graph,
+orchestrateur, Cursor / Claude Code. En plus, **iOS** : simulateurs démarrés (`xcrun simctl`) et iPhone branchés
+(`idevice_id`, `brew install libimobiledevice`) sont listés, capturés et réservés par l'orchestrateur comme les
+téléphones Android. adb est trouvé dans `~/Library/Android/sdk` même hors du PATH ; les secrets vont dans le trousseau
+macOS. Lancement : `./lancer-atelier.sh` (au premier lancement, si macOS refuse : `chmod +x lancer-atelier.sh`).
+L'intégration continue (`.github/workflows/atelier.yml`) passe la suite de tests sur macOS, Windows et Linux.
+
+Installation à la main (sans l'assistant) :
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
