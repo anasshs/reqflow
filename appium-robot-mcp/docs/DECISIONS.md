@@ -1016,3 +1016,24 @@ de forcer la boîte de demandes.
 - **Rejouer ses tests** (parcours ou User Story) : en local (run sur le téléphone, rien dans Xray), ou en exécution TNR
   (Test Execution dans le plan TNR de la campagne, transitions Jira, environnement ; tests publiés seulement). L'étape
   « run » de l'orchestrateur accepte une liste de tests et des paramètres de run (Xray).
+
+## 2026-11-24 — Atelier autonome : tout scénario BDD est à automatiser, par le MCP
+
+Décisions de l'utilisateur :
+- **Un test présent dans un scénario BDD est à automatiser**, sauf s'il est marqué « ne pas automatiser » (décision
+  actée, ticket test ; conception/kanban.yaml « manuels ») : il sort alors de l'écart. L'**écart** d'un sujet (parcours,
+  User Story) = ses tests BDD sans script Robot et non marqués ; un sujet avec un écart reste dans « À faire ».
+- **Rattrapage** (« Automatiser ce qui manque ») : l'écart passe par l'agent, **par le MCP de l'atelier**, sans aide
+  humaine : doublons avec les tests déjà automatisés écartés, étapes brutes de la Discovery réécrites en étapes métier
+  sur les keywords existants (jugement des keywords), jeu de données associé, script, dry-run ; puis l'atelier lance le
+  dry-run et le **run local** des tests du sujet. « Couvrir et automatiser » d'un sujet neuf finit de la même façon.
+- **« En automatisation »** = script écrit par l'agent, dry-run, run local sur le téléphone. **« Dans Xray »** =
+  publication puis **exécution TNR** du test (Test Execution dans le plan TNR, environnement de la campagne).
+- **Jeu de données** : changeable à tout moment. Discovery / MBT : « Redérouler + MBT » avec le jeu choisi (profil du
+  parcours, exploration, extraction, propositions MBT). Run : le jeu choisi ne sert qu'à ce run (variante appliquée au
+  lancement, tout jeu de l'environnement) ; « Remplacer dans le dépôt » (validé par l'utilisateur) change le jeu du
+  scénario et le `&{JDD_…}` de ses tests Robot pour les prochaines exécutions.
+- **Recette : pas de restriction sur les actions sensibles ni les données** (virements, noms, montants) : là où
+  l'application permet à l'agent les actions sensibles (classement, « agent_sensible »), la consigne de déroulé ne
+  les réserve plus à l'automaticien et, en flux simple, un test consomme_donnee s'exécute sans validation préalable.
+  Les autres environnements gardent leurs règles.

@@ -575,7 +575,8 @@ def approuver_a_la_publication(fichier: str) -> dict:
     actuel = revue_script(fichier)
     if actuel["statut"] in ("Approved", "Published"):
         return actuel
-    bloquants = [c["message"] for c in actuel["controles"] if c["gravite"] == "haute"]
+    # « Clé Xray absente » ne bloque pas ici : c'est la publication qui crée la clé et la pose en tag sur le test
+    bloquants = [c["message"] for c in actuel["controles"] if c["gravite"] == "haute" and c.get("code") != "xray"]
     if bloquants:
         raise ValueError(f"{fichier} : " + " ; ".join(bloquants))
     st = _stock()

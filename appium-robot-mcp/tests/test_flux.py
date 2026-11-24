@@ -125,3 +125,17 @@ def test_le_travail_finit_par_publier(simple, monkeypatch):
     orchestrateur._modifier(t2["id"], lambda x: x["etapes"][0].update(statut="attente_decision"))
     t2 = orchestrateur.decider(t2["id"], "E1", True)
     assert t2["statut"] == "echec" and "Xray indisponible" in t2["etapes"][0]["erreur"]   # à reprendre, rien de perdu
+
+
+def test_la_cle_xray_absente_ne_bloque_pas_la_publication(simple, monkeypatch):
+    """La publication crée la clé Xray : son absence ne peut pas empêcher l'approbation à la publication ; un autre
+    contrôle grave, si."""
+    from atelier.generation import flux, studio, tnr
+
+    _, suite = _scenario(simple)
+    _en_revue(suite)
+    vrai = studio.revue_script
+    monkeypatch.setattr(studio, "revue_script", lambda f: {**vrai(f), "controles": [{"code": "xray", "gravite": "haute", "message": "Clé Xray absente : Masquer le solde"}]})
+    monkeypatch.setattr(tnr, "publier", lambda cles, xray=None: {"publies": [{"scenario": c, "xray": "DEMO-1"} for c in cles], "erreurs": [], "plan": None, "campagne": None})
+    r = flux.publier(["SOLDE"])
+    assert r["erreurs"] == [] and r["publies"][0]["xray"] == "DEMO-1"

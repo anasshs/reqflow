@@ -79,9 +79,9 @@ def appliquer_variantes(env: str, jeux: list[str], choix: dict | None) -> tuple[
     renommer, out = {}, []
     for j in jeux:
         v = choix.get(j)
-        if v and v != j:
-            if v not in {x["jeu"] for x in connues.get(j, [])}:
-                raise ValueError(f"« {v} » n'est pas une variante de {j} dans {env}.yaml (variante_de: {j}).")
+        if v and v != j:  # une variante déclarée, ou tout autre jeu de l'environnement (choisi pour ce run seulement)
+            if v not in {x["jeu"] for x in connues.get(j, [])} and v not in {x["jeu"] for x in lister(env)}:
+                raise ValueError(f"Jeu de données inconnu dans {env}.yaml : {v}.")
             renommer[v] = j
             out.append(v)
         else:

@@ -14,7 +14,15 @@ déclenche l'action de la colonne visée, comme une transition Jira ; « Lancer 
 couvrir (explorer le parcours / concevoir les tests de l'US) puis automatiser les tests produits. Chaque action longue est
 un travail de l'orchestrateur : le ticket reste dans la colonne visée avec un indicateur tant qu'il avance ; un échec
 reste affiché ; une transition impossible est refusée avec la raison. La publication dans Xray reste la décision de
-l'utilisateur (flux simple, generation/flux.py)."""
+l'utilisateur (flux simple, generation/flux.py).
+
+Règles (décision de l'utilisateur, 2026-11-24)
+  - Un test présent dans un scénario BDD est à automatiser, sauf s'il est marqué « ne pas automatiser » (décision
+    actée) : il sort alors de l'écart. L'écart d'un sujet = ses tests BDD sans script Robot et non marqués.
+  - « Automatiser » = l'agent écrit le script (MCP), puis dry-run, puis run local sur le téléphone.
+  - « Dans Xray » = publication, puis exécution TNR du test (Test Execution dans le plan TNR).
+  - Le jeu de données se change à tout moment : pour la Discovery et le MBT (profil du parcours), ou pour un run
+    (ce run seulement) ; le jeu du dépôt ne change que si l'utilisateur valide le remplacement."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -35,6 +43,15 @@ CONSIGNE_US = ("Couvre la User Story {cle} « {titre} »{criteres} avec le MCP d
                "(test_design_cas_us(\"{cle}\") si Jira est relié, scénarios BDD et tests existants) : ne crée que les scénarios BDD "
                "qui manquent, un par comportement à vérifier, avec le tag @{cle} sur la fonctionnalité, des étapes en français "
                "sans donnée littérale et au moins un résultat vérifié (Alors). Ne publie rien.")
+CONSIGNE_RATTRAPAGE = ("Couvre et automatise le sujet « {nom} » ({sid}) avec le MCP de l'atelier, sans aide humaine. {quoi} "
+                       "Pour chacun : 1) vérifie qu'il n'est pas un doublon d'un test déjà automatisé ({couverts}) ; s'il l'est, "
+                       "dis-le et ne l'automatise pas ; 2) si ses étapes sont brutes (issues de la Discovery : « je touche l'élément », "
+                       "identifiants techniques), réécris-les en étapes métier qui reprennent les keywords existants "
+                       "(studio_keywords_a_juger puis studio_juger_keywords), et associe un jeu de données ; 3) automatise-le : "
+                       "studio_socle, studio_generer_depuis_bdd(cle, ecrire=True), keywords manquants dans les pages existantes "
+                       "sans wrapper 1:1, fichiers rangés selon la structure du dépôt, clé du scénario gardée en tag ; 4) dry_run. "
+                       "Ne publie rien dans Xray. Les actions sensibles et les données réelles sont permises en recette. "
+                       "Termine par atelier_demande_terminee avec, pour chaque scénario, automatisé / doublon / impossible (raison).")
 CONSIGNE_AUTOMATISER_SUJET = ("Automatise chaque scénario BDD {quoi} qui n'a pas encore de test Robot, avec le MCP de l'atelier : "
                               "studio_socle, puis pour chacun studio_generer_depuis_bdd(cle, ecrire=True) ; complète les keywords restés "
                               "« À implémenter » sans wrapper 1:1, range les fichiers dans la structure du dépôt, garde la clé du scénario "
@@ -109,6 +126,21 @@ def ajouter_us(cle: str, titre: str = "", criteres: str = "", lancer: bool = Fal
     return {"sujet": cle, **(lancer_sujet(cle, automatiser) if lancer else {})}
 
 
+def marquer_manuel(cle: str, manuel: bool = True) -> dict:
+    """« Ne pas automatiser » (décision actée) : le test sort de l'écart de son sujet et n'est plus proposé à
+    l'automatisation ; manuel=False le remet dans l'écart."""
+    from atelier.generation import bdd
+
+    if not bdd.charger(cle):
+        raise KeyError(f"Scénario inconnu : {cle}")
+    d = _lire()
+    l = set(d.get("manuels") or [])
+    (l.add if manuel else l.discard)(cle)
+    d["manuels"] = sorted(l)
+    _ecrire(d)
+    return {"cle": cle, "manuel": manuel}
+
+
 def retirer_us(cle: str) -> dict:
     d = _lire()
     if cle not in d["us"]:
@@ -160,14 +192,15 @@ def _tags(m: dict) -> set:
     return {str(g).lstrip("@").upper() for g in tags} | {str(x).upper() for x in m.get("exigences") or []}
 
 
-def _ticket_test(m: dict, tests: list[dict], cle_xray: str, travail: dict | None, sujets: list[str]) -> dict:
+def _ticket_test(m: dict, tests: list[dict], cle_xray: str, travail: dict | None, sujets: list[str], manuel: bool = False) -> dict:
     etapes = sum(len(s.get("etapes") or []) for s in m.get("scenarios") or [])
     reelle = "dans_xray" if cle_xray and tests else "automatise" if tests else "bdd_pret" if etapes else "a_faire"
     ind = _indicateur(travail)
     col = ind["colonne"] if ind and ind["etat"] != "echec" and ind["colonne"] in ORDRE else reelle
     dernier = next((t.get("dernier") for t in tests if t.get("dernier")), None)
     return {"type": "test", "id": m["cle"], "cle": m["cle"], "titre": m.get("titre") or m["cle"], "colonne": col, "colonne_reelle": reelle,
-            "xray": cle_xray, "etapes": etapes, "tests": [t["id"] for t in tests], "sujets": sujets,
+            "xray": cle_xray, "etapes": etapes, "tests": [t["id"] for t in tests], "sujets": sujets, "manuel": manuel,
+            "jdd": m.get("jdd", ""),
             "dernier_run": dernier and {"statut": dernier.get("statut"), "fin": dernier.get("fin"), "message": (dernier.get("message") or "")[:200]},
             "indicateur": ind}
 
@@ -175,10 +208,12 @@ def _ticket_test(m: dict, tests: list[dict], cle_xray: str, travail: dict | None
 def _ticket_sujet(type_: str, id_: str, nom: str, detail: str, tests: list[dict], travail: dict | None, explore: bool = False) -> dict:
     ind = _indicateur(travail)
     en_cours = bool(ind and ind["etat"] in ("en_cours", "decision")) or explore
-    etat = "conception" if en_cours else "couvert" if tests else "a_faire"
+    ecart = [t["id"] for t in tests if t["colonne_reelle"] in ("a_faire", "bdd_pret") and not t.get("manuel")]
+    etat = "conception" if en_cours else "a_faire" if not tests or ecart else "couvert"  # un écart le garde dans le backlog
     par_col = {c: sum(t["colonne"] == c for t in tests) for c, _ in COLONNES}
     return {"type": type_, "id": id_, "cle": id_, "titre": nom, "detail": detail, "etat": etat,
             "colonne": None if etat == "couvert" else etat, "indicateur": ind, "tests": len(tests), "par_colonne": par_col,
+            "a_automatiser": ecart, "manuels": sum(bool(t.get("manuel")) for t in tests),
             "dans_xray": par_col["dans_xray"]}
 
 
@@ -222,7 +257,9 @@ def tableau() -> dict:
             if liee and cle_us not in sujets_de[m["cle"]]:
                 sujets_de[m["cle"]].append(cle_us)
 
-    tests = [_ticket_test(m, t, conception.cle_xray_du_scenario(m["cle"]), travaux.get(m["cle"]), sujets_de[m["cle"]]) for m, t in modeles]
+    manuels = set(_lire().get("manuels") or [])
+    tests = [_ticket_test(m, t, conception.cle_xray_du_scenario(m["cle"]), travaux.get(m["cle"]), sujets_de[m["cle"]], m["cle"] in manuels)
+             for m, t in modeles]
     sujets = []
     propositions = _lire().get("propositions") or {}
     for p in sorted(parcours, key=lambda x: x.get("modifie") or "", reverse=True):
@@ -247,6 +284,52 @@ def _ticket(id_: str) -> dict:
 
 
 # =========================================================================== actions
+def _env() -> str:
+    """Environnement des runs lancés depuis le Kanban : celui de la campagne TNR (recette), sinon aucun."""
+    try:
+        from atelier.execution import centre
+        from atelier.generation import tnr
+
+        conv = tnr.conventions()
+        return (centre.campagne(conv["campagne"]).get("environnement") or "") if conv.get("campagne") else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _params_xray() -> dict:
+    """Paramètres d'une exécution TNR (Test Execution dans le plan TNR, transitions Jira, environnement)."""
+    from atelier.execution import centre
+    from atelier.generation import tnr
+
+    conv = tnr.conventions()
+    if not conv.get("campagne"):
+        raise ValueError("Pas encore de campagne TNR : publier d'abord des tests dans Xray.")
+    c = centre.campagne(conv["campagne"])
+    base = centre.params_campagne(c, (c.get("plateformes") or ["android"])[0])
+    jira = {"jira_transition_start": conv.get("transition_debut"), "jira_transition_end": conv.get("transition_fin"),
+            "jira_champs_execution": tnr.payload_champs(conv.get("champs_execution") or {})}
+    gardes = ("xray_ticket", "jdd_env", "jira_transition_start", "jira_transition_end", "jira_champs_execution")
+    return {**{k: v for k, v in base.items() if k in gardes}, **{k: v for k, v in jira.items() if v}}
+
+
+def _variante(cle: str, jdd: str) -> dict:
+    """Jeu de données choisi pour un run seulement : {jeu du test: jeu choisi} (le dépôt ne change pas)."""
+    from atelier.generation import bdd
+
+    if not jdd:
+        return {}
+    base = (bdd.charger(cle) or {}).get("jdd") or ""
+    if not base:
+        raise ValueError("Ce scénario n'a pas de jeu de données : l'associer d'abord (ticket › jeu de données).")
+    return {base: jdd} if jdd != base else {}
+
+
+def tests_du_sujet(sid: str) -> list[str]:
+    """Tests Robot automatisés du sujet (hors « ne pas automatiser »), pour ses runs."""
+    t = tableau()
+    return sorted({i for y in t["tickets"] if y["type"] == "test" and sid in y["sujets"] and not y.get("manuel") for i in y["tests"]})
+
+
 def _travail(titre: str, etapes: list[dict], kanban: str, colonne: str) -> dict:
     from atelier.execution import orchestrateur
     from atelier.integrations import boite_cursor
@@ -255,13 +338,42 @@ def _travail(titre: str, etapes: list[dict], kanban: str, colonne: str) -> dict:
     for e in etapes:
         if e["type"] == "ia":
             e.setdefault("agent", agent)
-    t = orchestrateur.creer(titre, etapes, origine={"type": "kanban", "kanban": kanban, "colonne": colonne, "ecran": f"#atelier/{kanban}"})
+    t = orchestrateur.creer(titre, etapes, origine={"type": "kanban", "kanban": kanban, "colonne": colonne, "ecran": f"#atelier/{kanban}"},
+                            env=_env())
     return {"travail": t["id"], "etapes": [e["titre"] for e in t["etapes"]]}
 
 
 def _deja_en_cours(x: dict):
     if x.get("indicateur") and x["indicateur"]["etat"] in ("en_cours", "decision"):
         raise ValueError(f"Une action est déjà en cours sur ce ticket ({x['indicateur']['texte']}) : la suivre dans Mes demandes.")
+
+
+def _etapes_rattrapage(sid: str, nom: str, en_plus: str = "") -> list[dict]:
+    """Étapes qui automatisent tout l'écart d'un sujet par le MCP : l'agent (doublons, étapes métier, script), puis
+    dry-run et run local des tests du sujet."""
+    t = tableau()
+    x = next((y for y in t["sujets"] if y["id"] == sid), None) or {"a_automatiser": []}
+    titres = {y["id"]: y["titre"] for y in t["tickets"] if y["type"] == "test"}
+    ecart = ", ".join(f"{c} (« {titres.get(c, c)} »)" for c in x["a_automatiser"]) or "aucun pour l'instant"
+    manuels = [y["id"] for y in t["tickets"] if y["type"] == "test" and sid in y["sujets"] and y.get("manuel")]
+    couverts = ", ".join(sorted({y["xray"] or y["id"] for y in t["tickets"] if y["type"] == "test" and y["tests"]})) or "aucun"
+    quoi = (f"Scénarios à automatiser : {en_plus}les scénarios BDD du sujet sans test Robot : {ecart}."
+            + (f" Ne touche pas à ceux marqués « ne pas automatiser » : {', '.join(manuels)}." if manuels else ""))
+    return [{"titre": "Compléter et automatiser (agent)", "type": "ia",
+             "params": {"texte": CONSIGNE_RATTRAPAGE.format(nom=nom, sid=sid, quoi=quoi, couverts=couverts), "attendus": ["studio_generer_depuis_bdd"]}},
+            {"titre": "Dry-run", "type": "atelier", "action": "dry_run", "params": {"sujet": sid}},
+            {"titre": "Run local (téléphone)", "type": "atelier", "action": "run", "params": {"sujet": sid}}]
+
+
+def rattraper(sid: str) -> dict:
+    """« Automatiser ce qui manque » : tout l'écart du sujet passe par l'agent (MCP), puis dry-run et run local."""
+    x = _ticket(sid)
+    if x["type"] == "test":
+        raise ValueError("Le rattrapage s'applique à un parcours ou une User Story.")
+    _deja_en_cours(x)
+    if not x["a_automatiser"]:
+        raise ValueError("Rien à automatiser : tous les tests BDD du sujet ont un script (ou sont marqués « ne pas automatiser »).")
+    return {"a_automatiser": x["a_automatiser"], **_travail(f"Rattrapage « {x['titre']} »", _etapes_rattrapage(sid, x["titre"]), sid, "")}
 
 
 def lancer_sujet(id_: str, automatiser: bool = True) -> dict:
@@ -280,17 +392,14 @@ def lancer_sujet(id_: str, automatiser: bool = True) -> dict:
                               "attendus": ["discovery_terminer"]}},
                   {"titre": "Extraire le test", "type": "atelier", "action": "brouillon_bdd", "params": {"parcours": id_, "titre": p.get("nom") or ""}}]
         if automatiser:
-            etapes += [{"titre": "Automatiser le test", "type": "ia",
-                        "params": {"texte": CONSIGNE_AUTOMATISER.format(cle="{bdd}", titre=p.get("nom") or id_), "attendus": ["studio_generer_depuis_bdd"]}},
-                       {"titre": "Dry-run", "type": "atelier", "action": "dry_run", "params": {}}]
+            etapes += _etapes_rattrapage(id_, p.get("nom") or id_, "le scénario {bdd} que l'atelier vient d'extraire, et ")
         return _travail(f"Parcours « {p.get('nom') or id_} »", etapes, id_, "conception")
     u = _lire()["us"][id_]
     crit = f" (critères d'acceptation : {u['criteres']})" if u.get("criteres") else ""
     etapes = [{"titre": "Concevoir les tests de l'US", "type": "ia",
                "params": {"texte": CONSIGNE_US.format(cle=id_, titre=u.get("titre") or id_, criteres=crit), "attendus": ["atelier_demande_terminee"]}}]
     if automatiser:
-        etapes.append({"titre": "Automatiser les tests de l'US", "type": "ia",
-                       "params": {"texte": CONSIGNE_AUTOMATISER_SUJET.format(quoi=f"portant le tag @{id_}"), "attendus": ["studio_generer_depuis_bdd"]}})
+        etapes += _etapes_rattrapage(id_, u.get("titre") or id_, f"les scénarios portant le tag @{id_}, et ")
     return _travail(f"US {id_} « {u.get('titre') or id_} »", etapes, id_, "conception")
 
 
@@ -321,10 +430,13 @@ def deplacer(id_: str, colonne: str, xray=None) -> dict:
             raise ValueError("Scénario sans étapes : le concevoir d'abord (colonne « En conception »).")
         if ORDRE[reelle] >= ORDRE["automatise"]:
             raise ValueError("Déjà automatisé : pour le refaire, demander une maintenance depuis le ticket.")
+        if c.get("manuel"):
+            raise ValueError("Marqué « ne pas automatiser » : retirer la marque dans le ticket pour l'automatiser.")
         r = _travail(f"Automatiser « {titre} »", [
             {"titre": "Écrire le test Robot", "type": "ia", "params": {"texte": CONSIGNE_AUTOMATISER.format(cle=cle, titre=titre),
                                                                        "attendus": ["studio_generer_depuis_bdd"]}},
-            {"titre": "Dry-run", "type": "atelier", "action": "dry_run", "params": {"bdd": cle}}], cle, colonne)
+            {"titre": "Dry-run", "type": "atelier", "action": "dry_run", "params": {"bdd": cle}},
+            {"titre": "Run local (téléphone)", "type": "atelier", "action": "run", "params": {"bdd": cle}}], cle, colonne)
     elif colonne == "en_run":
         if ORDRE[reelle] < ORDRE["automatise"]:
             raise ValueError("Pas encore automatisé : passer d'abord par « En automatisation ».")
@@ -336,12 +448,79 @@ def deplacer(id_: str, colonne: str, xray=None) -> dict:
         p = (flux.publier if flux.simple() else tnr.publier)([cle], xray=xray)
         if p["erreurs"]:
             raise ValueError("; ".join(f"{e['scenario']} : {e['erreur']}" for e in p["erreurs"]))
-        return {"ticket": _ticket(cle), "action": "publie", "publies": p["publies"]}
+        execution = {}
+        try:  # publié : une exécution TNR du test (Test Execution dans le plan TNR) remonte son résultat dans Xray
+            execution = _travail(f"Exécution TNR « {titre} »", [{"titre": "Run TNR (Xray)", "type": "atelier", "action": "run",
+                                                                  "params": {"bdd": cle, "run_params": _params_xray()}}], cle, "")
+        except ValueError as e:
+            execution = {"erreur": str(e)}
+        return {"ticket": _ticket(cle), "action": "publie", "publies": p["publies"], "execution": execution}
     elif colonne == "automatise":
         raise ValueError("« Automatisé » se gagne : déplacer le ticket vers « En automatisation » pour que l'agent écrive le test.")
     else:  # a_faire
         raise ValueError("Retour à « À faire » impossible : ouvrir le ticket pour modifier le scénario.")
     return {"ticket": _ticket(cle), "action": "travail", **r}
+
+
+def executer(cle: str, jdd: str = "", xray: bool = False) -> dict:
+    """Run d'un test, avec un autre jeu de données si jdd (pour ce run seulement, le dépôt ne change pas), en local ou en
+    exécution TNR (xray)."""
+    c = _ticket(cle)
+    if c["type"] != "test" or not c["tests"]:
+        raise ValueError("Pas encore automatisé : passer d'abord par « En automatisation ».")
+    _deja_en_cours(c)
+    run_params = {**(_params_xray() if xray else {}), **({"jdd_variantes": _variante(cle, jdd)} if _variante(cle, jdd) else {})}
+    titre = f"Exécuter « {c['titre']} »" + (f" avec {jdd}" if jdd else "") + (" (TNR, Xray)" if xray else "")
+    return _travail(titre, [{"titre": "Run TNR (Xray)" if xray else "Run local (téléphone)", "type": "atelier", "action": "run",
+                             "params": {"bdd": cle, "tests": c["tests"], "run_params": run_params}}], cle, "en_run")
+
+
+def corriger(cle: str, consigne: str = "") -> dict:
+    """Run en échec : l'agent corrige par le MCP (demande de maintenance : derniers résultats, corrections de locators
+    proposées, méthode), puis l'atelier relance le dry-run et le run local. L'échec et sa correction enrichissent ce que
+    l'agent sait de l'application."""
+    from atelier.generation import maintenance
+
+    c = _ticket(cle)
+    if c["type"] != "test" or not c["tests"]:
+        raise ValueError("Pas encore automatisé : rien à corriger.")
+    _deja_en_cours(c)
+    d = maintenance.demande_maintenance(c["tests"], consigne)
+    return _travail(f"Corriger « {c['titre']} »", [
+        {"titre": "Corriger le test (agent)", "type": "ia", "params": {"texte": d["texte"], "attendus": d["attendus"]}},
+        {"titre": "Dry-run", "type": "atelier", "action": "dry_run", "params": {"bdd": cle, "tests": c["tests"]}},
+        {"titre": "Run local (téléphone)", "type": "atelier", "action": "run", "params": {"bdd": cle, "tests": c["tests"]}}], cle, "automatisation")
+
+
+def remplacer_jdd(cle: str, jdd: str) -> dict:
+    """Remplacement validé par l'utilisateur : le jeu de données devient celui du scénario et de ses tests Robot
+    (&{JDD_<ANCIEN>} → &{JDD_<NOUVEAU>}) pour les prochaines exécutions."""
+    import re
+
+    from atelier.domain import projet
+    from atelier.generation import bdd
+
+    c = _ticket(cle)
+    m = bdd.charger(cle) or {}
+    ancien = m.get("jdd") or ""
+    if not jdd or jdd == ancien:
+        raise ValueError("Choisir un autre jeu de données que celui du scénario.")
+    bdd.associer_jdd(cle, jdd)
+    modifies = []
+    for tid in c.get("tests") or []:
+        fichier, _, nom = tid.partition("::")
+        f = projet.safe_path(fichier)
+        lignes, dedans = f.read_text("utf-8").splitlines(keepends=True), False
+        for i, l in enumerate(lignes):
+            if l.strip() and not l[:1].isspace():
+                dedans = l.strip() == nom
+            elif dedans and "Initialiser Le Test" in l:
+                nouvelle = re.sub(r"&\{JDD_[A-Za-z0-9_]+\}", "&{JDD_" + jdd + "}", l)
+                if nouvelle != l:
+                    lignes[i] = nouvelle
+                    modifies.append(tid)
+        f.write_text("".join(lignes), "utf-8")
+    return {"cle": cle, "ancien": ancien, "jdd": jdd, "tests_modifies": modifies}
 
 
 def ajouter_parcours(nom: str, point_depart: str = "", resultat_attendu: str = "", objectif: str = "", lancer: bool = True,
@@ -379,7 +558,13 @@ def ticket(id_: str) -> dict:
     except Exception:  # noqa: BLE001
         gherkin = ""
     noms = {s["id"]: s["titre"] for s in t["sujets"]}
-    return {**x, "gherkin": gherkin, "statut_bdd": m.get("statut", ""), "sujets_noms": [{"id": s, "titre": noms.get(s, s)} for s in x["sujets"]],
+    try:
+        from atelier.execution import jdd as jdd_mod
+
+        jeux = [j["jeu"] for j in jdd_mod.lister(_env() or "recette")]
+    except Exception:  # noqa: BLE001
+        jeux = []
+    return {**x, "gherkin": gherkin, "jeux": jeux, "statut_bdd": m.get("statut", ""), "sujets_noms": [{"id": s, "titre": noms.get(s, s)} for s in x["sujets"]],
             "historique": historique}
 
 
@@ -392,11 +577,25 @@ def _parcours(pid: str) -> dict:
     return pu._lire(pid)
 
 
-def enrichir_mbt(pid: str) -> dict:
+def enrichir_mbt(pid: str, profil: str = "") -> dict:
     """Enrichir par le MBT : construit (ou actualise) le modèle comportemental du parcours et propose les chemins que les
     tests existants ne couvrent pas encore. Ce sont des cartes « à qualifier » : rien n'entre dans le Kanban sans accord."""
     from atelier.intelligence import mbt
 
+    if profil:  # autre jeu de données : la Discovery est redéroulée avec lui, puis le MBT propose (travail en arrière-plan)
+        from atelier.discovery import parcours_utilisateur as pu
+
+        x = _ticket(pid)
+        _deja_en_cours(x)
+        pu.enregistrer(pid, {"profil_donnees": profil})
+        p = pu._lire(pid)
+        return {"parcours": pid, "profil_donnees": profil, "propositions": [], "a_automatiser": x.get("a_automatiser") or [], **_travail(
+            f"MBT « {p.get('nom') or pid} » avec {profil}", [
+                {"titre": "Dérouler le parcours", "type": "ia",
+                 "params": {"texte": pu.demande_cursor(p) + " Termine par atelier_demande_terminee avec les écrans traversés.",
+                            "attendus": ["discovery_terminer"]}},
+                {"titre": "Extraire le test", "type": "atelier", "action": "brouillon_bdd", "params": {"parcours": pid, "titre": p.get("nom") or ""}},
+                {"titre": "Enrichir par le MBT", "type": "atelier", "action": "enrichir_mbt", "params": {"parcours": pid}}], pid, "conception")}
     p = _parcours(pid)
     if not p.get("noeud") or not p.get("ecrans"):
         raise ValueError("Parcours pas encore exploré : « Couvrir et automatiser » d'abord (le MBT part des écrans découverts).")
@@ -409,7 +608,9 @@ def enrichir_mbt(pid: str) -> dict:
               "a_confirmer": len(c.get("manquant") or [])} for c in a.get("chemins") or [] if c["id"] not in rejetes]
     d.setdefault("propositions", {})[pid] = {"modele": m["id"], "date": _maintenant(), "chemins": props}
     _ecrire(d)
-    return {"parcours": pid, "modele": m["id"], "propositions": props, "reutilises": len(a.get("reutilises") or [])}
+    ecart = next((s.get("a_automatiser") or [] for s in tableau()["sujets"] if s["id"] == pid), [])
+    # un chemin « réutilisé » par un scénario BDD sans script n'est pas couvert : il reste dans l'écart à automatiser
+    return {"parcours": pid, "modele": m["id"], "propositions": props, "reutilises": len(a.get("reutilises") or []), "a_automatiser": ecart}
 
 
 def qualifier(pid: str, accepter: list[str] | None = None, rejeter: list[str] | None = None) -> dict:
@@ -448,7 +649,7 @@ def changer_jdd(pid: str, profil: str, relancer: bool = True) -> dict:
     return {"parcours": pid, "profil_donnees": profil, **(lancer_sujet(pid, automatiser=False) if relancer else {})}
 
 
-def rejouer(pid: str, xray: bool = False) -> dict:
+def rejouer(pid: str, xray: bool = False, jdd: str = "") -> dict:
     """Rejoue les tests automatisés du sujet : en local (run sur le téléphone, rien dans Xray), ou en exécution TNR (une
     Test Execution dans le plan TNR, statuts et preuves remontés dans Xray ; tests publiés seulement)."""
     from atelier.execution import centre
@@ -465,18 +666,14 @@ def rejouer(pid: str, xray: bool = False) -> dict:
     ids = sorted({i for y in les_tests for i in y["tests"]})
     if not ids:
         raise ValueError("Aucun test publié dans Xray pour ce sujet." if xray else "Aucun test automatisé pour ce sujet : l'automatiser d'abord.")
-    params = {"tests": ids}
-    if xray:
-        conv = tnr.conventions()
-        if not conv.get("campagne"):
-            raise ValueError("Pas encore de campagne TNR : publier d'abord des tests dans Xray.")
-        c = centre.campagne(conv["campagne"])
-        base = centre.params_campagne(c, (c.get("plateformes") or ["android"])[0])
-        jira = {"jira_transition_start": conv.get("transition_debut"), "jira_transition_end": conv.get("transition_fin"),
-                "jira_champs_execution": tnr.payload_champs(conv.get("champs_execution") or {})}
-        gardes = ("xray_ticket", "jdd_env", "jira_transition_start", "jira_transition_end", "jira_champs_execution")
-        params["run_params"] = {**{k: v for k, v in base.items() if k in gardes}, **{k: v for k, v in jira.items() if v}}
+    params = {"tests": ids, "run_params": dict(_params_xray()) if xray else {}}
     titre = f"Rejouer « {x['titre']} » ({'exécution TNR, Xray' if xray else 'en local'})"
+    if jdd:  # même jeu pour les tests du sujet qui ont un jeu : ce run seulement
+        from atelier.generation import bdd
+
+        bases = {(bdd.charger(y["id"]) or {}).get("jdd") for y in les_tests} - {"", None}
+        params["run_params"]["jdd_variantes"] = {b: jdd for b in bases if b != jdd}
+        titre += f" avec {jdd}"
     etape = {"titre": "Run TNR (Xray)" if xray else "Run sur le téléphone", "type": "atelier", "action": "run", "params": params}
     return {"tests": ids, **_travail(titre, [etape], pid, "")}
 

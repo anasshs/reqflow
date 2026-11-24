@@ -411,6 +411,13 @@ def _etape_atelier(t: dict, e: dict):
     if a in ("dry_run", "run"):
         _etape_run(t, e, dry_run=a == "dry_run")
         return
+    if a == "enrichir_mbt":  # après une Discovery avec un autre jeu de données : propositions MBT à qualifier
+        from atelier.generation import kanban
+
+        r = kanban.enrichir_mbt(e["params"]["parcours"])
+        e.update(statut="fait", debut=e["debut"] or _maintenant(), fin=_maintenant(),
+                 resultat=f"{len(r['propositions'])} proposition(s) MBT à qualifier, {len(r['a_automatiser'])} test(s) BDD à automatiser")
+        return
     e.update(statut="echec", erreur=f"action inconnue : {a}", fin=_maintenant())
 
 
@@ -422,7 +429,12 @@ def _etape_run(t: dict, e: dict, dry_run: bool):
             e.update(statut="attente_ressource", resultat="file d'exécution indisponible (atelier non démarré)")
             return
         cle = t["contexte"].get("bdd") or e["params"].get("bdd", "")
-        tests = list(e["params"].get("tests") or []) or _tests_du_bdd(cle, t["id"])  # tests donnés (rejeu d'un sujet), sinon ceux du scénario
+        tests = list(e["params"].get("tests") or [])  # tests donnés (rejeu d'un sujet)
+        if not tests and e["params"].get("sujet"):  # tests automatisés du sujet, relus au moment du run (l'agent vient de les écrire)
+            from atelier.generation import kanban
+
+            tests = kanban.tests_du_sujet(e["params"]["sujet"])
+        tests = tests or _tests_du_bdd(cle, t["id"])
         if not tests:
             e.update(statut="echec", fin=_maintenant(), erreur=f"aucun test Robot ne porte le tag {cle or t['id']} : l'automatisation n'a pas abouti")
             return

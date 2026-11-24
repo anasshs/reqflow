@@ -61,9 +61,15 @@ def test_backlog_sujets_et_tests(atelier):
     assert x["PRET"]["sujets"] == [p["id"]] and x["CRITERE"]["sujets"] == ["DEMO-12"]   # parcours / tag @US
     assert x[vierge["id"]]["type"] == "parcours" and x[vierge["id"]]["colonne"] == "a_faire"     # backlog : parcours à explorer
     assert x["DEMO-99"]["type"] == "us" and x["DEMO-99"]["titre"] == "Plafond de virement" and x["DEMO-99"]["colonne"] == "a_faire"
-    assert p["id"] not in x and "DEMO-12" not in x                                      # sujets couverts : filtres, plus en colonne
     s = {y["id"]: y for y in t["sujets"]}
-    assert s[p["id"]]["etat"] == "couvert" and s[p["id"]]["tests"] == 3 and s[p["id"]]["par_colonne"]["automatise"] == 1
+    # un sujet garde un écart (tests BDD sans script) : il reste dans le backlog, avec ses tests à automatiser
+    assert x[p["id"]]["colonne"] == "a_faire" and sorted(s[p["id"]]["a_automatiser"]) == ["PRET", "VIDE"]
+    assert s[p["id"]]["tests"] == 3 and s[p["id"]]["par_colonne"]["automatise"] == 1
+    for cle in ("VIDE", "PRET", "CRITERE"):
+        kanban.marquer_manuel(cle)
+    s = {y["id"]: y for y in kanban.tableau()["sujets"]}
+    assert s[p["id"]]["etat"] == "couvert" and s[p["id"]]["a_automatiser"] == [] and s[p["id"]]["manuels"] == 2   # décision actée : hors écart
+    assert s["DEMO-12"]["etat"] == "couvert"
     with pytest.raises(ValueError, match="DEMO-123"):
         kanban.ajouter_us("pas une clé")
 
@@ -75,7 +81,7 @@ def test_transitions_d_un_test(atelier, monkeypatch):
     _scenario("PRET")
     r = kanban.deplacer("PRET", "automatisation")
     t = orchestrateur.obtenir(r["travail"])
-    assert [e["titre"] for e in t["etapes"]] == ["Écrire le test Robot", "Dry-run"] and t["etapes"][0]["type"] == "ia"
+    assert [e["titre"] for e in t["etapes"]] == ["Écrire le test Robot", "Dry-run", "Run local (téléphone)"] and t["etapes"][0]["type"] == "ia"
     c = r["ticket"]
     assert c["colonne"] == "automatisation" and c["colonne_reelle"] == "bdd_pret" and c["indicateur"]["etat"] == "en_cours"
     with pytest.raises(ValueError, match="déjà en cours"):
@@ -116,8 +122,10 @@ def test_un_clic_sur_un_parcours(atelier):
 
     r = kanban.ajouter_parcours("Virement", point_depart="Accueil", resultat_attendu="Virement confirmé")
     t = orchestrateur.obtenir(r["travail"])
-    assert [e["titre"] for e in t["etapes"]] == ["Dérouler le parcours", "Extraire le test", "Automatiser le test", "Dry-run"]
+    assert [e["titre"] for e in t["etapes"]] == ["Dérouler le parcours", "Extraire le test", "Compléter et automatiser (agent)", "Dry-run",
+                                                 "Run local (téléphone)"]
     assert r["sujet"] in t["etapes"][0]["params"]["texte"] and "{bdd}" in t["etapes"][2]["params"]["texte"]
+    assert t["etapes"][4]["params"] == {"sujet": r["sujet"]}
     x = _par_id(kanban.tableau())[r["sujet"]]
     assert x["colonne"] == "conception" and x["indicateur"]["etat"] == "en_cours"
     with pytest.raises(ValueError, match="déjà en cours"):
@@ -132,7 +140,7 @@ def test_un_clic_sur_une_us(atelier):
 
     r = kanban.ajouter_us("DEMO-5", titre="Masquer le solde", criteres="Le solde se masque d'un geste", lancer=True)
     t = orchestrateur.obtenir(r["travail"])
-    assert [e["titre"] for e in t["etapes"]] == ["Concevoir les tests de l'US", "Automatiser les tests de l'US"]
+    assert [e["titre"] for e in t["etapes"]] == ["Concevoir les tests de l'US", "Compléter et automatiser (agent)", "Dry-run", "Run local (téléphone)"]
     assert "@DEMO-5" in t["etapes"][0]["params"]["texte"] and "Le solde se masque" in t["etapes"][0]["params"]["texte"]
     assert "ne crée que les scénarios BDD qui manquent" in t["etapes"][0]["params"]["texte"]   # l'existant d'abord
     _scenario("NOUVEAU")                                                    # créé pendant le travail de l'US
@@ -209,7 +217,7 @@ def test_rejouer_en_local_ou_en_tnr_xray(atelier, monkeypatch):
     monkeypatch.setattr(conception, "cle_xray_du_scenario", lambda cle: "DEMO-9" if cle == "PUBLIE" else "")
     r = kanban.rejouer(p["id"])
     e = orchestrateur.obtenir(r["travail"])["etapes"][0]
-    assert e["action"] == "run" and len(e["params"]["tests"]) == 2 and "run_params" not in e["params"]
+    assert e["action"] == "run" and len(e["params"]["tests"]) == 2 and not e["params"]["run_params"]
     orchestrateur.annuler(r["travail"])
     monkeypatch.setattr(tnr, "conventions", lambda: {"campagne": ""})
     with pytest.raises(ValueError, match="campagne TNR"):
@@ -263,3 +271,91 @@ def test_extraire_le_test_d_un_parcours_utilisateur(atelier, monkeypatch):
     assert t["etapes"][0]["statut"] == "fait" and t["contexte"]["bdd"] == "parcours_bout_en_bout" and vus == ["DS-2", "DS-1"]
     assert bdd.charger("parcours_bout_en_bout")["parcours"] == p["id"]
     assert kanban.tableau()["sujets"][0]["tests"] == 1
+
+
+def test_rattrapage_d_un_sujet_et_ne_pas_automatiser(atelier):
+    from atelier.discovery import parcours_utilisateur as pu
+    from atelier.execution import orchestrateur
+    from atelier.generation import kanban
+
+    p = pu.enregistrer("", {"nom": "Bout en bout"})
+    _scenario("BRUT", p["id"])
+    _scenario("FAIT", p["id"])
+    _script(atelier, "FAIT")
+    _scenario("MANUEL", p["id"])
+    kanban.marquer_manuel("MANUEL")
+    with pytest.raises(ValueError, match="ne pas automatiser"):
+        kanban.deplacer("MANUEL", "automatisation")
+    r = kanban.rattraper(p["id"])
+    assert r["a_automatiser"] == ["BRUT"]
+    t = orchestrateur.obtenir(r["travail"])
+    texte = t["etapes"][0]["params"]["texte"]
+    assert "BRUT" in texte and "MANUEL" in texte and "doublon" in texte and "studio_juger_keywords" in texte   # par le MCP, sans aide
+    assert [e["titre"] for e in t["etapes"]] == ["Compléter et automatiser (agent)", "Dry-run", "Run local (téléphone)"]
+    assert kanban.tests_du_sujet(p["id"]) == ["tests/fait.robot::FAIT"]
+    orchestrateur.annuler(r["travail"])
+    kanban.marquer_manuel("BRUT")
+    with pytest.raises(ValueError, match="Rien à automatiser"):
+        kanban.rattraper(p["id"])
+
+
+def test_run_avec_un_autre_jeu_puis_remplacement(atelier):
+    from atelier.execution import orchestrateur
+    from atelier.generation import bdd, kanban
+
+    _scenario("CARTE")
+    bdd.associer_jdd("CARTE", "CLIENT_A")
+    (atelier / "tests" / "carte.robot").write_text("*** Test Cases ***\nCARTE\n    [Tags]    CARTE\n    Initialiser Le Test    &{JDD_CLIENT_A}\n"
+                                                    "    No Operation\nAUTRE\n    Initialiser Le Test    &{JDD_CLIENT_A}\n", "utf-8")
+    r = kanban.executer("CARTE", jdd="CLIENT_B")
+    e = orchestrateur.obtenir(r["travail"])["etapes"][0]
+    assert e["params"]["run_params"] == {"jdd_variantes": {"CLIENT_A": "CLIENT_B"}}            # ce run seulement
+    assert "&{JDD_CLIENT_A}" in (atelier / "tests" / "carte.robot").read_text("utf-8")
+    orchestrateur.annuler(r["travail"])
+    m = kanban.remplacer_jdd("CARTE", "CLIENT_B")
+    texte = (atelier / "tests" / "carte.robot").read_text("utf-8")
+    assert m["tests_modifies"] == ["tests/carte.robot::CARTE"] and bdd.charger("CARTE")["jdd"] == "CLIENT_B"
+    assert texte.count("&{JDD_CLIENT_B}") == 1 and texte.count("&{JDD_CLIENT_A}") == 1        # le test AUTRE garde son jeu
+
+
+def test_publier_lance_l_execution_tnr(atelier, monkeypatch):
+    from atelier.execution import centre, orchestrateur
+    from atelier.generation import conception, flux, kanban, tnr
+
+    _scenario("PRET")
+    _script(atelier, "PRET")
+    publie = []
+    monkeypatch.setattr(flux, "publier", lambda cles, xray=None: publie.append(cles) or {"publies": [{"scenario": "PRET", "xray": "DEMO-7"}], "erreurs": []})
+    monkeypatch.setattr(conception, "cle_xray_du_scenario", lambda cle: "DEMO-7" if publie else "")
+    monkeypatch.setattr(tnr, "conventions", lambda: {"campagne": "CAMP-1"})
+    monkeypatch.setattr(centre, "campagne", lambda cid: {"id": cid, "plateformes": ["android"], "cible": "tests", "tests": [], "tags": [],
+                                                         "retry": False, "xray_ticket": "DEMO-100", "environnement": "recette"})
+    r = kanban.deplacer("PRET", "dans_xray")
+    w = orchestrateur.obtenir(r["execution"]["travail"])
+    assert r["action"] == "publie" and w["etapes"][0]["params"]["run_params"]["xray_ticket"] == "DEMO-100" and w["env"] == "recette"
+
+
+def test_mbt_avec_un_autre_jeu_de_donnees(atelier, monkeypatch):
+    from atelier.discovery import parcours_utilisateur as pu
+    from atelier.execution import orchestrateur
+    from atelier.generation import kanban
+
+    p = pu.enregistrer("", {"nom": "Connexion"})
+    vu, vrai = {}, pu.enregistrer
+    monkeypatch.setattr(pu, "enregistrer", lambda pid="", champs=None: vu.update(champs or {}) or vrai(pid, {k: v for k, v in (champs or {}).items() if k != "profil_donnees"}))
+    r = kanban.enrichir_mbt(p["id"], profil="CLIENT_PLUS18")
+    t = orchestrateur.obtenir(r["travail"])
+    assert [e["titre"] for e in t["etapes"]] == ["Dérouler le parcours", "Extraire le test", "Enrichir par le MBT"]
+    assert vu == {"profil_donnees": "CLIENT_PLUS18"}
+
+
+def test_corriger_un_run_en_echec_par_l_agent(atelier):
+    from atelier.execution import orchestrateur
+    from atelier.generation import kanban
+
+    _scenario("CARTE")
+    _script(atelier, "CARTE")
+    r = kanban.corriger("CARTE", "La carte est sous le pli : défiler jusqu'à ce qu'elle soit visible.")
+    t = orchestrateur.obtenir(r["travail"])
+    assert [e["titre"] for e in t["etapes"]] == ["Corriger le test (agent)", "Dry-run", "Run local (téléphone)"]
+    assert "sous le pli" in t["etapes"][0]["params"]["texte"] and t["etapes"][2]["params"]["tests"] == ["tests/carte.robot::CARTE"]

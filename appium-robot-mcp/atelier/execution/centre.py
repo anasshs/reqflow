@@ -147,7 +147,24 @@ def politique_revue() -> str:
     return "avertissement" if os.environ.get("ATELIER_REVUE_EXECUTION", "").strip().lower() == "avertissement" else "bloquante"
 
 
-def controle_revue(target: str, dry_run: bool = False, derogation: str = "", tests: list[str] | None = None) -> dict:
+def _donnees_permises(env: str = "") -> bool:
+    """Flux simple sur un environnement où l'application permet les actions sensibles (recette) : un test qui crée une
+    donnée réelle (consomme_donnee) s'exécute sans validation préalable."""
+    from atelier.generation import flux
+
+    if not flux.simple():
+        return False
+    try:
+        from atelier.discovery import classement
+
+        permis = classement.regles().get("agent_sensible") or {}
+    except Exception:  # noqa: BLE001
+        return False
+    env = (env or "").strip().lower()
+    return bool(permis) and (not env or env in permis)
+
+
+def controle_revue(target: str, dry_run: bool = False, derogation: str = "", tests: list[str] | None = None, env: str = "") -> dict:
     """Validation humaine avant exécution : un script entré en revue (généré par l'atelier, ou modifié depuis
     son approbation) ne s'exécute qu'à l'état Approved / Published. Le dry-run reste libre. Une dérogation
     exige une justification (10 caractères au moins) et est journalisée. Le patrimoine existant, jamais
@@ -156,6 +173,8 @@ def controle_revue(target: str, dry_run: bool = False, derogation: str = "", tes
     validation ; il est permis tant qu'aucun de ces tests ne crée de donnée réelle (tag consomme_donnee)."""
     from atelier.generation import studio
 
+    if (tests or not dry_run) and _donnees_permises(env):
+        return {"politique": politique_revue(), "non_valides": [], "derogation": False, "verification": bool(tests)}
     if tests and not dry_run:
         from atelier.generation import maintenance
 

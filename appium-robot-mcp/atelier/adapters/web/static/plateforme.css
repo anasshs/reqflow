@@ -1483,3 +1483,8 @@ button.kb-qualifier { border: 1px solid var(--violet); }
 .dm-pret { display: flex; align-items: center; gap: 6px; margin: 0; } .dm-pret .i { width: 15px; height: 15px; color: var(--ok); }
 .dm-agent { margin-top: 6px; padding: 6px 10px; border-left: 3px solid var(--cyan); background: var(--accent-soft); border-radius: 6px; font-size: 12.5px; }
 .dm-agent ul { margin: 4px 0 0; padding-left: 16px; } .dm-agent li { margin: 2px 0; }
+
+/* écart à automatiser, marque « ne pas automatiser » */
+.kb-ecart { color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 1px 7px; font-weight: 600; }
+.kb-manuel { color: var(--muted); background: var(--line); border-radius: 6px; padding: 1px 7px; font-weight: 600; }
+.kb-bloc-ecart { border-color: var(--warn); }

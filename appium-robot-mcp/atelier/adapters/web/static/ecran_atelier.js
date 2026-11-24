@@ -36,10 +36,14 @@
       ${x.type !== "test" && x.detail ? `<div class="kb-detail lib">${esc(court(x.detail, 110))}</div>` : ""}
       ${x.type !== "test" && x.tests ? `<div class="kb-detail lib">${x.tests} test(s) · ${x.dans_xray} dans Xray</div>` : ""}
       ${x.a_qualifier ? `<div class="kb-pied"><span class="kb-qualifier">${x.a_qualifier} proposition(s) MBT à qualifier</span></div>` : ""}
+      ${x.manuel ? `<div class="kb-pied"><span class="kb-manuel" title="Décision actée : ce test n'est pas à automatiser">Ne pas automatiser</span></div>` : ""}
+      ${x.type !== "test" && (x.a_automatiser || []).length ? `<div class="kb-pied"><span class="kb-ecart">${x.a_automatiser.length} test(s) BDD à automatiser</span></div>` : ""}
       ${sujets || x.xray || run ? `<div class="kb-pied">${sujets}${x.xray ? `<span class="kb-xray">${esc(x.xray)}</span>` : ""}
         ${run ? `<span class="kb-run ${run[0]}" title="${esc((x.dernier_run.fin || "").slice(0, 16).replace("T", " "))} ${esc(x.dernier_run.message || "")}">${run[1]}</span>` : ""}</div>` : ""}
       ${indicateur(i)}
-      ${x.type !== "test" && x.colonne === "a_faire" ? `<button class="btn petit primaire kb-lancer" data-lancer="${esc(x.id)}"
+      ${x.type !== "test" && x.colonne === "a_faire" && x.tests && (x.a_automatiser || []).length ? `<button class="btn petit primaire kb-lancer" data-rattraper="${esc(x.id)}"
+        title="L'agent (MCP) automatise tout l'écart : doublons écartés, étapes métier, script, puis dry-run et run local">${ico("play")}Automatiser ce qui manque</button>` : ""}
+      ${x.type !== "test" && x.colonne === "a_faire" && !x.tests ? `<button class="btn petit primaire kb-lancer" data-lancer="${esc(x.id)}"
         title="${x.type === "parcours" ? "L'agent déroule le parcours sur le téléphone, l'atelier en extrait le test, puis l'agent l'automatise" : "L'agent conçoit les tests qui manquent à l'existant, puis les automatise"}">${ico("play")}Couvrir et automatiser</button>` : ""}
     </article>`;
   }
@@ -99,6 +103,7 @@
     if ($("#kb-tous", zone)) $("#kb-tous", zone).onclick = () => { F.sujet = ""; garder(); dessiner(); };
     $$("[data-ouvrir-sujet]", zone).forEach(b => b.onclick = () => ouvrirTicket(b.dataset.ouvrirSujet));
     $$("[data-lancer]", zone).forEach(b => b.onclick = e => { e.stopPropagation(); lancer(b.dataset.lancer, b); });
+    $$("[data-rattraper]", zone).forEach(b => b.onclick = e => { e.stopPropagation(); rattraper(b.dataset.rattraper, b); });
     $$(".kb-carte", zone).forEach(el => {
       el.onclick = () => ouvrirTicket(el.dataset.id);
       el.onkeydown = e => { if (e.key === "Enter") ouvrirTicket(el.dataset.id); };
@@ -127,6 +132,16 @@
     charger();
   }
 
+  async function rattraper(id, bouton) {
+    const x = trouver(id);
+    if (!x) return;
+    if (bouton) bouton.disabled = true;
+    try { const r = await api(`/api/kanban/sujet/${encodeURIComponent(id)}/rattraper`, {method: "POST", body: {}});
+      toast(`${x.titre} : ${r.a_automatiser.length} test(s) confiés à l'agent (MCP), puis dry-run et run local.`, "ok"); Atelier._demandes?.(); }
+    catch (e) { toast(e.message, "ko"); }
+    charger();
+  }
+
   async function deplacer(id, colonne) {
     const x = trouver(id);
     if (!x || x.colonne === colonne) return;
@@ -139,7 +154,8 @@
     dessiner();
     try {
       const r = await api("/api/kanban/deplacer", {method: "POST", body: {cle: id, colonne}});
-      toast(r.action === "publie" ? `Publié dans Xray : ${(r.publies || []).map(p => p.xray).join(", ")}` : `${x.titre} : ${titreCol}. L'atelier s'en occupe.`, "ok");
+      toast(r.action === "publie" ? `Publié dans Xray : ${(r.publies || []).map(p => p.xray).join(", ")}${r.execution && r.execution.travail ? " · exécution TNR lancée" : r.execution && r.execution.erreur ? " · " + r.execution.erreur : ""}`
+        : `${x.titre} : ${titreCol}. L'atelier s'en occupe.`, "ok");
       Atelier._demandes?.();
     } catch (e) { x.colonne = avant; x.indicateur = null; toast(e.message, "ko"); }
     charger();
@@ -169,13 +185,27 @@
           <a class="btn" href="#bdd/${encodeURIComponent(t.cle)}">Éditer le scénario</a>
           ${t.tests.length ? `<a class="btn" href="#studio/mapping/${encodeURIComponent(t.cle)}">Script et keywords</a>` : ""}
           ${t.indicateur && t.indicateur.travail ? `<a class="btn" href="#travaux/${encodeURIComponent(t.indicateur.travail)}">Suivre</a>` : ""}</div>
+        <div class="kb-bloc"><h3 class="lib">JEU DE DONNÉES</h3>
+          <p class="lib">Pour un run, le jeu choisi ne sert qu'à ce run ; « Remplacer dans le dépôt » le garde pour les prochaines exécutions.
+            Jeu du scénario : <b>${esc(t.jdd || "aucun")}</b>.</p>
+          <div class="btns"><select class="in" id="kb-run-jdd" aria-label="Jeu de données"><option value="">${esc(t.jdd || "Jeu du scénario")}</option>
+            ${(t.jeux || []).filter(j => j !== t.jdd).map(j => `<option value="${esc(j)}">${esc(j)}</option>`).join("")}</select>
+            <button class="btn" data-executer="local" ${t.tests.length ? "" : "disabled"}>${ico("play")}Exécuter (local)</button>
+            <button class="btn" data-executer="xray" ${t.tests.length && t.xray ? "" : "disabled"}>${ico("execution")}Exécution TNR (Xray)</button>
+            <button class="btn" id="kb-jdd-remplacer" title="Le jeu choisi devient celui du scénario et de ses tests Robot">Remplacer dans le dépôt</button></div></div>
+        ${!t.tests.length ? `<p class="lib">${t.manuel ? "Marqué « ne pas automatiser » : hors de l'écart du sujet." : "À automatiser."}
+          <button class="btn petit" id="kb-manuel">${t.manuel ? "Remettre à automatiser" : "Ne pas automatiser"}</button></p>` : ""}
         ${t.sujets_noms.length ? `<p class="lib">Sujet : ${t.sujets_noms.map(s => `<a href="#" data-filtrer="${esc(s.id)}">${esc(s.titre)}</a>`).join(", ")}</p>` : ""}
         <h3 class="lib">SCÉNARIO</h3>${t.gherkin && t.etapes ? `<pre class="kb-gherkin">${esc(t.gherkin)}</pre>` : `<p class="lib">Pas encore d'étapes : « Concevoir le scénario ».</p>`}
         <h3 class="lib">TESTS ROBOT</h3>${t.tests.length ? `<ul class="liste">${t.tests.map(x => `<li class="mono">${esc(x)}</li>`).join("")}</ul>` : `<p class="lib">Pas encore automatisé.</p>`}
+        ${t.dernier_run && t.dernier_run.statut !== "PASS" ? `<div class="kb-bloc kb-bloc-ecart"><h3 class="lib">RUN EN ÉCHEC</h3>
+          <p class="lib">L'agent corrige par le MCP (diagnostic à l'écran, pages et locators, keywords existants), puis l'atelier relance le dry-run et le run local.</p>
+          <textarea class="in" id="kb-consigne" rows="2" placeholder="Indication pour l'agent (facultatif)"></textarea>
+          <div class="btns"><button class="btn primaire" id="kb-corriger">${ico("editeur")}Corriger par l'agent</button></div></div>` : ""}
         ${t.dernier_run ? `<h3 class="lib">DERNIER RUN</h3><p><span class="pill ${t.dernier_run.statut === "PASS" ? "ok" : "ko"}">${esc(t.dernier_run.statut)}</span>
           <span class="lib">${esc((t.dernier_run.fin || "").slice(0, 16).replace("T", " "))}</span>${t.dernier_run.message ? `<br><span class="lib">${esc(t.dernier_run.message)}</span>` : ""}</p>` : ""}`;
     } else {
-      corps = `<div class="btns">${t.etat === "a_faire" ? `<button class="btn primaire" data-lancer="${esc(t.id)}">${ico("play")}Couvrir et automatiser</button>` : ""}
+      corps = `<div class="btns">${t.etat === "a_faire" && !t.tests ? `<button class="btn primaire" data-lancer="${esc(t.id)}">${ico("play")}Couvrir et automatiser</button>` : ""}
           <button class="btn" data-filtrer="${esc(t.id)}">Voir ses tickets</button>
           ${t.type === "parcours" ? `<a class="btn" href="#discovery/cadrage/${encodeURIComponent(t.id)}">Cadrage du parcours</a>` : `<button class="btn" data-retirer="${esc(t.id)}">Retirer du backlog</button>`}
           ${t.indicateur && t.indicateur.travail ? `<a class="btn" href="#travaux/${encodeURIComponent(t.indicateur.travail)}">Suivre</a>` : ""}</div>
@@ -184,6 +214,11 @@
         ${t.type === "us" && t.tests ? `<div class="kb-bloc"><h3 class="lib">REJOUER SES TESTS</h3><div class="btns">
           <button class="btn" data-rejouer="local">${ico("play")}En local (téléphone)</button>
           <button class="btn" data-rejouer="xray">${ico("execution")}Exécution TNR (Xray)</button></div></div>` : ""}
+        ${(t.a_automatiser || []).length ? `<div class="kb-bloc kb-bloc-ecart"><h3 class="lib">À AUTOMATISER (${t.a_automatiser.length})</h3>
+          <p class="lib">Tests BDD du sujet sans script Robot. L'agent (MCP) les traite seul : doublons écartés, étapes métier sur les keywords existants,
+            script, dry-run, run local. Un test « ne pas automatiser » n'en fait pas partie.</p>
+          <ul class="liste">${t.a_automatiser.map(c => `<li><a href="#" data-ouvrir="${esc(c)}">${esc((t.tests_du_sujet.find(x => x.id === c) || {}).titre || c)}</a></li>`).join("")}</ul>
+          <div class="btns"><button class="btn primaire" data-rattraper-t="${esc(t.id)}">${ico("play")}Automatiser ce qui manque</button></div></div>` : ""}
         <h3 class="lib">TESTS (${t.tests_du_sujet.length})</h3>${t.tests_du_sujet.length ? `<ul class="liste">${t.tests_du_sujet.map(x => `<li><a href="#" data-ouvrir="${esc(x.id)}">${esc(x.titre)}</a>
           <span class="pill">${esc((D.colonnes.find(c => c.id === x.colonne) || {}).titre || x.colonne)}</span>${x.xray ? ` <span class="lib">${esc(x.xray)}</span>` : ""}</li>`).join("")}</ul>`
           : `<p class="lib">Pas encore de test : « Couvrir et automatiser ».</p>`}`;
@@ -194,6 +229,23 @@
         <button class="icone" id="kb-fermer" aria-label="Fermer le ticket">${ico("x")}</button></div>
       <div class="kb-t-corps">${corps}${historique}</div>`;
     $("#kb-fermer", p).onclick = fermerTicket;
+    const actionTicket = (nom, corps, ok) => api(`/api/kanban/ticket/${encodeURIComponent(t.id)}/${nom}`, {method: "POST", body: corps})
+      .then(r => { toast(ok(r), "ok"); Atelier._demandes?.(); charger(); ouvrirTicket(t.id, true); }).catch(e => toast(e.message, "ko"));
+    $$("[data-executer]", p).forEach(b => b.onclick = () => {
+      const jdd = $("#kb-run-jdd", p).value, xray = b.dataset.executer === "xray";
+      if (!confirm(`Exécuter « ${t.titre} »${jdd ? ` avec le jeu ${jdd} (ce run seulement)` : ""}${xray ? " en exécution TNR (Xray)" : " sur le téléphone"} ?`)) return;
+      actionTicket("executer", {jdd, xray}, () => `Run lancé${jdd ? " avec " + jdd : ""}.`);
+    });
+    if ($("#kb-jdd-remplacer", p)) $("#kb-jdd-remplacer", p).onclick = () => {
+      const jdd = $("#kb-run-jdd", p).value;
+      if (!jdd) return toast("Choisir le nouveau jeu de données.", "ko");
+      if (!confirm(`Remplacer ${t.jdd || "le jeu"} par ${jdd} dans le scénario et ses tests Robot (prochaines exécutions) ?`)) return;
+      actionTicket("jdd", {jdd}, r => `Jeu remplacé : ${r.jdd} (${r.tests_modifies.length} test(s) Robot modifié(s)).`);
+    };
+    if ($("#kb-corriger", p)) $("#kb-corriger", p).onclick = () => actionTicket("corriger", {consigne: $("#kb-consigne", p).value},
+      () => "Correction confiée à l'agent (MCP), puis dry-run et run local.");
+    if ($("#kb-manuel", p)) $("#kb-manuel", p).onclick = () => actionTicket("manuel", {manuel: !t.manuel},
+      r => r.manuel ? "Marqué « ne pas automatiser » : hors de l'écart." : "Remis à automatiser.");
     $$("[data-vers]", p).forEach(b => b.onclick = () => deplacer(t.cle, b.dataset.vers).then(() => ouvrirTicket(t.cle, true)));
     $$("[data-lancer]", p).forEach(b => b.onclick = () => lancer(b.dataset.lancer, b).then(() => ouvrirTicket(t.id, true)));
     $$("[data-filtrer]", p).forEach(a => a.onclick = e => { e.preventDefault(); F.sujet = a.dataset.filtrer; garder(); fermerTicket(); dessiner(); });
@@ -225,6 +277,15 @@
         .then(r => { toast(`${r.tests.length} test(s) en file${xray ? " (exécution TNR, Xray)" : ""}.`, "ok"); Atelier._demandes?.(); charger(); ouvrirTicket(t.id, true); })
         .catch(e => { toast(e.message, "ko"); b.disabled = false; });
     });
+    $$("[data-rattraper-t]", p).forEach(b => b.onclick = () => rattraper(b.dataset.rattraperT, b).then(() => ouvrirTicket(t.id, true)));
+    if ($("#kb-jdd-mbt", p)) $("#kb-jdd-mbt", p).onclick = () => {
+      const profil = $("#kb-jdd", p).value;
+      if (!profil) return toast("Choisir un jeu de données.", "ko");
+      if (!confirm(`Redérouler « ${t.titre} » avec ${profil}, puis enrichir par le MBT ?`)) return;
+      api(`/api/kanban/parcours/${encodeURIComponent(t.id)}/enrichir`, {method: "POST", body: {profil}})
+        .then(() => { toast("Discovery relancée avec le nouveau jeu ; les propositions MBT suivront.", "ok"); Atelier._demandes?.(); charger(); ouvrirTicket(t.id, true); })
+        .catch(e => toast(e.message, "ko"));
+    };
     $$("[data-retirer]", p).forEach(b => b.onclick = async () => {
       if (!confirm("Retirer cette User Story du backlog ? Ses tests restent.")) return;
       try { await api(`/api/kanban/us/${encodeURIComponent(b.dataset.retirer)}/retirer`, {method: "POST", body: {}}); fermerTicket(); charger(); } catch (e) { toast(e.message, "ko"); }
@@ -253,7 +314,8 @@
         <p class="lib">Un autre jeu (autre profil client, autre compte) peut ouvrir d'autres écrans, donc d'autres scénarios.</p>
         <div class="btns"><select class="in" id="kb-jdd" aria-label="Jeu de données"><option value="">${t.profils.length ? "Choisir un jeu…" : "Aucun profil de données (Discovery › Données)"}</option>
           ${t.profils.map(x => `<option value="${esc(x)}" ${x === t.profil_donnees ? "selected" : ""}>${esc(x)}${x === t.profil_donnees ? " (actuel)" : ""}</option>`).join("")}</select>
-          <button class="btn" id="kb-jdd-go" ${t.profils.length ? "" : "disabled"}>${ico("recherche")}Redérouler avec ce jeu</button></div></div>
+          <button class="btn" id="kb-jdd-go" ${t.profils.length ? "" : "disabled"}>${ico("recherche")}Redérouler avec ce jeu</button>
+          <button class="btn" id="kb-jdd-mbt" ${t.profils.length ? "" : "disabled"} title="Discovery avec ce jeu, puis propositions MBT à qualifier">${ico("branche")}Redérouler + MBT</button></div></div>
       <div class="kb-bloc"><h3 class="lib">REJOUER SES TESTS</h3><div class="btns">
         <button class="btn" data-rejouer="local" ${t.tests ? "" : "disabled"}>${ico("play")}En local (téléphone)</button>
         <button class="btn" data-rejouer="xray" ${t.tests && t.tnr_xray ? "" : "disabled"} title="${t.tnr_xray ? "Test Execution dans le plan TNR, résultats dans Xray" : "Pas encore de campagne TNR : publier d'abord des tests dans Xray"}">${ico("execution")}Exécution TNR (Xray)</button></div></div>`;

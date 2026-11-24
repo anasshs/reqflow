@@ -616,7 +616,22 @@ def demande_cursor(p: dict) -> str:
             f"puis discovery_demarrer(parcours=\"{pid}\"). Avance écran par écran du point de départ au résultat attendu, sans "
             "t'écarter du parcours ; saisis par référence {{var:CLE}} ; propose ce que tu comprends (discovery_proposer) ; dis pour "
             "chaque écran traversé si les exigences du parcours le concernent (discovery_correlations_a_juger puis "
-            "discovery_juger_correlations). Laisse-moi les actions sensibles, puis discovery_terminer.")
+            f"discovery_juger_correlations). {_consigne_sensibles(p)} puis discovery_terminer.")
+
+
+def _consigne_sensibles(p: dict) -> str:
+    """Sur un environnement où l'application permet à l'agent les actions sensibles (recette), il les fait ; sinon il
+    les laisse à l'automaticien."""
+    try:
+        from atelier.discovery import classement
+
+        permis = classement.regles().get("agent_sensible") or {}
+        env = (p.get("environnement") or "").strip().lower()
+        if (env and env in permis) or (not env and permis):
+            return "Les actions sensibles (virement, paiement, données personnelles) sont permises sur cet environnement : fais-les si le parcours les demande,"
+    except Exception:  # noqa: BLE001 — règles illisibles : prudence
+        pass
+    return "Laisse-moi les actions sensibles,"
 
 
 def cadre_agent(pid: str = "") -> dict:

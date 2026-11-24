@@ -2490,7 +2490,7 @@ centre.FILE.executer = _executer_job
 def _mettre_en_file(params: dict, priorite: str = "Normal", campagne: str = "", nom: str = "") -> dict:
     retry = bool(params.get("retry"))
     revue = centre.controle_revue(params.get("target", ""), bool(params.get("dry_run")), str(params.get("derogation_revue") or ""),
-                                  params.get("tests") or None)
+                                  params.get("tests") or None, str(params.get("jdd_env") or ""))
     params = {k: v for k, v in params.items() if v not in ("", None, []) and k not in CLES_JOB}
     if params.get("relancer_echecs") and params.get("output_dir"):
         params["source_echecs"] = params.pop("output_dir")  # rejeu : nouveau dossier, le run d'origine n'est jamais réécrit
@@ -3579,10 +3579,10 @@ async def kanban_parcours_action(pid: str, action: str, req: Request):
     from atelier.generation import kanban
 
     b = await req.json()
-    actions = {"enrichir": lambda: kanban.enrichir_mbt(pid),
+    actions = {"enrichir": lambda: kanban.enrichir_mbt(pid, str(b.get("profil", ""))),
                "qualifier": lambda: kanban.qualifier(pid, [str(x) for x in b.get("accepter") or []], [str(x) for x in b.get("rejeter") or []]),
                "jdd": lambda: kanban.changer_jdd(pid, str(b.get("profil", "")), b.get("relancer", True) is not False),
-               "rejouer": lambda: kanban.rejouer(pid, bool(b.get("xray")))}
+               "rejouer": lambda: kanban.rejouer(pid, bool(b.get("xray")), str(b.get("jdd", "")))}
     if action not in actions:
         raise HTTPException(404, f"Action inconnue : {action}")
     r = await asyncio.to_thread(_call, actions[action])
@@ -3596,8 +3596,36 @@ async def kanban_rejouer(sid: str, req: Request):
     from atelier.generation import kanban
 
     b = await req.json()
-    r = await asyncio.to_thread(_call, kanban.rejouer, sid, bool(b.get("xray")))
+    r = await asyncio.to_thread(_call, kanban.rejouer, sid, bool(b.get("xray")), str(b.get("jdd", "")))
     emit({"type": "kanban", "sujet": sid})
+    return r
+
+
+@app.post("/api/kanban/sujet/{sid}/rattraper")
+async def kanban_rattraper(sid: str):
+    """« Automatiser ce qui manque » : l'écart du sujet passe par l'agent (MCP), puis dry-run et run local."""
+    from atelier.generation import kanban
+
+    r = await asyncio.to_thread(_call, kanban.rattraper, sid)
+    emit({"type": "kanban", "sujet": sid})
+    return r
+
+
+@app.post("/api/kanban/ticket/{cle}/{action}")
+async def kanban_ticket_action(cle: str, action: str, req: Request):
+    """Ticket test : manuel (« ne pas automatiser »), executer (jeu de données de ce run, local ou TNR Xray), jdd
+    (remplacement validé du jeu de données dans le dépôt)."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    actions = {"manuel": lambda: kanban.marquer_manuel(cle, b.get("manuel", True) is not False),
+               "executer": lambda: kanban.executer(cle, str(b.get("jdd", "")), bool(b.get("xray"))),
+               "jdd": lambda: kanban.remplacer_jdd(cle, str(b.get("jdd", ""))),
+               "corriger": lambda: kanban.corriger(cle, str(b.get("consigne", "")))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    r = await asyncio.to_thread(_call, actions[action])
+    emit({"type": "kanban", "cle": cle})
     return r
 
 
