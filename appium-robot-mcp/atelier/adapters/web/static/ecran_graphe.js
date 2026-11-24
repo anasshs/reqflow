@@ -671,10 +671,12 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     if (!bloc) { bloc = document.createElement("section"); bloc.id = "kg-sugg"; bloc.className = "kg-sugg"; fiche.after(bloc); }
     bloc.innerHTML = `<h4 class="kg-sous">Que faire ici ?</h4><p class="lib">Recherche des suggestions…</p>`;
     let r;
-    try { r = await api("/api/graphe/suggestions?noeud=" + encodeURIComponent(n.id)); } catch (e) { bloc.innerHTML = ""; return; }
+    const envCourant = (Atelier.env || "").toLowerCase();
+    try { r = await api("/api/graphe/suggestions?noeud=" + encodeURIComponent(n.id) + "&env=" + encodeURIComponent(envCourant)); } catch (e) { bloc.innerHTML = ""; return; }
     if (S.selection !== n.id) return;
     bloc.innerHTML = `<h4 class="kg-sous">Que faire ici ?</h4>${r.suggestions.length ? r.suggestions.map(s => { const [cls, lib] = FAM[s.famille] || ["", s.famille];
       return `<div class="kg-s" data-s="${esc(s.id)}"><div class="kg-s-tete"><span class="pill ${cls}">${lib}</span>
+          ${s.sensible ? `<span class="pill ko" title="Action réelle (paiement, validation…), autorisée sur ${esc(r.environnement)} ; données de test de l'équipe">sensible</span>` : ""}
           ${s.oracle === "hypothèse" ? '<span class="pill warn" title="Le résultat attendu n\'a jamais été observé : il sera confirmé au premier run">hypothèse</span>' : ""}</div>
         <b class="kg-s-titre">${esc(s.titre)}</b><div class="lib">${esc(s.pourquoi)}</div><div class="lib">Attendu : ${esc(s.attendu)}</div>
         <div class="kg-s-pied"><button class="btn petit primaire" data-lancer="${esc(s.id)}" title="Démarre : BDD, puis automatisation et exécution par l'agent">Lancer</button>
@@ -692,7 +694,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       const carte = b.closest(".kg-s"), s = r.suggestions.find(x => x.id === b.dataset.lancer);
       b.disabled = true; b.textContent = "Démarrage…";
       try {
-        const x = await api("/api/graphe/suggestions/lancer", {method: "POST", body: {noeud: n.id, suggestion: s.id}});
+        if (s.sensible && !confirm(`Action réelle sur ${r.environnement} : ${s.titre}.\nL'agent utilisera les données de test de l'équipe. Lancer ?`)) { b.disabled = false; b.textContent = "Lancer"; return; }
+        const x = await api("/api/graphe/suggestions/lancer", {method: "POST", body: {noeud: n.id, suggestion: s.id, env: envCourant}});
         b.hidden = true;
         const et = $(".kg-s-etapes", carte); et.hidden = false;
         if (x.bdd) et.children[0].classList.add("fait"), et.children[0].title = "Scénario " + x.bdd;

@@ -65,3 +65,21 @@ def test_lancer_cree_le_bdd_et_la_demande_a_l_agent(banque):
     assert r["bdd"] in d["texte"] and "run_tests" in d["texte"] and "jamais d'action sensible" in d["texte"]
     # la même suggestion relancée ne recrée pas le scénario (anti-doublon) : l'agent reprend celui qui existe
     assert suggestions.lancer("ecran:accueil", s["id"])["bdd"] == r["bdd"]
+
+
+def test_actions_sensibles_suggerees_seulement_si_l_environnement_les_autorise(banque):
+    """Recette autorisée (décision journalisée) : « Payer » est suggéré, marqué sensible, et la demande à l'agent impose
+    des données de test de l'équipe et le tag consomme_donnee. Sans autorisation : jamais suggéré."""
+    from atelier.discovery import classement
+    from atelier.integrations import boite_cursor
+    from atelier.intelligence import suggestions
+
+    assert not any("Payer" in s["titre"] for s in suggestions.suggestions("ecran:accueil", "recette")["suggestions"])
+    classement.maj_regles(environnements={"recette": ["safe", "controlled", "sensitive"]})
+    r = suggestions.suggestions("ecran:accueil", "recette")
+    payer = next(s for s in r["suggestions"] if "Payer" in s["titre"])
+    assert r["sensibles_autorises"] and payer["sensible"]
+    assert not any("Payer" in s["titre"] for s in suggestions.suggestions("ecran:accueil", "production")["suggestions"])
+    d = suggestions.lancer("ecran:accueil", payer["id"], "recette")["demande"]
+    texte = next(x for x in boite_cursor.etat()["demandes"] if x["id"] == d["id"])["texte"]
+    assert "AUTORISÉES sur l'environnement recette" in texte and "consomme_donnee" in texte and "jamais d'action sensible" not in texte

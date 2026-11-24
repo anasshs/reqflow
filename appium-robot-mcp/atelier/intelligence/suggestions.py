@@ -11,6 +11,10 @@ le brouillon BDD quand il se déduit de la carte, puis une demande à l'agent (C
 complète le BDD, l'automatise en réutilisant le socle, le vérifie et l'exécute, et en rend compte.
 
 Les écrans en double (même titre, même structure) sont regroupés : une suggestion n'est jamais répétée pour chacun.
+
+Actions sensibles (payer, valider, effectuer un virement…) : suggérées seulement sur un environnement où l'application les
+autorise (Discovery › réglages de classement : classes par environnement, décision humaine journalisée), et marquées
+« sensible » ; l'agent les exécute alors avec des données de test appartenant à l'équipe et tague le test consomme_donnee.
 """
 from __future__ import annotations
 
@@ -85,7 +89,14 @@ def _retour_verifie(g, eid: str, id_carte: str) -> bool:
     return False
 
 
-def _pour_ecran(eid: str, g, c, ecrans, par_carte, carte) -> list[dict]:
+def sensibles_autorises(env: str) -> bool:
+    """L'application autorise-t-elle les actions sensibles sur cet environnement (réglage de classement) ?"""
+    from atelier.discovery import classement
+
+    return bool(env) and "sensitive" in classement.regles()["environnements"].get(env.strip().lower(), [])
+
+
+def _pour_ecran(eid: str, g, c, ecrans, par_carte, carte, sens_ok: bool = False) -> list[dict]:
     e = ecrans.get(eid)
     n = g.noeuds.get(eid)
     if not e or not n:
@@ -119,7 +130,8 @@ def _pour_ecran(eid: str, g, c, ecrans, par_carte, carte) -> list[dict]:
                             "lancer": {"type": "chemin", "ecrans": [id_carte, t["vers"]], "titre": f"Retour arrière depuis {nom}"}})
             continue
         lib = act.get("libelle") or ""
-        if ce and ce["etat"] == "non_couvert" and _lisible(lib) and not SENSIBLE.search(lib) and cible not in cibles_vues \
+        sensible = bool(SENSIBLE.search(lib))
+        if ce and ce["etat"] == "non_couvert" and _lisible(lib) and (sens_ok or not sensible) and cible not in cibles_vues \
                 and not re.search(r"(?i)fermer|annuler", lib):
             cibles_vues.add(cible)
             out.append({"famille": "concevoir", "titre": f"Aller à « {ce['nom']} » par « {lib} »", "cible": cible,
@@ -135,11 +147,16 @@ def _pour_ecran(eid: str, g, c, ecrans, par_carte, carte) -> list[dict]:
                     "pourquoi": f"Formulaire ({', '.join(dict.fromkeys(champs))[:80]}) validé par « {boutons[0]} » : valeur au mauvais format, trop courte ou vide.",
                     "oracle": "hypothèse", "attendu": f"« {boutons[0]} » reste inactif, ou un message d'erreur s'affiche (à confirmer au premier run)",
                     "valeur": 3, "lancer": {"type": "agent", "consigne": "variante_invalide"}})
+    if champs and boutons and sens_ok and SENSIBLE.search(boutons[0]):
+        out.append({"famille": "derouler", "titre": f"Aller au bout : « {boutons[0]} » dans « {nom} »",
+                    "pourquoi": f"Actions sensibles autorisées sur cet environnement : le formulaire n'a jamais été soumis, l'écran qui suit est inconnu.",
+                    "oracle": "à découvrir", "attendu": "l'écran qui suit la soumission est découvert puis vérifié", "valeur": 3,
+                    "lancer": {"type": "agent", "consigne": "aller_au_bout", "bouton": boutons[0]}})
     # dérouler : éléments sûrs jamais essayés
     ligne = _a_explorer().get(id_carte)
     essais = [x["libelle"] for x in (ligne or {}).get("a_essayer_exemples", []) if _lisible(x.get("libelle", ""))
               and not GENERIQUE.match(x["libelle"].strip()) and not re.search(r"_item_|_list", x.get("cle", ""))  # pas une ligne de liste
-              and not SENSIBLE.search(x["libelle"])
+              and (sens_ok or not SENSIBLE.search(x["libelle"]))
               and not ({m.lower() for m in re.findall(r"\w{3,}", x["libelle"])} & mots_titre)]
     if essais:
         out.append({"famille": "derouler", "titre": f"Explorer « {essais[0]} »" + (f" (+{len(essais) - 1})" if len(essais) > 1 else ""),
@@ -164,6 +181,7 @@ def _pour_ecran(eid: str, g, c, ecrans, par_carte, carte) -> list[dict]:
     for x in out:
         x.setdefault("ecran", eid)
         x["ecran_nom"] = nom
+        x["sensible"] = bool(SENSIBLE.search(x["titre"]) or x["lancer"].get("consigne") == "aller_au_bout")
     return out
 
 
@@ -172,10 +190,11 @@ def _cle(s: dict) -> tuple:
     return (s["oracle"] != "observé", -s["valeur"], rang_famille.get(s["famille"], 9))
 
 
-def suggestions(noeud: str) -> dict:
+def suggestions(noeud: str, env: str = "") -> dict:
     """Au plus MAX suggestions pour un écran, un module ou un parcours, les plus utiles d'abord (résultat attendu
     observé avant hypothèse, écran sans test d'abord)."""
     g, c, ecrans, par_carte, carte = _contexte()
+    sens_ok = sensibles_autorises(env)
     n = g.noeuds.get(noeud)
     if not n or n.type not in ("ecran", "module", "parcours"):
         raise ValueError("Choisir un écran, un module ou un parcours.")
@@ -185,7 +204,7 @@ def suggestions(noeud: str) -> dict:
         cibles = [r.vers for r in g.sortants(noeud) if r.type == "contient" and r.vers in ecrans]
     out, vus = [], set()
     for e in cibles:
-        for s in _pour_ecran(e, g, c, ecrans, par_carte, carte):
+        for s in _pour_ecran(e, g, c, ecrans, par_carte, carte, sens_ok):
             cle = (s["famille"], s["titre"].replace(s["ecran_nom"], "∗"), s.get("cible", ""))  # écrans en double : une seule fois
             if cle in vus:
                 continue
@@ -202,7 +221,7 @@ def suggestions(noeud: str) -> dict:
     for i, s in enumerate(out):
         s["id"] = f"S{i + 1}"
     return {"noeud": noeud, "type": n.type, "libelle": n.libelle, "suggestions": out[:MAX], "autres": max(0, len(out) - MAX),
-            "ecrans": cibles}
+            "ecrans": cibles, "environnement": env, "sensibles_autorises": sens_ok}
 
 
 # --------------------------------------------------------------------------- lancer : BDD -> automatisation -> exécution
@@ -214,6 +233,9 @@ CONSIGNES = {
                 "propose les écrans atteints, puis crée le scénario BDD du chemin observé.",
     "stabiliser": "Analyse l'échec du test « {test} » (dernier run) : qualifie la cause (défaut applicatif, environnement, "
                   "script ou locator), corrige le script seulement si c'est lui.",
+    "aller_au_bout": "Sur l'écran « {ecran} », remplis le formulaire avec les données de test de l'équipe puis touche « {bouton} » "
+                     "(action réelle, autorisée sur cet environnement) ; découvre et nomme l'écran qui suit, puis crée le "
+                     "scénario BDD du chemin complet avec l'assertion de ce que l'application affiche.",
 }
 SUITE = ("Ensuite, sans attendre d'autre instruction : 1) le scénario BDD (Test Design) avec le jeu de données des tests, "
          "données fictives uniquement ; 2) l'automatisation en Page Object Model en réutilisant le socle (keywords et "
@@ -223,13 +245,19 @@ SUITE = ("Ensuite, sans attendre d'autre instruction : 1) le scénario BDD (Test
          "aucune publication Xray sans décision de l'automaticien.")
 
 
-def lancer(noeud: str, suggestion: str) -> dict:
+REGLES_SENSIBLES = ("Règles : actions sensibles AUTORISÉES sur l'environnement {env} (décision de l'automaticien, journalisée) : "
+                    "les exécuter avec des données de test appartenant à l'équipe (numéro, e-mail, compte de recette ; jamais "
+                    "un numéro inventé qui pourrait être celui de quelqu'un), taguer le test consomme_donnee ; jamais de secret "
+                    "écrit ; aucune publication Xray sans décision de l'automaticien.")
+
+
+def lancer(noeud: str, suggestion: str, env: str = "") -> dict:
     """Lance une suggestion choisie : brouillon BDD quand il se déduit de la carte, puis demande à l'agent de
     concevoir / compléter, automatiser, vérifier et exécuter. Rend {bdd, demande}."""
     from atelier.generation import parcours_bdd
     from atelier.integrations import boite_cursor
 
-    s = next((x for x in suggestions(noeud)["suggestions"] if x["id"] == suggestion), None)
+    s = next((x for x in suggestions(noeud, env)["suggestions"] if x["id"] == suggestion), None)
     if not s:
         raise KeyError("Suggestion inconnue (la liste a peut-être changé : rouvrir le panneau).")
     l, bdd = s["lancer"], None
@@ -246,7 +274,10 @@ def lancer(noeud: str, suggestion: str) -> dict:
         objet = f"Le scénario BDD « {bdd} » ({s['titre']}) est prêt dans Test Design. Relis-le, complète les données et les assertions (résultat attendu : {s['attendu']})."
     else:
         objet = CONSIGNES[l["consigne"]].format(ecran=s["ecran_nom"], attendu=s["attendu"], elements=", ".join(f"« {x} »" for x in l.get("elements", [])),
-                                                test=l.get("test", ""))
-    texte = f"{objet}\nPourquoi : {s['pourquoi']}\n{SUITE}"
+                                                test=l.get("test", ""), bouton=l.get("bouton", ""))
+    suite = SUITE
+    if s.get("sensible") and sensibles_autorises(env):
+        suite = SUITE.split(" Règles : ")[0] + " " + REGLES_SENSIBLES.format(env=env)
+    texte = f"{objet}\nPourquoi : {s['pourquoi']}\n{suite}"
     d = boite_cursor.deposer(f"{s['titre']}", texte, attendus=["run_tests"], ecran=s.get("ecran", ""), mode="boite", prioritaire=True)
     return {"suggestion": s, "bdd": bdd, "demande": {k: d[k] for k in ("id", "titre", "statut")}}

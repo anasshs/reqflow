@@ -4155,11 +4155,12 @@ async def connaissance_entites(type: str = "champ", ecran: str = ""):
 
 
 @app.get("/api/graphe/suggestions")
-async def graphe_suggestions(noeud: str):
-    """« Que faire ici ? » : quelques suggestions de tests sur un écran, un module ou un parcours du graphe."""
+async def graphe_suggestions(noeud: str, env: str = ""):
+    """« Que faire ici ? » : quelques suggestions de tests sur un écran, un module ou un parcours du graphe (env : celui de
+    l'en-tête ; il décide si les actions sensibles peuvent être suggérées)."""
     from atelier.intelligence import suggestions
 
-    return await asyncio.to_thread(_call, suggestions.suggestions, noeud)
+    return await asyncio.to_thread(_call, suggestions.suggestions, noeud, env)
 
 
 @app.post("/api/graphe/suggestions/lancer")
@@ -4169,7 +4170,7 @@ async def graphe_suggestions_lancer(req: Request):
     from atelier.intelligence import suggestions
 
     b = await req.json()
-    r = await asyncio.to_thread(_call, suggestions.lancer, b.get("noeud", ""), b.get("suggestion", ""))
+    r = await asyncio.to_thread(_call, suggestions.lancer, b.get("noeud", ""), b.get("suggestion", ""), b.get("env", ""))
     if r.get("bdd"):
         emit({"type": "bdd_change", "cle": r["bdd"]})
     emit({"type": "boite_cursor", "id": r["demande"]["id"]})
