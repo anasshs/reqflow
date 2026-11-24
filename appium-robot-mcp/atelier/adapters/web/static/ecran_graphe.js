@@ -659,6 +659,55 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     });
   }
 
+  /* « Que faire ici ? » : 5 suggestions au plus, en tête de la fiche. Un clic sur « Lancer » et le processus démarre :
+     brouillon BDD (quand la carte le permet), puis l'agent conçoit, automatise, vérifie et exécute ; l'avancement
+     s'affiche sur la carte de la suggestion (demande en attente, prise par l'agent, terminée). */
+  const FAM = {concevoir: ["info", "Concevoir"], derouler: ["violet", "Dérouler"], automatiser: ["ok", "Automatiser"], stabiliser: ["warn", "Stabiliser"]};
+  const ETAPES_LANCE = ["BDD", "Automatisation", "Exécution"];
+  async function queFaireIci(n) {
+    const fiche = $("#kg-detail .kg-fiche");
+    if (!fiche) return;
+    let bloc = $("#kg-sugg");
+    if (!bloc) { bloc = document.createElement("section"); bloc.id = "kg-sugg"; bloc.className = "kg-sugg"; fiche.after(bloc); }
+    bloc.innerHTML = `<h4 class="kg-sous">Que faire ici ?</h4><p class="lib">Recherche des suggestions…</p>`;
+    let r;
+    try { r = await api("/api/graphe/suggestions?noeud=" + encodeURIComponent(n.id)); } catch (e) { bloc.innerHTML = ""; return; }
+    if (S.selection !== n.id) return;
+    bloc.innerHTML = `<h4 class="kg-sous">Que faire ici ?</h4>${r.suggestions.length ? r.suggestions.map(s => { const [cls, lib] = FAM[s.famille] || ["", s.famille];
+      return `<div class="kg-s" data-s="${esc(s.id)}"><div class="kg-s-tete"><span class="pill ${cls}">${lib}</span>
+          ${s.oracle === "hypothèse" ? '<span class="pill warn" title="Le résultat attendu n\'a jamais été observé : il sera confirmé au premier run">hypothèse</span>' : ""}</div>
+        <b class="kg-s-titre">${esc(s.titre)}</b><div class="lib">${esc(s.pourquoi)}</div><div class="lib">Attendu : ${esc(s.attendu)}</div>
+        <div class="kg-s-pied"><button class="btn petit primaire" data-lancer="${esc(s.id)}" title="Démarre : BDD, puis automatisation et exécution par l'agent">Lancer</button>
+          <ol class="kg-s-etapes" hidden>${ETAPES_LANCE.map(x => `<li>${x}</li>`).join("")}</ol></div></div>`; }).join("")
+      : `<p class="lib">Rien à proposer ici pour l'instant : tout ce que la carte connaît de cet élément est couvert ou à explorer ailleurs.</p>`}
+      ${r.autres ? `<p class="lib">+${r.autres} autre(s) suggestion(s), sur les écrans de cet élément.</p>` : ""}`;
+    $$("[data-lancer]", bloc).forEach(b => b.onclick = async () => {
+      const carte = b.closest(".kg-s"), s = r.suggestions.find(x => x.id === b.dataset.lancer);
+      b.disabled = true; b.textContent = "Démarrage…";
+      try {
+        const x = await api("/api/graphe/suggestions/lancer", {method: "POST", body: {noeud: n.id, suggestion: s.id}});
+        b.hidden = true;
+        const et = $(".kg-s-etapes", carte); et.hidden = false;
+        if (x.bdd) et.children[0].classList.add("fait"), et.children[0].title = "Scénario " + x.bdd;
+        et.insertAdjacentHTML("afterend", `<div class="lib kg-s-suivi" data-demande="${esc(x.demande.id)}">Demande ${esc(x.demande.id)} déposée pour l'agent${x.bdd ? ` · BDD <a href="#bdd/${encodeURIComponent(x.bdd)}">${esc(x.bdd)}</a>` : ""}</div>`);
+        toast(`Lancé : ${s.titre}. L'agent prend la suite (console de l'agent).`, "ok");
+        suivreDemande(carte, x.demande.id);
+      } catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Lancer"; }
+    });
+  }
+  function suivreDemande(carte, did) {  // avancement : en attente → prise par l'agent → terminée (ou échec)
+    const maj = async () => {
+      const b = await api("/api/cursor/boite").catch(() => null), d = b && b.demandes.find(x => x.id === did);
+      if (!d || !document.body.contains(carte)) return clearInterval(t);
+      const et = $(".kg-s-etapes", carte), suivi = $(".kg-s-suivi", carte);
+      if (["prise", "terminée"].includes(d.statut)) et.children[1].classList.add("cours");
+      if (d.statut === "terminée") { [...et.children].forEach(li => li.classList.add("fait")); clearInterval(t); }
+      if (d.statut === "échouée" || d.statut === "annulée") { et.children[1].classList.add("ko"); clearInterval(t); }
+      suivi.firstChild.textContent = `Demande ${did} : ${d.statut}${d.resultat || d.erreur ? " — " + (d.resultat || d.erreur) : ""} `;
+    };
+    const t = setInterval(maj, 4000); maj();
+  }
+
   async function selectionner(id) {
     S.selection = id;
     let d;
@@ -753,6 +802,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       <div data-panneau="histo" ${onglet === "histo" ? "" : "hidden"}>${d.historique.length ? `<ul class="liste">${d.historique.map(h => `<li><span class="mono lib">${esc(h.date.slice(0, 16).replace("T", " "))}</span>
         <span class="pill">${esc(CAT_HISTO[h.op] || h.op.replace(/_/g, " "))}</span>${esc(h.op.replace(/_/g, " "))} <span class="lib">(${esc(h.auteur)})</span></li>`).join("")}</ul>`
         : "<p class='lib'>Aucune modification déclarée : l'élément vient tel quel de sa source.</p>"}</div>`);
+    if (["ecran", "module", "parcours"].includes(n.type)) queFaireIci(n);
     $$("[data-onglet]", $("#kg-detail")).forEach(b => b.onclick = () => {
       S.ongletDetail = b.dataset.onglet;
       $$("[data-onglet]", $("#kg-detail")).forEach(x => x.setAttribute("aria-selected", x === b));

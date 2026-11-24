@@ -4154,6 +4154,28 @@ async def connaissance_entites(type: str = "champ", ecran: str = ""):
     return await asyncio.to_thread(_call, entites.champs if type == "champ" else entites.anomalies, *( [ecran] if type == "champ" else []))
 
 
+@app.get("/api/graphe/suggestions")
+async def graphe_suggestions(noeud: str):
+    """« Que faire ici ? » : quelques suggestions de tests sur un écran, un module ou un parcours du graphe."""
+    from atelier.intelligence import suggestions
+
+    return await asyncio.to_thread(_call, suggestions.suggestions, noeud)
+
+
+@app.post("/api/graphe/suggestions/lancer")
+async def graphe_suggestions_lancer(req: Request):
+    """La suggestion choisie démarre : brouillon BDD (si la carte le permet), puis demande à l'agent : concevoir,
+    automatiser, vérifier, exécuter."""
+    from atelier.intelligence import suggestions
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, suggestions.lancer, b.get("noeud", ""), b.get("suggestion", ""))
+    if r.get("bdd"):
+        emit({"type": "bdd_change", "cle": r["bdd"]})
+    emit({"type": "boite_cursor", "id": r["demande"]["id"]})
+    return r
+
+
 @app.get("/api/execution/graphe")
 async def execution_graphe(depuis: int = 0):
     """Graphe du run en direct : actions du run en cours projetées sur les écrans (état, action, chemin, tests)."""

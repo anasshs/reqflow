@@ -1288,5 +1288,16 @@ body.rg-plein .df-lanceur, body.rg-plein .ca-pastille { display: none !important
 @keyframes rg-entree { from { opacity: 0; transform: translate(-50%, -50%) scale(.3); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 .rg-ecran.rg-en_cours.rg-entree { animation: rg-entree .7s cubic-bezier(.2,.9,.3,1.3) both, rg-pulse 1.4s ease-in-out .7s infinite; }
 
-.rg-bulle { background: #1E1B4B !important; color: #fff !important; } .rg-bulle::after { border-top-color: #1E1B4B !important; }
+.rg-bulle { background: #1E1B4B !important; color: #fff !important; border: 1.5px solid #818CF8; font-size: 13.5px !important; font-weight: 500; box-shadow: 0 8px 24px rgba(30,27,75,.45) !important; } .rg-bulle::after { border-top-color: #1E1B4B !important; }
 a.carte.acc-run { display: flex !important; flex-direction: row !important; align-items: center; justify-content: flex-start; text-align: left; min-height: 0; }
+
+/* Knowledge Graph : « Que faire ici ? » */
+.kg-sugg { margin: 10px 0 12px; display: flex; flex-direction: column; gap: 8px; }
+.kg-s { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 9px; padding: 8px 10px; background: var(--surface-2);
+  display: flex; flex-direction: column; gap: 3px; }
+.kg-s-tete { display: flex; gap: 6px; } .kg-s-titre { font-size: 13px; }
+.kg-s-pied { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.kg-s-etapes { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.kg-s-etapes li { font-size: 11px; padding: 2px 8px; border-radius: 9px; background: var(--surface-3); color: var(--muted); }
+.kg-s-etapes li.fait { background: var(--ok-soft); color: var(--ok); } .kg-s-etapes li.cours { background: var(--accent-soft); color: var(--accent); }
+.kg-s-etapes li.ko { background: var(--ko-soft); color: var(--ko); }
