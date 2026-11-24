@@ -52,34 +52,43 @@ def test_suggestions_d_un_module_sans_doublon(banque):
     assert len(r["suggestions"]) <= suggestions.MAX and len({s["titre"] for s in r["suggestions"]}) == len(r["suggestions"])
 
 
-def test_lancer_cree_le_bdd_et_la_demande_a_l_agent(banque):
+def test_lancer_cree_un_travail_qui_avance_seul(banque, monkeypatch):
+    """Lancer = un travail de l'orchestrateur : brouillon BDD (atelier), conception et automatisation (agent du projet),
+    dry-run et run (atelier), validation (automaticien). Le premier tour crée le BDD puis la demande à l'agent."""
+    from atelier.execution import orchestrateur
     from atelier.generation import bdd
     from atelier.integrations import boite_cursor
     from atelier.intelligence import suggestions
 
+    monkeypatch.setattr(orchestrateur, "demarrer", lambda: None)
     s = next(x for x in suggestions.suggestions("ecran:accueil")["suggestions"] if x["titre"].startswith("Aller à"))
     r = suggestions.lancer("ecran:accueil", s["id"])
-    assert r["bdd"] and bdd.charger(r["bdd"])["statut"] == "brouillon"
-    d = next(x for x in boite_cursor.etat()["demandes"] if x["id"] == r["demande"]["id"])
-    assert d["statut"] == "en attente" and d["mode"] == "boite"
-    assert r["bdd"] in d["texte"] and "run_tests" in d["texte"] and "jamais d'action sensible" in d["texte"]
-    # la même suggestion relancée ne recrée pas le scénario (anti-doublon) : l'agent reprend celui qui existe
-    assert suggestions.lancer("ecran:accueil", s["id"])["bdd"] == r["bdd"]
+    assert r["etapes"] == ["Brouillon BDD", "Concevoir et automatiser", "Dry-run", "Run réel", "Valider le BDD et approuver le script"]
+    tid = r["travail"]["id"]
+    orchestrateur.avancer()                                       # brouillon BDD fait par l'atelier
+    t = orchestrateur.obtenir(tid)
+    cle = t["contexte"]["bdd"]
+    assert t["etapes"][0]["statut"] == "fait" and bdd.charger(cle)["statut"] == "brouillon"
+    orchestrateur.avancer()                                       # demande déposée pour l'agent du projet
+    d = next(x for x in boite_cursor.etat()["demandes"] if x.get("travail") == tid)
+    assert cle in d["texte"] and tid in d["texte"] and "PAS le run réel" in d["texte"] and "jamais d'action sensible" in d["texte"]
+    assert d["agent"] == boite_cursor.agent()
 
 
-def test_actions_sensibles_suggerees_seulement_si_l_environnement_les_autorise(banque):
+def test_actions_sensibles_suggerees_seulement_si_l_environnement_les_autorise(banque, monkeypatch):
     """Recette autorisée (décision journalisée) : « Payer » est suggéré, marqué sensible, et la demande à l'agent impose
     des données de test de l'équipe et le tag consomme_donnee. Sans autorisation : jamais suggéré."""
     from atelier.discovery import classement
-    from atelier.integrations import boite_cursor
+    from atelier.execution import orchestrateur
     from atelier.intelligence import suggestions
 
+    monkeypatch.setattr(orchestrateur, "demarrer", lambda: None)
     assert not any("Payer" in s["titre"] for s in suggestions.suggestions("ecran:accueil", "recette")["suggestions"])
     classement.maj_regles(environnements={"recette": ["safe", "controlled", "sensitive"]})
     r = suggestions.suggestions("ecran:accueil", "recette")
     payer = next(s for s in r["suggestions"] if "Payer" in s["titre"])
     assert r["sensibles_autorises"] and payer["sensible"]
     assert not any("Payer" in s["titre"] for s in suggestions.suggestions("ecran:accueil", "production")["suggestions"])
-    d = suggestions.lancer("ecran:accueil", payer["id"], "recette")["demande"]
-    texte = next(x for x in boite_cursor.etat()["demandes"] if x["id"] == d["id"])["texte"]
+    tid = suggestions.lancer("ecran:accueil", payer["id"], "recette")["travail"]["id"]
+    texte = next(e for e in orchestrateur.obtenir(tid)["etapes"] if e["type"] == "ia")["params"]["texte"]
     assert "AUTORISÉES sur l'environnement recette" in texte and "consomme_donnee" in texte and "jamais d'action sensible" not in texte

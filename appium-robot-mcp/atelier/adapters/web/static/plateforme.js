@@ -229,7 +229,7 @@ const Atelier = {
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"], ["pilotage", "Tableaux de bord", "dashboard"],
     ["activites", "Activités", "activite"], ["comportement", "Analyse comportementale", "branche"], ["tests", "Tests automatisés", "check"],
     ["graphe", "Knowledge Graph", "graphe"], ["ia", "Pilotage IA", "ia"], ["rapports", "Rapports", "rapports"], ["operations", "Suivi des runs", "execution"],
-    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"]],
+    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"], ["travaux", "Mes travaux", "activite"]],
   /* barre latérale, par groupe : l'Accueil, les six étapes du parcours de qualification, les référentiels, le pilotage,
      les paramètres. Seules des destinations qui existent ; tout écran reste joignable (sous l'étape à laquelle il sert).
      Entrée : [adresse, libellé, icône, {num : étape du parcours de qualification, sl : sous-libellé, sous : écrans de
@@ -246,7 +246,7 @@ const Atelier = {
     ["Référentiels", [["graphe", "Knowledge Graph", "graphe"], ["bdd", "Scénarios BDD", "bdd"], ["studio/keywords", "Composants & Keywords", "editeur"],
       ["discovery/donnees", "Données de test", "donnee"]]],
     ["Pilotage", [["pilotage", "Tableaux de bord", "dashboard", {sous: [["pilotage", "Pilotage"], ["gouvernance", "Quality Governance"], ["operations", "Suivi des runs"]]}],
-      ["couverture", "Couverture des tests", "graphe"],
+      ["couverture", "Couverture des tests", "graphe"], ["travaux", "Mes travaux", "activite"],
       ["rapports", "Rapports", "rapports"], ["activites", "Activités", "historique"]]],
     ["", [["parametres", "Paramètres", "parametres", {sous: [["parametres/configuration", "Configuration"], ["parametres/projets", "Projets"],
       ["parametres/connexions", "Connexions"], ["ia", "Pilotage IA"]]}]]]],

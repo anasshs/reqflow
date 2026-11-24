@@ -683,13 +683,19 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
           <ol class="kg-s-etapes" hidden>${ETAPES_LANCE.map(x => `<li>${x}</li>`).join("")}</ol></div></div>`; }).join("")
       : `<p class="lib">Rien à proposer ici pour l'instant : tout ce que la carte connaît de cet élément est couvert ou à explorer ailleurs.</p>`}
       ${r.autres ? `<p class="lib">+${r.autres} autre(s) suggestion(s), sur les écrans de cet élément.</p>` : ""}<div id="kg-s-lances"></div>`;
-    api("/api/cursor/boite").then(b => {  // déjà lancé ici : statut de la demande et compte rendu de l'agent
-      const l = (b.demandes || []).filter(d => d.prioritaire && d.ecran && (d.ecran === n.id || (r.ecrans || []).includes(d.ecran))).slice(0, 4);
+    Promise.all([api("/api/travaux").catch(() => []), api("/api/cursor/boite").catch(() => ({demandes: []}))]).then(([tr, b]) => {
+      const ici = e => e && (e === n.id || (r.ecrans || []).includes(e));
+      const travaux = tr.filter(t => ici((t.origine || {}).ecran)).slice(0, 4);
+      // demandes lancées avant l'orchestrateur (sans travail) : statut et compte rendu de l'agent
+      const anciennes = (b.demandes || []).filter(d => d.prioritaire && !d.travail && ici(d.ecran)).slice(0, 3);
       const z = $("#kg-s-lances", bloc);
-      if (z && l.length) z.innerHTML = `<h4 class="kg-sous">Déjà lancé ici</h4>${l.map(d => `<div class="kg-s kg-s-lance"><b class="kg-s-titre">${esc(d.titre)}</b>
+      if (!z || !(travaux.length || anciennes.length)) return;
+      z.innerHTML = `<h4 class="kg-sous">Déjà lancé ici</h4>${travaux.map(t => `<div class="kg-s kg-s-lance"><b class="kg-s-titre">${esc(t.titre)}</b><div class="kg-s-suivi" data-tr="${esc(t.id)}"></div></div>`).join("")}
+        ${anciennes.map(d => `<div class="kg-s kg-s-lance"><b class="kg-s-titre">${esc(d.titre)}</b>
         <span class="pill ${d.statut === "terminée" ? "ok" : d.statut === "échouée" ? "ko" : "info"}">${esc(d.statut)}</span>
         ${d.resultat || d.erreur ? `<div class="lib">${esc(d.resultat || d.erreur)}</div>` : ""}</div>`).join("")}`;
-    }).catch(() => {});
+      $$("[data-tr]", z).forEach(x => suivreTravail(x, x.dataset.tr));
+    });
     $$("[data-lancer]", bloc).forEach(b => b.onclick = async () => {
       const carte = b.closest(".kg-s"), s = r.suggestions.find(x => x.id === b.dataset.lancer);
       b.disabled = true; b.textContent = "Démarrage…";
@@ -697,25 +703,28 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
         if (s.sensible && !confirm(`Action réelle sur ${r.environnement} : ${s.titre}.\nL'agent utilisera les données de test de l'équipe. Lancer ?`)) { b.disabled = false; b.textContent = "Lancer"; return; }
         const x = await api("/api/graphe/suggestions/lancer", {method: "POST", body: {noeud: n.id, suggestion: s.id, env: envCourant}});
         b.hidden = true;
-        const et = $(".kg-s-etapes", carte); et.hidden = false;
-        if (x.bdd) et.children[0].classList.add("fait"), et.children[0].title = "Scénario " + x.bdd;
-        et.insertAdjacentHTML("afterend", `<div class="lib kg-s-suivi" data-demande="${esc(x.demande.id)}">Demande ${esc(x.demande.id)} déposée pour l'agent${x.bdd ? ` · BDD <a href="#bdd/${encodeURIComponent(x.bdd)}">${esc(x.bdd)}</a>` : ""}</div>`);
-        toast(`Lancé : ${s.titre}. L'agent prend la suite (console de l'agent).`, "ok");
-        suivreDemande(carte, x.demande.id);
+        $(".kg-s-etapes", carte).remove();
+        carte.insertAdjacentHTML("beforeend", `<div class="kg-s-suivi" data-travail="${esc(x.travail.id)}"></div>`);
+        toast(`Lancé : ${s.titre}. Il avance seul (Mes travaux) ; tu peux continuer.`, "ok");
+        suivreTravail($(".kg-s-suivi", carte), x.travail.id);
       } catch (e) { toast(e.message, "ko"); b.disabled = false; b.textContent = "Lancer"; }
     });
   }
-  function suivreDemande(carte, did) {  // avancement : en attente → prise par l'agent → terminée (ou échec)
+  /* avancement d'un travail de l'orchestrateur : une pastille par étape (atelier, agent, toi), mise à jour en direct */
+  const ETAT_ETAPE = {a_faire: "", en_cours: "cours", attente_ressource: "cours", attente_decision: "decision", fait: "fait", echec: "ko", annule: ""};
+  function rendreTravail(z, t) {
+    z.innerHTML = `<ol class="kg-s-etapes">${t.etapes.map(e => `<li class="${ETAT_ETAPE[e.statut] || ""}" title="${esc(e.titre)} · ${esc(e.type === "ia" ? (e.agent || "agent") : e.type === "humain" ? "toi" : "atelier")}${e.resultat || e.erreur ? " · " + esc(e.erreur || e.resultat) : ""}">${esc(e.titre)}</li>`).join("")}</ol>
+      <div class="lib">${esc(t.id)} · ${esc({en_cours: "en cours", termine: "terminé", echec: "échec", annule: "annulé", arrete: "arrêté"}[t.statut] || t.statut)}
+        ${(() => { const e = t.etapes.find(x => !["fait", "annule"].includes(x.statut)); return e ? ` · ${esc(e.erreur || e.resultat || e.titre)}` : ""; })()}
+        · <a href="#travaux/${encodeURIComponent(t.id)}">ouvrir</a></div>`;
+  }
+  function suivreTravail(z, tid) {
     const maj = async () => {
-      const b = await api("/api/cursor/boite").catch(() => null), d = b && b.demandes.find(x => x.id === did);
-      if (!d || !document.body.contains(carte)) return clearInterval(t);
-      const et = $(".kg-s-etapes", carte), suivi = $(".kg-s-suivi", carte);
-      if (["prise", "terminée"].includes(d.statut)) et.children[1].classList.add("cours");
-      if (d.statut === "terminée") { [...et.children].forEach(li => li.classList.add("fait")); clearInterval(t); }
-      if (d.statut === "échouée" || d.statut === "annulée") { et.children[1].classList.add("ko"); clearInterval(t); }
-      suivi.firstChild.textContent = `Demande ${did} : ${d.statut}${d.resultat || d.erreur ? " — " + (d.resultat || d.erreur) : ""}${suivi.querySelector("a") ? " · BDD " : ""}`;
+      if (!document.body.contains(z)) return desab();
+      try { rendreTravail(z, await api("/api/travaux/" + encodeURIComponent(tid))); } catch (e) { /* travail disparu */ }
     };
-    const t = setInterval(maj, 4000); maj();
+    const desab = Atelier.on("travail", ev => { if (ev.id === tid) maj(); });
+    maj();
   }
 
   async function selectionner(id) {

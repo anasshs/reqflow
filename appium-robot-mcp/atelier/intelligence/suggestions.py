@@ -251,33 +251,47 @@ REGLES_SENSIBLES = ("Règles : actions sensibles AUTORISÉES sur l'environnement
                     "écrit ; aucune publication Xray sans décision de l'automaticien.")
 
 
+SUITE_TRAVAIL = ("Ensuite, sans attendre d'autre instruction : 1) le scénario BDD (Test Design) avec le jeu de données des "
+                 "tests, données fictives uniquement ; 2) l'automatisation en Page Object Model en réutilisant le socle (keywords "
+                 "et locators existants), sans doublon, le test portant en [Tags] la clé du scénario BDD et « {travail} » ; "
+                 "3) un dry-run si tu veux, mais PAS le run réel : l'atelier l'enchaîne lui-même sur un téléphone libre ; "
+                 "4) atelier_demande_terminee avec la clé BDD, le fichier et le nom du test. ")
+REGLES = ("Règles : jamais d'action sensible (paiement, virement, validation définitive, OTP), arrêt avant ; jamais de secret "
+          "écrit ; aucune publication Xray sans décision de l'automaticien.")
+
+
 def lancer(noeud: str, suggestion: str, env: str = "") -> dict:
-    """Lance une suggestion choisie : brouillon BDD quand il se déduit de la carte, puis demande à l'agent de
-    concevoir / compléter, automatiser, vérifier et exécuter. Rend {bdd, demande}."""
-    from atelier.generation import parcours_bdd
+    """Lance une suggestion choisie : un travail de l'orchestrateur, qui avance seul en arrière-plan.
+    Étapes : brouillon BDD (atelier, si la carte le permet) → conception et automatisation (agent du projet) → dry-run et
+    run réel (atelier, sur un téléphone libre) → validation du BDD et revue du script (automaticien). Rend {travail}."""
+    from atelier.execution import orchestrateur
     from atelier.integrations import boite_cursor
 
     s = next((x for x in suggestions(noeud, env)["suggestions"] if x["id"] == suggestion), None)
     if not s:
         raise KeyError("Suggestion inconnue (la liste a peut-être changé : rouvrir le panneau).")
-    l, bdd = s["lancer"], None
+    l = s["lancer"]
+    etapes = []
     if l["type"] in ("chemin", "parcours"):
-        try:
-            r = parcours_bdd.brouillon(ecrans=l["ecrans"], titre=l["titre"]) if l["type"] == "chemin" \
-                else parcours_bdd.brouillon(parcours=l["parcours"], titre=l["titre"])
-            bdd = r["cle"]
-        except parcours_bdd.DejaCouvert as e:
-            bdd = e.existant["cle"]  # déjà fait par un test BDD existant : on automatise celui-là
+        etapes.append({"titre": "Brouillon BDD", "type": "atelier", "action": "brouillon_bdd",
+                       "params": {"ecrans": l.get("ecrans"), "parcours": l.get("parcours"), "titre": l["titre"]}})
+        objet = (f"Le scénario BDD « {{bdd}} » ({s['titre']}) est prêt dans Test Design. Relis-le, complète les données et les "
+                 f"assertions (résultat attendu : {s['attendu']}).")
     elif l["type"] == "bdd":
-        bdd = l["cle"]
-    if bdd:
-        objet = f"Le scénario BDD « {bdd} » ({s['titre']}) est prêt dans Test Design. Relis-le, complète les données et les assertions (résultat attendu : {s['attendu']})."
+        objet = f"Le scénario BDD « {l['cle']} » ({s['titre']}) est validé, sans script : automatise-le."
     else:
         objet = CONSIGNES[l["consigne"]].format(ecran=s["ecran_nom"], attendu=s["attendu"], elements=", ".join(f"« {x} »" for x in l.get("elements", [])),
                                                 test=l.get("test", ""), bouton=l.get("bouton", ""))
-    suite = SUITE
-    if s.get("sensible") and sensibles_autorises(env):
-        suite = SUITE.split(" Règles : ")[0] + " " + REGLES_SENSIBLES.format(env=env)
-    texte = f"{objet}\nPourquoi : {s['pourquoi']}\n{suite}"
-    d = boite_cursor.deposer(f"{s['titre']}", texte, attendus=["run_tests"], ecran=s.get("ecran", ""), mode="boite", prioritaire=True)
-    return {"suggestion": s, "bdd": bdd, "demande": {k: d[k] for k in ("id", "titre", "statut")}}
+    regles = REGLES_SENSIBLES.format(env=env) if s.get("sensible") and sensibles_autorises(env) else REGLES
+    stabiliser = l.get("consigne") == "stabiliser"
+    texte = f"{objet}\nPourquoi : {s['pourquoi']}\n" + ("" if stabiliser else SUITE_TRAVAIL) + regles
+    agent = boite_cursor.agent()  # agent du projet (Claude Code ou Cursor), réglé dans Paramètres › Cursor / Claude
+    etapes.append({"titre": "Analyser et corriger" if stabiliser else "Concevoir et automatiser", "type": "ia", "agent": agent,
+                   "params": {"texte": texte, "attendus": ["atelier_demande_terminee"]}})
+    if not stabiliser:
+        etapes += [{"titre": "Dry-run", "type": "atelier", "action": "dry_run", "params": {"bdd": l.get("cle", "")}},
+                   {"titre": "Run réel", "type": "atelier", "action": "run", "params": {"bdd": l.get("cle", "")}}]
+    etapes.append({"titre": "Valider le BDD et approuver le script", "type": "humain"})
+    tr = orchestrateur.creer(s["titre"], etapes, origine={"type": "suggestion", "noeud": noeud, "ecran": s.get("ecran", ""),
+                                                          "suggestion": s["titre"], "famille": s["famille"]}, env=env)
+    return {"suggestion": s, "travail": {k: tr[k] for k in ("id", "titre", "statut")}, "etapes": [e["titre"] for e in tr["etapes"]]}

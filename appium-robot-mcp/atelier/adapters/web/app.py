@@ -3436,6 +3436,51 @@ def _arreter_mcp_http():
 
 
 @app.on_event("startup")
+def _demarrer_orchestrateur():
+    """Orchestrateur des travaux IA / MCP : ses runs passent par la file de l'atelier ; reprise après redémarrage."""
+    from atelier.execution import orchestrateur
+
+    orchestrateur.HOOKS.update(mettre_en_file=_mettre_en_file, emit=emit)
+    _call_silencieux(orchestrateur.reprendre_au_demarrage)
+
+
+@app.get("/api/travaux")
+def travaux_liste(actifs: bool = False):
+    from atelier.execution import orchestrateur
+
+    return _call(orchestrateur.lister, actifs)
+
+
+@app.get("/api/travaux/{tid}")
+def travail_detail(tid: str):
+    from atelier.execution import orchestrateur
+
+    return _call(orchestrateur.obtenir, tid)
+
+
+@app.post("/api/travaux/{tid}/decider")
+async def travail_decider(tid: str, req: Request):
+    from atelier.execution import orchestrateur
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, orchestrateur.decider, tid, b.get("etape", ""), bool(b.get("accepter")), b.get("commentaire", ""))
+
+
+@app.post("/api/travaux/{tid}/reprendre")
+async def travail_reprendre(tid: str):
+    from atelier.execution import orchestrateur
+
+    return await asyncio.to_thread(_call, orchestrateur.reprendre, tid)
+
+
+@app.post("/api/travaux/{tid}/annuler")
+async def travail_annuler(tid: str):
+    from atelier.execution import orchestrateur
+
+    return await asyncio.to_thread(_call, orchestrateur.annuler, tid)
+
+
+@app.on_event("startup")
 def _demarrer_planificateur():
     threading.Thread(target=_planificateur, daemon=True, name="planificateur").start()
 
@@ -4171,11 +4216,7 @@ async def graphe_suggestions_lancer(req: Request):
     from atelier.intelligence import suggestions
 
     b = await req.json()
-    r = await asyncio.to_thread(_call, suggestions.lancer, b.get("noeud", ""), b.get("suggestion", ""), b.get("env", ""))
-    if r.get("bdd"):
-        emit({"type": "bdd_change", "cle": r["bdd"]})
-    emit({"type": "boite_cursor", "id": r["demande"]["id"]})
-    return r
+    return await asyncio.to_thread(_call, suggestions.lancer, b.get("noeud", ""), b.get("suggestion", ""), b.get("env", ""))
 
 
 @app.get("/api/execution/graphe")

@@ -1302,3 +1302,15 @@ a.carte.acc-run { display: flex !important; flex-direction: row !important; alig
 .kg-s-etapes li.fait { background: var(--ok-soft); color: var(--ok); } .kg-s-etapes li.cours { background: var(--accent-soft); color: var(--accent); }
 .kg-s-etapes li.ko { background: var(--ko-soft); color: var(--ko); }
 .kg-s .lib, .kg-s-titre { overflow-wrap: anywhere; }
+
+/* Mes travaux (#travaux) */
+.tv { margin: 10px 0; padding: 10px 12px; } .tv-ouvert { outline: 2px solid var(--accent); }
+.tv-tete { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .tv-esp { flex: 1; }
+.tv-etapes { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.tv-e { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--surface-2); display: flex; flex-direction: column; gap: 3px; }
+.tv-e.tv-fait { border-left: 3px solid var(--ok); } .tv-e.tv-en_cours, .tv-e.tv-attente_ressource { border-left: 3px solid var(--accent); }
+.tv-e.tv-attente_decision { border-left: 3px solid var(--warn); } .tv-e.tv-echec { border-left: 3px solid var(--ko); }
+.tv-qui { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.tv-decision { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border-radius: 9px; background: var(--warn-soft); }
+.kg-s-etapes li.decision { background: var(--warn-soft); color: var(--warn); }
+.tv-e .lib { overflow-wrap: anywhere; }
