@@ -4154,6 +4154,14 @@ async def connaissance_entites(type: str = "champ", ecran: str = ""):
     return await asyncio.to_thread(_call, entites.champs if type == "champ" else entites.anomalies, *( [ecran] if type == "champ" else []))
 
 
+@app.get("/api/execution/graphe")
+async def execution_graphe(depuis: int = 0):
+    """Graphe du run en direct : actions du run en cours projetées sur les écrans (état, action, chemin, tests)."""
+    from atelier.execution import run_graphe
+
+    return await asyncio.to_thread(_call, run_graphe.vue, depuis)
+
+
 @app.get("/api/couverture/carte")
 async def couverture_carte():
     """Carte de couverture par les tests : parcours, écrans par module, matrice tests × écrans."""

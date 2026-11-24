@@ -229,7 +229,7 @@ const Atelier = {
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"], ["pilotage", "Tableaux de bord", "dashboard"],
     ["activites", "Activités", "activite"], ["comportement", "Analyse comportementale", "branche"], ["tests", "Tests automatisés", "check"],
     ["graphe", "Knowledge Graph", "graphe"], ["ia", "Pilotage IA", "ia"], ["rapports", "Rapports", "rapports"], ["operations", "Suivi des runs", "execution"],
-    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"]],
+    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"]],
   /* barre latérale, par groupe : l'Accueil, les six étapes du parcours de qualification, les référentiels, le pilotage,
      les paramètres. Seules des destinations qui existent ; tout écran reste joignable (sous l'étape à laquelle il sert).
      Entrée : [adresse, libellé, icône, {num : étape du parcours de qualification, sl : sous-libellé, sous : écrans de

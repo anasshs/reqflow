@@ -19,6 +19,7 @@ _RUN: dict | None = None
 _DERNIER: dict | None = None
 
 STATUTS = {"PASS": "réussi", "FAIL": "échec", "SKIP": "ignoré", "NOT RUN": "ignoré"}
+MAX_PAS = 600  # actions gardées pour le graphe du run en direct
 
 
 def _maintenant() -> str:
@@ -44,7 +45,7 @@ def demarrer(run_id: str, suite: str = "", tests: list[str] | None = None, nom: 
     global _RUN
     with _VERROU:
         _RUN = {"id": run_id or "", "suite": suite or "", "nom": nom or "", "debut": _maintenant(), "statut": "en cours",
-                "tests": {}, "courant": "", "etape": "", "keyword": "", "keyword_debut": ""}
+                "tests": {}, "courant": "", "etape": "", "keyword": "", "keyword_debut": "", "pas": [], "n": 0}
         for i in tests or []:
             fichier, _, n = str(i).partition("::")
             if n:
@@ -87,6 +88,16 @@ def observer(ev: dict) -> None:
             if niveau == 1:
                 r["etape"] = nom
             r.update(keyword=nom, keyword_debut=_maintenant())
+            # fil des actions (graphe du run en direct) : keyword, arguments tels qu'écrits dans le script, test, étape
+            r["n"] = r.get("n", 0) + 1
+            r.setdefault("pas", []).append({"n": r["n"], "t": _maintenant(), "test": r.get("courant", ""), "etape": r.get("etape", ""),
+                                            "niveau": niveau, "nom": nom, "args": [str(a) for a in ev.get("args") or []][:6], "statut": ""})
+            del r["pas"][:-MAX_PAS]
+        elif t == "kw_fin":
+            for x in reversed(r.get("pas") or []):  # le dernier keyword ouvert de ce niveau
+                if x["niveau"] == int(ev.get("niveau") or 1) and not x["statut"]:
+                    x["statut"] = str(ev.get("statut") or "")
+                    break
         elif t == "test_fin":
             x = r["tests"].setdefault(ev.get("nom", ""), _test(ev.get("nom", "")))
             fin = _maintenant()
@@ -102,7 +113,7 @@ def _copie(r: dict | None) -> dict | None:
         return None
     tests = list(r["tests"].values())
     compte = {k: sum(1 for x in tests if x["statut"] == k) for k in ("en attente", "en cours", "réussi", "échec", "ignoré")}
-    return {**{k: v for k, v in r.items() if k != "tests"}, "tests": tests, "compte": compte, "total": len(tests),
+    return {**{k: v for k, v in r.items() if k not in ("tests", "pas")}, "tests": tests, "compte": compte, "total": len(tests),
             "termines": compte["réussi"] + compte["échec"] + compte["ignoré"]}
 
 
@@ -110,6 +121,15 @@ def etat() -> dict:
     """Run en cours (ou None) et dernier run suivi (jusqu'au prochain)."""
     with _VERROU:
         return {"en_cours": _copie(_RUN), "dernier": _copie(_DERNIER)}
+
+
+def pas(depuis: int = 0) -> dict:
+    """Actions du run en cours (ou du dernier run suivi) après le numéro « depuis » : graphe du run en direct."""
+    with _VERROU:
+        r = _RUN or _DERNIER
+        if not r:
+            return {"run": None, "pas": [], "n": 0}
+        return {"run": _copie(r), "pas": [dict(x) for x in r.get("pas") or [] if x["n"] > depuis], "n": r.get("n", 0)}
 
 
 def reinitialiser() -> None:

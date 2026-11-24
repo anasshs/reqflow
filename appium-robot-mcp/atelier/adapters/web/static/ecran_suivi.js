@@ -32,6 +32,7 @@
     const pct = r.total ? Math.round(100 * r.termines / r.total) : 0, c = r.compte;
     return `<section class="carte sv-live" aria-live="polite">
       <h2 class="titre-carte"><span>${pill("en cours", '<span class="ta-pulse" aria-hidden="true"></span>')} ${esc(r.id)} <span class="lib">· ${esc(r.nom || nomFichier(r.suite))} · depuis <span data-depuis="${esc(r.debut)}">${esc(depuis(r.debut))}</span></span></span>
+        <a class="btn petit primaire" href="#run-graphe" title="Les écrans traversés par le run, les actions et les résultats, animés en plein écran">Graphe en direct</a>
         <span class="actions-titre"><a class="btn petit contour" href="#execution-detail/${esc(r.id)}">Vue détaillée</a>
         <button class="btn petit contour" id="sv-arreter">Arrêter</button></span></h2>
       <div class="corps-carte">

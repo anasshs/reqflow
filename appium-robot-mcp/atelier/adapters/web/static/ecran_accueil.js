@@ -117,9 +117,21 @@
     async afficher(z, sous) {
       if (sous) { location.replace("#pilotage/" + sous); return; }  // anciennes ancres du Dashboard de pilotage (#dashboard/tnr…)
       zone = z; jeton = Symbol("accueil");
+      const majRun = async () => {  // la carte « Run en direct » dit s'il y a un run à suivre
+        const d = await api("/api/execution/direct").catch(() => null), r = d && (d.en_cours || null), el = document.getElementById("acc-run-etat");
+        if (!el) return;
+        el.textContent = r ? `En cours : ${r.nom || r.id} · ${r.termines || 0}/${r.total || 0} tests${r.courant ? " · " + r.courant : ""}` : "Aucun run en cours : le dernier run reste consultable";
+        document.getElementById("acc-run")?.classList.toggle("acc-run-actif", !!r);
+      };
+      (window.__accRunAbos || []).forEach(f => f());  // une seule série d'abonnements, même après plusieurs visites
+      window.__accRunAbos = ["run_lance", "test_debut", "test_fin", "run_bilan"].map(t => Atelier.on(t, majRun));
+      setTimeout(majRun, 0);
       const j = jeton, c = Atelier.ctx || {}, appli = (c.applications || []).find(x => x.slug === c.application) || {};
       z.className = "g-accueil";
       z.innerHTML = `<header class="acc-tete" id="acc-tete">${entete({nom: appli.nom || c.application, slug: c.application})}</header>
+        <a class="carte acc-run" id="acc-run" href="#run-graphe" title="Graphe du run en direct, en plein écran : écrans en cours de test, actions et résultats">
+          <span class="acc-run-ico">${ico("execution")}</span><span class="acc-run-txt"><b>Graphe du run en direct</b><span class="lib" id="acc-run-etat">Aucun run en cours</span></span>
+          <span class="btn primaire petit">Ouvrir en plein écran</span></a>
         <section class="carte acc-qualif"><h2 class="titre-carte">Parcours de qualification
           <span class="acc-aide" title="Où en est l'activité de qualification de l'application, étape par étape. Un statut se déduit de ce qui existe réellement ; aucune note globale.">${ico("aide")}</span></h2>
           <div class="corps-carte"><div class="acc-etapes" id="acc-etapes">${[1, 2, 3, 4, 5, 6].map(n => `<div class="acc-etape e${n} attente"><span class="acc-num">${n}</span></div>`).join("")}</div></div></section>

@@ -180,7 +180,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       };
       demarrage();
     },
-    quitter() { desabo.forEach(f => f()); desabo = []; clearTimeout(minuterieDirect); clearInterval(S?.secours); document.body.classList.remove("fenetre-graphe"); },
+    quitter() { clearInterval(runMinuterie); desabo.forEach(f => f()); desabo = []; clearTimeout(minuterieDirect); clearInterval(S?.secours); document.body.classList.remove("fenetre-graphe"); },
   };
   Atelier.enregistrer("graphe", E);
 
@@ -219,6 +219,26 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       b.disabled = S.vue !== "connaissance"; });
   }
 
+  /* run en direct : pendant un run (et pour le dernier run suivi), chaque écran traversé prend son état d'exécution
+     (en cours, réussi, échec, visité, à venir) quand l'affichage « Couverture des tests » est actif */
+  let runEtats = {}, runMinuterie = null;
+  async function majRun() {
+    if (!S || !S.aff.couverture) return;
+    const d = await api("/api/execution/graphe").catch(() => null);
+    runEtats = Object.fromEntries((d && d.run ? d.ecrans : []).map(e => [e.id, e.etat]));
+    appliquerRun(d);
+  }
+  function appliquerRun(d) {
+    const svg = $("#kg-zone .gv-svg");
+    if (!svg) return;
+    $$("g.gv-noeud[data-id]", svg).forEach(g => {
+      ["en_cours", "reussi", "echec", "visite", "a_venir"].forEach(k => g.classList.toggle("gv-run-" + k, runEtats[g.dataset.id] === k));
+    });
+    const leg = $("#kg-run-leg");
+    if (leg) leg.innerHTML = d && d.run ? `<b>Run ${esc(d.run.id)}</b> · ${esc(d.run.statut)} · ${d.run.termines || 0}/${d.run.total || 0} tests
+      <a href="#run-graphe">plein écran</a>` : "";
+  }
+
   function appliquerAffichage() {
     const svg = $("#kg-zone .gv-svg");
     if (!svg) return;
@@ -227,6 +247,8 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
     svg.classList.toggle("gv-avec-prov", !!S.aff.provenance);
     svg.classList.toggle("gv-avec-couverture", !!S.aff.couverture);
     legende();
+    clearInterval(runMinuterie);
+    if (S.aff.couverture) { majRun(); runMinuterie = setInterval(majRun, 3000); } else { runEtats = {}; appliquerRun(null); }
   }
 
   /* rang de chaque élément dans l'ordre de navigation : écrans d'entrée en haut, puis les écrans atteints */
@@ -517,7 +539,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       return tot ? `<li><b>${nom}</b> ${ETATS_COUV.filter(([e]) => c[t][e]).map(([e, l]) => `<span class="kg-couv-cle kg-couv-${e}" title="${l}">${c[t][e]}</span>`).join("")}
         <span class="lib">${Math.round(100 * ((c[t].couvert || 0) + (c[t].echec || 0)) / tot)} % couverts</span></li>` : ""; };
     const lignes = ligne("parcours", "Parcours") + ligne("ecran", "Écrans");
-    return `<div class="kg-couv-legende"><ul class="liste">${lignes || "<li class='lib'>Aucun écran ni parcours dans la vue.</li>"}</ul>
+    return `<div class="kg-couv-legende"><div id="kg-run-leg" class="lib"></div><ul class="liste">${lignes || "<li class='lib'>Aucun écran ni parcours dans la vue.</li>"}</ul>
       <p class="lib">${ETATS_COUV.map(([e, l]) => `<span class="kg-couv-cle kg-couv-${e}"></span>${l}`).join(" ")}</p></div>`;
   }
 
