@@ -109,3 +109,16 @@ def test_annuler_et_refuser(orch):
     assert o.annuler(u["id"])["statut"] == "annule"
     with pytest.raises(ValueError):
         o.creer("E", [])
+
+
+def test_au_redemarrage_un_run_en_cours_garde_son_telephone(orch):
+    o, runs, file = orch
+    a = o.creer("A", [{"titre": "Run", "type": "atelier", "action": "run", "params": {"bdd": "A"}}])
+    o.avancer()
+    assert o._reservations == {"tel-1": a["id"]}
+    o._reservations.clear()                                       # redémarrage : la mémoire est perdue, le disque reste
+    o.reprendre_au_demarrage()
+    assert o._reservations == {"tel-1": a["id"]}
+    b = o.creer("B", [{"titre": "Run", "type": "atelier", "action": "run", "params": {"bdd": "B"}}])
+    o.avancer()
+    assert o.obtenir(b["id"])["etapes"][0]["statut"] == "attente_ressource"

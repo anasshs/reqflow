@@ -206,7 +206,10 @@ def _boucle():
     while not _fil["stop"].is_set():
         try:
             if not avancer():
-                return  # plus aucun travail actif : la boucle s'arrête, elle repart au prochain travail
+                with _verrou:  # relu sous verrou : un travail créé pendant ce tour relance la boucle au lieu d'attendre
+                    if not any(x["statut"] == "en_cours" for x in _lire()):
+                        _fil["thread"] = None
+                        return  # plus aucun travail actif : la boucle s'arrête, elle repart au prochain travail
         except Exception:  # noqa: BLE001 — une erreur d'un tour n'arrête jamais l'orchestrateur
             pass
         _fil["stop"].wait(PERIODE_S)
@@ -368,6 +371,11 @@ def _etape_run(t: dict, e: dict, dry_run: bool):
 
 def reprendre_au_demarrage():
     """Après un redémarrage : les réservations en mémoire sont perdues, les runs en cours sont relus dans l'historique ;
-    la boucle repart s'il reste des travaux actifs."""
+    la boucle repart s'il reste des travaux actifs. Un run réel encore en cours garde son téléphone (pas de second run dessus)."""
+    with _verrou:
+        for t in _lire():
+            for e in t["etapes"] if t["statut"] == "en_cours" else []:
+                if e["statut"] == "en_cours" and e.get("telephone"):
+                    _reservations[e["telephone"]] = t["id"]
     if any(t["statut"] == "en_cours" for t in _lire()):
         demarrer()

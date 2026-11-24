@@ -2807,7 +2807,6 @@ def contexte():
                      "detail": xray[1] if xray else "non vérifié"},
             "run_en_cours": centre.FILE.en_cours is not None,
             "agent_integre": bool(os.environ.get("ANTHROPIC_API_KEY")),
-            "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"),
             "integrations": _integrations(),
             "utilisateur": _utilisateur()}
 

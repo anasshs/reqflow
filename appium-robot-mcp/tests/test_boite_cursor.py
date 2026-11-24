@@ -17,6 +17,14 @@ def boite(projet, monkeypatch):
 
     monkeypatch.delenv("ATELIER_CURSOR_CLI", raising=False)
     monkeypatch.delenv("ATELIER_CURSOR_CLI_ARGS", raising=False)
+    # indépendant du poste : un agent Cursor réellement installé (« agent » dans le PATH) ne doit pas être trouvé ; seul le
+    # faux agent du test l'est, et il est lancé par Python (un script .py ne s'exécute pas tel quel sous Windows)
+    import subprocess
+
+    vrai_run = subprocess.run
+    monkeypatch.setattr(boite_cursor.shutil, "which", lambda c, *a, **k: c if str(c).endswith("faux_agent.py") and os.path.exists(c) else None)
+    monkeypatch.setattr(boite_cursor.subprocess, "run",
+                        lambda cmd, *a, **k: vrai_run([sys.executable, *cmd] if str(cmd[0]).endswith(".py") else cmd, *a, **k))
     return boite_cursor
 
 

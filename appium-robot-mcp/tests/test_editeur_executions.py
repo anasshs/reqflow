@@ -211,7 +211,12 @@ def test_etape_enrichie_avec_ecran_de_reference(client, depot):
     assert t["fichier"] == "tests/ref.robot" and t["ligne"] == 2 and t["plateforme"] == "android"
 
 
-def test_suites_capture_et_utilisateur(client, depot):
+def test_suites_capture_et_utilisateur(client, depot, monkeypatch):
+    from atelier.adapters.web import app as web
+
+    # indépendant de l'ordre et du poste : ni flux laissé par un autre test, ni image de run, ni téléphone branché en adb
+    monkeypatch.setitem(web.state, "flux", {})
+    monkeypatch.setitem(web.state, "image_run", None)
     suites = client.get("/api/depot/suites").json()
     assert {s["fichier"] for s in suites} == {"tests/connexion.robot", "tests/virement.robot"}
     assert next(s for s in suites if s["fichier"] == "tests/virement.robot")["tests"] == 2
