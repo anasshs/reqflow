@@ -189,7 +189,11 @@ def etape_projet(env: dict, interactif: bool, saisie=input) -> bool:
     defaut = _documents() / "GitHub" / "tests-atelier"
     print("\n  Aucun projet de tests choisi. L'atelier y écrira la carte de l'application, les locators, les scénarios et les releases.")
     print("  Donner le dossier d'un dépôt de tests Robot existant, ou Entrée pour créer :", defaut)
-    rep = (saisie("  Dossier du projet de tests : ") or "").strip().strip('"')
+    try:
+        rep = (saisie("  Dossier du projet de tests : ") or "").strip().strip('"')
+    except (EOFError, KeyboardInterrupt):  # pas de saisie possible : rien n'est créé à la place de l'utilisateur
+        alerte("Aucun projet de tests choisi : l'atelier le signalera (Paramètres › Projets).")
+        return True
     dossier = Path(rep).expanduser() if rep else defaut
     if dossier.resolve() == ICI:
         alerte("Ce dossier est celui de l'atelier : choisir un autre dossier (relancer l'assistant).")
@@ -225,7 +229,11 @@ CODE_ENVOI = ("import json, sys; from atelier.domain import projets; projets.au_
 
 
 def _oui(question: str, saisie) -> bool:
-    return (saisie(f"  {question} [O/n] ") or "o").strip().lower() in ("o", "oui", "y", "yes")
+    try:
+        return (saisie(f"  {question} [O/n] ") or "o").strip().lower() in ("o", "oui", "y", "yes")
+    except (EOFError, KeyboardInterrupt):  # pas de saisie possible (lancé sans terminal) : on ne fait rien de plus
+        print()
+        return False
 
 
 def _venv_json(code: str, *args, env=None) -> dict:
@@ -340,6 +348,47 @@ def etape_browser_robot(env: dict, interactif: bool, saisie=input) -> bool:
     return True
 
 
+def etape_appium(env: dict, interactif: bool, saisie=input) -> bool:
+    """Téléphones (Android, et iPhone / simulateurs sur Mac) : Appium et ses pilotes installés, puis Appium démarré s'il ne
+    répond pas. Non bloquant : le web et l'API fonctionnent sans."""
+    code = "import json; from atelier.domain import prerequis; print(json.dumps(prerequis.mobile()))"
+    m = interroger_atelier(code, env)
+    if "erreur" in m:
+        return True
+    if not m.get("ok") and m.get("commandes") and interactif and _oui(
+            "Outils mobiles : " + m.get("detail", "") + ". Les installer (" + " ; ".join(" ".join(c) for c in m["commandes"]) + ") ?", saisie):
+        for c in m["commandes"]:
+            exe = shutil.which(c[0])
+            if exe:
+                action(" ".join(c) + "…")
+                executer([exe, *c[1:]])
+        m = interroger_atelier(code, env)
+    if not m.get("ok"):
+        alerte("Outils mobiles : " + m.get("detail", "") + (" — " + m["solution"] if m.get("solution") else ""))
+    else:
+        ok("Outils mobiles : " + m.get("detail", ""))
+    appium = shutil.which("appium")
+    url = (env.get("APPIUM_URL") or "http://127.0.0.1:4723").rstrip("/")
+    if not appium or "aucun outil mobile" in m.get("detail", "") or not url.startswith(("http://127.0.0.1", "http://localhost")):
+        return True
+    try:
+        with urllib.request.urlopen(url + "/status", timeout=2):
+            ok("Appium répond (" + url + ")")
+            return True
+    except OSError:
+        pass
+    journal = Path.home() / ".atelier-appium.log"
+    port = url.rsplit(":", 1)[-1].split("/")[0]
+    with open(journal, "ab") as j:  # détaché : Appium reste disponible pour les runs, journal dans le dossier personnel
+        subprocess.Popen([appium, "--port", port], stdout=j, stderr=j, stdin=subprocess.DEVNULL,
+                         **({"creationflags": 0x00000008 | 0x00000200} if os.name == "nt" else {"start_new_session": True}))
+    if attendre(url + "/status", 30):
+        ok(f"Appium démarré ({url}, journal : {journal})")
+    else:
+        alerte(f"Appium ne répond pas après 30 s : voir {journal}")
+    return True
+
+
 def main(argv=None) -> int:
     a = argparse.ArgumentParser(description="Assistant d'installation et de lancement de l'atelier.")
     a.add_argument("--verifier", action="store_true", help="vérifier et installer ce qui manque, sans lancer")
@@ -355,6 +404,7 @@ def main(argv=None) -> int:
         return 1
     etape_navigateur(env)
     etape_browser_robot(env, interactif=sys.stdin.isatty())
+    etape_appium(env, interactif=sys.stdin.isatty())
     etape_projet(env, interactif=sys.stdin.isatty())
     etape_cursor(env, o.port, interactif=sys.stdin.isatty())
     print(f"\n  Atelier prêt{f' ({len(A_REGLER)} point(s) à régler ci-dessus, non bloquant)' if A_REGLER else ''}.")

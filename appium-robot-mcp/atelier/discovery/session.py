@@ -3,6 +3,7 @@ pas dans les façades. Lecture de l'écran et actions brutes (sans carte)."""
 from __future__ import annotations
 
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -102,6 +103,39 @@ def list_devices() -> dict:
     if shutil.which("idevice_id"):
         r = subprocess.run(["idevice_id", "-l"], capture_output=True, text=True, errors="replace", timeout=20)
         out["ios_physiques"] = [u for u in r.stdout.split() if u]
+    if shutil.which("xcrun"):  # Xcode 15+ : les iPhone appairés, sans libimobiledevice
+        out["ios_physiques"] += [u for u in iphones_devicectl() if u not in out["ios_physiques"]]
+    return out
+
+
+SIMULATEUR_RE = re.compile(r"^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$", re.I)
+
+
+def est_simulateur(udid: str) -> bool:
+    """Un simulateur iOS a un UDID au format UUID ; un iPhone réel, 40 hexadécimaux ou « 00008xxx-xxxxxxxxxxxxxxxx »."""
+    return bool(SIMULATEUR_RE.match(udid or ""))
+
+
+def iphones_devicectl() -> list[str]:
+    """UDID des iPhone / iPad réels appairés au Mac, via « xcrun devicectl » (Xcode 15+). Vide si indisponible."""
+    import tempfile
+
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "devices.json")
+            subprocess.run(["xcrun", "devicectl", "list", "devices", "--json-output", f], capture_output=True, timeout=30)
+            if not os.path.isfile(f):
+                return []
+            with open(f, encoding="utf-8") as fh:
+                devices = (json.load(fh).get("result") or {}).get("devices") or []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    out = []
+    for x in devices:
+        hp, cp = x.get("hardwareProperties") or {}, x.get("connectionProperties") or {}
+        if hp.get("reality") == "physical" and hp.get("platform") in ("iOS", "iPadOS") and hp.get("udid") \
+                and cp.get("pairingState", "paired") == "paired":
+            out.append(hp["udid"])
     return out
 
 

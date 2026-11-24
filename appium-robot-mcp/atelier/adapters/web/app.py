@@ -476,6 +476,11 @@ def _sante_items() -> list[dict]:
          optionnel=True)
     from atelier.domain import prerequis
 
+    try:
+        mo = prerequis.mobile()
+        item("mobile", "Outils mobiles", mo["ok"], mo["detail"], mo["solution"], optionnel=True)
+    except Exception:  # noqa: BLE001
+        pass
     pr = prerequis.projet()
     item("projet", "Projet de tests", pr["ok"], pr["dossier"] if pr["ok"] else f"{pr['raison']} ({pr['dossier']})", pr["solution"])
     nav = prerequis.navigateur()
@@ -657,7 +662,12 @@ def _grab() -> bytes | None:
         if adb:
             cmd = [adb] + (["-s", udid] if udid else []) + ["exec-out", "screencap", "-p"]
             return subprocess.run(cmd, capture_output=True, timeout=8).stdout or None
-        if p == "ios" and shutil.which("xcrun"):
+        if p == "ios" and session.etat.get("driver") is not None and session.etat.get("platform") == "ios":
+            try:  # iPhone réel (iOS 17+ : idevicescreenshot n'y arrive plus) comme simulateur : la session ouverte
+                return session.screenshot_png()
+            except Exception:  # noqa: BLE001
+                pass
+        if p == "ios" and shutil.which("xcrun") and (not udid or session.est_simulateur(udid)):
             with tempfile.NamedTemporaryFile(suffix=".png") as f:
                 r = subprocess.run(["xcrun", "simctl", "io", udid or "booted", "screenshot", f.name],
                                    capture_output=True, timeout=8)

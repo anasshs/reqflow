@@ -36,6 +36,42 @@ def installer_node() -> str:
             "macos": "https://nodejs.org ou « brew install node »"}.get(systeme(), "https://nodejs.org ou le gestionnaire de paquets de la distribution")
 
 
+def mobile() -> dict:
+    """{ok, detail, solution, commandes} : outils pour piloter un téléphone. Android : Appium + pilote uiautomator2 ;
+    iOS (macOS seulement) : Xcode, Appium + pilote xcuitest, équipe de signature pour un iPhone réel.
+    commandes : ce que le lanceur peut installer lui-même (npm, appium driver)."""
+    from atelier.discovery import session
+
+    home = Path(os.environ.get("APPIUM_HOME") or Path.home() / ".appium").expanduser()
+    pilote = lambda n: (home / "node_modules" / f"appium-{n}-driver").is_dir()  # noqa: E731
+    android, ios = bool(session.chemin_adb()), systeme() == "macos"
+    if not android and not ios:
+        return {"ok": True, "detail": "aucun outil mobile sur ce poste (adb, Xcode) : web et API seulement", "solution": "", "commandes": []}
+    manque, commandes, notes = [], [], []
+    if not shutil.which("node"):
+        manque.append(f"Node.js ({installer_node()})")
+    elif not shutil.which("appium"):
+        manque.append("Appium")
+        commandes.append(["npm", "install", "-g", "appium"])
+    if android and not pilote("uiautomator2"):
+        manque.append("pilote Appium uiautomator2")
+        commandes.append(["appium", "driver", "install", "uiautomator2"])
+    if ios:
+        if not (shutil.which("xcrun") and shutil.which("xcodebuild")):
+            manque.append("Xcode (App Store, puis « sudo xcode-select -s /Applications/Xcode.app »)")
+        if not pilote("xcuitest"):
+            manque.append("pilote Appium xcuitest")
+            commandes.append(["appium", "driver", "install", "xcuitest"])
+        if not os.environ.get("IOS_TEAM_ID"):
+            notes.append("iPhone réel : définir IOS_TEAM_ID (équipe Apple qui signe WebDriverAgent) et activer le Mode développeur sur l'iPhone")
+    plats = " et ".join(p for p, v in (("Android", android), ("iOS", ios)) if v)
+    if manque:
+        return {"ok": False, "detail": f"{plats} : manque " + ", ".join(manque), "commandes": commandes,
+                "solution": "Relancer " + commande_lancement() + " (il propose d'installer ce qui manque)"
+                            + (" ; " + " ; ".join(" ".join(c) for c in commandes) if commandes else "") + ("" if not notes else " ; " + notes[0])}
+    return {"ok": True, "detail": f"{plats} : Appium et pilotes prêts" + (f" ({notes[0]})" if notes else ""), "solution": "", "commandes": []}
+
+
 def dossier_atelier() -> Path:
     """Dossier du code de l'atelier (appium-robot-mcp)."""
     return Path(__file__).resolve().parents[2]

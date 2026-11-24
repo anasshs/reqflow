@@ -41,6 +41,17 @@ téléphones Android. adb est trouvé dans `~/Library/Android/sdk` même hors du
 macOS. Lancement : `./lancer-atelier.sh` (au premier lancement, si macOS refuse : `chmod +x lancer-atelier.sh`).
 L'intégration continue (`.github/workflows/atelier.yml`) passe la suite de tests sur macOS, Windows et Linux.
 
+**Brancher un iPhone au Mac** (une fois par iPhone) :
+1. Xcode installé (App Store), ouvert une fois ; `sudo xcode-select -s /Applications/Xcode.app`.
+2. `./lancer-atelier.sh` : il propose d'installer Appium et le pilote `xcuitest`, puis démarre Appium
+   (journal : `~/.atelier-appium.log`). L'état est visible dans « État de l'atelier » › Outils mobiles.
+3. iPhone branché en USB : « Faire confiance à cet ordinateur », puis Réglages › Confidentialité et sécurité ›
+   **Mode développeur** activé (redémarrage de l'iPhone).
+4. Signature de WebDriverAgent (l'agent qu'Appium installe sur l'iPhone) : `export IOS_TEAM_ID=<équipe Apple>`
+   avant de lancer l'atelier (`IOS_WDA_BUNDLE_ID` si l'équipe impose un identifiant de bundle à soi).
+L'iPhone apparaît alors dans Discovery, l'Execution Center et l'orchestrateur (détecté par `xcrun devicectl`, sans
+autre outil ; `idevice_id` est aussi lu s'il est installé). Les simulateurs démarrés apparaissent sans rien de plus.
+
 Installation à la main (sans l'assistant) :
 
 ```bash

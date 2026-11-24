@@ -32,6 +32,22 @@ def find(driver, locator: str, timeout: float = 10):
     return WebDriverWait(driver, timeout).until(EC.presence_of_element_located((b, value)))
 
 
+def caps_iphone_reel(udid: str) -> dict:
+    """Sur un iPhone réel, Appium installe WebDriverAgent : il doit être signé par une équipe Apple. IOS_TEAM_ID (équipe),
+    IOS_WDA_BUNDLE_ID (identifiant de bundle à soi, facultatif) et IOS_SIGNING_ID (« Apple Development » par défaut).
+    Rien pour un simulateur, ni sans IOS_TEAM_ID (Appium utilise alors la signature configurée dans Xcode)."""
+    import os
+    import re
+
+    equipe = os.environ.get("IOS_TEAM_ID", "").strip()
+    if not udid or not equipe or re.match(r"^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$", udid, re.I):
+        return {}
+    caps = {"appium:xcodeOrgId": equipe, "appium:xcodeSigningId": os.environ.get("IOS_SIGNING_ID", "").strip() or "Apple Development"}
+    if os.environ.get("IOS_WDA_BUNDLE_ID", "").strip():
+        caps["appium:updatedWDABundleId"] = os.environ["IOS_WDA_BUNDLE_ID"].strip()
+    return caps
+
+
 def creer_driver(url: str, platform: str, udid: str = "", app: str = "", app_package: str = "",
                  app_activity: str = "", bundle_id: str = "", no_reset: bool = True,
                  extra_caps: dict | None = None):
@@ -53,6 +69,9 @@ def creer_driver(url: str, platform: str, udid: str = "", app: str = "", app_pac
         raise ValueError("platform doit valoir 'android', 'ios' ou 'web'")
     if udid:
         opts.udid = udid
+    if platform == "ios":
+        for k, v in caps_iphone_reel(udid).items():
+            opts.set_capability(k, v)
     if app:
         opts.app = app
     opts.no_reset = no_reset
