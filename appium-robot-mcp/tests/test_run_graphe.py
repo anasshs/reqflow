@@ -82,3 +82,17 @@ def test_sonde_qui_echoue_ne_visite_pas_l_ecran(run):
     v = rg.vue()
     assert [c["ecran"] for c in v["chemin"]] == ["ecran:login"]
     assert v["pas"][0]["action"] == "sonde" and v["pas"][0]["statut"] == ""
+
+
+def test_run_de_l_agent_hors_file_suivi_en_direct(run):
+    """Un run lancé par l'agent (MCP run_tests) n'a ni run_lance ni run_bilan : son run_debut démarre le suivi, son run_fin
+    le termine."""
+    direct, rg = run
+    direct.reinitialiser()
+    _ev(direct, ("run_debut", {"suite": "Login", "tests": [{"nom": "Oubli"}]}), ("test_debut", {"nom": "Oubli"}),
+        ("kw_debut", {"nom": "common.Toucher", "niveau": 2, "args": ["${LIEN_OUBLI}"]}))
+    v = rg.vue()
+    assert v["run"]["id"].startswith("AGENT-") and v["run"]["statut"] == "en cours" and v["courant"]["ecran"] == "ecran:login"
+    _ev(direct, ("test_fin", {"nom": "Oubli", "statut": "PASS"}), ("run_fin", {"statut": "PASS", "stats": {"passes": 1, "echecs": 0}}))
+    v = rg.vue()
+    assert v["run"]["statut"] == "terminé" and {e["id"]: e["etat"] for e in v["ecrans"]}["ecran:login"] == "reussi"

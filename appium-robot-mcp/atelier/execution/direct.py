@@ -58,10 +58,20 @@ def observer(ev: dict) -> None:
     t = ev.get("type")
     if t == "run_lance":
         if not _RUN or (ev.get("run_id") and _RUN.get("id") != ev.get("run_id")):
-            demarrer(ev.get("run_id") or "", ev.get("suite") or "")
+            agent = not ev.get("run_id")  # sans identifiant de la file : run lancé par l'agent (MCP)
+            demarrer(ev.get("run_id") or "AGENT-" + time.strftime("%Y%m%d-%H%M%S"), ev.get("suite") or "",
+                     nom=f"Run de l'agent · {ev.get('suite') or ''}" if agent else "")
         return
+    if t == "run_debut" and not _RUN:  # run lancé hors de la file (agent par le MCP : run_tests, run_robot) : suivi aussi
+        demarrer("AGENT-" + time.strftime("%Y%m%d-%H%M%S"), ev.get("suite") or "", nom=f"Run de l'agent · {ev.get('suite') or ''}")
+        with _VERROU:
+            if _RUN:
+                _RUN["agent"] = True
     with _VERROU:
         r = _RUN
+        if t == "run_fin" and r and r.get("agent"):  # pas de bilan de file pour un run de l'agent : la fin de Robot suffit
+            t = "run_bilan"
+            ev = {**ev, "bilan": {"resultat": ev.get("stats") or {}}}
         if t == "run_bilan":
             if r:
                 b = ev.get("bilan") or {}

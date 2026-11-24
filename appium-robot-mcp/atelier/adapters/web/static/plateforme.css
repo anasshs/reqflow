@@ -1301,3 +1301,4 @@ a.carte.acc-run { display: flex !important; flex-direction: row !important; alig
 .kg-s-etapes li { font-size: 11px; padding: 2px 8px; border-radius: 9px; background: var(--surface-3); color: var(--muted); }
 .kg-s-etapes li.fait { background: var(--ok-soft); color: var(--ok); } .kg-s-etapes li.cours { background: var(--accent-soft); color: var(--accent); }
 .kg-s-etapes li.ko { background: var(--ko-soft); color: var(--ko); }
+.kg-s .lib, .kg-s-titre { overflow-wrap: anywhere; }

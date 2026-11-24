@@ -915,7 +915,8 @@ def run_tests(tests: list[str], dry_run: bool = False, jdd_env: str = "", output
     sel = robot.selection_tests(tests)
     output_dir = output_dir or f"results/tests/{datetime.now():%Y%m%d-%H%M%S-%f}"
     revue = centre.controle_revue(sel["cible"], dry_run, derogation, tests)
-    r = robot.run_robot(sel["cible"], dry_run=dry_run, output_dir=output_dir, xray_mode="aucun", jdd_env=jdd_env, tests=tests)
+    r = robot.run_robot(sel["cible"], dry_run=dry_run, output_dir=output_dir, xray_mode="aucun", jdd_env=jdd_env, tests=tests,
+                        events_url=WEB_EVENTS_URL)  # suivi en direct dans l'atelier (graphe du run, exécution)
     return {**r, "tests": tests, "revue": revue}
 
 

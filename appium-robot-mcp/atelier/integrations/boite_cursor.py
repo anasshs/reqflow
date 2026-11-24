@@ -346,7 +346,7 @@ def _executer_cli(did: str, texte: str, lanceur=None):
 
 # =========================================================================== dépôt et suivi (atelier)
 def deposer(titre: str, texte: str, attendus: list[str] | None = None, ecran: str = "", mode: str = "", lanceur=None,
-            attendre: bool = False) -> dict:
+            attendre: bool = False, prioritaire: bool = False) -> dict:
     """Dépose une demande selon le mode réglé pour le projet (ou le mode donné). « boite » : Cursor viendra la chercher
     par le MCP. « cli » : l'atelier lance l'agent en ligne de commande tout de suite (en arrière-plan ; attendre=True
     pour les essais). Mode « lien » : rien à déposer, la demande s'ouvre dans le chat de Cursor."""
@@ -365,7 +365,7 @@ def deposer(titre: str, texte: str, attendus: list[str] | None = None, ecran: st
         did = uuid.uuid4().hex[:8]
     d = {"id": "DC-" + did, "titre": " ".join(str(titre or "Demande").split())[:160], "texte": texte[:12000],
          "attendus": [str(a) for a in (attendus or [])][:8], "ecran": str(ecran or "")[:200], "mode": mode,
-         "statut": "en attente", "cree": _maintenant()}
+         "statut": "en attente", "cree": _maintenant(), **({"prioritaire": True} if prioritaire else {})}
     with _verrou:
         l = _lire()
         l.append(d)
@@ -424,7 +424,8 @@ def _derniere_ecoute() -> dict:
 
 # =========================================================================== côté agent (MCP)
 def suivante(attente_s: int = ATTENTE_MAX_S, pause: float = 1.0) -> dict:
-    """Prochaine demande en attente de la boîte (la plus ancienne), marquée « prise ». Sans demande, attend jusqu'à
+    """Prochaine demande en attente de la boîte, marquée « prise » : une demande prioritaire (lancée d'un clic par
+    l'automaticien, ex. « Que faire ici ? » du graphe) d'abord, sinon la plus ancienne. Sans demande, attend jusqu'à
     attente_s secondes (40 au plus) puis rend la main : l'agent rappelle l'outil."""
     limite = time.time() + max(0, min(int(attente_s or 0), ATTENTE_MAX_S))
     while True:
@@ -433,7 +434,8 @@ def suivante(attente_s: int = ATTENTE_MAX_S, pause: float = 1.0) -> dict:
         f.write_text(json.dumps({"t": time.time()}), "utf-8")
         with _verrou:
             l = _lire()
-            d = next((x for x in l if x["statut"] == "en attente" and x["mode"] == "boite"), None)
+            attente = [x for x in l if x["statut"] == "en attente" and x["mode"] == "boite"]
+            d = next((x for x in attente if x.get("prioritaire")), attente[0] if attente else None)
             if d:
                 d.update(statut="prise", pris=_maintenant())
                 _ecrire(l)

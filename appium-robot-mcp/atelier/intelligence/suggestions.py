@@ -73,6 +73,18 @@ def _a_explorer() -> dict:
 _MEMO: dict = {}
 
 
+def _retour_verifie(g, eid: str, id_carte: str) -> bool:
+    """Un scénario BDD de l'écran fait-il déjà un retour arrière depuis lui ?"""
+    from atelier.generation import bdd
+
+    for s in _scenarios_de(g, eid):
+        m = bdd.charger(s["cle"]) or {}
+        for sc in m.get("scenarios", []):
+            if any("arrière" in e.get("texte", "") and e.get("ecran") in (id_carte, eid.split(":", 1)[1]) for e in sc.get("etapes", [])):
+                return True
+    return False
+
+
 def _pour_ecran(eid: str, g, c, ecrans, par_carte, carte) -> list[dict]:
     e = ecrans.get(eid)
     n = g.noeuds.get(eid)
@@ -100,7 +112,7 @@ def _pour_ecran(eid: str, g, c, ecrans, par_carte, carte) -> list[dict]:
         ce = ecrans.get(cible or "")
         act = t.get("action") or {}
         if act.get("type") == "press_back":
-            if e["etat"] != "non_couvert" and ce:
+            if e["etat"] != "non_couvert" and ce and not _retour_verifie(g, eid, id_carte):
                 out.append({"famille": "concevoir", "titre": f"Retour arrière depuis « {nom} »", "cible": cible,
                             "pourquoi": f"Le retour vers « {ce['nom']} » a été observé ; aucun test ne le vérifie.",
                             "oracle": "observé", "attendu": f"l'écran « {ce['nom']} » est affiché", "valeur": 2,
@@ -189,7 +201,8 @@ def suggestions(noeud: str) -> dict:
     out.sort(key=_cle)
     for i, s in enumerate(out):
         s["id"] = f"S{i + 1}"
-    return {"noeud": noeud, "type": n.type, "libelle": n.libelle, "suggestions": out[:MAX], "autres": max(0, len(out) - MAX)}
+    return {"noeud": noeud, "type": n.type, "libelle": n.libelle, "suggestions": out[:MAX], "autres": max(0, len(out) - MAX),
+            "ecrans": cibles}
 
 
 # --------------------------------------------------------------------------- lancer : BDD -> automatisation -> exécution
@@ -235,5 +248,5 @@ def lancer(noeud: str, suggestion: str) -> dict:
         objet = CONSIGNES[l["consigne"]].format(ecran=s["ecran_nom"], attendu=s["attendu"], elements=", ".join(f"« {x} »" for x in l.get("elements", [])),
                                                 test=l.get("test", ""))
     texte = f"{objet}\nPourquoi : {s['pourquoi']}\n{SUITE}"
-    d = boite_cursor.deposer(f"{s['titre']}", texte, attendus=["run_tests"], ecran=s.get("ecran", ""), mode="boite")
+    d = boite_cursor.deposer(f"{s['titre']}", texte, attendus=["run_tests"], ecran=s.get("ecran", ""), mode="boite", prioritaire=True)
     return {"suggestion": s, "bdd": bdd, "demande": {k: d[k] for k in ("id", "titre", "statut")}}

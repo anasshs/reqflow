@@ -680,7 +680,14 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
         <div class="kg-s-pied"><button class="btn petit primaire" data-lancer="${esc(s.id)}" title="Démarre : BDD, puis automatisation et exécution par l'agent">Lancer</button>
           <ol class="kg-s-etapes" hidden>${ETAPES_LANCE.map(x => `<li>${x}</li>`).join("")}</ol></div></div>`; }).join("")
       : `<p class="lib">Rien à proposer ici pour l'instant : tout ce que la carte connaît de cet élément est couvert ou à explorer ailleurs.</p>`}
-      ${r.autres ? `<p class="lib">+${r.autres} autre(s) suggestion(s), sur les écrans de cet élément.</p>` : ""}`;
+      ${r.autres ? `<p class="lib">+${r.autres} autre(s) suggestion(s), sur les écrans de cet élément.</p>` : ""}<div id="kg-s-lances"></div>`;
+    api("/api/cursor/boite").then(b => {  // déjà lancé ici : statut de la demande et compte rendu de l'agent
+      const l = (b.demandes || []).filter(d => d.prioritaire && d.ecran && (d.ecran === n.id || (r.ecrans || []).includes(d.ecran))).slice(0, 4);
+      const z = $("#kg-s-lances", bloc);
+      if (z && l.length) z.innerHTML = `<h4 class="kg-sous">Déjà lancé ici</h4>${l.map(d => `<div class="kg-s kg-s-lance"><b class="kg-s-titre">${esc(d.titre)}</b>
+        <span class="pill ${d.statut === "terminée" ? "ok" : d.statut === "échouée" ? "ko" : "info"}">${esc(d.statut)}</span>
+        ${d.resultat || d.erreur ? `<div class="lib">${esc(d.resultat || d.erreur)}</div>` : ""}</div>`).join("")}`;
+    }).catch(() => {});
     $$("[data-lancer]", bloc).forEach(b => b.onclick = async () => {
       const carte = b.closest(".kg-s"), s = r.suggestions.find(x => x.id === b.dataset.lancer);
       b.disabled = true; b.textContent = "Démarrage…";
@@ -703,7 +710,7 @@ const baseElement = n => n.proprietes?.non_defini ? "référencé, défini nulle
       if (["prise", "terminée"].includes(d.statut)) et.children[1].classList.add("cours");
       if (d.statut === "terminée") { [...et.children].forEach(li => li.classList.add("fait")); clearInterval(t); }
       if (d.statut === "échouée" || d.statut === "annulée") { et.children[1].classList.add("ko"); clearInterval(t); }
-      suivi.firstChild.textContent = `Demande ${did} : ${d.statut}${d.resultat || d.erreur ? " — " + (d.resultat || d.erreur) : ""} `;
+      suivi.firstChild.textContent = `Demande ${did} : ${d.statut}${d.resultat || d.erreur ? " — " + (d.resultat || d.erreur) : ""}${suivi.querySelector("a") ? " · BDD " : ""}`;
     };
     const t = setInterval(maj, 4000); maj();
   }

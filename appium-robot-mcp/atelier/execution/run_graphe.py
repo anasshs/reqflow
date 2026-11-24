@@ -173,7 +173,8 @@ def vue(depuis: int = 0) -> dict:
     if actifs:
         dernier = actifs[-1]
         etat[dernier["ecran"]]["etat"] = "en_cours"
-        courant = {**dernier, "action_courante": next((x for x in reversed(fil) if x["test"] == en_cours), dernier)}
+        courant = {**dernier, "action_courante": next((x for x in reversed(fil) if x["test"] == en_cours and x["action"] != "etape"),
+                                                      next((x for x in reversed(fil) if x["test"] == en_cours), dernier))}
     ecrans = [{**s["ecrans"].get(e, {"id": e, "nom": e.split(":", 1)[-1], "module": "", "tests_xray": []}), **info,
                "connu": e in s["ecrans"]} for e, info in etat.items()]
     liens = []

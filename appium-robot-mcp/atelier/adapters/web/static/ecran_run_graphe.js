@@ -137,7 +137,7 @@
       return `<li class="rg-t ${t.statut === "en cours" ? "rg-t-cour" : ""}"><span class="rg-t-ic ${cls}">${ic}</span><span class="rg-t-nom">${esc(t.nom)}</span>
         ${t.cle_xray ? `<span class="cle-xray">${esc(t.cle_xray)}</span>` : ""}${t.duree_s ? `<span class="lib">${String(t.duree_s).replace(".", ",")} s</span>` : ""}
         ${t.statut === "échec" && t.message ? `<div class="ko-t rg-t-msg">${esc(t.message.slice(0, 160))}</div>` : ""}</li>`; }).join("");
-    $("#rg-fil", zone).innerHTML = D.pas.slice(-6).reverse().map(x => `<li class="${x.statut === "FAIL" ? "ko-t" : ""}"><span class="mono lib">${esc(x.t)}</span>
+    $("#rg-fil", zone).innerHTML = D.pas.filter(x => x.action !== "etape").slice(-6).reverse().map(x => `<li class="${x.statut === "FAIL" ? "ko-t" : ""}"><span class="mono lib">${esc(x.t)}</span>
         <span class="rg-ico">${ICONES[x.action] || "•"}</span><span>${esc(x.libelle)}</span>${x.ecran ? `<span class="lib">— ${esc((D.ecrans.find(e => e.id === x.ecran) || {}).nom || "")}</span>` : ""}</li>`).join("");
   }
 
