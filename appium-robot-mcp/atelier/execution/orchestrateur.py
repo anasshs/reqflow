@@ -354,18 +354,57 @@ def _tests_du_bdd(*tags: str) -> list[str]:
     return [i for i, x in inv["tests"].items() if voulus & set(x.get("tags") or [])]
 
 
+def _brouillon_parcours_utilisateur(pid: str, titre: str) -> dict:
+    """Test extrait d'un parcours utilisateur (PU-…) : depuis sa dernière session déroulée (l'ordre réel des écrans),
+    sinon ses écrans validés, sinon son nœud du Knowledge Graph."""
+    from atelier.discovery import parcours_utilisateur as pu
+    from atelier.generation import parcours_bdd
+
+    p = pu._lire(pid)
+    titre = titre or p.get("nom") or pid
+    for sid in reversed([s if isinstance(s, str) else (s or {}).get("id", "") for s in p.get("sessions") or []]):
+        try:
+            return parcours_bdd.brouillon(session=sid, titre=titre)
+        except parcours_bdd.DejaCouvert:
+            raise
+        except (KeyError, ValueError):  # session illisible ou trop courte : la précédente
+            continue
+    if len(p.get("ecrans") or []) >= 2:
+        return parcours_bdd.brouillon(ecrans=p["ecrans"], titre=titre)
+    if p.get("noeud"):
+        return parcours_bdd.brouillon(parcours=p["noeud"], titre=titre)
+    raise ValueError(f"Le parcours {pid} n'a ni session déroulée ni écrans : le dérouler d'abord.")
+
+
+def _rattacher_au_parcours(cle: str, pid: str):
+    """Le scénario extrait porte son parcours : il rejoint son couloir du Kanban (sans écraser un autre rattachement)."""
+    from atelier.generation import bdd
+
+    m = bdd.charger(cle)
+    if m is not None and not m.get("parcours"):
+        m["parcours"] = pid
+        bdd.sauver(m, auteur="atelier")
+
+
 def _etape_atelier(t: dict, e: dict):
     a = e["action"]
     if a == "brouillon_bdd":
         from atelier.generation import parcours_bdd
 
         p = e["params"]
+        source = p.get("parcours") or ""
         try:
-            r = parcours_bdd.brouillon(ecrans=p["ecrans"], titre=p["titre"]) if p.get("ecrans") \
-                else parcours_bdd.brouillon(parcours=p["parcours"], titre=p["titre"])
+            if p.get("ecrans"):
+                r = parcours_bdd.brouillon(ecrans=p["ecrans"], titre=p["titre"])
+            elif source.startswith("PU-"):
+                r = _brouillon_parcours_utilisateur(source, p.get("titre") or "")
+            else:
+                r = parcours_bdd.brouillon(parcours=source, titre=p["titre"])
             cle = r["cle"]
         except parcours_bdd.DejaCouvert as x:
             cle = x.existant["cle"]
+        if source.startswith("PU-"):
+            _rattacher_au_parcours(cle, source)
         t["contexte"]["bdd"] = cle
         e.update(statut="fait", debut=e["debut"] or _maintenant(), fin=_maintenant(), resultat=f"scénario {cle}")
         return

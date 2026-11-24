@@ -235,3 +235,31 @@ def test_run_d_un_test_publie_retrouve_par_sa_cle_xray(atelier, monkeypatch):
     assert [t.split("::")[-1] for t in orchestrateur._tests_du_bdd("CARTE")] == ["Consulter ma carte"]
     r = kanban.deplacer("CARTE", "en_run")
     assert [t.split("::")[-1] for t in orchestrateur.obtenir(r["travail"])["etapes"][0]["params"]["tests"]] == ["Consulter ma carte"]
+
+
+def test_extraire_le_test_d_un_parcours_utilisateur(atelier, monkeypatch):
+    """L'étape « Extraire le test » reçoit un parcours utilisateur (PU-…) : le test vient de sa dernière session déroulée
+    et se rattache au parcours (il rejoint son couloir)."""
+    from atelier.discovery import parcours_utilisateur as pu
+    from atelier.execution import orchestrateur
+    from atelier.generation import bdd, kanban, parcours_bdd
+
+    p = pu.enregistrer("", {"nom": "Bout en bout"})
+    m = pu._lire(p["id"])
+    m["sessions"] = ["DS-1", "DS-2"]
+    pu._ecrire(m)
+    vus = []
+
+    def brouillon(session="", titre="", **k):
+        vus.append(session)
+        if session == "DS-2":
+            raise ValueError("Un parcours relie au moins deux écrans.")  # dernière session trop courte : la précédente
+        bdd.creer("parcours_bout_en_bout", titre)
+        return {"cle": "parcours_bout_en_bout"}
+    monkeypatch.setattr(parcours_bdd, "brouillon", brouillon)
+    t = orchestrateur.creer("Parcours", [{"titre": "Extraire le test", "type": "atelier", "action": "brouillon_bdd",
+                                          "params": {"parcours": p["id"], "titre": "Bout en bout"}}])
+    orchestrateur._etape_atelier(t, t["etapes"][0])
+    assert t["etapes"][0]["statut"] == "fait" and t["contexte"]["bdd"] == "parcours_bout_en_bout" and vus == ["DS-2", "DS-1"]
+    assert bdd.charger("parcours_bout_en_bout")["parcours"] == p["id"]
+    assert kanban.tableau()["sujets"][0]["tests"] == 1
