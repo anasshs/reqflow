@@ -359,3 +359,20 @@ def test_corriger_un_run_en_echec_par_l_agent(atelier):
     t = orchestrateur.obtenir(r["travail"])
     assert [e["titre"] for e in t["etapes"]] == ["Corriger le test (agent)", "Dry-run", "Run local (téléphone)"]
     assert "sous le pli" in t["etapes"][0]["params"]["texte"] and t["etapes"][2]["params"]["tests"] == ["tests/carte.robot::CARTE"]
+
+
+def test_le_parcours_prend_l_environnement_des_runs(atelier, monkeypatch):
+    """Sans environnement, la session de Discovery appliquerait la liste rouge complète : le parcours lancé depuis le
+    Kanban prend l'environnement de la campagne TNR (recette, où l'application lève la liste rouge)."""
+    from atelier.discovery import parcours_utilisateur as pu
+    from atelier.execution import orchestrateur
+    from atelier.generation import kanban
+
+    monkeypatch.setattr(kanban, "_env", lambda: "recette")
+    r = kanban.ajouter_parcours("Bénéficiaires")
+    assert pu._lire(r["sujet"])["environnement"] == "recette"
+    orchestrateur.annuler(r["travail"])
+    ancien = pu.enregistrer("", {"nom": "Ancien"})
+    assert not pu._lire(ancien["id"]).get("environnement")
+    kanban.lancer_sujet(ancien["id"])
+    assert pu._lire(ancien["id"])["environnement"] == "recette"

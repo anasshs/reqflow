@@ -111,7 +111,7 @@ def _normaliser(cle: str, d: dict) -> dict:
             "type": d.get("type") or "texte", "sensibilite": d.get("sensibilite") or "normale", "source": src,
             "regles": dict(d.get("regles") or {}), "alias": list(d.get("alias") or []),
             "environnements": list(d.get("environnements") or []), "reutilisable": d.get("reutilisable", True) is not False,
-            "statut": d.get("statut") or "active"}
+            "statut": d.get("statut") or "active", **({"proposee": dict(d["proposee"])} if d.get("proposee") else {})}
 
 
 def variables(recherche: str = "", type_: str = "", profil: str = "", actives: bool = False) -> list[dict]:
@@ -223,6 +223,80 @@ def securiser_secrets() -> dict:
     _ecrire("variables", tout)
     _ecrire("valeurs", vals)
     return {"securisees": faites, "coffre": True}
+
+
+def _profil_du_parcours(parcours: str) -> str:
+    """Profil de données du parcours (créé « PARCOURS_<NOM> » et rattaché au parcours s'il n'en a pas)."""
+    from atelier.discovery import parcours_utilisateur as pu
+
+    p = pu._lire(parcours)
+    if p.get("profil_donnees"):
+        return p["profil_donnees"]
+    nom = "PARCOURS_" + re.sub(r"[^A-Z0-9_]", "_", parcours.upper().removeprefix("PU-"))[:50]
+    if nom not in profils_dict():
+        enregistrer_profil(nom, [], f"Données du parcours {p.get('nom') or parcours}, proposées pendant sa Discovery.", "profil")
+    pu.enregistrer(parcours, {"profil_donnees": nom})
+    return nom
+
+
+def proposer_variable(cle: str, valeur, nom: str = "", type_: str = "texte", description: str = "", regles: dict | None = None,
+                      parcours: str = "", source: str = "agent") -> dict:
+    """Donnée absente du référentiel pendant une Discovery (champ d'un formulaire) : l'agent la propose avec une valeur
+    de test plausible, au bon format. La variable entre au catalogue marquée « à valider », rejoint le profil du parcours
+    et sert tout de suite dans la session ({{var:CLE}}) ; l'automaticien la confirme ou la change (confirmer_variable).
+    Une variable déjà confirmée n'est jamais modifiée par une proposition."""
+    cle = str(cle or "").strip().upper()
+    existe = cle in _lire("variables")
+    v = variable(cle) if existe else None
+    if v and not (v.get("proposee") or {}).get("a_valider"):  # confirmée (ou créée par l'automaticien) : intouchable
+        raise ValueError(f"{cle} existe déjà au référentiel : l'utiliser (discovery_donnee), pas la proposer.")
+    v = enregistrer_variable(cle, {"nom": nom or (v or {}).get("nom") or "", "type": type_ or "texte", "description": description,
+                                   "regles": regles or {}, "source": {"type": "manuelle"},
+                                   "proposee": {"par": source, "date": _maintenant(), "parcours": parcours, "a_valider": True}})
+    profil = ""
+    if parcours:
+        profil = _profil_du_parcours(parcours)
+        membres = profils_dict()[profil].get("variables") or []
+        if cle not in membres:
+            enregistrer_profil(profil, [*membres, cle], profils_dict()[profil].get("description", ""), profils_dict()[profil].get("nature", "groupe"))
+    definir_valeur(cle, valeur, profil=profil) if profil else definir_valeur(cle, valeur)
+    try:  # la session en cours l'utilise tout de suite
+        definir_contexte(cle, valeur, description or v["nom"], v["sensibilite"] != "normale")
+    except Exception:  # noqa: BLE001 — hors session : la valeur reste au profil
+        pass
+    _tracer("variable proposée", cle, parcours=parcours, profil=profil)
+    return {"cle": cle, "profil": profil, "valeur": _affichable(v, valeur), "a_valider": True,
+            "saisie": "{{var:" + cle + "}}", "consigne": "Saisir avec type_text(locator, \"{{var:" + cle + "}}\")."}
+
+
+def propositions(parcours: str = "") -> list[dict]:
+    """Variables proposées par l'agent et pas encore confirmées (d'un parcours, ou toutes), avec leur valeur."""
+    out = []
+    for v in variables():
+        p = v.get("proposee") or {}
+        if p.get("a_valider") and (not parcours or p.get("parcours") == parcours):
+            prof = v["valeurs"]["profils"]
+            out.append({"cle": v["cle"], "nom": v["nom"], "type": v["type"], "description": v["description"], "parcours": p.get("parcours", ""),
+                        "valeur": next(iter(prof.values()), v["valeurs"]["defaut"]) if prof else v["valeurs"]["defaut"],
+                        "profil": next(iter(prof), ""), "par": p.get("par", ""), "date": p.get("date", "")})
+    return out
+
+
+def confirmer_variable(cle: str, valeur=None) -> dict:
+    """Décision de l'automaticien : la variable proposée est confirmée (avec sa valeur, ou celle qu'il donne)."""
+    cle = str(cle or "").strip().upper()
+    v = variable(cle)
+    p = dict(v.get("proposee") or {})
+    if not p:
+        raise ValueError(f"{cle} n'est pas une proposition.")
+    if valeur not in (None, ""):
+        prof = next(iter(variables(cle)[0]["valeurs"]["profils"] or {}), "") if variables(cle) else ""
+        definir_valeur(cle, valeur, profil=prof) if prof else definir_valeur(cle, valeur)
+    tout = _lire("variables")
+    tout[cle]["proposee"] = {**p, "a_valider": False, "confirmee": _maintenant()}
+    _ecrire("variables", tout)
+    _tracer("variable confirmée", cle, valeur_changee=valeur not in (None, ""))
+    return variable(cle)
 
 
 def dupliquer_variable(cle: str, nouvelle: str) -> dict:

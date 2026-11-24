@@ -171,8 +171,10 @@ def ecran_courant(ia_suggestions: bool = False) -> dict:
     r = classement.regles()
     elements = []
     for el in els:
-        c = classement.classer(el, r=r)
-        a = classement.autorise(el, "guidee", env) if s else {"autorise": True, "motif": "hors session Discovery"}
+        # ce que l'agent peut faire ici : classe et autorisation pour l'environnement de la session et pour l'agent
+        # (sinon il lirait « interdit » / « confirmation requise » là où son action serait acceptée)
+        c = classement.classer(el, r=r, environnement=env)
+        a = classement.autorise(el, "guidee", env, False, None, agent=True) if s else {"autorise": True, "motif": "hors session Discovery"}
         elements.append({"cle": el["key"], "type": el.get("type"), "libelle": el.get("libelle", ""), "locator": (el.get("locators") or [""])[0],
                          "classe": c["classe"], "autorise": bool(a.get("autorise")), "motif": a.get("motif", "")})
     sug = assistance.suggerer(els, obs, session.etat["platform"], ia=ia_suggestions)

@@ -136,3 +136,22 @@ def test_agent_autorise_par_environnement_et_liste_rouge_levee(app):
     j = classement.journal_autorisations()
     assert [x["quoi"] for x in j][:1] == ["agent autorisé sur les actions sensibles"] and j[0]["apres"] is False
     assert {x["quoi"] for x in j} == {"agent autorisé sur les actions sensibles", "liste rouge levée"}
+
+
+def test_ecran_courant_dit_a_l_agent_ce_que_son_action_ferait(app):
+    """La lecture de l'écran donne à l'agent la classe et l'autorisation de l'environnement de la session, pour
+    l'agent : en recette (agent autorisé, liste rouge levée), « Paiements et transferts » est permis, comme le tap."""
+    from atelier.discovery import apprentissage, classement, sessions_discovery as ds
+
+    _, ecran = app
+    ecran["els"] = [_el("menu_paiements", "Paiements et transferts"), _el("bouton_virement", "Nouveau virement")]
+    classement.maj_regles(environnements={"recette": ["safe", "controlled", "sensitive"]}, agent_sensible={"recette": True},
+                          liste_rouge_levee={"recette": [r"\bpaie", r"transf[ée]r"]})
+    s = ds.creer({"environnement": "recette"})
+    ds.demarrer(s["id"])
+    cl = {e["cle"]: (e["classe"], e["autorise"]) for e in apprentissage.ecran_courant()["elements"]}
+    assert cl["menu_paiements"][0] != "forbidden" and cl["menu_paiements"][1] is True
+    assert cl["bouton_virement"] == ("sensitive", True)
+    faits = []
+    apprentissage.action_mcp("tap", "id=menu_paiements", lambda: faits.append("paiements"))
+    assert faits == ["paiements"]                                           # même verdict que la lecture

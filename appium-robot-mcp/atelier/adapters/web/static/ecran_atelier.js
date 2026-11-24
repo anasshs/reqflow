@@ -278,6 +278,17 @@
         .catch(e => { toast(e.message, "ko"); b.disabled = false; });
     });
     $$("[data-rattraper-t]", p).forEach(b => b.onclick = () => rattraper(b.dataset.rattraperT, b).then(() => ouvrirTicket(t.id, true)));
+    const confirmer = async (cles) => {
+      for (const cle of cles) {
+        const d = t.donnees_proposees.find(x => x.cle === cle), saisie = $(`[data-valeur="${cle}"]`, p).value;
+        await api(`/api/kanban/parcours/${encodeURIComponent(t.id)}/donnee`, {method: "POST",
+          body: {cle, valeur: saisie !== String(d.valeur == null ? "" : d.valeur) ? saisie : null}});
+      }
+    };
+    $$("[data-confirmer]", p).forEach(b => b.onclick = () => confirmer([b.dataset.confirmer])
+      .then(() => { toast(`${b.dataset.confirmer} confirmée.`, "ok"); ouvrirTicket(t.id, true); }).catch(e => toast(e.message, "ko")));
+    if ($("#kb-tout-confirmer", p)) $("#kb-tout-confirmer", p).onclick = () => confirmer(t.donnees_proposees.map(d => d.cle))
+      .then(() => { toast("Données confirmées.", "ok"); ouvrirTicket(t.id, true); }).catch(e => toast(e.message, "ko"));
     if ($("#kb-jdd-mbt", p)) $("#kb-jdd-mbt", p).onclick = () => {
       const profil = $("#kb-jdd", p).value;
       if (!profil) return toast("Choisir un jeu de données.", "ko");
@@ -310,6 +321,12 @@
               <button class="btn petit" data-qualifier="ko:${esc(c.id)}">Écarter</button></span></div>`).join("")}
           ${props.length > 1 ? `<div class="btns"><button class="btn petit primaire" data-qualifier="ok:*">Tout ajouter au Kanban</button>
             <button class="btn petit" data-qualifier="ko:*">Tout écarter</button></div>` : ""}</div>` : ""}</div>
+      ${(t.donnees_proposees || []).length ? `<div class="kb-bloc kb-bloc-ecart"><h3 class="lib">DONNÉES PROPOSÉES PAR L'AGENT (${t.donnees_proposees.length})</h3>
+        <p class="lib">Valeurs de test qu'il a créées pendant la Discovery (profil ${esc(t.profil_donnees || "du parcours")}). Confirme-les telles quelles, ou change-les.</p>
+        ${t.donnees_proposees.map(d => `<div class="kb-donnee"><span><b class="mono">${esc(d.cle)}</b><span class="lib"> ${esc(d.nom)}${d.description ? " · " + esc(d.description) : ""}</span></span>
+          <input class="in" data-valeur="${esc(d.cle)}" value="${esc(d.valeur == null ? "" : String(d.valeur))}" aria-label="Valeur de ${esc(d.cle)}">
+          <button class="btn petit primaire" data-confirmer="${esc(d.cle)}">Confirmer</button></div>`).join("")}
+        ${t.donnees_proposees.length > 1 ? '<div class="btns"><button class="btn petit" id="kb-tout-confirmer">Tout confirmer</button></div>' : ""}</div>` : ""}
       <div class="kb-bloc"><h3 class="lib">JEU DE DONNÉES DE LA DISCOVERY</h3>
         <p class="lib">Un autre jeu (autre profil client, autre compte) peut ouvrir d'autres écrans, donc d'autres scénarios.</p>
         <div class="btns"><select class="in" id="kb-jdd" aria-label="Jeu de données"><option value="">${t.profils.length ? "Choisir un jeu…" : "Aucun profil de données (Discovery › Données)"}</option>

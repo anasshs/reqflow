@@ -689,6 +689,21 @@ def discovery_donnee_definir(cle: str, valeur: str, description: str = "", sensi
 
 
 @outil
+def discovery_donnee_proposer(cle: str, valeur: str, nom: str = "", type: str = "texte", description: str = "",
+                              regles: dict | None = None) -> dict:
+    """Donnée absente du référentiel (discovery_donnees_pour_champs : statut « manquante ») : propose-la avec une valeur
+    de TEST plausible, au format du champ (ex. RIB de 24 chiffres, nom fictif). Elle entre au catalogue « à valider »,
+    rejoint le profil de données du parcours en cours et se saisit tout de suite avec type_text(locator, "{{var:CLE}}").
+    L'automaticien la confirme ou la change dans l'atelier. À la fin du parcours, discovery_profil_vers_jdd(profil,
+    environnement) en fait le jeu de données du test. Une variable déjà confirmée ne se propose pas : l'utiliser."""
+    from atelier.discovery import donnees, sessions_discovery
+
+    s = sessions_discovery.active() or {}
+    return donnees.proposer_variable(cle, valeur, nom, type, description, regles, (s.get("config") or {}).get("parcours", ""),
+                                     _agent().source())
+
+
+@outil
 def discovery_profil_vers_jdd(profil: str, environnement: str, jeu: str = "") -> dict:
     """Crée (ou met à jour) le jeu de données des tests automatisés (data/jdd/<environnement>.yaml) depuis un profil du
     référentiel Discovery : le test rejoue avec les valeurs de la Discovery. Champ = clé de la variable en minuscules,

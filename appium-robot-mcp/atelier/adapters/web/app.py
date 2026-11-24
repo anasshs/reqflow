@@ -3576,13 +3576,15 @@ async def kanban_lancer(sid: str, req: Request):
 async def kanban_parcours_action(pid: str, action: str, req: Request):
     """Ticket parcours : enrichir (propositions MBT), qualifier (accepter / rejeter), jdd (changer le profil de données et
     redérouler la Discovery), rejouer (en local, ou en exécution TNR avec Xray : « xray »)."""
+    from atelier.discovery import donnees as ref_donnees
     from atelier.generation import kanban
 
     b = await req.json()
     actions = {"enrichir": lambda: kanban.enrichir_mbt(pid, str(b.get("profil", ""))),
                "qualifier": lambda: kanban.qualifier(pid, [str(x) for x in b.get("accepter") or []], [str(x) for x in b.get("rejeter") or []]),
                "jdd": lambda: kanban.changer_jdd(pid, str(b.get("profil", "")), b.get("relancer", True) is not False),
-               "rejouer": lambda: kanban.rejouer(pid, bool(b.get("xray")), str(b.get("jdd", "")))}
+               "rejouer": lambda: kanban.rejouer(pid, bool(b.get("xray")), str(b.get("jdd", ""))),
+               "donnee": lambda: ref_donnees.confirmer_variable(str(b.get("cle", "")), b.get("valeur"))}
     if action not in actions:
         raise HTTPException(404, f"Action inconnue : {action}")
     r = await asyncio.to_thread(_call, actions[action])
@@ -3890,9 +3892,30 @@ async def tnr_lancer(req: Request):
     jira = {"jira_transition_start": conv["transition_debut"], "jira_transition_end": conv["transition_fin"],
             "jira_champs_execution": tnr.payload_champs(conv["champs_execution"])}
     jira = {k: v for k, v in jira.items() if v}
-    jobs = [await asyncio.to_thread(_call, _mettre_en_file, {**centre.params_campagne(c, p, bool(b.get("dry_run"))), **jira, "derogation_revue": derog},
+    # jeux de données substitués pour ce run seulement ({jeu: autre jeu}) : le dépôt ne change pas
+    variantes = {str(k): str(v) for k, v in (b.get("jdd_variantes") or {}).items() if k and v and k != v}
+    extra = {"jdd_variantes": variantes} if variantes else {}
+    jobs = [await asyncio.to_thread(_call, _mettre_en_file, {**centre.params_campagne(c, p, bool(b.get("dry_run"))), **jira, **extra, "derogation_revue": derog},
                                     c["priorite"], c["id"], f"{c['nom']} · {p} (Lots TNR)") for p in c["plateformes"]]
     return {"ok": True, "campagne": c["id"], "plan": c.get("plan_xray"), "jobs": jobs}
+
+
+@app.get("/api/donnees-tests")
+async def donnees_tests(env: str = ""):
+    """Données des tests : chaque jeu de données et les tests qui l'utilisent (execution/donnees_tests.py)."""
+    from atelier.execution import donnees_tests as dt
+
+    return await asyncio.to_thread(_call, dt.vue, env)
+
+
+@app.post("/api/donnees-tests/remplacer")
+async def donnees_tests_remplacer(req: Request):
+    """Remplacement permanent d'un jeu par un autre dans les tests (et leurs scénarios BDD) : décision de l'utilisateur."""
+    from atelier.execution import donnees_tests as dt
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, dt.remplacer, str(b.get("ancien", "")), str(b.get("nouveau", "")),
+                                   [str(x) for x in b.get("tests") or []] or None)
 
 
 @app.get("/api/tnr/conventions")

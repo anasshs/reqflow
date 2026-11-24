@@ -230,14 +230,15 @@ const Atelier = {
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"], ["pilotage", "Tableaux de bord", "dashboard"],
     ["activites", "Activités", "activite"], ["comportement", "Analyse comportementale", "branche"], ["tests", "Tests automatisés", "check"],
     ["graphe", "Knowledge Graph", "graphe"], ["ia", "Pilotage IA", "ia"], ["rapports", "Rapports", "rapports"], ["operations", "Suivi des runs", "execution"],
-    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"], ["travaux", "Mes demandes", "activite"]],
+    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"], ["travaux", "Mes demandes", "activite"], ["donnees-tests", "Données des tests", "donnee"]],
   /* barre latérale courte : l'Accueil et Mes demandes (ce que j'ai lancé), les quatre étapes du chemin, le pilotage et les
      paramètres. Chaque écran reste joignable : sous l'étape à laquelle il sert, affiché quand on est dans cette étape.
      Entrée : [adresse, libellé, icône, {num : étape du chemin, sl : sous-libellé, sous : écrans de l'entrée, badge}]. */
   /* L'Atelier (Kanban) est l'écran de travail : la barre latérale se lit en trois entrées. Les écrans détaillés restent dans
      « Plus d'outils », replié (ouvert d'office quand on y est). */
   NAV: [["", [["atelier", "Atelier", "grille", {sl: "Parcours et tests en Kanban"}], ["dashboard", "Tableau de bord", "maison", {sl: "Graphe, run en direct, couverture"}],
-      ["travaux", "Mes demandes", "activite", {sl: "Ce que j'ai lancé", badge: true}]]],
+      ["travaux", "Mes demandes", "activite", {sl: "Ce que j'ai lancé", badge: true}],
+      ["donnees-tests", "Données des tests", "donnee", {sl: "Jeux de données par test, TNR"}]]],
     ["Plus d'outils", "OUTILS"],
     ["", [["parametres", "Paramètres", "parametres", {sous: [["parametres/applications", "Applications"], ["parametres/projets", "Projets"],
         ["parametres/configuration", "Configuration"], ["parametres/connexions", "Connexions"], ["ia", "Pilotage IA"]]}]]]],

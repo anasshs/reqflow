@@ -1488,3 +1488,10 @@ button.kb-qualifier { border: 1px solid var(--violet); }
 .kb-ecart { color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 1px 7px; font-weight: 600; }
 .kb-manuel { color: var(--muted); background: var(--line); border-radius: 6px; padding: 1px 7px; font-weight: 600; }
 .kb-bloc-ecart { border-color: var(--warn); }
+/* Données des tests */
+.dt-table td { vertical-align: top; }
+.dt-table tr.dt-choisi { background: var(--accent-soft); }
+.dt-tests { margin: 6px 0 0; padding-left: 16px; font-size: 12.5px; } .dt-tests li { margin: 3px 0; }
+.lien-btn { background: none; border: 0; padding: 0; color: var(--accent-ink); cursor: pointer; font: inherit; }
+
+.kb-donnee { display: grid; grid-template-columns: minmax(0, 1fr) 190px auto; gap: 8px; align-items: center; }

@@ -387,8 +387,20 @@ def lancer_sujet(id_: str, automatiser: bool = True) -> dict:
     _deja_en_cours(x)
     if x["type"] == "parcours":
         p = pu._lire(id_)
+        if not p.get("environnement") and _env():  # sans environnement, la session appliquerait la liste rouge complète
+            pu.enregistrer(id_, {"environnement": _env()})
+            p = pu._lire(id_)
+        cadrage = "" if (p.get("objectif") or p.get("point_depart") or p.get("resultat_attendu")) else (
+            f" Le cadrage est vide : déduis l'objectif du nom du parcours (« {p.get('nom') or id_} »), pars de l'écran d'accueil "
+            "de l'application connectée, déroule tous les cas que le nom annonce (ajout, consultation, modification, "
+            "suppression…), et propose le point de départ et le résultat attendu (discovery_proposer).")
+        donnees = (" Données : avant chaque formulaire, discovery_donnees_pour_champs. Si une donnée manque au référentiel, "
+                   "propose-la avec discovery_donnee_proposer (valeur de test plausible au format du champ : nom fictif, RIB, "
+                   "montant…) et saisis-la avec {{var:CLE}} : ne t'arrête pas faute de données. À la fin, discovery_profil_vers_jdd"
+                   f"(profil du parcours, « {_env() or 'recette'} ») crée le jeu de données du test ; l'automaticien confirmera ou "
+                   "changera ces valeurs.")
         etapes = [{"titre": "Dérouler le parcours", "type": "ia",
-                   "params": {"texte": pu.demande_cursor(p) + " Termine par atelier_demande_terminee avec les écrans traversés.",
+                   "params": {"texte": pu.demande_cursor(p) + cadrage + donnees + " Termine par atelier_demande_terminee avec les écrans traversés.",
                               "attendus": ["discovery_terminer"]}},
                   {"titre": "Extraire le test", "type": "atelier", "action": "brouillon_bdd", "params": {"parcours": id_, "titre": p.get("nom") or ""}}]
         if automatiser:
@@ -528,7 +540,7 @@ def ajouter_parcours(nom: str, point_depart: str = "", resultat_attendu: str = "
     """Nouveau parcours métier dans le backlog ; lancer=True l'explore tout de suite (et automatise son test)."""
     from atelier.discovery import parcours_utilisateur as pu
 
-    champs = {"nom": nom, **({"point_depart": point_depart} if point_depart else {}),
+    champs = {"nom": nom, **({"environnement": _env()} if _env() else {}), **({"point_depart": point_depart} if point_depart else {}),
               **({"resultat_attendu": resultat_attendu} if resultat_attendu else {}), **({"objectif": objectif} if objectif else {})}
     p = pu.enregistrer("", champs)
     return {"sujet": p["id"], **(lancer_sujet(p["id"], automatiser) if lancer else {})}
@@ -694,5 +706,11 @@ def details_parcours(pid: str) -> dict:
         campagne = bool(tnr.conventions().get("campagne"))
     except Exception:  # noqa: BLE001
         campagne = False
-    return {"profil_donnees": p.get("profil_donnees", ""), "profils": profils, "explore": bool(p.get("ecrans")),
+    try:
+        from atelier.discovery import donnees as ref
+
+        proposees = ref.propositions(pid)
+    except Exception:  # noqa: BLE001
+        proposees = []
+    return {"profil_donnees": p.get("profil_donnees", ""), "profils": profils, "explore": bool(p.get("ecrans")), "donnees_proposees": proposees,
             "propositions": prop.get("chemins") or [], "propositions_date": prop.get("date", ""), "tnr_xray": campagne}

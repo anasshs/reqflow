@@ -19,7 +19,7 @@ NATURE = {
     **dict.fromkeys(["discovery_ecran_courant", "discovery_donnees_catalogue", "discovery_parcours_cadre"], "L"),
     **dict.fromkeys(["discovery_demarrer", "discovery_terminer", "discovery_donnees_pour_champs", "discovery_donnee", "discovery_donnee_definir",
                      "discovery_donnees_contexte", "discovery_profil_vers_jdd"], "É"),  # données : seul le contexte de la session est écrit, jamais le catalogue
-    **dict.fromkeys(["propose_step", "discovery_proposer", "discovery_parcours_vers_bdd"], "P"),
+    **dict.fromkeys(["propose_step", "discovery_proposer", "discovery_parcours_vers_bdd", "discovery_donnee_proposer"], "P"),
     # dépôt, exécution, données
     **dict.fromkeys(["list_project_files", "read_project_file", "parse_robot_output", "list_jdd", "get_jdd", "find_test_data", "check_jdd"], "L"),
     "write_project_file": "É",
@@ -63,7 +63,7 @@ def _outils() -> dict:
 def test_chaque_outil_est_classe():
     o = _outils()
     assert set(o) == set(NATURE), f"non classés : {sorted(set(o) - set(NATURE))} ; disparus : {sorted(set(NATURE) - set(o))}"
-    assert len(o) == 123  # + 4 Model-Based Testing + run_tests + 2 TNR
+    assert len(o) == 124  # + discovery_donnee_proposer (données proposées par l'agent) ; + 4 Model-Based Testing + run_tests + 2 TNR
 
 
 def test_ecritures_externes_par_demande():
