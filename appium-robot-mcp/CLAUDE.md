@@ -24,6 +24,13 @@ Releases (interprétation par Cursor par défaut, création, Release Note, build
 Pilotage de l'IA (point d'appel unique, journal des tokens, réglages, routage, contexte, cache, budgets, simulateur ; écran Paramètres › Pilotage IA) : docs/PILOTAGE_IA.md.
 Chemin de l'utilisateur (Découvrir → Concevoir le test → Automatiser → Exécuter : bandeau « Ton chemin » de l'Accueil, repère
 d'étape en haut des écrans du chemin, prochaine action ; options Jira / Xray affichées seulement s'ils sont utilisés) : atelier/intelligence/chemin.py.
+Navigation (2026-11-24) : barre latérale courte (Accueil, Mes demandes, « Mon chemin » en 4 étapes, Pilotage, Paramètres) ; deux chemins
+basculables, « Application » (Discovery → test) et « User Stories » (US → test, fil de strategie.ETAPES_FIL), affichés tous deux à l'Accueil ;
+« Mes demandes » réunit travaux de l'orchestrateur et demandes à l'agent (atelier/execution/demandes.py, compteur dans l'en-tête).
+Flux de passage d'un test (2026-11-24) : « simple » par défaut, générer le BDD → automatiser → publier dans Xray, la publication
+valant validation et approbation (atelier/generation/flux.py) ; « complet » = cycle avec approbations. Tests : conftest fixe « complet ».
+Atelier en Kanban (2026-11-24, écran d'arrivée #atelier) : couloirs par parcours métier, cartes tests par état, transitions qui lancent
+des travaux de l'orchestrateur (atelier/generation/kanban.py, ecran_atelier.js) ; Claude Code en ligne de commande (claude -p) : boite_cursor.py.
 De l'US au test automatisé (un seul fil dans un périmètre : couverture des US ou parcours, puis automatisation ; guide dans l'outil) : docs/DE_L_US_AU_TEST_AUTOMATISE.md.
 Lots TNR (écran #lots, chemin simplifié parcours → scénarios → automatisation vérifiée → Publier au TNR, statut unique par
 scénario, conventions TNR par application, cycle de référence unique domain/cycle.py) : docs/AUDIT_PARCOURS_TNR.md, generation/lots.py et tnr.py.

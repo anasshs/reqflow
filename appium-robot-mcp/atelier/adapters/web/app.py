@@ -3505,6 +3505,117 @@ def _demarrer_orchestrateur():
 
     orchestrateur.HOOKS.update(mettre_en_file=_mettre_en_file, emit=emit)
     _call_silencieux(orchestrateur.reprendre_au_demarrage)
+    from atelier.integrations import boite_cursor
+
+    _call_silencieux(boite_cursor.relancer_en_attente)  # demandes restées dans la boîte : à l'agent s'il est prêt
+
+
+@app.get("/api/kanban")
+async def kanban_tableau():
+    """Atelier en Kanban : un couloir par parcours métier, une carte par test, une colonne par état (generation/kanban.py)."""
+    from atelier.generation import kanban
+
+    return await asyncio.to_thread(_call, kanban.tableau)
+
+
+@app.get("/api/kanban/ticket/{cle}")
+async def kanban_ticket(cle: str):
+    from atelier.generation import kanban
+
+    return await asyncio.to_thread(_call, kanban.ticket, cle)
+
+
+@app.post("/api/kanban/deplacer")
+async def kanban_deplacer(req: Request):
+    """Transition d'une carte : déclenche l'action de la colonne visée (agent, run, publication dans Xray)."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.deplacer, str(b.get("cle", "")), str(b.get("colonne", "")))
+    emit({"type": "kanban", "cle": b.get("cle"), "colonne": b.get("colonne")})
+    return r
+
+
+@app.post("/api/kanban/parcours")
+async def kanban_parcours(req: Request):
+    """Nouveau parcours métier au backlog ; « lancer » (par défaut) : exploration par l'agent, extraction du test et, si
+    « automatiser » (par défaut), son automatisation."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.ajouter_parcours, str(b.get("nom", "")), str(b.get("point_depart", "")),
+                                str(b.get("resultat_attendu", "")), str(b.get("objectif", "")), b.get("lancer", True) is not False,
+                                b.get("automatiser", True) is not False)
+    emit({"type": "kanban", "sujet": r.get("sujet")})
+    return r
+
+
+@app.post("/api/kanban/us")
+async def kanban_us(req: Request):
+    """User Story au backlog (sujet à couvrir) ; « lancer » : l'agent conçoit les tests qui manquent, puis les automatise."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.ajouter_us, str(b.get("cle", "")), str(b.get("titre", "")), str(b.get("criteres", "")),
+                                bool(b.get("lancer")), b.get("automatiser", True) is not False)
+    emit({"type": "kanban", "sujet": r.get("sujet")})
+    return r
+
+
+@app.post("/api/kanban/sujet/{sid}/lancer")
+async def kanban_lancer(sid: str, req: Request):
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.lancer_sujet, sid, b.get("automatiser", True) is not False)
+    emit({"type": "kanban", "sujet": sid})
+    return r
+
+
+@app.post("/api/kanban/parcours/{pid}/{action}")
+async def kanban_parcours_action(pid: str, action: str, req: Request):
+    """Ticket parcours : enrichir (propositions MBT), qualifier (accepter / rejeter), jdd (changer le profil de données et
+    redérouler la Discovery), rejouer (en local, ou en exécution TNR avec Xray : « xray »)."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    actions = {"enrichir": lambda: kanban.enrichir_mbt(pid),
+               "qualifier": lambda: kanban.qualifier(pid, [str(x) for x in b.get("accepter") or []], [str(x) for x in b.get("rejeter") or []]),
+               "jdd": lambda: kanban.changer_jdd(pid, str(b.get("profil", "")), b.get("relancer", True) is not False),
+               "rejouer": lambda: kanban.rejouer(pid, bool(b.get("xray")))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    r = await asyncio.to_thread(_call, actions[action])
+    emit({"type": "kanban", "sujet": pid})
+    return r
+
+
+@app.post("/api/kanban/sujet/{sid}/rejouer")
+async def kanban_rejouer(sid: str, req: Request):
+    """Rejoue les tests automatisés d'un sujet (parcours ou User Story) : en local, ou en exécution TNR avec Xray."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.rejouer, sid, bool(b.get("xray")))
+    emit({"type": "kanban", "sujet": sid})
+    return r
+
+
+@app.post("/api/kanban/us/{cle}/retirer")
+async def kanban_retirer_us(cle: str):
+    from atelier.generation import kanban
+
+    r = await asyncio.to_thread(_call, kanban.retirer_us, cle)
+    emit({"type": "kanban", "sujet": cle})
+    return r
+
+
+@app.get("/api/demandes")
+def demandes_liste():
+    """Mes demandes : travaux de l'orchestrateur et demandes déposées à l'agent, ce qui attend l'utilisateur d'abord."""
+    from atelier.execution import demandes
+
+    return _call(demandes.lister)
 
 
 @app.get("/api/travaux")
@@ -3697,6 +3808,22 @@ async def lots_rattacher(req: Request):
     return {"rattaches": await asyncio.to_thread(_call, lots.rattacher, b.get("lot", ""), [str(x) for x in b.get("scenarios") or []])}
 
 
+@app.get("/api/flux")
+def flux_etat():
+    """Flux de passage d'un test : simple (générer → automatiser → publier dans Xray) ou complet (approbations)."""
+    from atelier.generation import flux
+
+    return _call(flux.etat)
+
+
+@app.post("/api/flux")
+async def flux_regler(req: Request):
+    from atelier.generation import flux
+
+    b = await req.json()
+    return _call(flux.regler, str(b.get("mode", "")))
+
+
 @app.get("/api/tnr/plans")
 async def tnr_plans(q: str = ""):
     """Test Plans du projet Xray pour choisir le plan TNR de l'application (lecture seule)."""
@@ -3784,7 +3911,10 @@ async def tnr_publier(req: Request):
         from atelier.generation import lots
 
         scenarios += lots.scenarios_des_tests([str(x) for x in b["tests"]])
-    r = await asyncio.to_thread(_call, tnr.publier, sorted(set(scenarios)))
+    from atelier.generation import flux
+
+    # flux simple : la publication vaut validation du BDD et approbation des scripts (generation/flux.py)
+    r = await asyncio.to_thread(_call, flux.publier if flux.simple() else tnr.publier, sorted(set(scenarios)))
     emit({"type": "tnr_publie", "plan": (r.get("plan") or {}).get("plan"), "n": len(r["publies"])})
     return r
 

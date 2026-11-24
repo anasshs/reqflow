@@ -568,6 +568,30 @@ def transition_script(fichier: str, action: str, commentaire: str = "", derogati
     return revue_script(fichier)
 
 
+def approuver_a_la_publication(fichier: str) -> dict:
+    """Flux simple (generation/flux.py) : la publication dans Xray, décidée par l'utilisateur, vaut approbation du script.
+    Ni quatre yeux ni run préalable ; les contrôles de gravité haute restent bloquants. Tracé dans l'historique et le
+    journal comme une approbation « à la publication »."""
+    actuel = revue_script(fichier)
+    if actuel["statut"] in ("Approved", "Published"):
+        return actuel
+    bloquants = [c["message"] for c in actuel["controles"] if c["gravite"] == "haute"]
+    if bloquants:
+        raise ValueError(f"{fichier} : " + " ; ".join(bloquants))
+    st = _stock()
+    r = st.setdefault(fichier, {"statut": "Generated", "historique": []})
+    r["historique"].append({"date": _maintenant(), "auteur": _auteur(), "de": actuel["statut"], "vers": "Approved",
+                            "commentaire": "approuvé à la publication dans Xray (flux simple)"})
+    r["statut"], r["empreinte"] = "Approved", _empreinte(fichier)
+    v = _version_approuvee(fichier)
+    v.parent.mkdir(parents=True, exist_ok=True)
+    v.write_text(projet.safe_path(fichier).read_text("utf-8"), "utf-8")
+    _ecrire_atomique(_dossier() / "revues_scripts.json", json.dumps(st, ensure_ascii=False, indent=1))
+    _journaliser("revue_script", fichier=fichier, action="approuver_a_la_publication", de=actuel["statut"], vers="Approved",
+                 commentaire="flux simple")
+    return revue_script(fichier)
+
+
 # =========================================================================== BDD to Automation
 def _corps(k: dict) -> str:
     """Lignes d'un keyword (de sa définition jusqu'à la prochaine ligne non indentée)."""

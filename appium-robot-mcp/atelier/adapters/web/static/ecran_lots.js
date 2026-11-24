@@ -1,10 +1,14 @@
-/* Lots TNR : le chemin « parcours → scénarios → automatisation vérifiée → TNR » sur un seul écran.
-   Une ligne par scénario, un seul statut (Brouillon → Validé → Automatisé → Vérifié → Au TNR), les étapes, la prochaine
-   action ; en tête, les conventions TNR de l'application (étiquette, dossier, plan, campagne). Données : /api/lots. */
+/* Lots TNR : le chemin « scénarios → automatisation → Xray » sur un seul écran.
+   Flux simple (par défaut, generation/flux.py) : Brouillon → Automatisé → Dans Xray ; deux actions, Automatiser puis
+   Publier dans Xray (la publication vaut validation du BDD et approbation des scripts, à ton nom) ; le dernier run est
+   une information, pas une étape. Flux complet : Brouillon → Validé → Automatisé → Vérifié → Au TNR.
+   En tête, les conventions TNR de l'application (étiquette, dossier, plan, campagne). Données : /api/lots. */
 "use strict";
 (() => {
   let LOT = "", D = null, SEL = new Set(), desabo = [], attente = null, zoneCourante = null;
-  const PILL = {"Brouillon": "", "Validé": "info", "Automatisé": "warn", "Vérifié": "ok", "Au TNR": "ok"};
+  const PILL = {"Brouillon": "", "Validé": "info", "Automatisé": "warn", "Vérifié": "ok", "Au TNR": "ok", "Dans Xray": "ok"};
+  const ETAPES_SIMPLES = [["genere", "Généré"], ["automatise", "Automatisé"], ["au_tnr", "Dans Xray"]];
+  const simple = () => D && D.flux && D.flux.mode === "simple";
   const ETAPES = [["valide", "Validé"], ["automatise", "Automatisé"], ["verifie", "Vérifié"], ["au_tnr", "Au TNR"]];
   const heure = iso => (iso || "").slice(0, 16).replace("T", " ");
 
@@ -17,6 +21,9 @@
           title="Nouvelle Test Execution dans le plan TNR : tous les tests au TNR, statuts, heures, environnement, log joint">Lancer le TNR</button>
           <button class="btn petit contour" id="lt-plan">Plan TNR…</button>
           <button class="btn petit contour" id="lt-conv">Conventions TNR</button>
+          ${d.flux ? `<span class="lt-flux" title="${simple() ? "Simple : générer le BDD → automatiser → publier dans Xray, sans approbation intermédiaire" : "Complet : relire et valider, vérifier en run réel, revue technique, puis publier"}">Flux
+            <select id="lt-flux" ${d.flux.impose ? "disabled" : ""} aria-label="Flux de passage des tests"><option value="simple" ${simple() ? "selected" : ""}>simple</option>
+            <option value="complet" ${simple() ? "" : "selected"}>complet (approbations)</option></select></span>` : ""}
         <a class="btn petit contour" href="#execution">Exécution</a></span></h2>
       <div class="corps-carte lt-conv">
         <span><span class="lib">Étiquette Xray</span> <b>${esc(c.etiquette || "—")}</b></span>
@@ -31,7 +38,7 @@
     const tous = d.lots.map(l => {
       const n = Object.values(l.compte || {}).reduce((a, b) => a + b, 0);
       return `<button class="btn petit ${LOT === l.id ? "primaire" : "contour"}" data-lot="${esc(l.id)}" title="${esc(l.description || "")}">
-        ${esc(l.nom)} <span class="lib">${n} · ${(l.compte || {})["Au TNR"] || 0} au TNR</span></button>`;
+        ${esc(l.nom)} <span class="lib">${n} · ${(l.compte || {})["Au TNR"] || (l.compte || {})["Dans Xray"] || 0} ${simple() ? "dans Xray" : "au TNR"}</span></button>`;
     }).join(" ");
     return `<section class="carte"><div class="corps-carte lt-lots">
         <button class="btn petit ${LOT ? "contour" : "primaire"}" data-lot="">Tous</button> ${tous}
@@ -41,13 +48,15 @@
   }
 
   function ligne(s) {
-    const etapes = ETAPES.map(([k, lib]) => `<span class="lt-etape ${s.etapes[k] ? "ok" : ""}" title="${lib}${s.etapes[k] ? " : fait" : " : à faire"}">${s.etapes[k] ? "✓" : "·"} ${lib}</span>`).join("");
+    const fait = k => k === "genere" || s.etapes[k];
+    const etapes = (simple() ? ETAPES_SIMPLES : ETAPES).map(([k, lib]) => `<span class="lt-etape ${fait(k) ? "ok" : ""}" title="${lib}${fait(k) ? " : fait" : " : à faire"}">${fait(k) ? "✓" : "·"} ${lib}</span>`).join("")
+      + (simple() && s.tests.length ? `<span class="lib lt-run" title="Information : le dernier run réel des tests de ce scénario (n'empêche pas de publier)">${s.echec ? "dernier run en échec" : s.verifie ? "run réel OK" : "pas encore exécuté"}</span>` : "");
     const action = s.action ? `<button class="btn petit ${s.action.id === "publier" ? "primaire" : "contour"}" data-action="${s.action.id}" data-cle="${esc(s.cle)}">${esc(s.action.libelle)}</button>` : "";
     const dernier = s.echec ? `<div class="lib lt-echec" title="${esc(s.echec.message || "")}">Échec ${esc(heure(s.echec.fin))} : ${esc((s.echec.message || "").slice(0, 120))}</div>` : "";
     return `<tr><td><input type="checkbox" data-sel="${esc(s.cle)}" ${SEL.has(s.cle) ? "checked" : ""} aria-label="Choisir ${esc(s.titre)}"></td>
       <td><b>${esc(s.titre)}</b><div class="lib">${esc(s.module || "")}${s.jdd ? ` · jeu ${esc(s.jdd)}` : ""}${s.tests.length > 1 ? ` · ${s.tests.length} tests` : ""}
         ${s.exigences.length ? ` · ${s.exigences.map(esc).join(", ")}` : ""}</div>${dernier}</td>
-      <td><span class="pill ${PILL[s.statut] || ""}">${esc(s.statut)}</span>${s.a_revoir.length ? `<div class="lib">à revoir : ${s.a_revoir.map(esc).join(", ")}</div>` : ""}</td>
+      <td><span class="pill ${PILL[s.statut] || ""}">${esc(s.statut)}</span>${(s.a_revoir || []).length ? `<div class="lib">à revoir : ${s.a_revoir.map(esc).join(", ")}</div>` : ""}</td>
       <td class="lt-etapes">${etapes}</td>
       <td>${s.xray ? `<span class="cle-xray">${esc(s.xray)}</span>` : "<span class='lib'>—</span>"}</td>
       <td>${action}</td></tr>`;
@@ -63,8 +72,8 @@
         <tbody>${sc.map(ligne).join("")}</tbody></table>` : vide("Aucun scénario dans ce lot", "Ajoute des scénarios depuis un parcours (Discovery), ou rattache des scénarios existants.")}
       </div></section>
       <div class="ta-barre carte" ${n ? "" : "hidden"}><b>${n} scénario(s) choisi(s)</b>
-        <button class="btn contour" id="lt-verifier" title="Run réel des tests de ces scénarios">Vérifier</button>
-        <button class="btn primaire" id="lt-publier" title="Tests Xray (étiquette, dossier), ajout au plan TNR, campagne à jour">Publier au TNR</button>
+        <button class="btn contour" id="lt-verifier" title="Run réel des tests de ces scénarios">${simple() ? "Exécuter" : "Vérifier"}</button>
+        <button class="btn primaire" id="lt-publier" title="Tests Xray (étiquette, dossier), ajout au plan TNR, campagne à jour">${simple() ? "Publier dans Xray" : "Publier au TNR"}</button>
         <select id="lt-rattacher" aria-label="Rattacher à un lot"><option value="">Rattacher au lot…</option>
           ${d.lots.filter(l => l.id !== "sans-lot").map(l => `<option value="${esc(l.id)}">${esc(l.nom)}</option>`).join("")}<option value="sans-lot">Retirer du lot</option></select>
         <button class="btn contour" id="lt-vider">Tout décocher</button></div>`;
@@ -72,6 +81,11 @@
     $$("[data-sel]", zone).forEach(i => i.onchange = () => { i.checked ? SEL.add(i.dataset.sel) : SEL.delete(i.dataset.sel); dessiner(zone); });
     $$("[data-action]", zone).forEach(b => b.onclick = () => agir(zone, b.dataset.action, [b.dataset.cle]).catch(e => toast(e.message, "ko")));
     $("#lt-conv", zone).onclick = () => conventions(zone).catch(e => toast(e.message, "ko"));
+    if ($("#lt-flux", zone)) $("#lt-flux", zone).onchange = async e => {
+      try { await api("/api/flux", {method: "POST", body: {mode: e.target.value}}); toast(e.target.value === "simple"
+        ? "Flux simple : générer le BDD → automatiser → publier dans Xray." : "Flux complet : validation, vérification et revue avant publication.", "ok"); charger(zone); }
+      catch (err) { toast(err.message, "ko"); }
+    };
     $("#lt-plan", zone).onclick = () => choisirPlan(zone).catch(e => toast(e.message, "ko"));
     $("#lt-lancer", zone).onclick = () => lancer().catch(e => toast(e.message, "ko"));
     $("#lt-nouveau", zone).onclick = async () => {
@@ -103,6 +117,16 @@
       if (!tests.length) throw new Error("Aucun test automatisé pour ces scénarios : les automatiser d'abord.");
       const r = await api("/api/tests-automatises/verifier", {method: "POST", body: {tests}});
       toast(`Vérification ${r.run_id} lancée (${tests.length} test(s)) : suivi en direct dans Exécution.`, "ok");
+      return;
+    }
+    if (action === "publier" && simple()) {
+      const sansScript = choisis.filter(s => !s.etapes.automatise).map(s => s.titre);
+      if (sansScript.length) throw new Error(`Pas encore automatisé(s) : ${sansScript.join(", ")}. Les automatiser d'abord.`);
+      if (!confirm(`Publier ${cles.length} scénario(s) dans Xray ?\nLe scénario est validé et ses scripts approuvés à ton nom ; tests Xray (étiquette ${D.conventions.etiquette}, dossier ${D.conventions.dossier}), plan TNR et campagne mis à jour.`)) return;
+      const r = await api("/api/tnr/publier", {method: "POST", body: {scenarios: cles}});
+      const ko = r.erreurs.map(e => `${e.scenario} : ${e.erreur}`);
+      toast(`${r.publies.length} publié(s) dans Xray${r.plan ? ` · plan ${r.plan.plan}${r.plan.cree ? " créé" : ""}` : ""}${ko.length ? " · non publiés : " + ko.join(" ; ") : ""}`, ko.length ? "ko" : "ok");
+      SEL.clear(); charger(zone);
       return;
     }
     if (action === "publier") {

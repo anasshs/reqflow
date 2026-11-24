@@ -1314,3 +1314,172 @@ a.carte.acc-run { display: flex !important; flex-direction: row !important; alig
 .tv-decision { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border-radius: 9px; background: var(--warn-soft); }
 .kg-s-etapes li.decision { background: var(--warn-soft); color: var(--warn); }
 .tv-e .lib { overflow-wrap: anywhere; }
+
+/* Mes demandes : bouton de l'en-tête et compteur de la barre latérale (à décider en orange, en cours en bleu) */
+.btn-demandes { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; margin-right: 6px; border-radius: 8px;
+  border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-demandes .i { width: 16px; height: 16px; color: var(--accent); }
+.btn-demandes:hover { border-color: var(--accent-line); background: var(--accent-soft); }
+.btn-demandes.dm-attention { border-color: var(--warn); background: var(--warn-soft); }
+.dm-n { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; font-size: 11.5px; line-height: 20px; text-align: center; color: #fff; background: var(--accent); }
+.dm-n.dm-decider { background: var(--warn); }
+.nav-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; font-size: 11px; line-height: 20px; text-align: center; color: #fff; background: var(--accent); }
+.nav-badge.dm-decider { background: var(--warn); }
+body.nav-reduite .nav-badge { position: absolute; margin: -18px 0 0 18px; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; font-size: 10px; }
+body.nav-reduite .onglets button { position: relative; }
+@media (max-width: 900px) { .btn-demandes span { display: none; } }
+
+/* Mes demandes : la liste */
+.dm-liste { list-style: none; margin: 0; padding: 0; }
+.dm-liste li { display: grid; grid-template-columns: 118px 1fr auto; gap: 4px 14px; align-items: start; padding: 11px 4px; border-bottom: 1px solid var(--line); }
+.dm-liste li:last-child { border-bottom: 0; }
+.dm-liste .dm-titre { font-weight: 600; }
+.dm-liste .dm-actions { display: flex; gap: 6px; align-items: center; }
+.dm-liste .dm-etat .pill { white-space: nowrap; }
+.dm-filtres { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+@media (max-width: 700px) { .dm-liste li { grid-template-columns: 1fr; } }
+
+/* Accueil simplifié : où j'en suis (4 étapes), que faire maintenant, mes demandes ; le détail est replié */
+.acc-chemin { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.acc-pas { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  text-decoration: none; color: inherit; min-height: 58px; }
+.acc-pas:hover { border-color: var(--accent-line); }
+.acc-pas > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.acc-pas .lib { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-pas .acc-num { position: static; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--line-2); color: var(--ink); font-weight: 700; font-size: 13px; }
+.acc-pas.fait .acc-num { background: var(--ok-soft); color: var(--ok); } .acc-pas.fait .acc-num .i { width: 14px; height: 14px; }
+.acc-pas.ici { border-color: var(--accent); box-shadow: var(--glow); } .acc-pas.ici .acc-num { background: var(--accent); color: #fff; }
+.acc-haut { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: stretch; margin-bottom: 14px; }
+.acc-haut > .carte { margin: 0; }
+.acc-dm { list-style: none; margin: 0; padding: 0; }
+.acc-dm a { display: flex; align-items: center; gap: 8px; padding: 6px 0; text-decoration: none; color: inherit; border-bottom: 1px solid var(--line); }
+.acc-dm li:last-child a { border-bottom: 0; }
+.acc-dm .acc-dm-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.acc-dm .pill { flex: none; }
+.acc-detail { margin-top: 14px; }
+.acc-detail > summary { cursor: pointer; padding: 10px 4px; color: var(--muted); font-weight: 600; font-size: 13px; }
+.acc-detail[open] > summary { margin-bottom: 10px; }
+@media (max-width: 1200px) { .acc-haut { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 800px) { .acc-chemin { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+a.carte.acc-run[hidden] { display: none !important; }
+
+/* Mon chemin : bascule Application / User Stories */
+.nav-pistes { display: flex; gap: 2px; margin: 2px 8px 6px; padding: 2px; border-radius: 8px; background: var(--nav-survol); }
+.nav-pistes button { flex: 1; justify-content: center; padding: 5px 4px !important; font-size: 11.5px; border-radius: 6px; color: var(--nav-muted); }
+.nav-pistes button[aria-selected="true"] { background: var(--nav-actif); color: #fff; font-weight: 600; }
+body.nav-reduite .nav-pistes { display: none; }
+.fil-chemin .fc-piste { margin-right: 4px; }
+/* Accueil : les deux chemins, l'un sous l'autre */
+.acc-pistes { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.acc-piste-tete { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.acc-piste-tete .lib { font-weight: 400; }
+.acc-pistes .acc-chemin { margin-bottom: 0; }
+.lt-flux { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-left: 6px; }
+.lt-flux select { font-size: 12px; padding: 2px 6px; }
+.lt-run { display: block; margin-top: 2px; font-size: 11.5px; }
+
+/* Atelier en Kanban : couloirs par parcours, colonnes d'état, cartes glissables, indicateur d'avancement, ticket */
+#ecran.g-kanban { display: flex; flex-direction: column; gap: 12px; }
+.kb-entete { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.kb-actions { display: flex; gap: 8px; align-items: center; }
+.kb-tableau { display: grid; grid-template-columns: 220px repeat(var(--kb-cols), minmax(170px, 1fr)); gap: 0; overflow: auto;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); max-height: calc(100vh - 190px); }
+.kb-carte { background: var(--bg, var(--surface)); border: 1px solid var(--line-2); border-left: 3px solid var(--accent); border-radius: 8px; padding: 8px 10px;
+  cursor: grab; box-shadow: var(--shadow-carte); display: flex; flex-direction: column; gap: 5px; }
+.kb-carte:hover, .kb-carte:focus-visible { border-color: var(--accent-line); }
+.kb-carte.kb-glisse { opacity: .5; }
+.kb-carte.kb-en_cours { border-left-color: var(--cyan); cursor: progress; }
+.kb-carte.kb-echec { border-left-color: var(--ko); }
+.kb-carte.kb-decision { border-left-color: var(--warn); }
+.kb-titre { font-weight: 600; font-size: 13px; line-height: 1.3; }
+.kb-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.kb-run.ok { color: var(--ok); } .kb-run.ko { color: var(--ko); }
+.kb-ind { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--muted); }
+.kb-echec .kb-ind { color: var(--ko); }
+.kb-loader { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--cyan); animation: kb-tourne .8s linear infinite; }
+@keyframes kb-tourne { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .kb-loader { animation-duration: 3s; } }
+.kb-ticket { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); z-index: 50; background: var(--surface); border-left: 1px solid var(--line);
+  box-shadow: -12px 0 30px rgba(0,0,0,.18); display: flex; flex-direction: column; }
+.kb-t-tete { display: flex; justify-content: space-between; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.kb-t-tete h2 { margin: 4px 0 6px; font-size: 17px; }
+.kb-t-corps { padding: 14px 18px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.kb-gherkin { white-space: pre-wrap; font-size: 12.5px; background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; margin: 0; }
+.kb-h ol { margin: 4px 0 10px; padding-left: 18px; } .kb-h li { margin: 3px 0; }
+.nav-outils > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; }
+.nav-outils > summary::-webkit-details-marker { display: none; }
+.nav-outils > summary::before { content: "▸"; font-size: 10px; } .nav-outils[open] > summary::before { content: "▾"; }
+/* Tableau de bord : les vues (Atelier, Knowledge Graph, exécution en direct, couverture) */
+.acc-vues { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.acc-vue { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+  text-decoration: none; color: inherit; }
+.acc-vue:hover { border-color: var(--accent-line); box-shadow: var(--glow); }
+.acc-vue > .i { flex: none; width: 26px; height: 26px; color: var(--accent); }
+.acc-vue > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; } .acc-vue .lib { font-size: 12px; }
+.acc-vue.acc-vue-active { border-color: var(--cyan); } .acc-vue.acc-vue-active > .i { color: var(--cyan); }
+@media (max-width: 1100px) { .acc-vues { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .acc-vues { grid-template-columns: 1fr; } }
+
+/* Kanban v2 : colonnes plates, barre de filtres, tickets par type (parcours violet, User Story orange, test bleu) */
+.kb-barre { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin: 0; }
+.kb-barre #kb-sujet { min-width: 220px; max-width: 340px; }
+.kb-barre #kb-texte { width: 220px; }
+.kb-esp { flex: 1; }
+.kb-types { display: inline-flex; gap: 4px; }
+.kb-type-f { display: inline-flex; flex-direction: row; white-space: nowrap; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line-2);
+  background: var(--surface); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.kb-type-f .i { width: 14px; height: 14px; }
+.kb-type-f[aria-pressed="true"] { color: var(--ink); border-color: var(--kb-c); background: var(--kb-soft); }
+.kb-resume { flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--line); }
+.kb-resume .i { width: 16px; height: 16px; color: var(--accent); }
+.kb-parcours, .kb-carte.kb-parcours, .kb-type-f.kb-parcours, .kb-t-tete.kb-parcours { --kb-c: var(--violet); --kb-soft: var(--violet-soft); }
+.kb-us, .kb-carte.kb-us, .kb-type-f.kb-us, .kb-t-tete.kb-us { --kb-c: var(--orange); --kb-soft: rgba(234,88,12,.09); }
+.kb-test, .kb-carte.kb-test, .kb-type-f.kb-test, .kb-t-tete.kb-test { --kb-c: var(--accent); --kb-soft: var(--accent-soft); }
+.kb-tableau { display: grid; grid-template-columns: repeat(var(--kb-cols), minmax(165px, 1fr)); gap: 10px; overflow-x: auto; border: 0;
+  background: none; max-height: none; align-items: start; padding-bottom: 6px; }
+.kb-colonne { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-height: 220px;
+  max-height: calc(100vh - 250px); }
+.kb-colonne.kb-cible { outline: 2px dashed var(--accent-line); outline-offset: -3px; background: var(--accent-soft); }
+.kb-col-tete { position: static; display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line);
+  border-radius: 12px 12px 0 0; }
+.kb-n { min-width: 22px; padding: 0 7px; border-radius: 10px; background: var(--line); color: var(--ink); text-align: center; font-size: 11.5px; }
+.kb-cartes { padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.kb-vide { font-size: 12px; color: var(--muted); padding: 6px 4px; }
+.kb-carte { border-left: 4px solid var(--kb-c); padding: 9px 11px; gap: 6px; }
+.kb-carte .kb-type { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--kb-c); text-transform: uppercase; letter-spacing: .03em; }
+.kb-type .i { width: 14px; height: 14px; }
+.kb-cle { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+.kb-titre { font-size: 13.5px; }
+.kb-detail { font-size: 12px; }
+.kb-pied { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 11px; }
+.kb-chip { padding: 1px 7px; border-radius: 6px; background: var(--violet-soft); color: var(--violet-ink); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-xray { padding: 1px 7px; border-radius: 6px; background: var(--ok-soft); color: var(--ok); font-weight: 600; }
+.kb-run { font-weight: 600; } .kb-run.ok { color: var(--ok); } .kb-run.ko { color: var(--ko); }
+.kb-ind { padding: 5px 7px; border-radius: 6px; background: var(--accent-soft); }
+.kb-ind-echec { background: var(--ko-soft); color: var(--ko); } .kb-ind-decision { background: var(--warn-soft); color: var(--warn); }
+.kb-lancer { align-self: flex-start; }
+.kb-carte.kb-en_cours { border-left-color: var(--cyan); }
+.kb-t-tete { border-top: 4px solid var(--kb-c); }
+.kb-t-tete .kb-type { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: var(--kb-c); text-transform: uppercase; }
+.kb-champ { display: block; margin-top: 8px; } .kb-champ .in { width: 100%; margin-top: 3px; }
+.kb-coche { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+/* ticket parcours : blocs MBT, jeu de données, rejeu */
+.kb-bloc { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.kb-bloc h3 { margin: 0; }
+.kb-bloc p { margin: 0; }
+.kb-props { display: flex; flex-direction: column; gap: 6px; }
+.kb-prop { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 8px;
+  border: 1px dashed var(--violet); background: var(--violet-soft); }
+.kb-prop-actions { display: flex; gap: 6px; flex: none; }
+.kb-qualifier { color: var(--violet-ink); background: var(--violet-soft); border-radius: 6px; padding: 1px 7px; font-weight: 600; }
+button.kb-qualifier { border: 1px solid var(--violet); }
+.kb-col-tete { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; background: var(--surface); }
+.kb-t-tete > div { min-width: 0; }
+.kb-t-tete > .icone { flex: none; }
+
+/* Mes demandes : l'agent est-il prêt, que fait-il */
+.dm-bloque { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.dm-pret { display: flex; align-items: center; gap: 6px; margin: 0; } .dm-pret .i { width: 15px; height: 15px; color: var(--ok); }
+.dm-agent { margin-top: 6px; padding: 6px 10px; border-left: 3px solid var(--cyan); background: var(--accent-soft); border-radius: 6px; font-size: 12.5px; }
+.dm-agent ul { margin: 4px 0 0; padding-left: 16px; } .dm-agent li { margin: 2px 0; }

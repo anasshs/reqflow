@@ -159,7 +159,8 @@ window.DemanderCursor = async (titre, texte, _explication, attendus = [], option
         return toast(cursor ? `Demande déposée. Cursor s'ouvre avec « ${PHRASE_BOITE} » : appuyer sur Entrée dans son chat (mode Agent). Il traitera ensuite les demandes seul.`
           : `Demande déposée. Dire une fois à ${nom} « ${PHRASE_BOITE} » : il traitera ensuite les demandes seul.`, "ok");
       }
-      return toast(e.envoi === "cli" ? "Cursor est lancé : le suivi s'affiche en bas à droite." : `Demande envoyée à ${nom} : le suivi s'affiche en bas à droite.`, "ok");
+      Atelier._demandes();
+      return toast(e.envoi === "cli" ? "Cursor est lancé. Son état : « Mes demandes », en haut à droite." : `Demande envoyée à ${nom}. Son état : « Mes demandes », en haut à droite.`, "ok");
     } catch (err) { toast(`Envoi direct impossible (${err.message}) : passage par le chat.`, "ko"); }
   }
   const lien = cursor ? lienCursor(texte) : "";  // lien profond : propre à Cursor
@@ -224,55 +225,64 @@ const vide = (titre, texte = "") => `<div class="vide"><b>${esc(titre)}</b>${tex
 /* ======================================================================== application */
 const Atelier = {
   ctx: {}, ecrans: {}, ecranCourant: null, ws: null, abonnes: new Map(), plateforme: "", env: "",
-  ONGLETS: [["dashboard", "Accueil", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"], ["parcours", "Suivi des fonctionnalités", "historique"],
+  ONGLETS: [["atelier", "Atelier", "grille"], ["dashboard", "Tableau de bord", "dashboard"], ["discovery", "Discovery", "recherche"], ["intelligence", "Application Intelligence", "graphe"], ["parcours", "Suivi des fonctionnalités", "historique"],
     ["conception", "Test Design", "assertion"], ["bdd", "Tests BDD", "bdd"], ["studio", "Automation Studio", "editeur"], ["releases", "Releases", "calque"], ["centre", "Execution Center", "execution"],
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"], ["pilotage", "Tableaux de bord", "dashboard"],
     ["activites", "Activités", "activite"], ["comportement", "Analyse comportementale", "branche"], ["tests", "Tests automatisés", "check"],
     ["graphe", "Knowledge Graph", "graphe"], ["ia", "Pilotage IA", "ia"], ["rapports", "Rapports", "rapports"], ["operations", "Suivi des runs", "execution"],
-    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"], ["travaux", "Mes travaux", "activite"]],
-  /* barre latérale, par groupe : l'Accueil, les six étapes du parcours de qualification, les référentiels, le pilotage,
-     les paramètres. Seules des destinations qui existent ; tout écran reste joignable (sous l'étape à laquelle il sert).
-     Entrée : [adresse, libellé, icône, {num : étape du parcours de qualification, sl : sous-libellé, sous : écrans de
-     l'entrée, affichés sous elle quand on y est}]. */
-  NAV: [["", [["dashboard", "Accueil", "maison", {sl: "Vue d'ensemble"}]]],
-    ["Applications", [["parametres/applications", "Applications", "grille"], ["lots", "Lots TNR", "check", {sl: "Du parcours au TNR"}]]],
-    ["Parcours de qualification", [
-      ["discovery", "Comprendre l'application", "recherche", {num: 1, sous: [["discovery", "Discovery"], ["intelligence", "Application Intelligence"]]}],
-      ["comportement", "Comprendre le comportement", "branche", {num: 2, sous: [["comportement", "Analyse comportementale (MBT)"]]}],
-      ["conception", "Concevoir les tests", "bdd", {num: 3, sous: [["conception", "Test Design"], ["bdd", "Tests BDD"], ["parcours", "Suivi des fonctionnalités"]]}],
-      ["lots", "Automatiser les tests", "editeur", {num: 4, sous: [["lots", "Lots TNR"], ["tests", "Tests automatisés"], ["studio", "Automation Studio"], ["editeur", "Éditeur de code"]]}],
-      ["centre", "Exécuter et qualifier", "execution", {num: 5, sous: [["centre", "Execution Center"], ["echecs", "Failure Analysis"], ["couverture", "Couverture des tests"]]}],
-      ["releases", "Évolutions & non-régression", "calque", {num: 6, sous: [["releases", "Releases"]]}]]],
-    ["Référentiels", [["graphe", "Knowledge Graph", "graphe"], ["bdd", "Scénarios BDD", "bdd"], ["studio/keywords", "Composants & Keywords", "editeur"],
-      ["discovery/donnees", "Données de test", "donnee"]]],
-    ["Pilotage", [["pilotage", "Tableaux de bord", "dashboard", {sous: [["pilotage", "Pilotage"], ["gouvernance", "Quality Governance"], ["operations", "Suivi des runs"]]}],
-      ["couverture", "Couverture des tests", "graphe"], ["travaux", "Mes travaux", "activite"],
-      ["rapports", "Rapports", "rapports"], ["activites", "Activités", "historique"]]],
-    ["", [["parametres", "Paramètres", "parametres", {sous: [["parametres/configuration", "Configuration"], ["parametres/projets", "Projets"],
-      ["parametres/connexions", "Connexions"], ["ia", "Pilotage IA"]]}]]]],
+    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"], ["travaux", "Mes demandes", "activite"]],
+  /* barre latérale courte : l'Accueil et Mes demandes (ce que j'ai lancé), les quatre étapes du chemin, le pilotage et les
+     paramètres. Chaque écran reste joignable : sous l'étape à laquelle il sert, affiché quand on est dans cette étape.
+     Entrée : [adresse, libellé, icône, {num : étape du chemin, sl : sous-libellé, sous : écrans de l'entrée, badge}]. */
+  /* L'Atelier (Kanban) est l'écran de travail : la barre latérale se lit en trois entrées. Les écrans détaillés restent dans
+     « Plus d'outils », replié (ouvert d'office quand on y est). */
+  NAV: [["", [["atelier", "Atelier", "grille", {sl: "Parcours et tests en Kanban"}], ["dashboard", "Tableau de bord", "maison", {sl: "Graphe, run en direct, couverture"}],
+      ["travaux", "Mes demandes", "activite", {sl: "Ce que j'ai lancé", badge: true}]]],
+    ["Plus d'outils", "OUTILS"],
+    ["", [["parametres", "Paramètres", "parametres", {sous: [["parametres/applications", "Applications"], ["parametres/projets", "Projets"],
+        ["parametres/configuration", "Configuration"], ["parametres/connexions", "Connexions"], ["ia", "Pilotage IA"]]}]]]],
+  /* Deux chemins vers le test automatisé, côte à côte (bascule en tête de « Mon chemin », mémorisée) :
+     - app : de l'application au test (Discovery, parcours, comportement → scénarios BDD → automatisation → exécution) ;
+     - us  : des User Stories au test (US à concevoir → décider quoi automatiser → construire → exécuter), le fil de
+       docs/DE_L_US_AU_TEST_AUTOMATISE.md. Un écran qui n'est que sur l'autre chemin y fait basculer. */
+  PISTES: {
+    app: {libelle: "Application", titre: "De l'application au test automatisé", etapes: [
+      ["discovery", "Comprendre l'application", "recherche", {num: 1, sous: [["discovery", "Discovery"], ["comportement", "Analyse comportementale (MBT)"],
+        ["intelligence", "Application Intelligence"], ["graphe", "Knowledge Graph"], ["discovery/donnees", "Données de test"]]}],
+      ["bdd", "Concevoir les tests", "bdd", {num: 2, sous: [["bdd", "Scénarios BDD"], ["conception", "Test Design"], ["parcours", "Suivi des fonctionnalités"]]}],
+      ["lots", "Automatiser", "editeur", {num: 3, sous: [["lots", "Lots TNR"], ["tests", "Tests automatisés"], ["studio", "Automation Studio"],
+        ["studio/keywords", "Composants & Keywords"], ["editeur", "Éditeur de code"]]}],
+      ["centre", "Exécuter et analyser", "execution", {num: 4, sous: [["centre", "Execution Center"], ["echecs", "Failure Analysis"],
+        ["couverture", "Couverture des tests"], ["releases", "Releases"]]}]]},
+    us: {libelle: "User Stories", titre: "Des User Stories au test automatisé", etapes: [
+      ["conception", "Concevoir depuis les US", "assertion", {num: 1, sous: [["conception", "Test Design (US à concevoir)"], ["parcours", "Suivi des fonctionnalités"],
+        ["bdd", "Scénarios BDD"]]}],
+      ["studio/candidats", "Décider quoi automatiser", "check", {num: 2, sous: [["studio/candidats", "À automatiser"], ["tests", "Tests automatisés"]]}],
+      ["studio/direct", "Construire les tests", "editeur", {num: 3, sous: [["studio/direct", "Construire en direct"], ["studio/revue", "Revue et publication"],
+        ["studio/keywords", "Composants & Keywords"], ["editeur", "Éditeur de code"]]}],
+      ["centre", "Exécuter et analyser", "execution", {num: 4, sous: [["centre", "Execution Center"], ["echecs", "Failure Analysis"],
+        ["couverture", "Couverture des tests"], ["releases", "Releases"]]}]]}},
+  OUTILS: [["Mon chemin", "PISTE"], ["", [["pilotage", "Pilotage", "dashboard", {sous: [["pilotage", "Tableaux de bord"], ["gouvernance", "Quality Governance"],
+      ["operations", "Suivi des runs"], ["rapports", "Rapports"], ["activites", "Activités"]]}]]]],
   /* écrans de travail rattachés à un module, quand ils n'ont pas leur propre entrée dans la barre latérale */
   PARENT: {editeur: "studio", execution: "centre", "execution-detail": "centre"},
 
   /* entrées qui n'ont de sens qu'avec Jira (suivi d'une fonctionnalité par ses US) : cachées sinon */
   SI_JIRA: ["parcours"],
-  /* le chemin de l'utilisateur : chaque écran qui en fait partie affiche le repère d'étape */
-  CHEMIN: [["comprendre", "Application", "#discovery/cadrage"], ["comportement", "Comportement", "#comportement"], ["concevoir", "Conception", "#bdd"],
-    ["automatiser", "Automatisation", "#studio/direct"], ["executer", "Exécution", "#centre/lancer"], ["evoluer", "Évolutions", "#releases"]],
-  ETAPE_DE: {discovery: "comprendre", intelligence: "comprendre", comportement: "comportement", conception: "concevoir", bdd: "concevoir", parcours: "concevoir",
-    studio: "automatiser", editeur: "automatiser", tests: "automatiser", lots: "automatiser", centre: "executer", execution: "executer", "execution-detail": "executer", echecs: "executer", couverture: "executer", releases: "evoluer"},
   integrations() { return this.ctx.integrations || {xray: true, jira: true}; },
 
   /* repère « étape n/4 » : où l'on est sur le chemin, les autres étapes à un clic, et la prochaine action */
   async _repere(nom) {
     let r = document.getElementById("fil-chemin");
-    const etape = this.ETAPE_DE[nom];
-    if (!etape) { if (r) r.remove(); return; }
+    const piste = this.PISTES[this.piste], etape = this._etapeOuverte;
+    if (!piste.etapes.some(e => e[0] === etape)) { if (r) r.remove(); return; }
     if (!r) { r = document.createElement("nav"); r.id = "fil-chemin"; r.className = "fil-chemin"; r.setAttribute("aria-label", "Ton chemin"); $("#ecran").before(r); }
     const dessiner = s => {
-      r.innerHTML = this.CHEMIN.map(([id, lib, lien], i) => `<a href="${lien}" class="${id === etape ? "ici" : ""}" ${id === etape ? 'aria-current="step"' : ""}><span class="num">${i + 1}</span>${esc(lib)}</a>`).join('<span class="sep">›</span>')
-        + (s && !location.hash.startsWith(s.suivante.lien) ? `<span class="suite lib">Ensuite : ${esc(s.suivante.texte)}</span> <a class="btn petit primaire" href="${esc(s.suivante.lien)}">${esc(s.suivante.bouton)}</a>` : "");
+      r.innerHTML = `<span class="lib fc-piste">${esc(piste.titre)} :</span>` + piste.etapes.map(([id, lib], i) => `<a href="#${id}" class="${id === etape ? "ici" : ""}" ${id === etape ? 'aria-current="step"' : ""}><span class="num">${i + 1}</span>${esc(lib)}</a>`).join('<span class="sep">›</span>')
+        + (s && s.suivante && this.piste === "app" && !location.hash.startsWith(s.suivante.lien) ? `<span class="suite lib">Ensuite : ${esc(s.suivante.texte)}</span> <a class="btn petit primaire" href="${esc(s.suivante.lien)}">${esc(s.suivante.bouton)}</a>` : "");
     };
     dessiner(null);
+    if (this.piste !== "app") return;  // la prochaine action calculée est celle du chemin « application »
     const s = await api("/api/chemin").catch(() => null);
     if (s && this.nomCourant === nom && document.body.contains(r)) dessiner(s);
   },
@@ -298,14 +308,17 @@ const Atelier = {
 
   async demarrer() {
     this._theme();
-    const jira = a => this.SI_JIRA.includes(a) ? " data-si-jira" : "";
-    const sous = (de, [adresse, lib]) => `<button class="nav-sous" data-ecran="${adresse}" data-de="${de}" title="${esc(lib)}"${jira(adresse)} hidden><span>${esc(lib)}</span></button>`;
-    $("#onglets").innerHTML = this.NAV.map(([groupe, entrees], g) => (groupe ? `<div class="groupe">${esc(groupe)}</div>` : g ? '<div class="groupe vide"></div>' : "")
-      + entrees.map(([adresse, lib, i, o = {}]) => `<button data-ecran="${adresse}" title="${esc(lib)}"${jira(adresse)}${o.sous ? ` data-etape="${adresse}"` : ""}>`
-        + `${o.num ? `<b class="nav-num" aria-hidden="true">${o.num}</b>` : ico(i)}<span>${esc(lib)}${o.sl ? `<small>${esc(o.sl)}</small>` : ""}</span></button>`
-        + (o.sous || []).map(s => sous(adresse, s)).join("")).join("")).join("");
-    $("#onglets").onclick = e => { const b = e.target.closest("[data-ecran]"); if (b) location.hash = b.dataset.ecran === "parametres" ? "parametres/configuration" : b.dataset.ecran; };
+    try { this.piste = localStorage.getItem("atelier-piste") === "us" ? "us" : "app"; } catch { this.piste = "app"; }
+    try { this._outilsOuverts = localStorage.getItem("atelier-outils") === "1"; } catch { this._outilsOuverts = false; }
+    this._dessinerNav();
+    $("#onglets").onclick = e => {
+      const p = e.target.closest("[data-piste]");
+      if (p) { this.choisirPiste(p.dataset.piste, true); return; }
+      const b = e.target.closest("[data-ecran]");
+      if (b) location.hash = b.dataset.ecran === "parametres" ? "parametres/configuration" : b.dataset.ecran;
+    };
     this._navigation();
+    $("#b-demandes").onclick = () => { location.hash = "travaux"; };
     $("#b-alertes").innerHTML = ico("cloche");
     $("#b-alertes").onclick = () => { location.hash = "graphe/anomalies"; };
     $("header .droite a").innerHTML = ico("ext");
@@ -323,13 +336,72 @@ const Atelier = {
     this.on("app_change", () => this.chargerContexte());
     this.ouvrir();
     this._alertes();
+    this._demandes();
+    ["travail", "run_bilan"].forEach(t => this.on(t, () => this._demandes()));
+    this.on("mcp_outil", e => { if (!e.rejeu && e.etat === "fin") this._demandes(); });
+    setInterval(() => { if (!document.hidden) this._demandes(); }, 10000);
+  },
+
+  /* Mes demandes : compteurs de l'en-tête et de la barre latérale (à décider, en cours), toujours visibles ; un clic ouvre
+     la liste. Une demande qui se termine ou échoue le dit par un message, sur n'importe quel écran. */
+  async _demandes() {
+    const r = await api("/api/demandes").catch(() => null);
+    if (!r) return;
+    this.demandes = r;
+    const {a_decider: d, en_cours: c} = r.compteurs, b = $("#b-demandes");
+    b.innerHTML = `${ico("activite")}<span>Mes demandes</span>${d ? `<b class="dm-n dm-decider" title="${d} à décider">${d}</b>` : ""}${c ? `<b class="dm-n dm-cours" title="${c} en cours">${c}</b>` : ""}`;
+    b.title = `${d ? `${d} à décider · ` : ""}${c} en cours : ouvrir Mes demandes`;
+    b.classList.toggle("dm-attention", !!d);
+    $$("[data-badge-demandes]").forEach(x => { x.hidden = !(d || c); x.textContent = d || c; x.classList.toggle("dm-decider", !!d); });
+    const avant = this._etatsDemandes || null, maintenant = {};
+    for (const x of r.demandes) maintenant[x.id] = x.etat;
+    if (avant) for (const x of r.demandes) {
+      if (avant[x.id] && avant[x.id] !== x.etat && ["termine", "echec", "a_decider"].includes(x.etat) && x.source === "agent")
+        toast(`${x.titre} : ${x.etat_libelle.toLowerCase()}. Voir Mes demandes.`, x.etat === "echec" ? "ko" : "ok");
+    }
+    this._etatsDemandes = maintenant;
+    this.diffuser({type: "demandes", ...r});
+  },
+
+  _dessinerNav() {
+    const jira = a => this.SI_JIRA.includes(a) ? " data-si-jira" : "";
+    const sous = (de, [adresse, lib]) => `<button class="nav-sous" data-ecran="${adresse}" data-de="${de}" title="${esc(lib)}"${jira(adresse)} hidden><span>${esc(lib)}</span></button>`;
+    const entree = ([adresse, lib, i, o = {}]) => `<button data-ecran="${adresse}" title="${esc(lib)}"${jira(adresse)}${o.sous ? ` data-etape="${adresse}"` : ""}>`
+      + `${o.num ? `<b class="nav-num" aria-hidden="true">${o.num}</b>` : ico(i)}<span>${esc(lib)}${o.sl ? `<small>${esc(o.sl)}</small>` : ""}</span>${o.badge ? '<b class="nav-badge" data-badge-demandes hidden></b>' : ""}</button>`
+      + (o.sous || []).map(s => sous(adresse, s)).join("");
+    const bascule = `<div class="nav-pistes" role="tablist" aria-label="Chemin vers le test automatisé">${Object.entries(this.PISTES).map(([id, p]) =>
+      `<button role="tab" data-piste="${id}" aria-selected="${id === this.piste}" title="${esc(p.titre)}">${esc(p.libelle)}</button>`).join("")}</div>`;
+    const groupe_ = ([groupe, entrees], g) => entrees === "PISTE"
+      ? `<div class="groupe">${esc(groupe)}</div>${bascule}${this.PISTES[this.piste].etapes.map(entree).join("")}`
+      : entrees === "OUTILS"
+        ? `<details class="nav-outils" id="nav-outils" ${this._outilsOuverts ? "open" : ""}><summary class="groupe">${esc(groupe)}</summary>${this.OUTILS.map(groupe_).join("")}</details>`
+        : (groupe ? `<div class="groupe">${esc(groupe)}</div>` : g ? '<div class="groupe vide"></div>' : "") + entrees.map(entree).join("");
+    $("#onglets").innerHTML = this.NAV.map(groupe_).join("");
+    const o = $("#nav-outils");
+    if (o) o.ontoggle = () => { this._outilsOuverts = o.open; try { localStorage.setItem("atelier-outils", o.open ? "1" : ""); } catch { /* préférence non mémorisée */ } };
+    if (this.demandes) this._demandes();
+    const integ = this.integrations();
+    $$("#onglets [data-si-jira]:not(.nav-sous)").forEach(b => { b.hidden = !integ.jira; });
+  },
+  /* bascule de chemin : la barre latérale et le repère d'étape suivent ; « ouvrir » : aller à la première étape */
+  choisirPiste(piste, aller = false) {
+    if (!this.PISTES[piste] || piste === this.piste) return;
+    this.piste = piste;
+    try { localStorage.setItem("atelier-piste", piste); } catch { /* préférence non mémorisée */ }
+    this._dessinerNav();
+    this.diffuser({type: "piste", piste});
+    if (aller && this.nomCourant !== "dashboard") location.hash = this.PISTES[piste].etapes[0][0];
+    else if (this.nomCourant) { const [id, ...reste] = (location.hash.slice(1) || "atelier").split("/"); this._entreeActive(this.ecrans[id] ? id : "atelier", reste.join("/")); this._repere(this.nomCourant); }
   },
 
   ouvrir() {
-    const [id, ...reste] = (location.hash.slice(1) || "dashboard").split("/");
-    const nom = this.ecrans[id] ? id : "dashboard";
+    const [id, ...reste] = (location.hash.slice(1) || "atelier").split("/");
+    const nom = this.ecrans[id] ? id : "atelier";
     const onglet = this.PARENT[nom] || nom;
     this.nomCourant = nom;
+    const adr = reste.length ? `${nom}/${reste.join("/")}` : nom, de = p => this.PISTES[p].etapes.some(([a, , , o]) => [a, ...(o.sous || []).map(s => s[0])]
+      .some(x => adr === x || adr.startsWith(x + "/") || x === nom));
+    if (!de(this.piste)) { const autre = Object.keys(this.PISTES).find(p => p !== this.piste && de(p)); if (autre) this.choisirPiste(autre); }
     this._entreeActive(nom, reste.join("/"));
     try { this.ecranCourant?.quitter?.(); } catch { /* écran précédent déjà fermé */ }
     this._navEtat(this.navChoix === "reduite" || this._navAuto(nom));
@@ -357,6 +429,9 @@ const Atelier = {
     actif = actif || boutons.find(b => b.dataset.ecran === (this.PARENT[nom] || nom));
     /* l'entrée d'une étape ouvre ses écrans dessous ; l'écran affiché y est marqué */
     const ouverte = actif ? actif.dataset.de || actif.dataset.etape || "" : "";
+    this._etapeOuverte = ouverte;
+    const outils = $("#nav-outils");
+    if (outils && actif && outils.contains(actif)) outils.open = true;
     boutons.forEach(b => {
       b === actif ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current");
       if (b.dataset.de) b.hidden = b.dataset.de !== ouverte || (b.hasAttribute("data-si-jira") && !this.integrations().jira);

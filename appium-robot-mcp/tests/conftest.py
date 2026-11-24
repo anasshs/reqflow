@@ -23,6 +23,7 @@ os.environ["ATELIER_PROJETS"] = str(Path(os.environ["ROBOT_PROJECT_DIR"]) / "pro
 os.environ["ATELIER_IA_JOURNAL"] = str(Path(os.environ["ROBOT_PROJECT_DIR"]) / "ia.sqlite")  # jamais le journal IA du poste
 os.environ.pop("ATELIER_IA_CONFIG", None)
 os.environ["ATELIER_COFFRE"] = "non"  # jamais le coffre réel du poste (tests : faux coffre explicite)
+os.environ["ATELIER_FLUX"] = "complet"  # cycle détaillé (approbations) ; le flux simple a ses propres tests (test_flux.py)
 sys.path.insert(0, str(RACINE))
 
 

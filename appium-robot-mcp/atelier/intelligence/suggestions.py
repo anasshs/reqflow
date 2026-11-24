@@ -291,7 +291,12 @@ def lancer(noeud: str, suggestion: str, env: str = "") -> dict:
     if not stabiliser:
         etapes += [{"titre": "Dry-run", "type": "atelier", "action": "dry_run", "params": {"bdd": l.get("cle", "")}},
                    {"titre": "Run réel", "type": "atelier", "action": "run", "params": {"bdd": l.get("cle", "")}}]
-    etapes.append({"titre": "Valider le BDD et approuver le script", "type": "humain"})
+    from atelier.generation import flux
+
+    if flux.simple() and not stabiliser:  # une seule décision : publier (valide le BDD et approuve le script, à ton nom)
+        etapes.append({"titre": "Publier dans Xray", "type": "humain", "action": "publier_xray", "params": {"bdd": l.get("cle", "")}})
+    else:
+        etapes.append({"titre": "Valider le BDD et approuver le script", "type": "humain"})
     tr = orchestrateur.creer(s["titre"], etapes, origine={"type": "suggestion", "noeud": noeud, "ecran": s.get("ecran", ""),
                                                           "suggestion": s["titre"], "famille": s["famille"]}, env=env)
     return {"suggestion": s, "travail": {k: tr[k] for k in ("id", "titre", "statut")}, "etapes": [e["titre"] for e in tr["etapes"]]}

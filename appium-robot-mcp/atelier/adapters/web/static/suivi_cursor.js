@@ -170,6 +170,8 @@
 
   /* ------------------------------------------------------------------ API */
   window.SuiviCursor = {
+    /* demandes passées par le chat de l'agent (rien de déposé côté serveur) : listées aussi dans Mes demandes */
+    liste() { const m = Date.now(); return ouvertes().filter(d => !d.boite).map(d => ({titre: d.titre, ecran: d.ecran, t0: d.t0, ...etat(d, m)})); },
     /* titre : la demande ; attendus : outils MCP dont la fin signifie « résultat déposé » */
     /* boite : {id, mode} d'une demande déposée (boîte de demandes ou ligne de commande), pour afficher son état réel */
     ajouter(titre, attendus = [], boite = null) {

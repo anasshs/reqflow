@@ -48,10 +48,14 @@ from atelier.domain import projet
 STATUTS = ("en attente", "prise", "terminée", "échouée", "annulée")
 MODES = ("boite", "cli")
 ENVOIS = {"lien": "Ouvrir le chat de Cursor avec la demande (à relire et envoyer)",
-          "boite": "Boîte de demandes : Cursor vient la chercher (lui dire une fois « traite les demandes de l'atelier »)",
-          "cli": "Ligne de commande : l'atelier lance Cursor sans fenêtre"}
+          "boite": "Boîte de demandes : l'agent vient la chercher (lui dire une fois « traite les demandes de l'atelier »)",
+          "cli": "Ligne de commande : l'atelier lance l'agent sans fenêtre, dès l'envoi (recommandé)"}
 AGENTS = {"cursor": "Cursor", "claude_code": "Claude Code"}  # agent qui traite les demandes de l'atelier (par le MCP)
-ENVOIS_CURSOR_SEUL = ("lien", "cli")  # lien profond et ligne de commande : propres à Cursor ; Claude Code passe par la boîte
+ENVOIS_CURSOR_SEUL = ("lien",)  # lien profond : propre à Cursor ; la ligne de commande vaut pour Cursor (agent) et Claude Code (claude -p)
+# Claude Code sans fenêtre : le MCP de l'atelier déclaré dans .mcp.json du projet de tests, et ses seuls outils autorisés
+# (pas de commande du poste, pas d'écriture hors des outils de l'atelier).
+ARGS_CLAUDE = "-p {demande} --output-format text --mcp-config .mcp.json --allowedTools mcp__appium-robot"
+PHRASE_ECOUTE = "Traite les demandes de l'atelier"
 ATTENTE_MAX_S = 40          # un outil MCP qui ne répond pas est coupé par le client : on rend la main avant
 ARGS_DEFAUT = "-p {demande} --output-format text --approve-mcps --trust"
 GARDEES = 60                # demandes conservées (les plus récentes)
@@ -90,14 +94,17 @@ def nom_agent() -> str:
 
 
 def regler_agent(a: str) -> dict:
-    """Change l'agent qui traite les demandes de l'atelier (rôle automaticien). Claude Code n'a ni lien profond ni ligne de
-    commande réglée ici : ses demandes passent par la boîte (lui dire une fois « Traite les demandes de l'atelier »)."""
+    """Change l'agent qui traite les demandes de l'atelier (rôle automaticien). Claude Code n'a pas de lien profond : ses
+    demandes partent en ligne de commande (claude -p) si elle est installée sur le poste, sinon par la boîte."""
     from atelier.domain import roles
 
     roles.exiger("construire")
     if a not in AGENTS:
         raise ValueError(f"Agent : {', '.join(AGENTS)}.")
-    _ecrire_reglages(agent=a, **({"envoi": "boite"} if a != "cursor" and envoi() in ENVOIS_CURSOR_SEUL else {}))
+    _ecrire_reglages(agent=a)
+    if a != "cursor" and envoi() in ENVOIS_CURSOR_SEUL:
+        c = cli()
+        _ecrire_reglages(envoi="cli" if c["trouvee"] and c.get("connecte", True) else "boite")
     return etat()
 
 
@@ -154,7 +161,7 @@ def regler_envoi(mode: str) -> dict:
     if mode not in ENVOIS:
         raise ValueError(f"Mode d'envoi : {', '.join(ENVOIS)}.")
     if mode in ENVOIS_CURSOR_SEUL and agent() != "cursor":
-        raise ValueError(f"Ce mode d'envoi est propre à Cursor : avec {nom_agent()}, les demandes passent par la boîte de demandes.")
+        raise ValueError(f"Ce mode d'envoi est propre à Cursor : avec {nom_agent()}, choisir la ligne de commande ou la boîte de demandes.")
     if mode == "cli":
         _ligne("essai")  # commande absente ou mal réglée sur ce poste : dit avant d'enregistrer
     _ecrire_reglages(envoi=mode)
@@ -191,8 +198,41 @@ def _modifier(did: str, **champs) -> dict:
 
 
 # =========================================================================== ligne de commande de Cursor
+def _candidats_claude() -> list[str]:
+    """Où trouver Claude Code en ligne de commande : ATELIER_CLAUDE_CLI, sinon « claude » dans le PATH, sinon les dossiers
+    d'installation habituels (installateur officiel, npm) : l'atelier lancé hors d'un terminal n'a pas toujours le PATH."""
+    commande = os.environ.get("ATELIER_CLAUDE_CLI", "").strip()
+    if commande:
+        return [commande]
+    exe = "claude.exe" if os.name == "nt" else "claude"
+    return ["claude", str(Path.home() / ".local" / "bin" / exe), str(Path(os.environ.get("APPDATA") or Path.home()) / "npm" / "claude.cmd"),
+            str(Path.home() / ".claude" / "local" / exe)]
+
+
+def _claude_connecte() -> bool:
+    """Claude Code est-il connecté à un compte sur ce poste (connexion faite une fois avec « claude ») ou à une clé d'API ?
+    Sans connexion, claude -p répond « Not logged in » : la demande reste alors dans la boîte."""
+    return bool(os.environ.get("ANTHROPIC_API_KEY")) or (Path.home() / ".claude" / ".credentials.json").exists()
+
+
+def _cli_claude() -> dict:
+    candidats = _candidats_claude()
+    trouvee = next((c for c in candidats if shutil.which(c)), "")
+    args = os.environ.get("ATELIER_CLAUDE_CLI_ARGS", "").strip() or ARGS_CLAUDE
+    accordee = "mcp__appium-robot" in args or "mcp__" + SERVEUR_MCP in args
+    return {"agent": "claude_code", "commande": trouvee or candidats[0], "trouvee": bool(trouvee), "arguments": args, "force": False,
+            "valide": "{demande}" in args, "delai_s": int(os.environ.get("ATELIER_CURSOR_CLI_DELAI", "900") or 900),
+            "mcp_du_projet": (projet.PROJECT_DIR / ".mcp.json").exists(),
+            "permissions": {"fichier": "arguments (--allowedTools)", "jeton": "mcp__" + SERVEUR_MCP, "accordee": accordee, "erreur": ""},
+            "connecte": _claude_connecte(),
+            "installer": "npm install -g @anthropic-ai/claude-code, puis « claude » une fois dans un terminal pour se connecter"}
+
+
 def cli() -> dict:
-    """Commande de l'agent Cursor en ligne de commande, telle que réglée sur ce poste, et si elle est installée."""
+    """Commande de l'agent en ligne de commande (Cursor : agent ; Claude Code : claude -p), telle que réglée sur ce poste,
+    et si elle est installée."""
+    if agent() == "claude_code":
+        return _cli_claude()
     commande = os.environ.get("ATELIER_CURSOR_CLI", "").strip()
     candidats = [commande] if commande else ["agent", "cursor-agent"]
     trouvee = next((c for c in candidats if shutil.which(c)), "")
@@ -200,9 +240,10 @@ def cli() -> dict:
     force = _reglages().get("cli_force") is True
     if force and "--force" not in shlex.split(args):
         args += " --force"
-    return {"commande": trouvee or candidats[0], "trouvee": bool(trouvee), "arguments": args, "force": force,
+    return {"agent": "cursor", "commande": trouvee or candidats[0], "trouvee": bool(trouvee), "arguments": args, "force": force,
             "valide": "{demande}" in args, "delai_s": int(os.environ.get("ATELIER_CURSOR_CLI_DELAI", "900") or 900),
-            "mcp_du_projet": (projet.PROJECT_DIR / ".cursor" / "mcp.json").exists(), "permissions": permissions_cli()}
+            "mcp_du_projet": (projet.PROJECT_DIR / ".cursor" / "mcp.json").exists(), "permissions": permissions_cli(),
+            "installer": "Cursor › Paramètres › installer l'agent en ligne de commande (agent), ou ATELIER_CURSOR_CLI"}
 
 
 # --------------------------------------------------------------------------- ce que l'agent a le droit d'appeler
@@ -259,7 +300,7 @@ def verifier_cli(lanceur=None) -> dict:
     r = {"commande": c["commande"], "trouvee": c["trouvee"], "serveur": "inconnu", "detail": "", "a_faire": "",
          "permissions": c["permissions"]}
     if not c["trouvee"]:
-        r["a_faire"] = "Installer l'agent Cursor en ligne de commande, ou régler ATELIER_CURSOR_CLI sur son chemin."
+        r["a_faire"] = f"Installer {nom_agent()} en ligne de commande : {c['installer']}."
         return r
     exe = shutil.which(c["commande"])
     nom = Path(exe).name
@@ -283,7 +324,7 @@ def verifier_cli(lanceur=None) -> dict:
     elif "approval" in etat_:
         r["serveur"] = "a_approuver"
         r["a_faire"] = f"Dans un terminal, une fois : {nom} mcp enable {SERVEUR_MCP}"
-    elif etat_.startswith(("ready", "loaded", "connected")):
+    elif etat_.startswith(("ready", "loaded", "connected")) or "connected" in etat_ or "✓" in etat_:
         r["serveur"] = "charge"
     else:
         r["serveur"] = "en_erreur"
@@ -312,10 +353,9 @@ def _par_fichier(did: str, texte: str) -> str:
 def _ligne(texte: str, did: str = "") -> list[str]:
     c = cli()
     if not c["trouvee"]:
-        raise FileNotFoundError(f"Commande « {c['commande']} » introuvable : installer l'agent Cursor en ligne de commande, ou régler "
-                                "ATELIER_CURSOR_CLI sur son chemin.")
+        raise FileNotFoundError(f"{nom_agent()} en ligne de commande introuvable sur ce poste (« {c['commande']} ») : {c['installer']}.")
     if not c["valide"]:
-        raise ValueError("ATELIER_CURSOR_CLI_ARGS doit contenir {demande} (l'endroit où la demande est passée).")
+        raise ValueError("Les arguments de la ligne de commande doivent contenir {demande} (l'endroit où la demande est passée).")
     exe = shutil.which(c["commande"])
     if did and _lanceur_script(exe):  # lanceur Windows : la demande voyage dans un fichier du projet, pas dans l'argument
         texte = _par_fichier(did, texte)
@@ -353,11 +393,18 @@ def deposer(titre: str, texte: str, attendus: list[str] | None = None, ecran: st
     texte = str(texte or "").strip()
     if not texte:
         raise ValueError("Demande vide.")
+    regle = not mode
     mode = mode or envoi()
+    if regle and mode == "boite" and not _derniere_ecoute()["active"]:
+        c = cli()
+        if c["trouvee"] and c["valide"] and c.get("connecte", True):  # sinon la demande attendrait un agent qui ne vient pas
+            mode = "cli"
     if mode == "lien":
         raise ValueError("Mode d'envoi « lien » : la demande s'ouvre dans le chat de Cursor, rien n'est déposé.")
     if mode not in MODES:
         raise ValueError("Mode : boite ou cli.")
+    if mode == "cli" and not cli().get("connecte", True):  # Claude Code pas encore connecté : la demande attend dans la boîte
+        mode = "boite"
     if mode == "cli":
         _ligne(texte)  # commande absente ou mal réglée : dit tout de suite, rien n'est déposé
     did = uuid.uuid4().hex[:8]
@@ -380,6 +427,27 @@ def deposer(titre: str, texte: str, attendus: list[str] | None = None, ecran: st
     return d
 
 
+def _ligne_prete() -> bool:
+    c = cli()
+    return c["trouvee"] and c["valide"] and c.get("connecte", True)
+
+
+def relancer(did: str, lanceur=None) -> bool:
+    """Une demande restée dans la boîte part en ligne de commande dès que l'agent y est prêt (installé, connecté) et que
+    personne n'écoute la boîte. Rend True si elle est partie."""
+    d = next((x for x in _lire() if x["id"] == did), None)
+    if not d or d["statut"] != "en attente" or d.get("mode") != "boite" or _derniere_ecoute()["active"] or not _ligne_prete():
+        return False
+    _modifier(did, mode="cli")
+    threading.Thread(target=_executer_cli, args=(did, d["texte"], lanceur), daemon=True).start()
+    return True
+
+
+def relancer_en_attente(lanceur=None) -> list[str]:
+    """Au démarrage de l'atelier (ou quand l'agent devient prêt) : toutes les demandes en attente partent à l'agent."""
+    return [d["id"] for d in _lire() if d["statut"] == "en attente" and relancer(d["id"], lanceur)]
+
+
 def annuler(did: str) -> dict:
     d = next((x for x in _lire() if x["id"] == did), None)
     if not d:
@@ -387,6 +455,25 @@ def annuler(did: str) -> dict:
     if d["statut"] != "en attente":
         raise ValueError(f"Demande déjà {d['statut']} : seule une demande en attente s'annule.")
     return _modifier(did, statut="annulée", fini=_maintenant())
+
+
+def pret() -> dict:
+    """Une demande déposée maintenant sera-t-elle traitée ? Oui si l'agent est lancé en ligne de commande (installé et
+    connecté) ou s'il écoute la boîte ; sinon la raison et ce qu'il faut faire, pour ne jamais laisser croire qu'il travaille."""
+    nom, ecoute = nom_agent(), _derniere_ecoute()
+    if ecoute["active"]:
+        return {"pret": True, "comment": f"{nom} écoute la boîte de demandes", "raison": "", "a_faire": ""}
+    c = cli()
+    if c["trouvee"] and c["valide"] and c.get("connecte", True) and envoi() != "lien":
+        return {"pret": True, "comment": f"{nom} est lancé en ligne de commande à chaque demande", "raison": "", "a_faire": ""}
+    phrase = f"ou dire une fois à {nom} dans son chat : « {PHRASE_ECOUTE} »"
+    if agent() == "claude_code" and c["trouvee"] and not c.get("connecte", True):
+        return {"pret": False, "comment": "", "raison": "Claude Code n'est pas connecté sur ce poste",
+                "a_faire": f"dans un terminal : claude, puis /login ; {phrase}"}
+    if not c["trouvee"]:
+        return {"pret": False, "comment": "", "raison": f"{nom} n'est pas installé en ligne de commande et n'écoute pas la boîte",
+                "a_faire": f"{c['installer']} ; {phrase}"}
+    return {"pret": False, "comment": "", "raison": f"{nom} n'écoute pas la boîte de demandes", "a_faire": phrase[3:]}
 
 
 def etat(limite: int = 20) -> dict:

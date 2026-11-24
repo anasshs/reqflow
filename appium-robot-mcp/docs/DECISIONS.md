@@ -942,3 +942,77 @@ secrets inchangés) ; seul Appium tourne sur le Mac, derrière `agent_mac.py`. L
 Mac, épinglé), appairage par code affiché sur le Mac (preuve HMAC, le code ne circule pas ; 15 min, 5 essais, un seul
 usage), puis jeton (coffre du système côté atelier, empreinte SHA-256 côté Mac) ; adresses du réseau local seulement ;
 Appium du Mac sur 127.0.0.1. Détail : docs/POSTE_MAC.md.
+
+## 2026-11-24 — Navigation : deux chemins vers le test automatisé, et « Mes demandes »
+
+Constat de l'utilisateur : trop d'entrées dans la barre latérale (une vingtaine), aucune visibilité sur l'état d'une
+demande lancée (par exemple « automatiser » depuis le MBT), Accueil trop chargé. Décisions :
+- barre latérale courte : Accueil, Mes demandes, « Mon chemin » (4 étapes), Pilotage, Paramètres ; chaque écran reste
+  joignable sous l'étape à laquelle il sert (affiché quand on est dans cette étape) ;
+- deux chemins côte à côte, basculables en tête de « Mon chemin » : **Application** (Discovery, parcours, comportement →
+  scénarios → automatisation → exécution) et **User Stories** (US à concevoir → décider quoi automatiser → construire →
+  exécuter, le fil de docs/DE_L_US_AU_TEST_AUTOMATISE.md). L'Accueil montre les deux, avec les US comptées par étape ;
+  un écran propre à un chemin y fait basculer ; le repère d'étape en haut des écrans suit le chemin choisi ;
+- **Mes demandes** (#travaux) réunit les travaux de l'orchestrateur et les demandes déposées à l'agent, ce qui attend
+  une décision d'abord ; compteur toujours visible dans l'en-tête et la barre latérale ; message quand une demande se
+  termine ou échoue. Aucune décision n'est prise à la place de l'utilisateur (Valider / Refuser restent à lui) ;
+- le MBT propose « Automatiser ces scénarios » après la génération : la demande part à l'agent et se suit dans Mes demandes ;
+- Accueil : où j'en suis (les deux chemins), prochaine action, mes demandes, parcours ; le détail (six étapes de
+  qualification, livrables, informations, activités) est replié.
+
+## 2026-11-24 — Flux simple : générer le BDD → automatiser → publier dans Xray
+
+Demande de l'utilisateur : ne plus faire passer les tests par des statuts d'approbation. Le flux par défaut devient
+« simple » (atelier/generation/flux.py), réglable par projet (Lots TNR › Flux ; ATELIER_FLUX l'impose) :
+- trois statuts : Brouillon → Automatisé → Dans Xray ; deux actions : Automatiser, puis **Publier dans Xray** ;
+- la publication est la seule décision humaine : elle valide le scénario BDD et approuve ses scripts, tracés au nom de
+  l'utilisateur (« approuvé à la publication », journal de revue), puis publie au TNR (tests Xray, plan, campagne) ;
+- plus de quatre yeux, de run préalable obligatoire, ni de revue avant d'exécuter ; le dernier run réel s'affiche
+  comme une information ;
+- un travail de l'orchestrateur finit par « Publier dans Xray » au lieu de « Valider le BDD et approuver le script » ;
+- gardé quel que soit le flux : un contrôle de gravité haute (scénario sans résultat vérifié, défaut grave d'un script)
+  empêche la publication de ce scénario, avec la raison ; un test qui crée une donnée réelle (consomme_donnee) reste à
+  valider (ou dérogation) avant d'être exécuté ; une correction de test n'est pas déclarée fiable sans 3 runs stables et
+  revue humaine (invariant 5, maintenance).
+Le flux « complet » (Relire et valider → Automatiser → Vérifier → Publier au TNR, revue technique) reste disponible ;
+la suite de tests le fixe (conftest), le flux simple a ses tests (tests/test_flux.py).
+
+## 2026-11-24 — L'atelier en Kanban (écran de travail principal)
+
+Demande de l'utilisateur : un atelier orienté production, lisible comme un tableau Jira. L'écran **Atelier** (#atelier,
+atelier/generation/kanban.py, ecran_atelier.js) devient l'écran d'arrivée :
+- un couloir par parcours métier (carte parcours : À dérouler → Exploration → Tests extraits), une carte par test dans
+  la colonne de son état : À concevoir → BDD prêt → En automatisation → Automatisé → En run → Dans Xray ;
+- l'état d'une carte se déduit de ce qui existe (étapes du scénario, tests Robot portant sa clé, clé Xray publiée) ;
+- glisser une carte = transition : concevoir (agent), automatiser (agent puis dry-run), exécuter (run sur le téléphone
+  réservé), publier dans Xray (décision de l'utilisateur, flux simple). Chaque action longue est un travail de
+  l'orchestrateur : la carte reste dans la colonne visée avec un indicateur tant qu'il avance ; un échec reste affiché ;
+  une transition impossible est refusée avec la raison ;
+- « Ajouter un parcours » le cadre puis lance son exploration par l'agent (MCP, téléphone branché) et l'extraction de
+  son scénario BDD ; un clic sur une carte ouvre le ticket (scénario, tests, dernier run, Xray, historique) ;
+- barre latérale : Atelier, Tableau de bord, Mes demandes ; les écrans détaillés sont sous « Plus d'outils » (replié) ;
+  le Tableau de bord garde les vues Knowledge Graph, exécution en direct et couverture des tests.
+L'étape agent d'un travail suit désormais le mode d'envoi du projet (ligne de commande quand l'agent y est prêt) au lieu
+de forcer la boîte de demandes.
+
+### Complément (même jour) — backlog, User Stories, filtres
+- Colonnes plates : **À faire** (backlog) → En conception → BDD prêt → En automatisation → Automatisé → En run → Dans Xray.
+- Le backlog porte deux types de sujets : **parcours** (« + Parcours ») et **User Stories** (« + User Story » : clé, titre
+  et critères repris de Jira s'il est relié ; conception/kanban.yaml). « Couvrir et automatiser » en un clic : parcours
+  exploré, test extrait puis automatisé ; US : l'agent conçoit seulement les tests qui manquent à l'existant (tag
+  @<US>), puis les automatise. Un sujet couvert quitte les colonnes et reste un filtre, avec sa progression.
+- Un test appartient à ses sujets (parcours ; US par tag, exigence ou création pendant le travail de l'US) : filtrer sur un
+  sujet montre ses tests dans leurs colonnes, et un nouveau test y apparaît.
+- Tickets reconnaissables par type (icône et couleur : parcours violet, US orange, test bleu), filtres par sujet, type et
+  texte, mémorisés dans le navigateur.
+
+### Complément (même jour) — le ticket parcours
+- **Enrichir par le MBT** : construit (ou actualise) le modèle comportemental du parcours et propose les chemins que ses
+  tests ne couvrent pas encore, comme cartes **à qualifier** dans le ticket (badge « N proposition(s) MBT à qualifier »).
+  « Ajouter » crée le scénario BDD rattaché au parcours (il rejoint « BDD prêt ») ; « Écarter » : plus reproposé.
+  Rien n'entre dans le Kanban sans accord (conception/kanban.yaml : propositions, rejets).
+- **Jeu de données de la Discovery** : changer le profil de données du parcours et le redérouler (exploration +
+  extraction, sans réautomatiser l'existant) : d'autres données ouvrent d'autres écrans, donc d'autres scénarios.
+- **Rejouer ses tests** (parcours ou User Story) : en local (run sur le téléphone, rien dans Xray), ou en exécution TNR
+  (Test Execution dans le plan TNR de la campagne, transitions Jira, environnement ; tests publiés seulement). L'étape
+  « run » de l'orchestrateur accepte une liste de tests et des paramètres de run (Xray).

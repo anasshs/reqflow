@@ -126,8 +126,35 @@ def decider(tid: str, etape: str, accepter: bool, commentaire: str = "") -> dict
         if not accepter:
             t["statut"] = "arrete"
     t = _modifier(tid, f)
+    e = next(x for x in t["etapes"] if x["id"] == etape)
+    if accepter and e.get("action") == "publier_xray":  # flux simple : la décision est la publication (hors verrou : Xray)
+        t = _publier_xray(tid, e)
     _emettre(t)
     return t
+
+
+def _publier_xray(tid: str, e: dict) -> dict:
+    """Publie le scénario BDD du travail dans Xray (generation/flux.publier) ; un échec laisse l'étape en échec, à reprendre."""
+    from atelier.generation import flux
+
+    t = obtenir(tid)
+    cle = (e.get("params") or {}).get("bdd") or (t.get("contexte") or {}).get("bdd")
+    try:
+        if not cle:
+            raise ValueError("aucun scénario BDD dans ce travail")
+        r = flux.publier([cle])
+        if r["erreurs"]:
+            raise ValueError("; ".join(f"{x['scenario']} : {x['erreur']}" for x in r["erreurs"]))
+        texte, erreur = "publié dans Xray : " + ", ".join(x["xray"] or x["scenario"] for x in r["publies"]), ""
+    except Exception as ex:  # noqa: BLE001 - Xray indisponible, contrôle bloquant… : dit sur l'étape
+        texte, erreur = "", f"Publication impossible : {str(ex)[:300]}"
+
+    def maj(t):
+        x = next(y for y in t["etapes"] if y["id"] == e["id"])
+        x.update(statut="echec" if erreur else "fait", resultat=texte, erreur=erreur)
+        if erreur:
+            t["statut"] = "echec"
+    return _modifier(tid, maj)
 
 
 def reprendre(tid: str) -> dict:
@@ -156,8 +183,21 @@ def annuler(tid: str) -> dict:
                 e["statut"] = "annule"
     t = _modifier(tid, f)
     _liberer(tid)
+    _retirer_demandes(t)
     _emettre(t)
     return t
+
+
+def _retirer_demandes(t: dict):
+    """Demandes à l'agent de ce travail encore dans la boîte : retirées (sinon l'agent ferait un travail annulé)."""
+    from atelier.integrations import boite_cursor
+
+    for d in boite_cursor.etat(200)["demandes"]:
+        if d.get("travail") == t["id"] and d.get("statut") == "en attente":
+            try:
+                boite_cursor.annuler(d["id"])
+            except (KeyError, ValueError):
+                pass
 
 
 # --------------------------------------------------------------------------- ressources : téléphones
@@ -277,8 +317,11 @@ def _etape_ia(t: dict, e: dict):
         texte = e["params"].get("texte", "")
         for k, v in t["contexte"].items():  # ce que les étapes précédentes ont produit (clé BDD, fichier…)
             texte = texte.replace("{" + k + "}", str(v))
+        # mode réglé pour le projet (ligne de commande : l'agent est lancé tout de suite) ; la boîte si le lien est réglé
+        # (un lien profond ne sert pas un travail en arrière-plan), ou si l'agent n'est pas prêt en ligne de commande
+        mode = "boite" if boite_cursor.envoi() == "lien" else ""
         d = boite_cursor.deposer(e["titre"], texte, attendus=e["params"].get("attendus") or [], ecran=t["origine"].get("ecran", ""),
-                                 mode="boite", prioritaire=True, agent=e.get("agent", ""), travail=t["id"])
+                                 mode=mode, prioritaire=True, agent=e.get("agent", ""), travail=t["id"])
         e.update(statut="en_cours", debut=_maintenant(), resultat=f"demande {d['id']} déposée pour {e.get('agent') or 'l’agent'}",
                  demande=d["id"])
         return
@@ -291,14 +334,23 @@ def _etape_ia(t: dict, e: dict):
         e.update(statut="echec", fin=_maintenant(), erreur=str(d.get("erreur") or d["statut"])[:600])
     elif d["statut"] == "prise" and "prise" not in e["resultat"]:
         e["resultat"] = f"demande {d['id']} prise par l’agent"
+    elif d["statut"] == "en attente" and boite_cursor.relancer(d["id"]):  # l'agent est devenu prêt (connexion faite) : elle part
+        e["resultat"] = f"demande {d['id']} lancée en ligne de commande"
 
 
 def _tests_du_bdd(*tags: str) -> list[str]:
-    """Tests Robot qui portent en tag la clé du scénario BDD ou l'identifiant du travail (consigne donnée à l'agent)."""
+    """Tests Robot qui portent en tag la clé du scénario BDD, sa clé Xray (après publication, le tag local est remplacé
+    par la clé du test Xray) ou l'identifiant du travail (consigne donnée à l'agent)."""
     from atelier.execution import depot_robot
 
     inv = depot_robot.lire_depot()
     voulus = {x for x in tags if x}
+    try:
+        from atelier.generation import conception
+
+        voulus |= {conception.cle_xray_du_scenario(x) for x in list(voulus)} - {""}
+    except Exception:  # noqa: BLE001 — publications illisibles : les tags locaux suffisent
+        pass
     return [i for i, x in inv["tests"].items() if voulus & set(x.get("tags") or [])]
 
 
@@ -331,7 +383,7 @@ def _etape_run(t: dict, e: dict, dry_run: bool):
             e.update(statut="attente_ressource", resultat="file d'exécution indisponible (atelier non démarré)")
             return
         cle = t["contexte"].get("bdd") or e["params"].get("bdd", "")
-        tests = _tests_du_bdd(cle, t["id"])
+        tests = list(e["params"].get("tests") or []) or _tests_du_bdd(cle, t["id"])  # tests donnés (rejeu d'un sujet), sinon ceux du scénario
         if not tests:
             e.update(statut="echec", fin=_maintenant(), erreur=f"aucun test Robot ne porte le tag {cle or t['id']} : l'automatisation n'a pas abouti")
             return
@@ -343,9 +395,13 @@ def _etape_run(t: dict, e: dict, dry_run: bool):
 
         sel = robot.selection_tests(tests)
         variables = {"PLATFORM": t.get("plateforme") or "android", **({"UDID": udid} if udid else {})}
-        r = HOOKS["mettre_en_file"]({"target": sel["cible"], "tests": tests, "dry_run": dry_run, "variables": variables,
-                                     "jdd_env": t.get("env") or "", "xray_mode": "aucun"}, "High", "",
-                                    f"{t['titre']} · {'dry-run' if dry_run else 'run'}")
+        params = {"target": sel["cible"], "tests": tests, "dry_run": dry_run, "variables": variables,
+                  "jdd_env": t.get("env") or "", "xray_mode": "aucun"}
+        extra = dict(e["params"].get("run_params") or {})  # exécution TNR : Test Execution du plan TNR, transitions Jira
+        if extra.get("xray_ticket") and not dry_run:
+            params.pop("xray_mode")
+        params.update({k: v for k, v in extra.items() if v})
+        r = HOOKS["mettre_en_file"](params, "High", "", f"{t['titre']} · {'dry-run' if dry_run else 'run'}")
         e.update(statut="en_cours", debut=_maintenant(), run_id=r["run_id"], telephone=udid,
                  resultat=f"{'dry-run' if dry_run else 'run'} {r['run_id']} en file" + (f" sur {udid}" if udid else ""))
         t["contexte"]["tests"] = tests

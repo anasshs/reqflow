@@ -1,6 +1,8 @@
 /* Accueil de l'application (#dashboard) et Activités (#activites).
-   Ordre fixe : en-tête de l'application, parcours de qualification (six étapes et leur statut), prochaine action
-   recommandée, parcours fonctionnels, livrables, informations clés et activités récentes. Trois vues complémentaires,
+   Trois questions d'abord, dans cet ordre : où j'en suis (les deux chemins vers le test automatisé, « depuis
+   l'application » et « depuis les User Stories », quatre étapes chacun, comme la barre latérale), que faire
+   maintenant (prochaine action recommandée), où en sont mes demandes (à décider, en cours). Puis les parcours fonctionnels.
+   Le détail (six étapes de qualification, livrables, informations clés, activités) est replié en bas. Trois vues complémentaires,
    jamais fondues en un pourcentage global : où en est la qualification (étapes), sur quoi on travaille (parcours),
    ce qui a réellement été produit (livrables). Les tableaux de bord de pilotage sont dans #pilotage. */
 "use strict";
@@ -59,6 +61,38 @@
       ${pastille(e.statut, e.statut_libelle)}
       <span class="lib acc-maj">${e.maj ? `MAJ : ${quand(e.maj)}` : "&nbsp;"}</span>
       <ul class="acc-details">${(e.details || []).map(d => `<li class="${esc(d.ton)}">${TON[d.ton] ? ico(TON[d.ton]) : ""}<span>${esc(d.texte)}</span></li>`).join("")}</ul></a>`;
+
+  /* ------------------------------------------------------------------ où j'en suis : les quatre étapes du chemin */
+  function chemin(c) {
+    const ici = (c.suivante && c.suivante.etape) || (c.etapes.find(e => !e.fait) || {}).id;
+    return c.etapes.map(e => `<a class="acc-pas ${e.fait ? "fait" : ""} ${e.id === ici ? "ici" : ""}" href="${esc(e.lien)}">
+      <span class="acc-num">${e.fait ? ico("check") : e.num}</span><span><b>${esc(e.titre)}</b><span class="lib">${esc(e.detail)}</span></span></a>`).join("");
+  }
+
+  /* le chemin des User Stories : les US du projet par étape du fil (strategie.ETAPES_FIL), regroupées en quatre */
+  function cheminUs(r) {
+    const n = id => (r.etapes.find(e => e.id === id) || {}).us || 0, total = r.etapes.reduce((s, e) => s + e.us, 0);
+    if (!total) return `<p class="lib" style="margin:0">Aucune User Story pour ce projet : ajouter l'espace Jira de l'équipe dans
+      <a href="#conception/us" data-piste-acc="us" class="acc-pas-lien">Test Design › À concevoir</a> (ou importer la copie Xray). Les US et leur étape s'afficheront ici.</p>`;
+    const pas = [["conception", 1, "Concevoir depuis les US", n("a_concevoir"), `${n("a_concevoir")} US sans test`],
+      ["studio/candidats", 2, "Décider quoi automatiser", n("a_decider"), `${n("a_decider")} US à décider`],
+      ["studio/direct", 3, "Construire les tests", n("a_construire") + n("en_construction"), `${n("a_construire")} à construire · ${n("en_construction")} en construction`],
+      ["centre/lancer", 4, "Exécuter", 0, `${n("automatisee")} US automatisée(s) sur ${total}`]];
+    const ici = (pas.find(p => p[3] > 0) || pas[3])[0];
+    return `<nav class="acc-chemin" aria-label="Chemin des User Stories">${pas.map(([lien, num, titre, reste, detail]) =>
+      `<a class="acc-pas ${num < 4 && !reste ? "fait" : ""} ${lien === ici ? "ici" : ""}" href="#${lien}" data-piste-acc="us">
+        <span class="acc-num">${num < 4 && !reste ? ico("check") : num}</span><span><b>${esc(titre)}</b><span class="lib">${esc(detail)}</span></span></a>`).join("")}</nav>`;
+  }
+
+  /* ------------------------------------------------------------------ mes demandes */
+  const CL_D = {a_decider: "warn", en_attente: "", en_cours: "info", termine: "ok", echec: "ko", annule: ""};
+  function demandes(r) {
+    const l = r.demandes.filter(x => ["a_decider", "en_cours", "en_attente", "echec"].includes(x.etat)).slice(0, 5);
+    return `<h2 class="titre-carte">Mes demandes<span class="actions-titre"><a href="#travaux">Tout voir</a></span></h2><div class="corps-carte">
+      ${l.length ? `<ul class="acc-dm">${l.map(x => `<li><a href="#travaux"><span class="pill ${CL_D[x.etat] || ""}">${esc(x.etat_libelle)}</span>
+          <span class="acc-dm-t">${esc(x.titre)}</span></a></li>`).join("")}</ul>`
+        : `<p class="lib" style="margin:0">Rien en cours. Quand tu demandes d'automatiser un cas ou de corriger un test, son état s'affiche ici et en haut à droite.</p>`}</div>`;
+  }
 
   /* ------------------------------------------------------------------ parcours fonctionnels */
   const CL_P = {valide: "ok", en_cours: "info", a_completer: "warn", non_demarre: ""};
@@ -120,8 +154,12 @@
       const majRun = async () => {  // la carte « Run en direct » dit s'il y a un run à suivre
         const d = await api("/api/execution/direct").catch(() => null), r = d && (d.en_cours || null), el = document.getElementById("acc-run-etat");
         if (!el) return;
-        el.textContent = r ? `En cours : ${r.nom || r.id} · ${r.termines || 0}/${r.total || 0} tests${r.courant ? " · " + r.courant : ""}` : "Aucun run en cours : le dernier run reste consultable";
-        document.getElementById("acc-run")?.classList.toggle("acc-run-actif", !!r);
+        el.textContent = r ? `${r.nom || r.id} · ${r.termines || 0}/${r.total || 0} tests${r.courant ? " · " + r.courant : ""}` : "";
+        const b = document.getElementById("acc-run");
+        if (b) { b.hidden = !r; b.classList.toggle("acc-run-actif", !!r); }
+        const v = document.getElementById("acc-vue-run-etat");
+        if (v) { v.textContent = r ? `En cours : ${r.nom || r.id} · ${r.termines || 0}/${r.total || 0} tests` : "Aucun run en cours : le dernier reste consultable";
+          document.getElementById("acc-vue-run")?.classList.toggle("acc-vue-active", !!r); }
       };
       (window.__accRunAbos || []).forEach(f => f());  // une seule série d'abonnements, même après plusieurs visites
       window.__accRunAbos = ["run_lance", "test_debut", "test_fin", "run_bilan"].map(t => Atelier.on(t, majRun));
@@ -129,28 +167,55 @@
       const j = jeton, c = Atelier.ctx || {}, appli = (c.applications || []).find(x => x.slug === c.application) || {};
       z.className = "g-accueil";
       z.innerHTML = `<header class="acc-tete" id="acc-tete">${entete({nom: appli.nom || c.application, slug: c.application})}</header>
-        <a class="carte acc-run" id="acc-run" href="#run-graphe" title="Graphe du run en direct, en plein écran : écrans en cours de test, actions et résultats">
-          <span class="acc-run-ico">${ico("execution")}</span><span class="acc-run-txt"><b>Graphe du run en direct</b><span class="lib" id="acc-run-etat">Aucun run en cours</span></span>
-          <span class="btn primaire petit">Ouvrir en plein écran</span></a>
-        <section class="carte acc-qualif"><h2 class="titre-carte">Parcours de qualification
-          <span class="acc-aide" title="Où en est l'activité de qualification de l'application, étape par étape. Un statut se déduit de ce qui existe réellement ; aucune note globale.">${ico("aide")}</span></h2>
-          <div class="corps-carte"><div class="acc-etapes" id="acc-etapes">${[1, 2, 3, 4, 5, 6].map(n => `<div class="acc-etape e${n} attente"><span class="acc-num">${n}</span></div>`).join("")}</div></div></section>
-        <div class="acc-grille">
-          <div class="acc-col">
-            <section class="acc-reco" id="acc-reco"><div class="lib">Calcul de la prochaine action…</div></section>
-            <section class="carte"><h2 class="titre-carte">Parcours fonctionnels<span class="actions-titre"><a href="#discovery/cadrage">Voir tous les parcours</a></span></h2>
-              <div id="acc-parcours"><div class="corps-carte">${vide("Chargement…")}</div></div></section>
-            <section class="carte" id="acc-livrables"><h2 class="titre-carte">Livrables</h2><div class="corps-carte">${vide("Lecture des livrables…")}</div></section>
-          </div>
-          <div class="acc-col">
-            <section class="carte" id="acc-infos"><h2 class="titre-carte">Informations clés</h2><div class="corps-carte">${vide("Chargement…")}</div></section>
-            <section class="carte" id="acc-activites"><h2 class="titre-carte">Activités récentes</h2><div class="corps-carte">${vide("Chargement…")}</div></section>
-          </div>
-        </div>`;
+        <nav class="acc-vues" aria-label="Vues">
+          <a class="acc-vue" href="#atelier">${ico("grille")}<span><b>Atelier</b><span class="lib">Parcours et tests en Kanban : glisser, l'atelier fait le reste</span></span></a>
+          <a class="acc-vue" href="#graphe">${ico("graphe")}<span><b>Knowledge Graph</b><span class="lib">Modules, écrans, parcours et tests reliés</span></span></a>
+          <a class="acc-vue" href="#run-graphe" id="acc-vue-run">${ico("execution")}<span><b>Exécution en direct</b><span class="lib" id="acc-vue-run-etat">Aucun run en cours</span></span></a>
+          <a class="acc-vue" href="#couverture">${ico("check")}<span><b>Couverture des tests</b><span class="lib">Parcours, écrans, tests × écrans</span></span></a>
+        </nav>
+        <section class="acc-pistes" aria-label="Où j'en suis">
+          <div class="acc-piste-tete">De l'application au test automatisé <span class="lib">Discovery, parcours, comportement → scénarios → automatisation → exécution</span></div>
+          <nav class="acc-chemin" id="acc-chemin" aria-label="Chemin de l'application">${[1, 2, 3, 4].map(n => `<span class="acc-pas attente"><span class="acc-num">${n}</span></span>`).join("")}</nav>
+          <div class="acc-piste-tete">Des User Stories au test automatisé <span class="lib">US → cas de test → décision → construction → exécution</span></div>
+          <div id="acc-chemin-us"><nav class="acc-chemin">${[1, 2, 3, 4].map(n => `<span class="acc-pas attente"><span class="acc-num">${n}</span></span>`).join("")}</nav></div>
+        </section>
+        <div class="acc-haut">
+          <section class="acc-reco" id="acc-reco"><div class="lib">Calcul de la prochaine action…</div></section>
+          <section class="carte" id="acc-demandes"><h2 class="titre-carte">Mes demandes</h2><div class="corps-carte">${vide("Chargement…")}</div></section>
+        </div>
+        <a class="carte acc-run" id="acc-run" href="#run-graphe" hidden title="Graphe du run en direct, en plein écran : écrans en cours de test, actions et résultats">
+          <span class="acc-run-ico">${ico("execution")}</span><span class="acc-run-txt"><b>Un run est en cours</b><span class="lib" id="acc-run-etat"></span></span>
+          <span class="btn primaire petit">Suivre en direct</span></a>
+        <section class="carte"><h2 class="titre-carte">Parcours fonctionnels<span class="actions-titre"><a href="#discovery/cadrage">Voir tous les parcours</a></span></h2>
+          <div id="acc-parcours"><div class="corps-carte">${vide("Chargement…")}</div></div></section>
+        <details class="acc-detail" id="acc-detail"><summary>Détail : qualification en six étapes, livrables, informations, activités</summary>
+          <section class="carte acc-qualif"><h2 class="titre-carte">Parcours de qualification
+            <span class="acc-aide" title="Où en est l'activité de qualification de l'application, étape par étape. Un statut se déduit de ce qui existe réellement ; aucune note globale.">${ico("aide")}</span></h2>
+            <div class="corps-carte"><div class="acc-etapes" id="acc-etapes">${[1, 2, 3, 4, 5, 6].map(n => `<div class="acc-etape e${n} attente"><span class="acc-num">${n}</span></div>`).join("")}</div></div></section>
+          <div class="acc-grille">
+            <div class="acc-col"><section class="carte" id="acc-livrables"><h2 class="titre-carte">Livrables</h2><div class="corps-carte">${vide("Lecture des livrables…")}</div></section></div>
+            <div class="acc-col">
+              <section class="carte" id="acc-infos"><h2 class="titre-carte">Informations clés</h2><div class="corps-carte">${vide("Chargement…")}</div></section>
+              <section class="carte" id="acc-activites"><h2 class="titre-carte">Activités récentes</h2><div class="corps-carte">${vide("Chargement…")}</div></section>
+            </div>
+          </div></details>`;
+      try { if (localStorage.getItem("acc-detail") === "ouvert") $("#acc-detail", z).open = true; } catch { /* préférence non mémorisée */ }
+      $("#acc-detail", z).ontoggle = e => { try { localStorage.setItem("acc-detail", e.target.open ? "ouvert" : "ferme"); } catch { /* idem */ } };
+      api("/api/chemin").then(c => { if (j === jeton && c && c.etapes) poser("acc-chemin", chemin(c)); }).catch(() => poser("acc-chemin", ""));
+      api("/api/studio/candidats").then(r => { if (j === jeton && r && r.etapes) poser("acc-chemin-us", cheminUs(r)); })
+        .catch(e => poser("acc-chemin-us", `<p class="lib" style="margin:0">Chemin des US indisponible : ${esc(e.message)}</p>`));
+      /* un clic sur une étape d'un chemin bascule la barre latérale sur ce chemin */
+      if (window.__accPiste) z.removeEventListener("click", window.__accPiste);  // un seul écouteur, même après plusieurs visites
+      window.__accPiste = e => { const a = e.target.closest(".acc-pas[href], .acc-pas-lien"); if (a) Atelier.choisirPiste(a.dataset.pisteAcc || "app"); };
+      z.addEventListener("click", window.__accPiste);
+      const majDemandes = r => { if (j === jeton && r && r.demandes) poser("acc-demandes", demandes(r)); };
+      if (Atelier.demandes) majDemandes(Atelier.demandes);
+      api("/api/demandes").then(majDemandes).catch(() => poser("acc-demandes", `<h2 class="titre-carte">Mes demandes</h2><div class="corps-carte">${vide("Indisponible")}</div>`));
+      const desaboDm = Atelier.on("demandes", majDemandes);
       brancherActions();
       livrables(j);
       const desabo = Atelier.on("contexte", () => { if (j === jeton && A) poser("acc-infos", informations(A.application || {})); });
-      this.quitter = () => desabo();
+      this.quitter = () => { desabo(); desaboDm(); };
       let a;
       try { a = A = await api("/api/accueil"); } catch (e) {
         if (j === jeton) poser("acc-etapes", vide("Indisponible", esc(e.message)));
@@ -163,7 +228,7 @@
       const s = a.suivante;
       const ou = s ? (a.etapes.find(e => e.id === s.etape) || {}) : {};
       poser("acc-reco", s ? `<span class="acc-reco-ico">${ico("eclair")}</span><div><b>Prochaine action recommandée</b>
-          ${ou.num ? `<span class="lib"> · étape ${ou.num} · ${esc(ou.titre)}</span>` : ""}<p>${esc(s.texte)}</p></div>
+          ${ou.titre ? `<span class="lib"> · ${esc(ou.titre)}</span>` : ""}<p>${esc(s.texte)}</p></div>
           <a class="btn primaire" href="${esc(s.lien)}">${esc(s.bouton)} ${ico("fleche")}</a>` : `<div class="lib">Aucune action recommandée.</div>`);
       poser("acc-parcours", parcours(a.parcours || []));
       poser("acc-infos", informations(a.application || {}));

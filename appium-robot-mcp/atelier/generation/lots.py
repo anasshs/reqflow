@@ -22,6 +22,13 @@ from atelier.domain.yaml_rapide import charger as charger_yaml
 
 from atelier.domain.cycle import STATUTS_SCENARIO as STATUTS  # définition unique du cycle
 SANS_LOT = "sans-lot"
+STATUTS_SIMPLES = ("Brouillon", "Automatisé", "Dans Xray")  # flux simple (generation/flux.py) : générer → automatiser → publier
+
+
+def statuts() -> tuple:
+    from atelier.generation import flux
+
+    return STATUTS_SIMPLES if flux.simple() else STATUTS
 
 
 def _fichier():
@@ -96,6 +103,17 @@ def _ligne(m: dict, tests: list[dict], au_tnr: set, cle_xray: str) -> dict:
     verifie = automatise and all(t["verifie"] for t in tests)
     tnr = bool(cle_xray) and cle_xray in au_tnr
     atteint = [valide, automatise, verifie, tnr]
+    from atelier.generation import flux
+
+    if flux.simple():  # aucune approbation : le scénario généré s'automatise, puis se publie ; le run est une information
+        statut = STATUTS_SIMPLES[2 if tnr else 1 if automatise else 0]
+        action = None if tnr else {"id": "publier", "libelle": "Publier dans Xray"} if automatise else {"id": "automatiser", "libelle": "Automatiser"}
+        echec = next((t["dernier"] for t in tests if t.get("dernier") and t["dernier"]["statut"] != "PASS"), None)
+        return {"cle": m["cle"], "titre": m.get("titre") or m["cle"], "module": m.get("module", ""), "jdd": m.get("jdd", ""),
+                "lot": m.get("lot") or SANS_LOT, "exigences": m.get("exigences") or [], "xray": cle_xray, "statut": statut,
+                "a_revoir": [], "etapes": {"automatise": automatise, "au_tnr": tnr}, "verifie": verifie,
+                "tests": [{"id": t["id"], "nom": t["nom"], "verifie": t["verifie"], "dernier": t.get("dernier"), "suite": t["suite"]} for t in tests],
+                "echec": echec, "action": action}
     statut = STATUTS[max([0] + [i + 1 for i, ok in enumerate(atteint) if ok])]
     a_revoir = [STATUTS[i + 1] for i in range(STATUTS.index(statut) - 1) if not atteint[i]]
     echec = next((t["dernier"] for t in tests if t.get("dernier") and t["dernier"]["statut"] != "PASS"), None)
@@ -117,7 +135,7 @@ def _ligne(m: dict, tests: list[dict], au_tnr: set, cle_xray: str) -> dict:
 def vue(lot: str = "") -> dict:
     """Lots et, pour le lot demandé (ou tous), une ligne par scénario : statut unique, étapes, prochaine action."""
     from atelier.execution import centre
-    from atelier.generation import bdd, conception, tnr
+    from atelier.generation import bdd, conception, flux, tnr
 
     conv = tnr.conventions()
     camp = next((c for c in centre.campagnes() if c["id"] == conv["campagne"]), None) if conv["campagne"] else None
@@ -138,11 +156,11 @@ def vue(lot: str = "") -> dict:
         lignes.append(_ligne({**m, "cle": b["cle"]}, tests, au_tnr, conception.cle_xray_du_scenario(b["cle"])))
     resume = {}
     for x in lignes:
-        r = resume.setdefault(x["lot"], {s: 0 for s in STATUTS})
+        r = resume.setdefault(x["lot"], {s: 0 for s in statuts()})
         r[x["statut"]] += 1
-    liste = [{"id": k, **v, "compte": resume.get(k, {s: 0 for s in STATUTS})} for k, v in lots.items()]
+    liste = [{"id": k, **v, "compte": resume.get(k, {s: 0 for s in statuts()})} for k, v in lots.items()]
     if SANS_LOT in resume:
         liste.append({"id": SANS_LOT, "nom": "Sans lot", "parcours": "", "description": "", "compte": resume[SANS_LOT]})
     return {"lots": liste, "conventions": conv, "campagne": camp and {k: camp.get(k) for k in ("id", "nom", "plan_xray", "derniere_execution", "dernier_statut", "taux_reussite")},
-            "scenarios": [x for x in lignes if not lot or x["lot"] == lot], "statuts": list(STATUTS)}
+            "scenarios": [x for x in lignes if not lot or x["lot"] == lot], "statuts": list(statuts()), "flux": flux.etat()}
 

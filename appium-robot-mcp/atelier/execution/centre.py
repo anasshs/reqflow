@@ -172,6 +172,10 @@ def controle_revue(target: str, dry_run: bool = False, derogation: str = "", tes
     revues = studio.revues_scripts()
     concernes = {f: x for f, x in revues.items() if cible and (f == cible or f.startswith(cible + "/"))}
     non_valides = sorted(f for f, x in concernes.items() if x.get("en_workflow") and x["statut"] not in ("Approved", "Published"))
+    from atelier.generation import flux
+
+    if flux.simple():  # aucune approbation avant d'exécuter ; seul un script qui crée une donnée réelle reste à valider
+        non_valides = [f for f in non_valides if _consomme_donnee(f)]
     res = {"politique": politique_revue(), "non_valides": non_valides, "derogation": False}
     if not non_valides or dry_run:
         return res
@@ -184,6 +188,16 @@ def controle_revue(target: str, dry_run: bool = False, derogation: str = "", tes
                               "ou lancer avec une dérogation justifiée.")
     _journal_derogation(target, non_valides, derogation.strip())
     return {**res, "derogation": True}
+
+
+def _consomme_donnee(fichier: str) -> bool:
+    """La suite porte-t-elle un test tagué consomme_donnee (il crée une donnée réelle à chaque run) ? Illisible : oui."""
+    from atelier.domain import projet
+
+    try:
+        return "consomme_donnee" in projet.safe_path(fichier).read_text("utf-8")
+    except (OSError, ValueError):
+        return True
 
 
 def _journal_derogation(target: str, fichiers: list[str], justification: str):

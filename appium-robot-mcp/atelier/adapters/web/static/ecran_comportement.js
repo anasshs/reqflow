@@ -374,8 +374,17 @@
           <span class="pill" title="${esc(c.comparaison.raison || "")}">${esc(c.comparaison.classe)}${c.comparaison.nuance ? ` · ${esc(c.comparaison.nuance)}` : ""}</span>${c.a_confirmer ? `<span class="pill warn">${c.a_confirmer} à confirmer</span>` : ""}
           <button class="btn petit" data-trace="${esc(c.cle)}">Traçabilité</button></li>`).join("") || "<li class='lib'>Aucun.</li>"}</ul>
         ${r.ignores.length ? `<h3 class="lib">RÉUTILISÉS : DÉJÀ COUVERTS PAR UN SCÉNARIO EXISTANT (${r.ignores.length})</h3><ul class="liste">${r.ignores.map(x => `<li>${esc(x.titre)} ≈ <a class="lien" href="#bdd/${encodeURIComponent(x.scenario)}">${esc(x.scenario)}</a> <span class="lib">${esc(x.raison)}</span></li>`).join("")}</ul>
-          <button class="btn petit" id="mb-forcer">Créer quand même</button>` : ""}`;
+          <button class="btn petit" id="mb-forcer">Créer quand même</button>` : ""}
+        ${r.crees.length ? `<div class="bloc-strat" style="margin-top:12px"><b>Étape suivante : automatiser</b>
+          <p class="lib" style="margin:4px 0 8px">Les scénarios créés sont des brouillons : les relire dans Tests BDD, ou demander tout de suite à l'agent de les automatiser.
+            La demande et son état s'affichent dans « Mes demandes » (en haut à droite) ; tu peux continuer ici.</p>
+          <button class="btn primaire" id="mb-auto">${ico("editeur")}Automatiser ces ${r.crees.length} scénario(s)</button></div>` : ""}`;
       if ($("#mb-forcer")) $("#mb-forcer").onclick = () => confirm("Créer ces scénarios malgré les doublons ?") && go(true);
+      if ($("#mb-auto")) $("#mb-auto").onclick = async () => {
+        const cles = r.crees.map(c => c.cle);
+        await window.DemanderCursor(`Automatiser ${cles.join(", ")} (MBT)`,
+          `Automatise le(s) scénario(s) BDD ${cles.join(", ")} issus du modèle comportemental : studio_generer_depuis_bdd (ecrire=True), relis les keywords générés depuis les étapes, complète ceux restés « À implémenter », puis dry-run.`, null, ["studio_generer_depuis_bdd"]);
+      };
       $$("[data-trace]").forEach(b => b.onclick = () => tracabilite(b.dataset.trace));
       S.choix.clear();
     }

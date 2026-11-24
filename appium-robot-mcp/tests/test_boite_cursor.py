@@ -282,3 +282,72 @@ def test_option_force_choix_explicite(boite, projet, monkeypatch, tmp_path):
     assert boite.cli()["arguments"] == "-p {demande} --force"                 # jamais en double
     monkeypatch.delenv("ATELIER_CURSOR_CLI_ARGS")
     assert boite.regler_force(False)["cli"]["force"] is False and "--force" not in boite.cli()["arguments"]
+
+
+def test_claude_code_en_ligne_de_commande(boite, projet, monkeypatch, tmp_path):
+    """Avec Claude Code, une demande part tout de suite en ligne de commande (claude -p) dans le projet de tests, avec le
+    MCP de l'atelier (.mcp.json) et ses seuls outils autorisés ; personne n'a à « écouter la boîte »."""
+    monkeypatch.setenv("ATELIER_CLAUDE_CLI", _faux_agent(tmp_path))
+    monkeypatch.delenv("ATELIER_CLAUDE_CLI_ARGS", raising=False)
+    monkeypatch.setattr(boite, "_claude_connecte", lambda: True)
+    boite.regler_envoi("lien")
+    e = boite.regler_agent("claude_code")
+    assert e["envoi"] == "cli" and e["cli"]["trouvee"] and e["cli"]["agent"] == "claude_code"   # lien → ligne de commande
+    assert e["cli"]["permissions"]["accordee"]
+    boite.regler_envoi("boite")                                            # réglé sur la boîte, mais personne n'écoute
+    d = boite.deposer("Construire DEMO-1", "Construis le test DEMO-1.", attendre=True)
+    assert d["mode"] == "cli" and d["statut"] == "terminée"                # lancé sans attendre un agent à l'écoute
+    args = d["resultat"].split("ARGS=")[1].splitlines()[0].split("|")
+    assert args[:2] == ["-p", "Construis le test DEMO-1."]
+    assert args[2:] == ["--output-format", "text", "--mcp-config", ".mcp.json", "--allowedTools", "mcp__appium-robot"]
+    assert d["resultat"].split("CWD=")[1].strip().endswith(projet.name)       # lancé dans le projet de tests
+
+
+def test_boite_ecoutee_reste_la_boite(boite, projet, monkeypatch, tmp_path):
+    from atelier.adapters import facade
+
+    monkeypatch.setenv("ATELIER_CLAUDE_CLI", _faux_agent(tmp_path))
+    monkeypatch.setattr(boite, "_claude_connecte", lambda: True)
+    boite.regler_agent("claude_code")
+    boite.regler_envoi("boite")
+    facade.atelier_demande_suivante(0)                                     # un agent écoute la boîte
+    assert boite.deposer("X", "Fais x.")["mode"] == "boite"
+
+
+def test_claude_code_absent_dit_comment_l_installer(boite, projet, monkeypatch):
+    monkeypatch.setenv("ATELIER_CLAUDE_CLI", "claude-introuvable")
+    boite.regler_agent("claude_code")
+    assert boite.etat()["envoi"] == "boite"                                # rien d'installé : la boîte, sans erreur
+    with pytest.raises(FileNotFoundError, match="npm install -g @anthropic-ai/claude-code"):
+        boite.regler_envoi("cli")
+
+
+def test_claude_code_pas_connecte_la_demande_attend(boite, projet, monkeypatch, tmp_path):
+    """Installé mais pas encore connecté (« Not logged in ») : la demande reste dans la boîte au lieu d'échouer."""
+    monkeypatch.setenv("ATELIER_CLAUDE_CLI", _faux_agent(tmp_path))
+    monkeypatch.setattr(boite, "_claude_connecte", lambda: False)
+    assert boite.regler_agent("claude_code")["envoi"] == "boite"
+    boite.regler_envoi("cli")
+    d = boite.deposer("X", "Fais x.")
+    assert d["mode"] == "boite" and d["statut"] == "en attente"
+
+
+def test_demandes_en_attente_relancees_quand_l_agent_est_pret(boite, projet, monkeypatch, tmp_path):
+    """Déposée quand Claude Code n'était pas connecté, la demande attend ; dès qu'il l'est (démarrage de l'atelier, ou
+    travail en cours), elle part en ligne de commande au lieu de rester dans la boîte."""
+    monkeypatch.setenv("ATELIER_CLAUDE_CLI", _faux_agent(tmp_path))
+    connecte = {"v": False}
+    monkeypatch.setattr(boite, "_claude_connecte", lambda: connecte["v"])
+    boite.regler_agent("claude_code")
+    d = boite.deposer("X", "Fais x.")
+    assert d["mode"] == "boite" and boite.relancer_en_attente() == []      # pas connecté : elle attend
+    assert boite.pret()["pret"] is False and "pas connecté" in boite.pret()["raison"]
+    connecte["v"] = True
+    assert boite.pret()["pret"] is True
+    assert boite.relancer_en_attente() == [d["id"]]
+    for _ in range(100):
+        x = next(y for y in boite.etat()["demandes"] if y["id"] == d["id"])
+        if x["statut"] == "terminée":
+            break
+        time.sleep(0.05)
+    assert x["mode"] == "cli" and x["statut"] == "terminée"

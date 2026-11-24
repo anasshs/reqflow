@@ -137,6 +137,9 @@ def etat() -> dict:
     def action(etape, texte, bouton, lien):
         return {"etape": etape, "texte": texte, "bouton": bouton, "lien": lien}
 
+    from atelier.generation import flux
+
+    simple = flux.simple()  # générer → automatiser → publier dans Xray : aucune relecture ni approbation proposée
     suivante = None
     # le plus avancé d'abord : un test commencé est mené au bout
     for b in avec_script:
@@ -144,6 +147,8 @@ def etat() -> dict:
         if s["a_implementer"]:
             suivante = action("automatiser", f"« {b['titre']} » : le script a des keywords à implémenter. Cursor les écrit en réutilisant le socle.",
                               "Construire avec Cursor", f"#studio/direct/{b['cle']}")
+        elif s["revue"] not in ("Approved", "Published") and simple:
+            suivante = action("automatiser", f"« {b['titre']} » est automatisé : le publier dans Xray (Lots TNR).", "Publier dans Xray", "#lots")
         elif s["revue"] not in ("Approved", "Published"):
             suivante = action("automatiser", f"« {b['titre']} » : relire le script, l'exécuter 3 fois de suite sans échec, puis l'approuver.",
                               "Relire le script", "#studio/revue")
@@ -158,6 +163,8 @@ def etat() -> dict:
             if b.get("sans_jdd"):  # sinon le script échoue au run : « Variable '${JDD}' not found »
                 suivante = action("concevoir", f"« {b['titre']} » utilise des données : lui associer un jeu de données (identifiants…).",
                                   "Associer un jeu de données", f"#bdd/{b['cle']}")
+            elif b["statut"] != "validé" and simple:
+                suivante = action("automatiser", f"« {b['titre']} » est généré : l'automatiser (Lots TNR › Automatiser).", "Automatiser", "#lots")
             elif b["statut"] != "validé":
                 suivante = action("concevoir", f"« {b['titre']} » : relire les étapes du test BDD, puis le valider.", "Relire le test BDD", f"#bdd/{b['cle']}")
             else:

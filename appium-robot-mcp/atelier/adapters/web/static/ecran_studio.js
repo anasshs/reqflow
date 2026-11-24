@@ -220,7 +220,7 @@
   function demandeCursor(texte, cle = "") {
     // la construction est lancée : un test « Approuvé » passe à « En construction » (sans effet sur toute autre décision)
     if (cle) api("/api/studio/candidats/construction", {method: "POST", body: {cle}}).catch(() => {});
-    DemanderCursor("Faire construire par Cursor", texte, `Cursor lit le socle et le scénario, écrit le test (qui entre en revue « Généré »), le vérifie en dry run puis le soumet.
+    DemanderCursor(`Faire construire par ${window.NomAgentIA || "Cursor"}`, texte, `L'agent lit le socle et le scénario, écrit le test (qui entre en revue « Généré »), le vérifie en dry run puis le soumet.
       Il ne peut ni approuver ni publier : vous décidez dans <a href="#studio/revue">Revue et publication</a>.`,
       ["studio_soumettre_revue"], {zone: $("#dr-demande") || $("#mp-demande")});
   }
@@ -434,7 +434,7 @@
     }
     const etatsLoc = x => `<span class="pill ${PILL[x.etat] || ""}" title="${esc(x.etat)}">${esc(x.id)}</span>`;
     z.innerHTML = `${entete("BDD to Automation", `<select class="in" id="mp-cle" style="width:auto">${l.map(b => `<option ${b.cle === cle ? "selected" : ""}>${esc(b.cle)}</option>`).join("")}</select>
-        <button class="btn ${m.a_creer ? "primaire" : ""}" id="mp-cursor" title="Copie la demande à coller dans Cursor : il construit le test avec les outils du MCP, l'écrit et le soumet en revue ; vous l'approuvez ici">${ico("ia")}Faire construire par Cursor</button>
+        <button class="btn ${m.a_creer ? "primaire" : ""}" id="mp-cursor" title="Envoie la demande à l'agent de l'atelier : il construit le test avec les outils du MCP ; son état s'affiche dans Mes demandes">${ico("ia")}Faire construire par ${esc(window.NomAgentIA || "Cursor")}</button>
         <a class="btn" href="#bdd/${encodeURIComponent(cle)}" title="Ouvre le scénario dans Construction BDD pour corriger les étapes ou le mapping (propositions IA par étape)">${ico("editeur")}Modifier le mapping (Construction BDD)</a><button class="btn ${m.a_creer ? "" : "primaire"}" id="mp-gen" title="Aperçu du test Robot généré depuis le mapping, puis écriture dans le projet (jamais d'écrasement implicite) ; le script entre en revue">${ico("editeur")}Générer le script Robot</button>`)}
       <div class="corps-carte"><div id="mp-demande"></div><p><b>${esc(m.cle)}</b> · ${esc(m.titre)} · JDD <span class="mono">${esc(m.jdd || "—")}</span> · BDD ${esc(m.statut_bdd)} ·
         <span class="pill ok">${m.existants} étape(s) reliée(s) au socle</span> <span class="pill ${m.a_creer ? "warn" : ""}">${m.a_creer} keyword(s) à créer</span></p>
@@ -471,7 +471,7 @@
           <span class="pill ${g.keywords_a_creer.length ? "warn" : "ok"}">${g.keywords_a_creer.length} keyword(s) à implémenter</span></div>
         ${bloquants.length ? `<p class="lib"><span class="pill ko">Écriture bloquée</span> Étapes proches d'un keyword existant, à trancher dans <a href="#bdd/${encodeURIComponent(cle)}">Construction BDD</a> (reprendre le keyword ou confirmer un nouveau keyword) : ${bloquants.map(x => `« ${esc(x.etape)} » ≈ « ${esc(x.keyword)} »`).join(", ")}</p>` : ""}
         ${g.keywords_a_creer.length ? `<p class="lib">À implémenter : ${esc(g.keywords_a_creer.join(", "))}. Écrits ici, ils échouent explicitement tant qu'ils ne sont pas implémentés ;
-          « Faire construire par Cursor » les crée dans le socle et vérifie le test avant de le soumettre.</p>` : ""}
+          « Faire construire par l'agent » les crée dans le socle et vérifie le test avant de le soumettre.</p>` : ""}
         <p class="lib" style="margin:0 0 8px"><span class="pill ${g.ajout ? "info" : g.parcours ? "ok" : ""}">${g.ajout ? "Ajout à une suite existante" : g.parcours ? "Nouvelle suite du parcours" : "Suite propre"}</span> ${esc(g.raison_suite || "")}
           ${g.ajout ? ` Test(s) ajouté(s) : ${esc((g.tests_ajoutes || []).join(", "))}. L'aperçu montre la suite complète après l'ajout.` : ""}</p>
         <div class="grille-2" style="margin-bottom:8px"><div class="champ"><label for="g-parcours">Parcours métier</label>
