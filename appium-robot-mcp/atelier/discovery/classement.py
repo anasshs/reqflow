@@ -16,7 +16,9 @@ discovery/autorisations.jsonl) :
 - motifs de la liste rouge levés sur cet environnement (actions guidées : automaticien ou agent ; l'exploration
   autonome garde toujours la liste rouge complète) ;
 - agent autorisé : Cursor / Claude peuvent exécuter les actions sensibles pendant une session Discovery sur cet
-  environnement (sinon la confirmation d'une action sensible reste humaine). L'invariant de sécurité 6 s'applique : une action sensible n'est exécutée que
+  environnement (sinon la confirmation d'une action sensible reste humaine) ;
+- exploration sans restriction : l'exploration autonome (et ses suggestions) touche aussi les actions sensibles et les
+  motifs de liste rouge levés pour cet environnement (décision de l'automaticien, ex. une recette jetable). L'invariant de sécurité 6 s'applique : une action sensible n'est exécutée que
 si elle est explicitement autorisée, sur un environnement autorisé.
 """
 from __future__ import annotations
@@ -47,7 +49,25 @@ def regles(app: str | None = None) -> dict:
     return {"sensibles": c.get("sensibles") or list(SENSIBLES_DEFAUT), "cles": dict(c.get("cles") or {}),
             "environnements": {k: list(v) for k, v in (c.get("environnements") or {}).items()},
             "liste_rouge_levee": {k: list(v) for k, v in (c.get("liste_rouge_levee") or {}).items() if v},
-            "agent_sensible": {k: dict(v) for k, v in (c.get("agent_sensible") or {}).items() if (v or {}).get("actif")}}
+            "agent_sensible": {k: dict(v) for k, v in (c.get("agent_sensible") or {}).items() if (v or {}).get("actif")},
+            "exploration_libre": {k: dict(v) for k, v in (c.get("exploration_libre") or {}).items() if (v or {}).get("actif")}}
+
+
+def exploration_libre(environnement: str, r: dict | None = None) -> bool:
+    """L'exploration autonome est-elle sans restriction sur cet environnement (réglage journalisé) ?"""
+    r = r or regles()
+    return bool(environnement) and bool(r.get("exploration_libre", {}).get(environnement.strip().lower()))
+
+
+def environnement_session() -> str:
+    """Environnement de la session Discovery en cours (vide sans session)."""
+    try:
+        from atelier.discovery import sessions_discovery
+
+        s = sessions_discovery.active()
+        return ((s or {}).get("config") or {}).get("environnement", "") if s else ""
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def _journaliser(app: str | None, quoi: str, environnement: str, avant, apres):
@@ -76,7 +96,8 @@ def journal_autorisations(limite: int = 100) -> list[dict]:
 
 
 def maj_regles(sensibles: list[str] | None = None, environnements: dict | None = None, app: str | None = None,
-               liste_rouge_levee: dict | None = None, agent_sensible: dict | None = None) -> dict:
+               liste_rouge_levee: dict | None = None, agent_sensible: dict | None = None,
+               exploration_libre: dict | None = None) -> dict:
     from atelier.discovery import carte
 
     r = regles(app)
@@ -109,6 +130,21 @@ def maj_regles(sensibles: list[str] | None = None, environnements: dict | None =
             if bool(nouveau.get(env)) != bool(r["agent_sensible"].get(env)):
                 _journaliser(app, "agent autorisé sur les actions sensibles", env, bool(r["agent_sensible"].get(env)), bool(nouveau.get(env)))
         r["agent_sensible"] = nouveau
+    if exploration_libre is not None:
+        from datetime import datetime
+        import os
+
+        nouveau = {}
+        for env, actif in exploration_libre.items():
+            env = str(env).strip().lower()
+            if env and actif:
+                nouveau[env] = r["exploration_libre"].get(env) or {
+                    "actif": True, "par": os.environ.get("USERNAME") or os.environ.get("USER") or "automaticien",
+                    "date": datetime.now().astimezone().isoformat(timespec="seconds")}
+        for env in set(nouveau) | set(r["exploration_libre"]):
+            if bool(nouveau.get(env)) != bool(r["exploration_libre"].get(env)):
+                _journaliser(app, "exploration autonome sans restriction", env, bool(r["exploration_libre"].get(env)), bool(nouveau.get(env)))
+        r["exploration_libre"] = nouveau
     if sensibles is not None:
         motifs = [s.strip() for s in sensibles if str(s).strip()]
         for m in motifs:
@@ -157,6 +193,8 @@ def interdit(element: dict, app: str | None = None, r: dict | None = None, envir
     lr = carte.config_app(app).get("liste_rouge") or {}
     if element.get("key") in (lr.get("cles") or []):
         return element.get("key")
+    if environnement and exploration_libre(environnement, r):  # sans restriction : seules les clés interdites une à une restent
+        return ""
     leves = set(r["liste_rouge_levee"].get(environnement, [])) if environnement else set()
     txt = f"{element.get('key', '')} {element.get('libelle', '')}"
     return next((m for m in (lr.get("textes") or carte.LISTE_ROUGE_DEFAUT) if m not in leves and re.search(m, txt, re.I)), "")
@@ -192,10 +230,14 @@ def autorise(element: dict, contexte: str = "guidee", environnement: str = "", c
     if contexte not in CONTEXTES:
         raise ValueError(f"Contexte : {', '.join(CONTEXTES)}.")
     r = regles(app)
-    c = classer(element, app, r, environnement if contexte == "guidee" else "")  # exploration : liste rouge complète
+    libre = contexte in ("exploration", "suggestion") and exploration_libre(environnement, r)
+    # exploration : liste rouge complète, sauf exploration sans restriction sur cet environnement
+    c = classer(element, app, r, environnement if contexte == "guidee" or libre else "")
     classe = c["classe"]
     if classe == "forbidden":
         return {**c, "autorise": False, "motif": "Action interdite (liste rouge) : jamais exécutée par l'atelier."}
+    if libre:
+        return {**c, "autorise": True, "motif": "", "exploration_libre": True}
     if contexte in ("exploration", "suggestion"):
         ok = classe == "safe"
         return {**c, "autorise": ok, "motif": "" if ok else f"Action {LIBELLES[classe]} : jamais en {contexte}, à faire à la main."}

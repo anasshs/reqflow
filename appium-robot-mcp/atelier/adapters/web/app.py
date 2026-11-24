@@ -1998,7 +1998,8 @@ async def discovery_classement_maj(req: Request):
     b = await req.json()
     if "cle" in b:
         return _call(classement.marquer, b["cle"], b.get("classe", "auto"))
-    return _call(classement.maj_regles, b.get("sensibles"), b.get("environnements"), None, b.get("liste_rouge_levee"), b.get("agent_sensible"))
+    return _call(classement.maj_regles, b.get("sensibles"), b.get("environnements"), None, b.get("liste_rouge_levee"), b.get("agent_sensible"),
+                 b.get("exploration_libre"))
 
 
 @app.get("/api/discovery/suggestions")

@@ -24,18 +24,20 @@ def candidates(elements: list[dict], ecran_id: str, plateforme: str) -> dict:
     """Actions jamais essayées depuis l'écran, avec leur classe ; seules les « safe » sont proposables."""
     deja = carte.actions_depuis(ecran_id, plateforme) if ecran_id else set()
     r = classement.regles()
+    env = classement.environnement_session()
+    libre = classement.exploration_libre(env, r)
     out, ecartees = [], {"controlled": 0, "sensitive": 0, "forbidden": 0}
     for el in elements or []:
         if el.get("type") not in ("bouton", "lien", "element", "liste", "champ", "case"):
             continue
         if el.get("key") in deja or (el.get("locators") or [""])[0] in deja:
             continue
-        c = classement.classer(el, r=r)
-        if c["classe"] != "safe":
+        c = classement.classer(el, r=r, environnement=env if libre else "")
+        if c["classe"] != "safe" and not (libre and c["classe"] != "forbidden"):
             ecartees[c["classe"]] += 1
             continue
         out.append({"cle": el["key"], "libelle": el.get("libelle") or "", "type": el.get("type"),
-                    "locator": (el.get("locators") or [""])[0], "classe": "safe",
+                    "locator": (el.get("locators") or [""])[0], "classe": c["classe"],
                     "raison": "jamais essayée depuis cet écran"})
     return {"candidates": out, "ecartees": ecartees}
 

@@ -192,3 +192,18 @@ def test_correlation_ecran_jira_xray_depot(app, tmp_path):
     syn = correlation.synthese()
     assert syn["ecrans"][0]["exigences"] == 2 and syn["sans_test"] == 0
     assert correlation.commits_gitlab(c["fichiers"]) == {"configure": False, "fichiers": {}}
+
+
+def test_exploration_sans_restriction_par_environnement(app):
+    """Décision journalisée : sur la recette, l'exploration autonome touche aussi les actions sensibles et les motifs de
+    liste rouge levés ; ailleurs, elle reste limitée à la navigation et garde la liste rouge complète."""
+    from atelier.discovery import classement
+
+    payer = {"key": "bouton_payer", "type": "bouton", "libelle": "Effectuer le virement"}
+    assert not classement.autorise(payer, "exploration", "recette")["autorise"]
+    classement.maj_regles(exploration_libre={"recette": True})
+    assert classement.autorise(payer, "exploration", "recette")["autorise"]
+    assert not classement.autorise(payer, "exploration", "preprod")["autorise"]
+    assert any(j["quoi"] == "exploration autonome sans restriction" for j in classement.journal_autorisations())
+    classement.maj_regles(exploration_libre={"recette": False})
+    assert not classement.autorise(payer, "exploration", "recette")["autorise"]

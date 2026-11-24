@@ -123,6 +123,9 @@ def explorer(max_ecrans: int = 25, profondeur: int = 3, duree_max_s: int = 900) 
     bilan = {"ecrans_visites": 1, "nouveaux": 0, "transitions": 0, "ignores_liste_rouge": 0, "ignores_non_surs": 0, "journal": [],
              "perimetre": perimetre["libelle"] if perimetre else "", "hors_perimetre": 0}
     regles = classement.regles()
+    env = classement.environnement_session()
+    libre = classement.exploration_libre(env, regles)  # recette jetable : actions sensibles et liste rouge levée aussi
+    bilan["exploration_libre"] = libre
     try:
         while file and not EXPLO["stop"].is_set() and time.time() - t0 < duree_max_s and len(vus) <= max_ecrans:
             eid, prof = file.pop(0)
@@ -137,11 +140,11 @@ def explorer(max_ecrans: int = 25, profondeur: int = 3, duree_max_s: int = 900) 
             for el in session.current_elements(150):
                 if el.get("type") not in ("bouton", "lien", "element", "liste"):
                     continue
-                c = classement.classer(el, r=regles)["classe"]
+                c = classement.classer(el, r=regles, environnement=env if libre else "")["classe"]
                 if c == "forbidden":
                     bilan["ignores_liste_rouge"] += 1
                     continue
-                if c != "safe":  # sensible ou contrôlée : jamais en exploration autonome
+                if c != "safe" and not libre:  # sensible ou contrôlée : jamais en exploration autonome (sauf sans restriction)
                     bilan["ignores_non_surs"] += 1
                     continue
                 if el["key"] not in deja and el["locators"][0] not in deja:
