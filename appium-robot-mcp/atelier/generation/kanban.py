@@ -36,7 +36,7 @@ CONSIGNE_CONCEVOIR = ("Conçois le scénario BDD {cle} (« {titre} ») avec le M
                       "(studio_scenario_bdd, discovery_parcours_cadre si le scénario vient d'un parcours), écris des étapes Gherkin en "
                       "français, sans donnée littérale (jeu de données), avec au moins un résultat vérifié (Alors). Ne publie rien.")
 CONSIGNE_AUTOMATISER = ("Automatise le scénario BDD {cle} (« {titre} ») avec le MCP de l'atelier : studio_socle, "
-                        "studio_scenario_bdd(\"{cle}\"), studio_generer_depuis_bdd(\"{cle}\", ecrire=True) ; complète les keywords "
+                        "studio_scenario_bdd(\"{cle}\"), studio_generer_depuis_bdd(\"{cle}\", ecrire=True{techno_arg}) ; complète les keywords "
                         "restés « À implémenter » dans le socle sans wrapper 1:1, range chaque fichier dans la structure du dépôt, "
                         "garde le tag {cle} sur le test, puis vérifie en dry_run. Ne publie rien dans Xray.")
 CONSIGNE_US = ("Couvre la User Story {cle} « {titre} »{criteres} avec le MCP de l'atelier. Regarde d'abord ce qui la couvre déjà "
@@ -56,6 +56,15 @@ CONSIGNE_AUTOMATISER_SUJET = ("Automatise chaque scénario BDD {quoi} qui n'a pa
                               "studio_socle, puis pour chacun studio_generer_depuis_bdd(cle, ecrire=True) ; complète les keywords restés "
                               "« À implémenter » sans wrapper 1:1, range les fichiers dans la structure du dépôt, garde la clé du scénario "
                               "en tag, vérifie en dry_run. Ne publie rien dans Xray.")
+
+
+def _techno_arg() -> str:
+    """Technologie d'automatisation de l'application (fiche : automatisation.technologie_defaut) dans la consigne de
+    l'agent ; rien pour les technologies Robot (comportement historique, déduit de l'application)."""
+    from atelier.generation import technologies
+
+    t = technologies.par_defaut()
+    return "" if t.startswith("robot-") else f', technologie="{t}"'
 
 
 # =========================================================================== backlog (User Stories ajoutées)
@@ -469,7 +478,7 @@ def deplacer(id_: str, colonne: str, xray=None) -> dict:
         if c.get("manuel"):
             raise ValueError("Marqué « ne pas automatiser » : retirer la marque dans le ticket pour l'automatiser.")
         r = _travail(f"Automatiser « {titre} »", [
-            {"titre": "Écrire le test Robot", "type": "ia", "params": {"texte": CONSIGNE_AUTOMATISER.format(cle=cle, titre=titre),
+            {"titre": "Écrire le test Robot", "type": "ia", "params": {"texte": CONSIGNE_AUTOMATISER.format(cle=cle, titre=titre, techno_arg=_techno_arg()),
                                                                        "attendus": ["studio_generer_depuis_bdd"]}},
             {"titre": "Dry-run", "type": "atelier", "action": "dry_run", "params": {"bdd": cle}},
             {"titre": "Run local (téléphone)", "type": "atelier", "action": "run", "params": {"bdd": cle}}], cle, colonne)

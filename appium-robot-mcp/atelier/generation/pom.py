@@ -138,12 +138,13 @@ def nom_locator(page: str, etape: dict) -> str:
 
 def corps_etape(etape: dict | None, var: str, type_app: str) -> list[str]:
     """Corps d'un keyword généré depuis son étape : toucher, saisir la donnée du jeu (secret sans journalisation),
-    revenir en arrière, ou vérifier la présence. Vide si l'étape n'a pas de quoi agir (pas de locator) : stub."""
+    revenir en arrière, ou vérifier la présence. Vide si l'étape n'a pas de quoi agir (pas de locator) : stub.
+    type_app : mobile (AppiumLibrary), web (Browser), web-selenium (SeleniumLibrary), api."""
     if not etape:
         return []
     texte, champ = etape.get("texte", ""), etape.get("jdd", "")
     loc = "${" + var + "}" if var else ""
-    mobile = type_app == "mobile"
+    mobile = type_app in ("mobile", "web-selenium")  # SeleniumLibrary : mêmes keywords qu'AppiumLibrary (Click Element…)
     if RETOUR.match(texte):
         return ["    Go Back"]
     if not loc or type_app == "api":
@@ -208,13 +209,15 @@ def _ajouter_import(texte: str, ligne: str) -> str:
     return "\n".join(lignes[:fin] + [ligne] + lignes[fin:])
 
 
-def preparer(a_creer: list[dict], inv: dict, suite: str, commun_existant: str = "", page_defaut: str = "") -> dict:
+def preparer(a_creer: list[dict], inv: dict, suite: str, commun_existant: str = "", page_defaut: str = "",
+             type_app: str = "") -> dict:
     """Pages à écrire pour les keywords à créer ({nom, doc, args, ecran}) et lignes Resource de la suite.
-    Rend {pages: [{chemin, page, contenu, nouveau, keywords}], imports: [chemins relatifs à la suite]}."""
+    Rend {pages: [{chemin, page, contenu, nouveau, keywords}], imports: [chemins relatifs à la suite]}.
+    type_app (mobile / web / api) : imposé par la technologie d'automatisation choisie ; vide = type de l'application active."""
     from atelier.domain import projet
 
     commun = commun_existant or COMMUN_DEFAUT
-    type_app = _type_app()
+    type_app = type_app or _type_app()
     par_page: dict[str, list] = {}
     locators: dict[str, dict] = {}
     for k in a_creer:

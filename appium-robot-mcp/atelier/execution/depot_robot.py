@@ -27,6 +27,8 @@ REF_ECRAN = re.compile(r"LOC_([A-Z0-9_]+?)_(ANDROID|IOS|WEB|\$\{PLATFORM\})")
 DEF_LOC = re.compile(r"^&\{LOC_([A-Z0-9_]+?)_(ANDROID|IOS|WEB)(_SECOURS)?\}$")
 REF_JDD = re.compile(r"JDD_([A-Z0-9_]+)")
 DEF_SCALAIRE = re.compile(r"^\$\{([A-Za-z_]\w*)\}$")
+# locator scalaire décliné par plateforme : ${NOM_ANDROID} / ${NOM_IOS} / ${NOM_WEB}, choisi par ${NOM}    ${NOM_${PLATFORM}}
+SUFFIXE_PLATEFORME = re.compile(r"^(\w+?)_(ANDROID|IOS|WEB)$", re.IGNORECASE)
 REF_VAR = re.compile(r"\$\{([A-Za-z_]\w*)\}")
 # valeur qui est sans ambiguïté un locator (hors d'un fichier de locators) / qui peut l'être (dans un fichier de locators)
 LOC_SUR = re.compile(r"^(android|accessibility_id|xpath|nsp|chain|-android uiautomator|-ios \w+)=|^//")
@@ -163,9 +165,13 @@ def _lire_depot(racine: Path, fichiers: list[Path]) -> dict:
                 if not (LOC_SUR.match(val) or (dans_locators and LOC_POSSIBLE.match(val))):
                     return
                 ecran, cle, plat = f.stem.lower(), s.group(1).lower(), plateforme_locator(val)
+                variante = SUFFIXE_PLATEFORME.match(s.group(1))
+                if variante:  # ${NOM_ANDROID} : clé métier « nom », commune aux plateformes ; ${NOM} en est la référence
+                    cle, plat = variante.group(1).lower(), PLATEFORMES[variante.group(2).upper()]
                 lid = f"{ecran}.{cle}@{plat}"
                 inv["locators"].setdefault(lid, {"id": lid, "ecran": ecran, "cle": cle, "plateforme": plat, "valeur": val,
-                                                 "secours": [], "fichier": rel, "scalaire": True, "variable": s.group(1)})
+                                                 "secours": [], "fichier": rel, "scalaire": True, "variable": s.group(1),
+                                                 **({"variable_base": variante.group(1)} if variante else {})})
                 if lid not in info["locators"]:
                     info["locators"].append(lid)
 
@@ -229,6 +235,8 @@ def _resoudre(inv: dict):
     for loc in inv["locators"].values():
         if loc.get("scalaire"):
             scalaires.setdefault(loc["variable"].upper(), (loc["ecran"], loc["cle"]))
+            if loc.get("variable_base"):  # ${NOM} (choisi par ${NOM_${PLATFORM}}) désigne la même clé métier
+                scalaires.setdefault(loc["variable_base"].upper(), (loc["ecran"], loc["cle"]))
     for c in list(inv["tests"].values()) + list(inv["keywords"].values()):
         refs = {scalaires[v.upper()] for v in c.pop("variables", []) if v.upper() in scalaires}
         c["locators"] = sorted({tuple(x) for x in c["locators"]} | refs)

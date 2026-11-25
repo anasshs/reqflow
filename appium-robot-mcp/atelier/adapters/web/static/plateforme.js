@@ -241,7 +241,7 @@ const Atelier = {
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"], ["pilotage", "Tableaux de bord", "dashboard"],
     ["activites", "Activités", "activite"], ["comportement", "Analyse comportementale", "branche"], ["tests", "Tests automatisés", "check"],
     ["graphe", "Knowledge Graph", "graphe"], ["ia", "Pilotage IA", "ia"], ["rapports", "Rapports", "rapports"], ["operations", "Suivi des runs", "execution"],
-    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"], ["travaux", "Mes demandes", "activite"], ["donnees", "Données", "donnee"], ["adoption", "Adopter un dépôt", "branche"]],
+    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"], ["travaux", "Mes demandes", "activite"], ["donnees", "Données", "donnee"], ["adoption", "Adopter un dépôt", "branche"], ["automatiser", "Automatiser", "editeur"]],
   /* barre latérale courte : l'Accueil et Mes demandes (ce que j'ai lancé), les quatre étapes du chemin, le pilotage et les
      paramètres. Chaque écran reste joignable : sous l'étape à laquelle il sert, affiché quand on est dans cette étape.
      Entrée : [adresse, libellé, icône, {num : étape du chemin, sl : sous-libellé, sous : écrans de l'entrée, badge}]. */
@@ -262,7 +262,7 @@ const Atelier = {
       ["discovery", "Comprendre l'application", "recherche", {num: 1, sous: [["discovery", "Discovery"], ["comportement", "Analyse comportementale (MBT)"],
         ["intelligence", "Application Intelligence"], ["graphe", "Knowledge Graph"], ["donnees/referentiel", "Données (référentiel)"]]}],
       ["bdd", "Concevoir les tests", "bdd", {num: 2, sous: [["bdd", "Scénarios BDD"], ["conception", "Test Design"], ["parcours", "Suivi des fonctionnalités"]]}],
-      ["lots", "Automatiser", "editeur", {num: 3, sous: [["lots", "Lots TNR"], ["tests", "Tests automatisés"], ["studio", "Automation Studio"],
+      ["lots", "Automatiser", "editeur", {num: 3, sous: [["automatiser", "Automatiser (parcours, US, plan)"], ["lots", "Lots TNR"], ["tests", "Tests automatisés"], ["studio", "Automation Studio"],
         ["studio/keywords", "Composants & Keywords"], ["editeur", "Éditeur de code"]]}],
       ["centre", "Exécuter et analyser", "execution", {num: 4, sous: [["centre", "Execution Center"], ["echecs", "Failure Analysis"],
         ["couverture", "Couverture des tests"], ["releases", "Releases"]]}]]},

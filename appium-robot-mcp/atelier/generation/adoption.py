@@ -248,25 +248,47 @@ def creer_parcours(choix: list[dict]) -> dict:
     return {"parcours_crees": crees, "scenarios_rattaches": rattaches}
 
 
-def ecrans_des_parcours() -> dict:
-    """Après un run cartographié : à chaque parcours, les écrans que ses tests ont traversés (carte : tests Xray qui
-    passent par chaque écran), dans l'ordre où la carte les a découverts. Fait observé : lien validé, retirable."""
+def _ecrans_par_tests_du_depot() -> dict[str, set]:
+    """Écran de la carte -> clés Xray des tests Robot dont les keywords utilisent un de ses locators (même valeur ou même
+    resource-id ; composants communs et keywords du socle exclus : couverture_avancee)."""
+    from atelier.discovery import connaissance
+    from atelier.intelligence import couverture_avancee
+
+    g = connaissance.construire()
+    out: dict[str, set] = {}
+    for e in couverture_avancee.calculer(g)["ecrans"]:
+        if e.get("tests_xray") and g.noeuds.get(e["id"]) and g.noeuds[e["id"]].source == "carte":
+            out[e["id"]] = set(e["tests_xray"])
+    return out
+
+
+def ecrans_des_parcours(depuis_depot: bool = True) -> dict:
+    """À chaque parcours, les écrans que ses tests traversent, dans l'ordre où la carte les a découverts :
+    - run cartographié (la carte retient les tests Xray qui passent par chaque écran) : fait observé, lien validé ;
+    - depuis_depot : écrans dont les locators sont utilisés par les keywords de ses tests Robot (dépôt relié à la carte)
+      : lien déduit, proposé « à valider ». Les écrans de passage (chargement, erreur) ne sont jamais déduits.
+    Un lien retiré ou rejeté n'est jamais repris."""
     from atelier.discovery import carte, connaissance, parcours_utilisateur as pu
     from atelier.domain import declarations
     from atelier.generation import bdd
 
     ecrans = sorted(carte.ecrans(), key=lambda e: e.get("cree") or "")
-    bilan = {}
+    statiques = _ecrans_par_tests_du_depot() if depuis_depot else {}
+    bilan, deduits_total = {}, 0
     for p in pu.lister():
         cles = {b["cle"] for b in bdd.lister() if (bdd.charger(b["cle"]) or {}).get("parcours") == p["id"]}
         # clés que la carte retient par écran : la clé Xray du test (scénarios repris du dépôt : clé BDD = clé Xray)
+        if not cles:
+            continue
         traverses = [e["id"] for e in ecrans if cles & set(e.get("utilise_par") or [])]
-        if not traverses:
+        deduits = [e["id"] for e in ecrans if e["id"] not in traverses and not pu.ecran_transitoire(e)
+                   and cles & statiques.get(f"ecran:{e.get('nom') or e['id']}", set())]
+        if not traverses and not deduits:
             continue
         with pu._verrou:
             q = pu._lire(p["id"])
-            ajoutes = 0
-            for eid in traverses:
+            ajoutes = proposes = 0
+            for eid, observe in [(e, True) for e in traverses] + [(e, False) for e in deduits]:
                 if eid in q.get("ecrans_retires", []) or eid in q["ecrans"]:
                     continue
                 try:
@@ -277,16 +299,24 @@ def ecrans_des_parcours() -> dict:
                 if declarations.est_rejete(rid):
                     continue
                 q["ecrans"].append(eid)
-                ajoutes += 1
                 if rid not in declarations.charger()["relations"]:
-                    declarations.ajouter_relation(q["noeud"], nid, "contient", auteur="automaticien", source=f"run cartographié des tests du parcours « {q['nom']} »")
-            if ajoutes:
-                pu._journal(q, "écrans du run cartographié", detail=f"{ajoutes} écran(s) traversé(s) par les tests du parcours")
+                    if observe:
+                        declarations.ajouter_relation(q["noeud"], nid, "contient", auteur="automaticien",
+                                                      source=f"run cartographié des tests du parcours « {q['nom']} »")
+                    else:
+                        declarations.ajouter_relation(q["noeud"], nid, "contient", auteur="ia",
+                                                      source=f"tests du parcours « {q['nom']} » : leurs keywords utilisent les locators de l'écran")
+                ajoutes += observe
+                proposes += not observe
+            if ajoutes or proposes:
+                pu._journal(q, "écrans des tests du parcours",
+                            detail=f"{ajoutes} écran(s) traversé(s) au run cartographié, {proposes} déduit(s) du dépôt (à valider)")
                 q["modifie"] = pu._maintenant()
                 pu._ecrire(q)
-        bilan[p["id"]] = ajoutes
+        bilan[p["id"]] = ajoutes + proposes
+        deduits_total += proposes
     connaissance.vider_cache()
-    return {"parcours": bilan}
+    return {"parcours": bilan, "deduits_du_depot": deduits_total}
 
 
 def importer_locators() -> dict:

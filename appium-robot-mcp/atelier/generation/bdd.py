@@ -174,7 +174,7 @@ def _fusionner_liens(nouveau: dict, ancien: dict) -> dict:
         if a:
             for k in ("id", "ecran", "locator", "jdd", "api", "valide", "resultat_attendu", "assertion"):
                 e[k] = a.get(k, e[k])
-            for k in ("keyword_nouveau", "jugement_keyword", "variable"):
+            for k in ("keyword_nouveau", "keyword_lie", "jugement_keyword", "variable"):
                 if a.get(k):
                     e[k] = a[k]
     # tout ce que le texte Gherkin ne porte pas est gardé (clé, titre, jeu de données, module, parcours, session, statut…) :
@@ -305,6 +305,7 @@ def modifier_etape(cle: str, etape_id: str, **champs) -> dict:
         e["type"] = MOTS.get(champs["mot"].strip().lower(), e["type"])
     if champs.get("texte") is not None and champs["texte"].strip() != e["texte"]:
         e.pop("keyword_nouveau", None)  # nouveau texte : le rapprochement avec le socle est à refaire
+        e.pop("keyword_lie", None)
         e.pop("jugement_keyword", None)
         if champs.get("valide") is None:
             e["valide"] = False  # texte modifié : à revalider
@@ -319,9 +320,32 @@ def modifier_etape(cle: str, etape_id: str, **champs) -> dict:
     if champs.get("keyword_nouveau") is not None:  # décision humaine : cette étape demande bien un nouveau keyword
         if champs["keyword_nouveau"]:
             e["keyword_nouveau"] = True
+            e.pop("keyword_lie", None)
         else:
             e.pop("keyword_nouveau", None)
+    if champs.get("keyword_lie") is not None:  # décision humaine : réutiliser un keyword existant SANS réécrire l'étape
+        nom = str(champs["keyword_lie"]).strip()
+        if nom:
+            e["keyword_lie"] = lien_keyword(nom, champs.get("arguments_lies"))
+            e.pop("keyword_nouveau", None)
+        else:
+            e.pop("keyword_lie", None)
     return sauver(m)
+
+
+def lien_keyword(nom: str, arguments: list | None = None, inventaire: dict | None = None) -> dict:
+    """Décision « réutiliser sans réécrire » : l'étape garde son texte (le Gherkin de Xray ne change pas) et le test
+    généré appelle ce keyword existant (avec ses arguments éventuels). Refus si le keyword n'est pas dans le dépôt."""
+    from atelier.execution.depot_robot import cle_appel, normaliser
+    from atelier.generation.reutilisation import Rapprocheur
+
+    r = Rapprocheur(inventaire)
+    kid = r.exact.get(normaliser(nom)) or r.exact.get(cle_appel(nom))
+    if not kid:
+        raise ValueError(f"Keyword « {nom} » absent du dépôt : choisir un keyword existant (ou confirmer un nouveau keyword).")
+    f = r._fiche(kid)
+    return {"keyword": f["keyword"], "fichier": f["fichier"],
+            "arguments": [str(a) for a in (arguments or []) if str(a).strip()]}
 
 
 def supprimer_etape(cle: str, etape_id: str) -> dict:
@@ -406,6 +430,14 @@ def reutilisation(m: dict, inventaire: dict | None = None) -> dict:
                 x.update(statut="proche", proches=[{**r._fiche(kid), "juge": True}] + [p for p in x["proches"] if p["id"] != kid])
         if x["statut"] == "proche" and e["texte"] in confirmes:
             x.update(statut="à créer", confirme=True)
+        lie = e.get("keyword_lie") or {}
+        if lie.get("keyword"):  # « réutiliser sans réécrire » : le keyword choisi, l'étape garde son texte (Xray inchangé)
+            kid = r.exact.get(normaliser(lie["keyword"]))
+            if kid:
+                x = {**x, "statut": "existant", **r._fiche(kid), "correspondance": "lié (texte Xray gardé)", "lie": True,
+                     "arguments": list(lie.get("arguments") or []), "proches": []}
+            else:  # keyword renommé ou supprimé depuis la décision : à retrancher
+                x = {**x, "lien_casse": lie["keyword"]}
         out[e["id"]] = x
     return out
 
@@ -471,6 +503,11 @@ def controles(m: dict) -> list[dict]:
         if nj:
             c("info", "keywords_a_juger", f"{nj} étape(s) sans keyword existant d'après les mots : faire vérifier par l'IA "
               "qu'aucun keyword du socle ne fait déjà la même action (synonyme, reformulation).")
+        for s in m.get("scenarios", []):
+            for e in s["etapes"]:
+                if rap[e["id"]].get("lien_casse"):
+                    c("haute", "keyword_lie_absent", f"« {e['texte']} » est liée au keyword « {rap[e['id']]['lien_casse']} », absent du "
+                      "dépôt (renommé ou supprimé) : choisir un autre keyword ou confirmer un nouveau keyword.", e["id"])
     except Exception:  # noqa: BLE001
         pass
     if m.get("scenarios") and not any(s["type"] == "negatif" for s in m["scenarios"]):
@@ -517,13 +554,15 @@ def jeux_des_exemples(s: dict) -> list[str]:
     return [r[col].upper() for r in lignes[1:] if col is not None and col < len(r) and r[col]]
 
 
-def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> dict:
+def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "", type_app: str = "") -> dict:
     """Suite Robot qui suit les conventions : INITIALISATION (Initialiser Le Test + &{JDD_<NOM>}) puis
     les étapes BDD. Chaque étape est rapprochée d'un keyword existant du dépôt (réutilisation) ;
     sinon un keyword à implémenter est déclaré (il échoue explicitement, jamais en silence).
     Une suite par parcours métier (suites_parcours.py) : si le test appartient à un parcours qui a déjà sa suite,
     « ajout » est vrai et « contenu » est la suite existante complétée (rien n'y est réécrit) ; « ajoute » porte la
-    partie nouvelle. cible : chemin imposé par l'appelant (aucun ajout : le fichier ne doit pas exister)."""
+    partie nouvelle. cible : chemin imposé par l'appelant (aucun ajout : le fichier ne doit pas exister).
+    type_app : mobile (AppiumLibrary) / web (Browser) / api, imposé par la technologie d'automatisation choisie
+    (generation/technologies) ; vide = type de l'application active (comportement historique, sortie inchangée)."""
     from atelier.execution import depot_robot
 
     inv = inventaire if inventaire is not None else depot_robot.lire_depot()
@@ -559,6 +598,10 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
                     proches[e["texte"]] = x["proches"]
             if x.get("confirme"):
                 confirmes.add(e["texte"])
+            if x.get("lie"):  # réutilisé sans réécrire : le libellé Xray reste visible, le keyword du dépôt est appelé
+                corps.append(f"    # Xray : {e['texte']}")
+                corps.append(f"    {prefixe} {x['keyword']}" + "".join(f"    {a}" for a in x.get("arguments") or []))
+                continue
             corps.append(f"    {prefixe} {e['texte']}")
         for jeu in variantes:
             jdd_test = jeu or m.get("jdd") or ""
@@ -593,7 +636,7 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
         resources.add(fin["fichier"])
     socle = (kws.get("initialiserletest") or kws.get("localiser") or {}).get("fichier", "")
     prep = pom.preparer(a_ecrire, inv, cible, socle if str(socle).endswith(".resource") else "",
-                        projet.slug(m.get("module") or m.get("titre") or m["cle"], 50, "general"))
+                        projet.slug(m.get("module") or m.get("titre") or m["cle"], 50, "general"), type_app=type_app)
     imports = [f"Resource    {Path(os.path.relpath(projet.PROJECT_DIR / r, (projet.PROJECT_DIR / cible).parent)).as_posix()}"
                for r in sorted(resources | set(prep["imports"])) if r.endswith(".resource")]
     texte = ["*** Settings ***",
@@ -607,6 +650,8 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "") -> d
            "pages": prep["pages"], "pom": True,
            "parcours": choix["parcours"], "ajout": False, "raison_suite": choix["raison"], "cle_xray": cle_xray,
            "tag": cle_xray or m["cle"]}
+    if type_app:  # technologie imposée : gardée pour une régénération à l'écriture (ecrire_generation)
+        out["type_app"] = type_app
     if choix["ajout"]:  # la suite du parcours existe : on y ajoute le test, sans rien réécrire
         try:
             a = suites_parcours.ajouter(projet.lire_fichier(cible), out["contenu"])
@@ -635,7 +680,8 @@ def ecrire_generation(m: dict, g: dict, remplacer: bool = False, origine: str = 
     if g.get("ajout_refuse") and remplacer:
         # suite du parcours qui porte déjà ce test : la régénérer en entier à son chemin ; le contrôle ci-dessous ne la
         # remplace que si elle ne contient que ce test (sinon refus, comme avant)
-        g = {**generer_robot(m, None, cible), "structure": g.get("structure")}
+        g = {**generer_robot(m, None, cible, g.get("type_app", "")), "structure": g.get("structure"),
+             **({"technologie": g["technologie"]} if g.get("technologie") else {})}
     elif g.get("ajout_refuse"):
         raise FileExistsError(g["ajout_refuse"])
     existe = projet.safe_path(cible).exists()

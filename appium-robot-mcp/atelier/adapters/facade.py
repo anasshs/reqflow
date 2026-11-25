@@ -883,7 +883,58 @@ def tnr_demander_publication(scenarios: list[str]) -> str:
 
 
 @outil
-def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "", remplacer: bool = False) -> dict:
+def technologies_disponibles() -> list[dict]:
+    """Technologies d'automatisation (« cible ») : robot-appium (Android / iOS), robot-web, robot-api, uiautomator et
+    espresso (Kotlin, Android ; à venir). Pour chacune : plateformes, langage, pilote, prérequis, disponible ou non (et
+    pourquoi) ; « defaut » = technologie par défaut de l'application active (sa fiche, sinon son type)."""
+    from atelier.generation import technologies
+
+    return technologies.lister()
+
+
+@outil
+def perimetre_automatisation(entree: str, reference: str) -> dict:
+    """Résout un point d'entrée en tests Xray : entree = parcours (identifiant PU-…), us (clé de la User Story) ou plan
+    (clé du Test Plan Xray). Pour chaque test : scénario BDD (clé) ou « à concevoir », implémentations existantes par
+    technologie (robot, uiautomator, espresso). Lecture seule."""
+    from atelier.generation import perimetre
+
+    return perimetre.resoudre(entree, reference)
+
+
+@outil
+def automatiser_perimetre(entree: str, reference: str, technologie: str = "", tests: list[str] | None = None) -> dict:
+    """Dépose dans la boîte de l'atelier la demande d'automatiser un périmètre (parcours, us ou plan) avec une technologie
+    (voir technologies_disponibles ; vide = celle de l'application) ; tests : sélection (vide = tous). La demande se
+    traite ensuite par atelier_demande_suivante : BDD, génération, contrôle, run réel ; rien n'est publié dans Xray."""
+    from atelier.generation import perimetre
+
+    return perimetre.automatiser(entree, reference, technologie, tests)
+
+
+@outil
+def porter_vers_kotlin() -> dict:
+    """Porte le patrimoine Robot en Kotlin UI Automator (traducteur outils/robot2kotlin.py du projet Kotlin : dossier
+    genere/ réécrit) puis rend le bilan par test : instructions traduites, et pour chaque test ce qui reste à traduire
+    (dans le test ou dans un keyword appelé). Un test incomplet échoue en nommant ce qui manque, jamais de faux succès."""
+    from atelier.generation import portage
+
+    return portage.porter()
+
+
+@outil
+def studio_plan_automatisation(cle: str) -> dict:
+    """Plan d'automatisation d'un scénario BDD, indépendant de la technologie : chaque étape avec son intention (ouvrir,
+    toucher, saisir, revenir, otp, verifier, appel), son écran, son élément (resource-id, accessibility id, texte) et
+    la donnée du jeu qu'elle utilise (secret ou non). À lire avant de générer dans une technologie."""
+    from atelier.generation import bdd, plan_automatisation
+
+    return plan_automatisation.construire(bdd._exiger(cle))
+
+
+@outil
+def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "", remplacer: bool = False,
+                              technologie: str = "") -> dict:
     """Génère la suite Robot d'un scénario BDD en Page Object Model : la suite (tests seulement) et, dans « pages », la
     ressource de chaque écran où ajouter les keywords à implémenter (stubs). ecrire=False :
     aperçu seulement ; « keywords_proches » liste les étapes qui ressemblent à un keyword existant. ecrire=True : écrit
@@ -891,13 +942,25 @@ def studio_generer_depuis_bdd(cle: str, ecrire: bool = False, chemin: str = "", 
     l'automaticien dans l'atelier. L'écriture est refusée tant qu'une étape proche d'un keyword existant n'est pas
     tranchée dans Test Design (reprendre le keyword, ou confirmer un nouveau keyword) : aucun doublon silencieux.
     remplacer=True : régénère un test déjà écrit (ex. passage en Page Object Model) quand sa suite ne contient que lui ;
-    l'ancienne version est sauvegardée (studio/remplaces/). Une suite qui porte d'autres tests n'est jamais remplacée."""
-    from atelier.generation import bdd, structure_depot, studio
+    l'ancienne version est sauvegardée (studio/remplaces/). Une suite qui porte d'autres tests n'est jamais remplacée.
+    technologie : robot-appium, robot-web, robot-api (voir technologies_disponibles) ; vide = celle déduite de
+    l'application active (comportement historique)."""
+    from atelier.generation import bdd, structure_depot, studio, technologies
 
     m = bdd._exiger(cle)
-    g = bdd.generer_robot(m)
-    if chemin and chemin.replace("\\", "/") != g["chemin"]:  # chemin imposé : suite à part, jamais un ajout
-        g = bdd.generer_robot(m, cible=chemin)
+    if technologie:
+        t = technologies.obtenir(technologie)
+        g = t.generer(m)
+        if chemin and chemin.replace("\\", "/") != g["chemin"]:
+            g = t.generer(m, chemin=chemin)
+    else:
+        g = bdd.generer_robot(m)
+        if chemin and chemin.replace("\\", "/") != g["chemin"]:  # chemin imposé : suite à part, jamais un ajout
+            g = bdd.generer_robot(m, cible=chemin)
+    if g.get("langage") == "Kotlin":  # technologie native : écriture et contrôle (compilation) propres à Kotlin
+        if ecrire:
+            g = technologies.obtenir(g["technologie"]).ecrire(m, g, remplacer, "cursor")
+        return g
     g["structure"] = structure_depot.controler(g["chemin"], g["contenu"])  # rangé comme le reste du dépôt ?
     if ecrire:  # suite (création, ajout au parcours, ou remplacement explicite si elle ne porte que ce test) + pages
         g = bdd.ecrire_generation(m, g, remplacer, "cursor")
@@ -937,7 +1000,7 @@ def studio_executer_etape(keyword: str, jdd_nom: str, plateforme: str = "web", e
 
 @outil
 def run_tests(tests: list[str], dry_run: bool = False, jdd_env: str = "", output_dir: str = "",
-              derogation: str = "", jdd_variantes: dict | None = None) -> dict:
+              derogation: str = "", jdd_variantes: dict | None = None, technologie: str = "", appareil: str = "") -> dict:
     """Exécute des tests PRÉCIS (pas toute la suite) : tests = identifiants « <fichier>::<nom du test> » (une ou plusieurs
     suites ; un fichier seul = toute la suite). Sert à reproduire puis vérifier une maintenance : un run réel est la
     vérification qui précède la validation ; un dry run ne lance aucun keyword, il ne vérifie aucune assertion.
@@ -945,11 +1008,29 @@ def run_tests(tests: list[str], dry_run: bool = False, jdd_env: str = "", output
     une dérogation justifiée de l'automaticien. jdd_env vide : l'environnement des jeux de données est déduit.
     output_dir vide : un dossier par run (results/tests/<date>) : la preuve d'un run n'est pas écrasée par le suivant.
     jdd_variantes : profil de données choisi pour un jeu, ex. {"LOGIN_DEMO": "LOGIN_DEMO_PLUS18"} (jeux
-    déclarés « variante_de » dans le JDD) : les tests reçoivent les valeurs du profil sans modifier leur code."""
+    déclarés « variante_de » dans le JDD) : les tests reçoivent les valeurs du profil sans modifier leur code.
+    technologie « uiautomator » (ou « espresso ») : tests Kotlin « paquet.Classe#methode » ; dry_run = compilation ;
+    sinon build, installation et am instrument sur l'appareil (udid ; vide = premier téléphone connecté)."""
     from atelier.execution import centre
 
     from datetime import datetime
 
+    if technologie in ("uiautomator", "espresso"):  # tests Kotlin : « classe#methode » ou classe, sur le téléphone (appareil = udid)
+        from atelier.domain import projet
+        from atelier.execution import instrumentation
+        from atelier.generation import perimetre
+        from atelier.generation.technologies.espresso import Espresso
+
+        dossier = Espresso.config()["dossier"] if technologie == "espresso" else perimetre.dossier_kotlin()
+        if not any(projet.safe_path(f"{dossier}/{f}").exists() for f in ("settings.gradle.kts", "settings.gradle")):
+            raise ValueError(f"« {dossier} » n'est pas un projet Gradle du dépôt de tests : " + (
+                "les tests Espresso s'exécutent avec le code source de l'application (module androidTest de son dépôt, "
+                "ou automatisation.projet_espresso)." if technologie == "espresso" else "projet UI Automator introuvable."))
+        if dry_run:
+            return {"technologie": technologie, "dry_run": True, **instrumentation.compiler(dossier)}
+        return {"technologie": technologie, "tests": tests,
+                **instrumentation.lancer(dossier, appareil or instrumentation.appareil(), tests,
+                                         extra={"otp_mode": os.environ.get("OTP_MODE", "arret")})}
     sel = robot.selection_tests(tests)
     output_dir = output_dir or f"results/tests/{datetime.now():%Y%m%d-%H%M%S-%f}"
     revue = centre.controle_revue(sel["cible"], dry_run, derogation, tests)

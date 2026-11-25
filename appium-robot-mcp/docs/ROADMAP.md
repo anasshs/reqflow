@@ -261,3 +261,54 @@ aucune MR proposée avant 3 passages stables, aucune modification silencieuse.
 - [x] Phase 5 — Knowledge Graph (Champ, Anomalie) — docs/V2_PHASE5_KNOWLEDGE_GRAPH.md
 - [x] Phase 6 — Failure Analysis (liens échecs ↔ écrans, composants, champs, anomalies) — docs/V2_PHASE6_FAILURE_ANALYSIS.md
 - [x] Phase 7 — Consolidation (non-régression, intégration MCP, sécurité) — docs/V2_BILAN.md
+
+## Automatisation multi-technologies (docs/AUTOMATISATION_MULTI_CIBLES.md, 2026-11-25)
+
+Une phase à la fois. Points d'entrée : parcours, User Story, Test Plan Xray ; le MCP déroule la chaîne.
+
+### A. Faire tourner le projet UI Automator du dépôt de tests
+- [x] Compilation (Gradle 8.7, SDK 34) : BUILD SUCCESSFUL, APK hôte et APK de test produits
+- [ ] Installation sur le téléphone (confirmation MIUI « Installer via USB » à accepter sur l'appareil) ou émulateur
+- [ ] Suite `login` exécutée ; temps et stabilité comparés à Robot ; comportement de Promon constaté
+
+### B. Abstraction « technologie » (sans changement de comportement)
+- [x] Plan d'automatisation neutre : generation/plan_automatisation.py (intentions, élément, donnée, secret)
+- [x] Registre generation/technologies/ : robot-appium, robot-web, robot-api branchés sur bdd.generer_robot
+      (bibliothèque imposée par la technologie, sortie identique) ; uiautomator et espresso déclarés, indisponibles
+- [x] MCP : technologies_disponibles, studio_plan_automatisation ; argument `technologie` de studio_generer_depuis_bdd
+      (vide = comportement historique)
+- [x] Tests : tests/test_technologies.py (sortie identique, bibliothèque imposée, registre, plan, outils)
+- [x] « Réutiliser sans réécrire » : une étape BDD est liée à un keyword existant sans changer son texte (Gherkin Xray
+      inchangé) ; le Robot généré appelle le keyword (libellé Xray en commentaire) ; lien cassé signalé (bdd.keyword_lie)
+- [ ] Interface : choix de la technologie (« cible ») dans la console TNR auto et le Kanban
+
+- [x] Interface : écran « Automatiser » (#automatiser) — point d'entrée, technologie, sélection des tests, lancement ;
+      consigne du Kanban avec la technologie par défaut de l'application
+- [x] Points d'entrée : parcours, User Story, Test Plan Xray (generation/perimetre.py ; outils perimetre_automatisation,
+      automatiser_perimetre ; demande déposée dans la boîte de l'atelier)
+
+### C. Technologie UI Automator
+- [x] Génération depuis le plan : Page Objects par écran (pages/), classe par parcours (bdd/), @Xray, keywords portés
+      réutilisés (k_…, arguments intégrés et explicites), Bdd.kt (données, OTP arret / validation, étape à implémenter)
+- [x] Essai réel (copie du dépôt SIMPLE) : 146 scénarios BDD générés, 1 187 étapes dont 5 « à implémenter » ;
+      compilation Gradle réussie avec le socle et les 1 025 keywords portés
+- [x] Exécution : execution/instrumentation.py (build, installation avec refus MIUI expliqué, am instrument, résultats,
+      outbox Xray test_debut / test_fin) ; run_tests(technologie="uiautomator")
+- [x] Carte enrichie : classe native de chaque élément par plateforme (resource-id, description, texte déjà gardés)
+
+### D. Porter le patrimoine Robot
+- [x] generation/portage.py + outil porter_vers_kotlin + bouton de l'écran Automatiser : robot2kotlin du projet Kotlin,
+      bilan par test en suivant les keywords appelés (SIMPLE : 93 % des instructions, mais 32 tests complets sur 185)
+
+### E. Robot web complet
+- [x] robot-web (Browser) et robot-selenium (SeleniumLibrary : mêmes keywords qu'AppiumLibrary), au choix par application
+
+### F. Espresso
+- [x] technologies/espresso.py : même plan, onView par identifiant résolu à l'exécution (sans la classe R), description,
+      texte ; tests écrits dans <projet de tests>/espresso/ (invariant fichiers) ; exécution refusée sans projet Gradle
+      qui inclut l'application
+- [ ] Compilation réelle des tests Espresso (bibliothèque espresso-core absente du cache Gradle : téléchargement à autoriser)
+
+### A (suite). Exécution réelle sur appareil
+- [ ] Installation des APK sur le Redmi (confirmation MIUI à l'écran) ou image d'émulateur Android 33 (téléchargement en cours)
+- [ ] Suite login exécutée en Kotlin ; temps et stabilité comparés à Robot ; comportement de Promon constaté

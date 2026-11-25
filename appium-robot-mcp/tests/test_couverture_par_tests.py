@@ -45,10 +45,43 @@ def test_locators_scalaires_du_depot(tmp_path):
     assert ("dashboard", "dash_cloche") in kw["locators"]
 
 
+LOCATORS_PAR_PLATEFORME = """*** Variables ***
+${CLOCHE}               ${CLOCHE_${PLATFORM}}
+${CLOCHE_ANDROID}       id=${APP_ID}:id/cloche
+${CLOCHE_IOS}           ${EMPTY}
+${TITRE}                ${TITRE_${PLATFORM}}
+${TITRE_ANDROID}        xpath=//*[@resource-id="${APP_ID}:id/tvTitle" and contains(@text,"Notifications")]
+"""
+PAGE_PAR_PLATEFORME = """*** Settings ***
+Resource    ../locators/accueil_locators.resource
+
+*** Keywords ***
+J'ouvre les notifications
+    Click Element    ${CLOCHE}
+    Wait Until Page Contains Element    ${TITRE}
+"""
+
+
+def test_locators_declines_par_plateforme(tmp_path):
+    """Convention ${NOM}    ${NOM_${PLATFORM}} : ${NOM_ANDROID} a la clé métier « nom » et ${NOM} dans un keyword y renvoie."""
+    (tmp_path / "resources" / "locators").mkdir(parents=True)
+    (tmp_path / "resources" / "pages").mkdir()
+    (tmp_path / "resources" / "locators" / "accueil_locators.resource").write_text(LOCATORS_PAR_PLATEFORME, "utf-8")
+    (tmp_path / "resources" / "pages" / "accueil.resource").write_text(PAGE_PAR_PLATEFORME, "utf-8")
+    from atelier.execution import depot_robot
+
+    inv = depot_robot.lire_depot(tmp_path)
+    assert set(inv["locators"]) == {"accueil_locators.cloche@android", "accueil_locators.titre@android"}  # ${EMPTY} ignoré
+    kw = next(k for k in inv["keywords"].values() if k["nom"] == "J'ouvre les notifications")
+    assert kw["locators"] == [("accueil_locators", "cloche"), ("accueil_locators", "titre")]
+
+
 def test_identite_d_un_locator_independante_de_la_syntaxe():
     from atelier.discovery.connaissance import identifiant_locator as i
 
     assert i('android=new UiSelector().resourceId("cloche")') == i("id=com.exemple:id/cloche") == i('//*[@resource-id="cloche"]') == "rid:cloche"
+    # package porté par une variable Robot : même identité que dans la carte
+    assert i("id=${APP_ID}:id/cloche") == i('xpath=//*[@resource-id="${APP_ID}:id/cloche" and @enabled="true"]') == "rid:cloche"
     assert i("accessibility_id=Se connecter") == "acc:Se connecter"
     assert i("xpath=//android.widget.Button") == ""
 

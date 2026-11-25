@@ -346,8 +346,13 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
     if (!r) return "";
     const j = r.jugement, avis = j ? `<p class="lib" style="margin:4px 0"><span class="pill violet">${esc(j.source)}</span> ${j.verdict === "réutiliser" ? `réutiliser « ${esc(j.keyword)} »` : "créer un keyword"} : ${esc(j.justification)}</p>` : "";
     const propositions = (r.proches || []).map(p => `<li><div class="item"><b>${esc(p.keyword)}</b>${p.juge ? ' <span class="pill violet" style="font-size:10px">même action</span>' : ""}<div class="sous">${esc(p.fichier)}${p.documentation ? " · " + esc(p.documentation) : ""}</div></div>
-      ${S.edition && !r.confirme ? `<button class="btn" data-reprendre="${esc(p.keyword)}">Reprendre</button>` : ""}</li>`).join("");
+      ${S.edition && !r.confirme ? `<button class="btn" data-reprendre="${esc(p.keyword)}" title="Le texte de l'étape devient le nom du keyword (le Gherkin de Xray change)">Reprendre</button>
+        <button class="btn" data-lier="${esc(p.keyword)}" title="L'étape garde son texte (Xray inchangé) ; le test appelle ce keyword">Réutiliser sans réécrire</button>` : ""}</li>`).join("");
+    if (r.statut === "existant" && r.lie) return `<p class="lib" style="margin:2px 0 8px"><span class="pill ok">Keyword réutilisé</span> ${esc(r.keyword)} <span class="mono">${esc(r.fichier)}</span> · lié sans réécrire : le texte de l'étape (Xray) est gardé
+      ${S.edition ? `<button class="lien" id="p-kw-delier">Délier</button>` : ""}</p>`;
     if (r.statut === "existant") return `<p class="lib" style="margin:2px 0 8px"><span class="pill ok">Keyword réutilisé</span> ${esc(r.keyword)} <span class="mono">${esc(r.fichier)}</span>${r.correspondance === "arguments intégrés" ? " (arguments intégrés)" : ""}</p>`;
+    if (r.lien_casse) return `<p class="lib" style="margin:2px 0 8px"><span class="pill ko">Keyword lié absent</span> « ${esc(r.lien_casse)} » n'est plus dans le dépôt : choisir un autre keyword.
+      ${S.edition ? `<button class="lien" id="p-kw-delier">Délier</button>` : ""}</p><ul class="liste">${propositions}</ul>`;
     if (r.statut === "proche") return `<div style="margin:2px 0 8px"><p class="lib" style="margin:0 0 4px"><span class="pill warn">Doublon possible</span> Un keyword existant fait déjà cette action : le reprendre plutôt que d'en créer un second.</p>
       ${avis}<ul class="liste">${propositions}</ul>${lienJuger(r)}<br>${S.edition ? `<button class="lien" id="p-kw-nouveau">Aucun ne convient : confirmer un nouveau keyword</button>` : ""}</div>`;
     return `<div style="margin:2px 0 8px"><p class="lib" style="margin:0 0 4px"><span class="pill">Keyword à créer</span> ${r.confirme ? "Nouveau keyword confirmé malgré un keyword proche." : "Aucun keyword du dépôt ne correspond."}
@@ -384,6 +389,8 @@ ${Atelier.ctx.agent_integre ? "Demandez une relecture ou une modification ci-des
     $("#p-loc-copier").onclick = e2 => { e2.preventDefault(); navigator.clipboard?.writeText($("#p-loc").value).then(() => toast("Locator copié.")); };
     if (!S.edition) return;
     $$("#b-props [data-reprendre]").forEach(b => b.onclick = () => operation({op: "modifier_etape", etape: e.id, texte: b.dataset.reprendre}, `Keyword « ${b.dataset.reprendre} » repris : aucun doublon.`));
+    $$("#b-props [data-lier]").forEach(b => b.onclick = () => operation({op: "modifier_etape", etape: e.id, keyword_lie: b.dataset.lier}, `Keyword « ${b.dataset.lier} » réutilisé ; le texte de l'étape (Xray) est gardé.`));
+    if ($("#p-kw-delier")) $("#p-kw-delier").onclick = () => operation({op: "modifier_etape", etape: e.id, keyword_lie: ""}, "Lien retiré : l'étape est de nouveau à rapprocher.");
     if ($("#p-kw-nouveau")) $("#p-kw-nouveau").onclick = () => operation({op: "modifier_etape", etape: e.id, keyword_nouveau: true}, "Nouveau keyword confirmé pour cette étape.");
     $$("#b-props [data-juger-kw]").forEach(b => b.onclick = jugerKeywords);
     if ($("#p-kw-annuler")) $("#p-kw-annuler").onclick = () => operation({op: "modifier_etape", etape: e.id, keyword_nouveau: false}, "Confirmation retirée.");

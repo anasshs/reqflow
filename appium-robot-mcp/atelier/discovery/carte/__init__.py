@@ -526,6 +526,8 @@ def _fusion_elements(e: dict, elements: list[dict], platform: str, s: str | None
         fusion = ids_nouveaux + [l for l in anciens if l.startswith(ID_PREFIX)] + \
             [l for l in anciens if not l.startswith(ID_PREFIX)] + [l for l in nouveaux if not l.startswith(ID_PREFIX)]
         entry["locators"][platform] = list(dict.fromkeys(fusion))[:4]
+        if x.get("classe"):  # classe native (Button, EditText, ComposeView…) : sélecteurs UI Automator / Espresso
+            entry.setdefault("classes", {})[platform] = x["classe"]
 
 
 def observer(elements: list[dict], platform: str, contexte: str = "", build: str = "",

@@ -36,7 +36,9 @@ NATURE = {
     # Model-Based Testing : le modèle (comportement/) et les brouillons BDD sont des écritures locales ; propositions à valider
     "mbt_chemins": "L", **dict.fromkeys(["mbt_modele", "mbt_generer_bdd"], "É"), "mbt_deposer_propositions": "P",
     # Automation Studio
-    **dict.fromkeys(["studio_socle", "studio_rapprocher_etapes", "studio_scenario_bdd", "studio_revue", "studio_corrections_locators", "studio_factorisation_keywords"], "L"),
+    **dict.fromkeys(["studio_socle", "studio_rapprocher_etapes", "studio_scenario_bdd", "studio_revue", "studio_corrections_locators", "studio_factorisation_keywords",
+                     "technologies_disponibles", "studio_plan_automatisation", "perimetre_automatisation"], "L"),
+    "automatiser_perimetre": "É", "porter_vers_kotlin": "É",  # porter : réécrit genere/ du projet Kotlin (dépôt de tests)  # dépose une demande dans la boîte de l'atelier (rien n'est généré ni publié)
     **dict.fromkeys(["studio_generer_depuis_bdd", "studio_construire_test", "studio_executer_etape", "studio_corriger_locator",
                      "studio_factoriser_keywords"], "É"),
     "studio_soumettre_revue": "P",
@@ -65,7 +67,7 @@ def _outils() -> dict:
 def test_chaque_outil_est_classe():
     o = _outils()
     assert set(o) == set(NATURE), f"non classés : {sorted(set(o) - set(NATURE))} ; disparus : {sorted(set(NATURE) - set(o))}"
-    assert len(o) == 126  # + 2 maintenance (maintenance_modifier_bdd, maintenance_rapporter) ; + discovery_donnee_proposer (données proposées par l'agent) ; + 4 Model-Based Testing + run_tests + 2 TNR
+    assert len(o) == 131  # + porter_vers_kotlin ; + 2 points d'entrée (perimetre_automatisation, automatiser_perimetre) ; + 2 technologies (technologies_disponibles, studio_plan_automatisation) ; + 2 maintenance (maintenance_modifier_bdd, maintenance_rapporter) ; + discovery_donnee_proposer (données proposées par l'agent) ; + 4 Model-Based Testing + run_tests + 2 TNR
 
 
 def test_ecritures_externes_par_demande():

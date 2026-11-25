@@ -81,6 +81,35 @@ def test_analyse_import_parcours_et_ecrans(depot):
     assert len(pu.obtenir(pid)["ecrans"]) == 2                                                # accueil et compte, pas « autre »
 
 
+def test_ecrans_deduits_du_depot_proposes_au_parcours(depot):
+    """Sans run cartographié : l'écran dont les locators sont utilisés par les keywords des tests du parcours lui est
+    proposé (lien déduit, à valider) ; un écran qu'aucun de ses tests ne touche ne l'est pas."""
+    from atelier.discovery import carte, connaissance, parcours_utilisateur as pu
+    from atelier.domain import declarations
+    from atelier.generation import adoption
+
+    carte.maj_app(**{"android": {"app_package": "com.demo.banque"}})
+    (depot / "resources" / "locators").mkdir(parents=True)
+    (depot / "resources" / "pages").mkdir(parents=True)
+    (depot / "resources" / "locators" / "compte_locators.resource").write_text(
+        "*** Variables ***\n${SOLDE}    ${SOLDE_${PLATFORM}}\n${SOLDE_ANDROID}    id=${APP_ID}:id/tvSolde\n", "utf-8")
+    (depot / "resources" / "pages" / "compte.resource").write_text(
+        "*** Settings ***\nResource    ../locators/compte_locators.resource\n\n*** Keywords ***\n"
+        "the balance is displayed\n    Wait Until Page Contains Element    ${SOLDE}\n", "utf-8")
+    a = adoption.analyser()
+    adoption.importer_scenarios()
+    pid = adoption.creer_parcours([{"suite": s["suite"], "nom": s["nom"], "garder": s["type"] == "parcours"} for s in a["suites"]])["parcours_crees"][0]
+    for nom, rid in (("compte", "tvSolde"), ("autre", "tvAutre")):
+        carte.observer([{"key": f"el_{nom}", "type": "texte", "libelle": nom, "locators": [f"id=com.demo.banque:id/{rid}"]}], "android")
+    connaissance.vider_cache()
+    r = adoption.ecrans_des_parcours()
+    assert r["deduits_du_depot"] == 1
+    p = pu.obtenir(pid)
+    assert [e["lien"] for e in p["ecrans"]] == ["à valider"]
+    rel = next(x for k, x in declarations.charger()["relations"].items() if k.startswith(f"{pu._lire(pid)['noeud']}|contient|"))
+    assert rel["provenance"] == "déduit"
+
+
 def test_apercu_d_un_dossier_sans_l_activer(depot, tmp_path_factory):
     from atelier.generation import adoption
 

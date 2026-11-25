@@ -1107,3 +1107,21 @@ Décisions de l'utilisateur :
   pas modifié ; les scripts Robot du dépôt ne sont pas touchés ; refusé pour le projet actif pendant un run. L'adoption
   complète sans écraser : un scénario déjà rattaché garde son parcours, les locators connus gardent leur rang (l'import
   des pages s'ajoute après).
+- **Automatisation multi-technologies** (demande de l'utilisateur, 2026-11-25 ; conception : docs/AUTOMATISATION_MULTI_CIBLES.md) :
+  un test Xray peut être automatisé en Robot + Appium, Robot web, Robot API, UI Automator (Kotlin, application
+  installée) ou Espresso (Kotlin, avec le code source de l'application). Le scénario BDD et Xray restent la référence ;
+  un plan d'automatisation neutre (generation/plan_automatisation.py : intentions, éléments de la carte, données du jeu)
+  est traduit par une « technologie » (generation/technologies/, « cible » dans l'interface). La génération Robot passe
+  par les technologies robot-* sans changement de sortie. Point d'entrée de l'automaticien : un parcours, une User Story
+  ou un Test Plan Xray, résolu en tests ; le MCP prend le relais (boîte de demandes). Espresso ne pilote pas un APK
+  livré : sans le code de l'application, la technologie Android native est UI Automator.
+- **Réutiliser un keyword sans réécrire l'étape** (demande de l'utilisateur, 2026-11-25) : quand un test Xray est rédigé
+  autrement que le socle, l'automaticien peut lier l'étape à un keyword existant en gardant son texte (formulation
+  métier validée, Gherkin de Xray inchangé). Troisième décision à côté de « reprendre le libellé » et « confirmer un
+  nouveau keyword » ; toujours humaine (une IA propose, ne lie pas). Le test Robot appelle le keyword, précédé du
+  libellé Xray en commentaire ; la traçabilité passe par la clé Xray.
+- **Phases C à F de l'automatisation multi-technologies** (2026-11-25, « pousse quand tu termines toutes les phases ») :
+  UI Automator génère depuis le plan neutre en RÉUTILISANT les keywords Robot déjà portés en Kotlin (fonctions k_ de
+  robot2kotlin) : une étape n'est écrite deux fois nulle part. Espresso est généré dans le projet de tests (dossier
+  espresso/, à intégrer au dépôt de l'application) : l'atelier n'écrit jamais hors du projet de tests. Les résultats
+  Kotlin remontent par l'outbox Xray existante (mêmes événements que le listener Robot). Web : Browser ou SeleniumLibrary.

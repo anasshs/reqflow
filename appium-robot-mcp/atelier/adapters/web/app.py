@@ -4082,6 +4082,39 @@ async def studio_frameworks():
     return await asyncio.to_thread(_call, studio.frameworks)
 
 
+# --------------------------------------------------------------------------- automatisation multi-technologies
+@app.get("/api/automatisation/technologies")
+async def automatisation_technologies():
+    from atelier.generation import technologies
+
+    return await asyncio.to_thread(_call, technologies.lister)
+
+
+@app.get("/api/automatisation/perimetre")
+async def automatisation_perimetre(entree: str, reference: str):
+    from atelier.generation import perimetre
+
+    return await asyncio.to_thread(_call, perimetre.resoudre, entree, reference)
+
+
+@app.post("/api/automatisation/porter")
+async def automatisation_porter():
+    """Porter le patrimoine Robot en Kotlin (robot2kotlin du projet Kotlin) et bilan par test."""
+    from atelier.generation import portage
+
+    return await asyncio.to_thread(_call, portage.porter)
+
+
+@app.post("/api/automatisation/lancer")
+async def automatisation_lancer(req: Request):
+    """« Automatiser et vérifier » : dépose la demande dans la boîte de l'atelier (le MCP prend le relais)."""
+    from atelier.generation import perimetre
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, perimetre.automatiser, b.get("entree", ""), b.get("reference", ""),
+                                   b.get("technologie", ""), b.get("tests") or None)
+
+
 @app.get("/api/studio/git")
 async def studio_git():
     return await asyncio.to_thread(_call, studio.git)

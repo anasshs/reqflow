@@ -586,8 +586,11 @@ def _verifiees_sur(g: Graphe, masquees: set | None = None):
                                                   "locators": sorted(p["locators"]), "origines": sorted(p["origines"])})
 
 
+# préfixe de package d'un resource-id : littéral (« com.app:id/ ») ou variable Robot (« ${APP_ID}:id/ »)
+_PKG = r"(?:(?:[\w.]+|\$\{\w+\}):id/)?"
 _IDENTIFIANTS = (
-    ("rid", re.compile(r"""resourceId(?:Matches)?\("(?:[\w.]+:id/)?([^"]+)"\)|@resource-id\s*=\s*["'](?:[\w.]+:id/)?([^"']+)["']|^id=(?:[\w.]+:id/)?(\S+)$""")),
+    ("rid", re.compile(r"""resourceId(?:Matches)?\(""" + '"' + _PKG + r"""([^"]+)"\)|@resource-id\s*=\s*["']""" + _PKG
+                       + r"""([^"']+)["']|^id=""" + _PKG + r"""(\S+)$""")),
     ("acc", re.compile(r"""^accessibility_id=(.+)$|description\("([^"]+)"\)|@content-desc\s*=\s*["']([^"']+)["']""")),
     ("txt", re.compile(r"""\.text\("([^"]+)"\)|@text\s*=\s*["']([^"']+)["']""")),
 )
