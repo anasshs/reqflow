@@ -13,8 +13,33 @@
   const F = (() => { try { return JSON.parse(localStorage.getItem("atelier-kanban-filtres") || "{}"); } catch { return {}; } })();
   F.sujet = F.sujet || ""; F.types = F.types || ["parcours", "us", "test"]; F.texte = "";
   const garder = () => { try { localStorage.setItem("atelier-kanban-filtres", JSON.stringify({sujet: F.sujet, types: F.types})); } catch { /* non mémorisé */ } };
+  const ROLE_COLONNE = {a_faire: "Backlog : parcours, US, tests sans étapes", conception: "L'agent conçoit", bdd_pret: "Scénario prêt à automatiser",
+    automatisation: "Script, dry-run, run local", automatise: "Script Robot existant", en_run: "Sur le téléphone", dans_xray: "Publié, plan TNR",
+    maintenance: "Run en échec ou impacté : qualifier, maintenir, confirmer"};
   const TYPE = {parcours: ["branche", "Parcours"], us: ["assertion", "User Story"], test: ["bdd", "Test"]};
   const RUN = {PASS: ["ok", "✓ run OK"], FAIL: ["ko", "✗ run en échec"]};
+  /* Scénario Gherkin lisible : mots-clés en gras et en couleur, étiquettes en pastilles, étapes indentées, données
+     ({{var:…}}, <paramètre>, « … ») mises en évidence, tableaux d'exemples alignés. */
+  const MOTS_ETAPE = /^(Étant donné que|Étant donné qu'|Étant donné|Etant donné|Soit|Quand|Lorsque|Alors|Et que|Et|Mais|Given|When|Then|And|But)\b/;
+  const MOTS_BLOC = /^(Fonctionnalité|Scénario|Plan du scénario|Contexte|Exemples|Règle|Feature|Scenario Outline|Scenario|Background|Examples|Rule)\s*:/;
+  const enrichir = s => esc(s).replace(/(\{\{[^}]+\}\}|&lt;[^&]+&gt;|«[^»]*»|"[^"]*")/g, '<span class="gk-donnee">$1</span>');
+  function gherkinHtml(texte) {
+    return (texte || "").split(/\r?\n/).map(l => {
+      const brut = l.trim();
+      if (!brut) return "";
+      if (brut.startsWith("#")) return `<div class="gk-com">${esc(brut)}</div>`;
+      if (brut.startsWith("@")) return `<div class="gk-tags">${brut.split(/\s+/).map(x => `<span>${esc(x)}</span>`).join("")}</div>`;
+      const bloc = brut.match(MOTS_BLOC);
+      if (bloc) return `<div class="gk-bloc gk-${esc(bloc[1].toLowerCase().replace(/\s+/g, "-"))}"><b>${esc(bloc[1])} :</b> ${enrichir(brut.slice(bloc[0].length).trim())}</div>`;
+      const mot = brut.match(MOTS_ETAPE);
+      if (mot) {
+        const cls = /^(Alors|Then)/.test(mot[1]) ? "gk-alors" : /^(Quand|Lorsque|When)/.test(mot[1]) ? "gk-quand" : /^(Et|Mais|And|But)/.test(mot[1]) ? "gk-et" : "gk-donne";
+        return `<div class="gk-etape ${cls}"><b>${esc(mot[1])}</b> ${enrichir(brut.slice(mot[0].length).trim())}</div>`;
+      }
+      if (brut.startsWith("|")) return `<div class="gk-table">${brut.split("|").slice(1, -1).map(c => `<span>${enrichir(c.trim())}</span>`).join("")}</div>`;
+      return `<div class="gk-desc">${enrichir(brut)}</div>`;
+    }).join("");
+  }
   const recharger = () => { clearTimeout(minuteur); minuteur = setTimeout(() => glisse ? recharger() : charger(), 700); };  // jamais pendant un glisser
   const court = (s, n) => s.length > n ? s.slice(0, n - 1) + "…" : s;
   const nomSujet = id => (D.sujets.find(s => s.id === id) || {}).titre || id;
@@ -36,6 +61,8 @@
       ${x.type !== "test" && x.detail ? `<div class="kb-detail lib">${esc(court(x.detail, 110))}</div>` : ""}
       ${x.type !== "test" && x.tests ? `<div class="kb-detail lib">${x.tests} test(s) · ${x.dans_xray} dans Xray</div>` : ""}
       ${x.a_qualifier ? `<div class="kb-pied"><span class="kb-qualifier">${x.a_qualifier} proposition(s) MBT à qualifier</span></div>` : ""}
+      ${x.maintenance ? `<div class="kb-pied"><span class="kb-maint kb-maint-${esc(x.maintenance.etat)}" title="${esc(x.maintenance.cause_libelle || "")}">${ico("editeur")}${esc(x.maintenance.libelle)}</span></div>` : ""}
+      ${x.maintenu ? `<div class="kb-pied"><span class="kb-maintenu" title="${x.maintenu.n} maintenance(s) confirmée(s), la dernière le ${esc((x.maintenu.date || "").slice(0, 10))}${x.maintenu.bdd_modifie ? " ; scénario BDD modifié" : ""}">Maintenu${x.maintenu.n > 1 ? " ×" + x.maintenu.n : ""}${x.maintenu.bdd_modifie ? " · BDD" : ""}</span></div>` : ""}
       ${x.manuel ? `<div class="kb-pied"><span class="kb-manuel" title="Décision actée : ce test n'est pas à automatiser">Ne pas automatiser</span></div>` : ""}
       ${x.type !== "test" && (x.a_automatiser || []).length ? `<div class="kb-pied"><span class="kb-ecart">${x.a_automatiser.length} test(s) BDD à automatiser</span></div>` : ""}
       ${sujets || x.xray || run ? `<div class="kb-pied">${sujets}${x.xray ? `<span class="kb-xray">${esc(x.xray)}</span>` : ""}
@@ -86,7 +113,9 @@
       ${D.application ? barre() : ""}
       ${D.application ? `<div class="kb-tableau" style="--kb-cols:${D.colonnes.length}">${D.colonnes.map(c => {
           const l = v.filter(x => x.colonne === c.id);
-          return `<section class="kb-colonne" data-colonne="${c.id}" aria-label="${esc(c.titre)}"><header class="kb-col-tete">${esc(c.titre)}<span class="kb-n">${l.length}</span></header>
+          return `<section class="kb-colonne kb-col-${c.id}" data-colonne="${c.id}" aria-label="${esc(c.titre)}"><header class="kb-col-tete">
+              <span class="kb-col-nom"><i class="kb-pastille" aria-hidden="true"></i>${esc(c.titre)}</span><span class="kb-n">${l.length}</span>
+              <span class="kb-col-role">${esc(ROLE_COLONNE[c.id] || "")}</span></header>
             <div class="kb-cartes">${l.map(ticketHtml).join("") || `<div class="kb-vide">${c.id === "a_faire" ? "Ajoute un parcours ou une User Story." : ""}</div>`}</div></section>`;
         }).join("")}</div>`
         : vide("Aucune application", "Déclarer l'application à tester dans Paramètres › Applications.")}`;
@@ -185,9 +214,10 @@
           <a class="btn" href="#bdd/${encodeURIComponent(t.cle)}">Éditer le scénario</a>
           ${t.tests.length ? `<a class="btn" href="#studio/mapping/${encodeURIComponent(t.cle)}">Script et keywords</a>` : ""}
           ${t.indicateur && t.indicateur.travail ? `<a class="btn" href="#travaux/${encodeURIComponent(t.indicateur.travail)}">Suivre</a>` : ""}</div>
+        ${maintenanceHtml(t)}
         <div class="kb-bloc"><h3 class="lib">JEU DE DONNÉES</h3>
-          <p class="lib">Pour un run, le jeu choisi ne sert qu'à ce run ; « Remplacer dans le dépôt » le garde pour les prochaines exécutions.
-            Jeu du scénario : <b>${esc(t.jdd || "aucun")}</b>.</p>
+          ${jeuxHtml(t)}
+          <p class="lib">Pour un run, le jeu choisi ne sert qu'à ce run ; « Remplacer dans le dépôt » le garde pour les prochaines exécutions.</p>
           <div class="btns"><select class="in" id="kb-run-jdd" aria-label="Jeu de données"><option value="">${esc(t.jdd || "Jeu du scénario")}</option>
             ${(t.jeux || []).filter(j => j !== t.jdd).map(j => `<option value="${esc(j)}">${esc(j)}</option>`).join("")}</select>
             <button class="btn" data-executer="local" ${t.tests.length ? "" : "disabled"}>${ico("play")}Exécuter (local)</button>
@@ -196,12 +226,10 @@
         ${!t.tests.length ? `<p class="lib">${t.manuel ? "Marqué « ne pas automatiser » : hors de l'écart du sujet." : "À automatiser."}
           <button class="btn petit" id="kb-manuel">${t.manuel ? "Remettre à automatiser" : "Ne pas automatiser"}</button></p>` : ""}
         ${t.sujets_noms.length ? `<p class="lib">Sujet : ${t.sujets_noms.map(s => `<a href="#" data-filtrer="${esc(s.id)}">${esc(s.titre)}</a>`).join(", ")}</p>` : ""}
-        <h3 class="lib">SCÉNARIO</h3>${t.gherkin && t.etapes ? `<pre class="kb-gherkin">${esc(t.gherkin)}</pre>` : `<p class="lib">Pas encore d'étapes : « Concevoir le scénario ».</p>`}
+        <h3 class="lib">SCÉNARIO</h3>${t.gherkin && t.etapes ? `<div class="kb-gherkin">${gherkinHtml(t.gherkin)}</div>` : `<p class="lib">Pas encore d'étapes : « Concevoir le scénario ».</p>`}
+        ${ecransHtml(t.ecrans || [], t.tests.length > 0)}
         <h3 class="lib">TESTS ROBOT</h3>${t.tests.length ? `<ul class="liste">${t.tests.map(x => `<li class="mono">${esc(x)}</li>`).join("")}</ul>` : `<p class="lib">Pas encore automatisé.</p>`}
-        ${t.dernier_run && t.dernier_run.statut !== "PASS" ? `<div class="kb-bloc kb-bloc-ecart"><h3 class="lib">RUN EN ÉCHEC</h3>
-          <p class="lib">L'agent corrige par le MCP (diagnostic à l'écran, pages et locators, keywords existants), puis l'atelier relance le dry-run et le run local.</p>
-          <textarea class="in" id="kb-consigne" rows="2" placeholder="Indication pour l'agent (facultatif)"></textarea>
-          <div class="btns"><button class="btn primaire" id="kb-corriger">${ico("editeur")}Corriger par l'agent</button></div></div>` : ""}
+        ${t.tests.length ? gitHtml(t.git) : ""}
         ${t.dernier_run ? `<h3 class="lib">DERNIER RUN</h3><p><span class="pill ${t.dernier_run.statut === "PASS" ? "ok" : "ko"}">${esc(t.dernier_run.statut)}</span>
           <span class="lib">${esc((t.dernier_run.fin || "").slice(0, 16).replace("T", " "))}</span>${t.dernier_run.message ? `<br><span class="lib">${esc(t.dernier_run.message)}</span>` : ""}</p>` : ""}`;
     } else {
@@ -229,6 +257,31 @@
         <button class="icone" id="kb-fermer" aria-label="Fermer le ticket">${ico("x")}</button></div>
       <div class="kb-t-corps">${corps}${historique}</div>`;
     $("#kb-fermer", p).onclick = fermerTicket;
+    $$("[data-ecran-i]", p).forEach(b => b.onclick = () => ouvrirEcran(t.ecrans[+b.dataset.ecranI]));
+    // écrans couverts en plus par le test Robot : calculés seulement quand la section s'ouvre (graphe de couverture, lent)
+    const dRobot = $(".kb-ecrans-robot", p);
+    const chargerRobot = () => {
+      if (!dRobot || dRobot.dataset.charge) return;
+      dRobot.dataset.charge = "1";
+      api(`/api/kanban/ticket/${encodeURIComponent(t.cle)}/ecrans-robot`).then(l => {
+        const vus = new Set((t.ecrans || []).map(e => e.id)), autres = l.filter(e => !vus.has(e.id)), base = (t.ecrans || []).length;
+        t.ecrans = [...(t.ecrans || []), ...autres];
+        $("#kb-ecrans-robot", p).innerHTML = autres.length ? autres.map((e, n) => `<button class="kb-ecran" data-ecran-i="${base + n}" title="${esc(e.titre || e.nom)}">
+            ${e.vignette ? `<img src="/api/carte/vignette/${encodeURIComponent(e.vignette)}" alt="" loading="lazy">` : '<span class="kb-ecran-vide">pas de capture</span>'}
+            <b>${esc(e.titre && /^e_[0-9a-f]+$/.test(e.nom || "e_") ? e.titre : e.nom || e.titre || e.id)}</b><span class="lib">${esc(e.module || "")}</span></button>`).join("")
+          : '<span class="lib">Aucun autre écran.</span>';
+        $$("#kb-ecrans-robot [data-ecran-i]", p).forEach(b => b.onclick = () => ouvrirEcran(t.ecrans[+b.dataset.ecranI]));
+      }).catch(e => { $("#kb-ecrans-robot", p).innerHTML = `<span class="lib">${esc(e.message)}</span>`; dRobot.dataset.charge = ""; });
+    };
+    if (dRobot) { dRobot.addEventListener("toggle", () => dRobot.open && chargerRobot()); if (dRobot.open) chargerRobot(); }
+    const bc = $("#kb-commit", p);
+    if (bc) bc.onclick = async () => {
+      bc.disabled = true;
+      try { const r = await api(`/api/kanban/ticket/${encodeURIComponent(t.cle)}/commit`, {method: "POST", body: {}});
+        toast(r.commit ? `Commit ${r.commit} sur ${r.branche}${r.nouvelle_branche ? " (nouvelle branche)" : ""}` : (r.message || "Rien à commiter"), "ok");
+        ouvrirTicket(t.cle); }
+      catch (e) { toast(e.message, "ko"); bc.disabled = false; }
+    };
     const actionTicket = (nom, corps, ok) => api(`/api/kanban/ticket/${encodeURIComponent(t.id)}/${nom}`, {method: "POST", body: corps})
       .then(r => { toast(ok(r), "ok"); Atelier._demandes?.(); charger(); ouvrirTicket(t.id, true); }).catch(e => toast(e.message, "ko"));
     $$("[data-executer]", p).forEach(b => b.onclick = () => {
@@ -242,8 +295,19 @@
       if (!confirm(`Remplacer ${t.jdd || "le jeu"} par ${jdd} dans le scénario et ses tests Robot (prochaines exécutions) ?`)) return;
       actionTicket("jdd", {jdd}, r => `Jeu remplacé : ${r.jdd} (${r.tests_modifies.length} test(s) Robot modifié(s)).`);
     };
-    if ($("#kb-corriger", p)) $("#kb-corriger", p).onclick = () => actionTicket("corriger", {consigne: $("#kb-consigne", p).value},
-      () => "Correction confiée à l'agent (MCP), puis dry-run et run local.");
+    const com = () => ($("#kb-maint-com", p) || {}).value || "";
+    $$("[data-cause]", p).forEach(b => b.onclick = () => actionTicket("qualifier", {cause: b.dataset.cause, commentaire: com()},
+      () => b.dataset.cause === "test" ? "Maintenance confiée à l'agent (MCP) : correction, puis rejeu du test et des tests impactés." : "Cause enregistrée."));
+    if ($("#kb-confirmer", p)) $("#kb-confirmer", p).onclick = () => {
+      if (!confirm(`Confirmer la résolution de « ${t.titre} » ?${t.xray ? `\nLe test ${t.xray} est republié dans Xray (Gherkin mis à jour s'il a changé).` : ""}\nLe code du test est commité.`)) return;
+      actionTicket("confirmer", {}, r => `Résolution confirmée${r.git && r.git.commit ? ` : commit ${r.git.commit} sur ${r.git.branche}` : ""}.`);
+    };
+    if ($("#kb-refuser", p)) $("#kb-refuser", p).onclick = () => {
+      if (!com().trim()) return toast("Dire ce qui ne va pas : l'agent repart de ce commentaire.", "ko");
+      actionTicket("refuser", {commentaire: com()}, () => "Maintenance relancée avec ton commentaire.");
+    };
+    if ($("#kb-mr", p)) $("#kb-mr", p).onclick = () => actionTicket("mr", {derogation: $("#kb-derog", p).value},
+      r => r.mr && r.mr.url ? `Merge request : ${r.mr.url}` : "Merge request proposée.");
     if ($("#kb-manuel", p)) $("#kb-manuel", p).onclick = () => actionTicket("manuel", {manuel: !t.manuel},
       r => r.manuel ? "Marqué « ne pas automatiser » : hors de l'écart." : "Remis à automatiser.");
     $$("[data-vers]", p).forEach(b => b.onclick = () => deplacer(t.cle, b.dataset.vers).then(() => ouvrirTicket(t.cle, true)));
@@ -303,6 +367,118 @@
     });
   }
   const fermerTicket = () => { ouvert = ""; document.getElementById("kb-ticket")?.remove(); };
+
+  /* Écrans du test, dans l'ordre du scénario, avec la capture faite pendant la Discovery ; ceux qu'ajoute la couverture
+     du test Robot sont sur une ligne à part. Un clic ouvre la capture en grand. */
+  function ecransHtml(l, avecRobot = false) {
+    if (!l.length && !avecRobot) return `<h3 class="lib">ÉCRANS DU TEST</h3><p class="lib">Aucun écran relié : le scénario n'a ni étape liée à un écran, ni session Discovery.</p>`;
+    const carte = (e, i) => `<button class="kb-ecran" data-ecran-i="${i}" title="${esc((e.etape || e.titre || e.nom))}">
+        ${e.vignette ? `<img src="/api/carte/vignette/${encodeURIComponent(e.vignette)}" alt="" loading="lazy">` : '<span class="kb-ecran-vide">pas de capture</span>'}
+        <b>${esc(e.titre && /^e_[0-9a-f]+$/.test(e.nom || "e_") ? e.titre : e.nom || e.titre || e.id)}</b>
+        <span class="lib">${esc(e.module || "")}</span></button>`;
+    const parcours = l.map((e, i) => [e, i]).filter(([e]) => e.source !== "test Robot");
+    const robot = l.map((e, i) => [e, i]).filter(([e]) => e.source === "test Robot");
+    return `<h3 class="lib">ÉCRANS DU TEST${l.length ? ` (${l.length})` : ""}</h3>
+      ${!l.length ? `<p class="lib">Aucun écran relié au scénario (ni étape liée à un écran, ni session Discovery).</p>` : ""}
+      ${parcours.length ? `<p class="lib kb-ecrans-legende">Parcours du scénario (${esc(parcours[0][0].source)})</p>
+        <div class="kb-ecrans">${parcours.map(([e, i], n) => (n ? '<span class="kb-fleche">→</span>' : "") + carte(e, i)).join("")}</div>` : ""}
+      ${avecRobot ? `<details class="kb-ecrans-robot" ${parcours.length ? "" : "open"}><summary class="lib kb-ecrans-legende">Autres écrans couverts par le test Robot : connexion, retours, mots-clés communs</summary>
+        <div class="kb-ecrans" id="kb-ecrans-robot"><span class="lib">Calcul de la couverture…</span></div></details>` : ""}`;
+  }
+  /* Jeux de données du test : branché maintenant (tests Robot), utilisé au dernier run, lancé à l'instant. */
+  function jeuxHtml(t) {
+    const j = t.jeux_test || {}, d = j.dernier, l = j.lance;
+    const noms = a => (a || []).map(x => `<b class="mono kb-jeu" tabindex="0" title="${esc(survolJeu(j, x))}">${esc(x)}</b>`).join(", ") || "aucun";
+    const branche = (j.branches || []).length ? j.branches : (j.scenario ? [j.scenario] : []);
+    const ecart = j.scenario && (j.branches || []).length && !j.branches.includes(j.scenario);
+    return `<dl class="kb-jeux">
+      <dt>Branché maintenant</dt><dd>${noms(branche)}${(j.branches || []).length ? ' <span class="lib">(tests Robot)</span>' : ' <span class="lib">(scénario, pas encore automatisé)</span>'}
+        ${ecart ? `<br><span class="pill ko">Le scénario cite ${esc(j.scenario)}</span>` : ""}</dd>
+      ${l ? `<dt>Lancé à l'instant</dt><dd>${noms(l.jeux)} ${l.variante ? '<span class="pill warn">pour ce run seulement</span>' : ""}
+        <a class="lib" href="#travaux/${encodeURIComponent(l.travail)}">suivre</a></dd>` : ""}
+      <dt>Utilisé au dernier run</dt><dd>${d ? `${noms(d.jeux)} ${d.variante ? '<span class="pill warn">choisi pour ce run</span>' : ""}
+        <span class="lib">· ${d.env ? esc(d.env) + " · " : ""}${esc((d.fin || "").slice(0, 16).replace("T", " "))}${d.run ? " · " + esc(d.run) : ""}</span>
+        ${d.sans_bilan ? `<br><span class="lib">Run lancé par l'agent (outil MCP) : jeu branché à ce moment-là, environnement non enregistré.</span>` : ""}
+        ${(d.autres || []).length ? `<br><span class="lib">Aussi chargés : ${noms(d.autres)}</span>` : ""}` : '<span class="lib">pas encore de run</span>'}</dd>
+    </dl>`;
+  }
+  // Texte du survol d'un jeu : environnement, description, valeurs (secrets jamais affichés : référence {{env:…}} ou ••••)
+  function survolJeu(j, nom) {
+    const v = (j.valeurs || {})[nom];
+    if (!v) return `${nom} : valeurs introuvables dans le fichier de jeux`;
+    return [`${nom} (${v.env})`, v.description, "", ...Object.entries(v.valeurs).map(([k, x]) => `${k} = ${x}`)].filter((x, i) => x || i === 2).join("\n");
+  }
+  /* Lien du test avec Git : fichiers du test (suite, pages, locators, scénario, jeux), commit, branche, poussé ou non. */
+  function gitHtml(g) {
+    if (!g) return "";
+    if (!g.depot) return `<h3 class="lib">GIT</h3><p class="lib">${esc(g.erreur || "Le projet de tests n'est pas un dépôt Git.")}</p>`;
+    const etat = g.a_commiter.length ? `<span class="pill warn">${g.a_commiter.length} fichier(s) à commiter</span>`
+      : g.commit ? `<span class="pill ok">commité</span>` : `<span class="pill">pas de fichier</span>`;
+    return `<h3 class="lib">GIT · CODE DU TEST</h3>
+      <p>${etat} <span class="lib">branche</span> <b class="mono">${esc(g.branche)}</b>
+        ${g.commit ? `· <span class="mono">${esc(g.commit.hash)}</span> <span class="lib">${esc(g.commit.message)} · ${esc((g.commit.date || "").slice(0, 16).replace("T", " "))}</span>
+          ${g.pousse ? '<span class="pill ok">poussé</span>' : '<span class="pill">pas encore poussé : part avec la merge request</span>'}` : ""}</p>
+      <details class="kb-git-fichiers"><summary class="lib">${g.fichiers.length} fichier(s) du test</summary><ul class="liste">${g.fichiers.map(f =>
+        `<li class="mono">${f.etat === "commité" ? "" : `<span class="pill ${f.etat === "nouveau" ? "info" : "warn"}">${esc(f.etat)}</span> `}${esc(f.fichier)}</li>`).join("")}</ul></details>
+      <div class="btns">${g.a_commiter.length ? `<button class="btn" id="kb-commit" title="Commit local des fichiers du test (une branche de travail est créée si la branche courante est protégée)">${ico("git")}Commiter le code du test</button>` : ""}
+        <a class="btn" href="#studio/git" title="Pousser la branche et créer la merge request (revue humaine, 3 exécutions stables)">${ico("git")}Merge request</a></div>`;
+  }
+  /* Maintenance du test : qualifier la cause, maintenir par le MCP, suivre, confirmer ou refuser, tests impactés. */
+  function maintenanceHtml(t) {
+    const m = t.maintenance, hist = t.maintenances || [];
+    const historique = hist.length ? `<h3 class="lib">MAINTENANCES CONFIRMÉES (${hist.length})</h3><ul class="liste kb-maint-hist">${hist.slice().reverse().map(h =>
+      `<li><b>${esc((h.date || "").slice(0, 16).replace("T", " "))}</b> · ${esc((t.causes || {})[h.cause] || h.cause)}${h.bdd_modifie ? ' · <span class="pill info">BDD modifié</span>' : ""}
+        ${h.xray ? ` · Xray : ${esc(h.xray)}` : ""}${h.commit ? ` · commit <span class="mono">${esc(h.commit)}</span>` : ""}${(h.impacts || {}).tests && h.impacts.tests.length ? ` · ${h.impacts.tests.length} test(s) impacté(s) rejoué(s)` : ""}
+        ${(h.rapport || {}).resume ? `<br><span class="lib">${esc(h.rapport.resume)}</span>` : ""}</li>`).join("")}</ul>
+      <div class="btns"><input class="in" id="kb-derog" placeholder="Dérogation (si moins de 3 exécutions stables) : justification"><button class="btn" id="kb-mr">${ico("git")}Proposer la merge request</button></div>` : "";
+    if (!m) return historique;
+    const impacts = (m.impacts || {}).tests || [];
+    const blocImpacts = impacts.length ? `<p><span class="pill warn">${impacts.length} autre(s) test(s) impacté(s)</span> <span class="lib">fichier(s) partagé(s) modifié(s) : ${esc((m.impacts.fichiers || []).join(", "))}</span></p>
+      <ul class="liste">${impacts.map(x => `<li class="mono">${esc(x)}</li>`).join("")}</ul>
+      <p class="lib">Ils sont « À maintenir » jusqu'à un run réel réussi ; la confirmation attend qu'ils repassent tous.</p>` : "";
+    const commentaire = `<textarea class="in" id="kb-maint-com" rows="2" placeholder="Ce qu'il faut corriger, si tu le sais (transmis à l'agent)"></textarea>`;
+    let corps = "";
+    if (m.etat === "a_qualifier") {
+      const s = m.suggestion || {};
+      corps = `<p class="lib">Cause probable : <b>${esc(s.libelle || "inconnue")}</b>${s.categorie ? ` <span class="lib">(${esc(s.categorie)}, force ${esc(s.force || "?")} : ${esc(s.explication || "")})</span>` : ""}</p>
+        ${commentaire}
+        <div class="btns"><button class="btn ${s.cause === "test" || !s.cause ? "primaire" : ""}" data-cause="test">${ico("editeur")}Maintenir par l'agent (MCP)</button>
+          ${["application", "donnees", "environnement"].map(c => `<button class="btn ${s.cause === c ? "primaire" : ""}" data-cause="${c}">${esc((t.causes || {})[c] || c)}</button>`).join("")}</div>`;
+    } else if (m.etat === "en_correction") {
+      corps = `<p><span class="pill info">${esc(m.libelle)}</span>${m.commentaire ? ` <span class="lib">Demande : ${esc(m.commentaire)}</span>` : ""}</p>
+        <p class="lib">L'agent reproduit, corrige (pages, locators, scénario si l'application a changé) et vérifie qu'il ne casse aucun autre test ; puis l'atelier rejoue le test et les tests impactés.</p>
+        ${m.travail ? `<div class="btns"><a class="btn" href="#travaux/${encodeURIComponent(m.travail)}">Suivre</a></div>` : ""}`;
+    } else if (m.etat === "echec_correction") {
+      corps = `<p><span class="pill ko">${esc(m.libelle)}</span> <span class="lib">${esc(m.erreur || "")}</span></p>${commentaire}
+        <div class="btns"><button class="btn primaire" data-cause="test">${ico("editeur")}Relancer la maintenance</button></div>`;
+    } else if (m.etat === "a_confirmer") {
+      const r = m.rapport || {};
+      corps = `<p><span class="pill ok">Corrigé : run réel réussi</span></p>
+        ${r.resume ? `<p><b>Compte rendu de l'agent</b><br>${esc(r.resume)}</p>${(r.fichiers || []).length ? `<p class="lib">Fichiers : ${r.fichiers.map(esc).join(", ")}</p>` : ""}` : '<p class="lib">Pas de compte rendu de l\'agent.</p>'}
+        ${m.bdd_modifie ? `<div class="kb-bdd-diff"><p><span class="pill info">Scénario BDD modifié</span> <span class="lib">${esc(m.bdd_raison || "")}</span>
+          ${t.xray ? `<br><span class="lib">À la confirmation, le Gherkin de ${esc(t.xray)} est mis à jour dans Xray.</span>` : ""}</p>
+          <details><summary class="lib">Version d'avant</summary><div class="kb-gherkin">${gherkinHtml(t.gherkin_avant || "")}</div></details></div>` : ""}
+        ${commentaire}
+        <div class="btns"><button class="btn primaire" id="kb-confirmer" title="Scénario validé, suites approuvées${t.xray ? ", Xray mis à jour" : ""}, code commité">Confirmer la résolution</button>
+          <button class="btn" id="kb-refuser" title="La maintenance repart vers l'agent avec ton commentaire">Pas résolu : refuser</button></div>`;
+    } else if (m.etat === "impacte") {
+      corps = `<p><span class="pill warn">${esc(m.libelle)}</span> <span class="lib">maintenance de <a href="#" data-ouvrir="${esc(m.source)}">${esc(m.source)}</a> ;
+        fichier(s) partagé(s) modifié(s) : ${esc((m.fichiers || []).join(", "))}</span></p>
+        <div class="btns"><button class="btn primaire" data-executer="local">${ico("play")}Rejouer sur le téléphone</button></div>`;
+    } else {  // application, donnees, environnement
+      corps = `<p><span class="pill warn">${esc(m.libelle)}</span>${m.commentaire ? ` <span class="lib">${esc(m.commentaire)}</span>` : ""}</p>
+        <p class="lib">${m.etat === "donnees" ? "Choisir un autre jeu de données ci-dessus, puis relancer." : "Le test est juste : un run réussi le libère."}</p>
+        <div class="btns"><button class="btn" data-executer="local">${ico("play")}Relancer</button><button class="btn" data-cause="test">${ico("editeur")}Finalement, maintenir le test</button></div>`;
+    }
+    return `<div class="kb-bloc kb-bloc-ecart kb-maint-bloc"><h3 class="lib">À MAINTENIR · ${esc(m.libelle)}</h3>${corps}${blocImpacts}</div>${historique}`;
+  }
+  function ouvrirEcran(e) {
+    const m = modale(e.nom || e.titre || e.id, `<div class="kb-ecran-grand">${e.vignette ? `<img src="/api/carte/vignette/${encodeURIComponent(e.vignette)}" alt="Capture de l'écran">` : vide("Pas de capture pour cet écran")}
+        <div><p><b>${esc(e.nom || e.id)}</b>${e.module ? ` · ${esc(e.module)}` : ""}</p>${e.etape ? `<p class="lib">Étape : ${esc(e.etape)}</p>` : ""}
+          <p class="lib">Lien : ${esc(e.source)}</p></div></div>`,
+      `<button class="btn" id="kb-ecran-graphe">Voir dans le Knowledge Graph</button>`);
+    $("#kb-ecran-graphe", m.el).onclick = () => { m.fermer(); fermerTicket(); window.OuvrirGraphe ? OuvrirGraphe(`ecran:${e.nom || e.id}`) : (location.hash = "graphe"); };
+  }
 
   /* ticket parcours : enrichir par le MBT (cartes à qualifier), jeu de données de la Discovery, rejeu des tests */
   function blocsParcours(t) {

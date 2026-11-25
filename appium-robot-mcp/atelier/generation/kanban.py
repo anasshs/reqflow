@@ -28,7 +28,7 @@ from __future__ import annotations
 from datetime import datetime
 
 COLONNES = [("a_faire", "À faire"), ("conception", "En conception"), ("bdd_pret", "BDD prêt"), ("automatisation", "En automatisation"),
-            ("automatise", "Automatisé"), ("en_run", "En run"), ("dans_xray", "Dans Xray")]
+            ("automatise", "Automatisé"), ("en_run", "En run"), ("dans_xray", "Dans Xray"), ("maintenance", "À maintenir")]
 ORDRE = {c: i for i, (c, _) in enumerate(COLONNES)}
 TYPES = {"parcours": "Parcours", "us": "User Story", "test": "Test"}
 
@@ -119,7 +119,10 @@ def ajouter_us(cle: str, titre: str = "", criteres: str = "", lancer: bool = Fal
         raise ValueError("Clé de User Story attendue, ex. DEMO-123.")
     d = _lire()
     avant, connu = d["us"].get(cle, {}), _infos_us(cle)
-    d["us"][cle] = {**avant, "titre": (titre or connu.get("titre") or avant.get("titre") or cle).strip(),
+    from atelier.discovery import carte
+
+    d["us"][cle] = {**avant, "app": avant.get("app") or carte.app_courante() or "",
+                    "titre": (titre or connu.get("titre") or avant.get("titre") or cle).strip(),
                     "criteres": (criteres or connu.get("criteres") or avant.get("criteres") or "").strip(),
                     "ajoute": avant.get("ajoute") or _maintenant()}
     _ecrire(d)
@@ -198,10 +201,23 @@ def _ticket_test(m: dict, tests: list[dict], cle_xray: str, travail: dict | None
     ind = _indicateur(travail)
     col = ind["colonne"] if ind and ind["etat"] != "echec" and ind["colonne"] in ORDRE else reelle
     dernier = next((t.get("dernier") for t in tests if t.get("dernier")), None)
+    from atelier.generation import maintenir
+
+    try:
+        maint = maintenir.etat(m, dernier) if tests else None
+    except Exception:  # noqa: BLE001 — état illisible : le ticket garde sa colonne
+        maint = None
+    flux_reelle = reelle
+    if maint and maint.get("colonne"):
+        reelle = "maintenance"  # dernier run réel en échec, ou maintenance pas encore confirmée
+        col = ind["colonne"] if ind and ind["etat"] != "echec" and ind["colonne"] in ORDRE else reelle
+    hist = m.get("maintenances") or []
     return {"type": "test", "id": m["cle"], "cle": m["cle"], "titre": m.get("titre") or m["cle"], "colonne": col, "colonne_reelle": reelle,
             "xray": cle_xray, "etapes": etapes, "tests": [t["id"] for t in tests], "sujets": sujets, "manuel": manuel,
-            "jdd": m.get("jdd", ""),
-            "dernier_run": dernier and {"statut": dernier.get("statut"), "fin": dernier.get("fin"), "message": (dernier.get("message") or "")[:200]},
+            "jdd": m.get("jdd", ""), "colonne_flux": flux_reelle, "maintenance": maint,
+            "maintenu": {"n": len(hist), "date": hist[-1].get("date", ""), "bdd_modifie": any(h.get("bdd_modifie") for h in hist)} if hist else None,
+            "dernier_run": dernier and {"statut": dernier.get("statut"), "fin": dernier.get("fin"), "message": (dernier.get("message") or "")[:200],
+                                        "output": dernier.get("output", "")},
             "indicateur": ind}
 
 
@@ -230,14 +246,16 @@ def tableau() -> dict:
     travaux = _travaux_par_ticket()
     slug = carte.slug(app)
     parcours = [p for p in pu._tous(app) if not p.get("archive")]
-    backlog = _lire()["us"]
+    from atelier.discovery import application
+
+    connus = application.slugs()
+    backlog = {k: u for k, u in _lire()["us"].items() if application.visible(u.get("app") or slug, slug, connus)}  # US de cette application
     modeles = []
     for b in bdd.lister():
         m = bdd.charger(b["cle"]) or {}
         tests = par_bdd.get(b["cle"], [])
-        if not (m.get("parcours") or m.get("session") or (m.get("application") or "") in (app, slug) or m.get("lot")
-                or any(t["suite"].startswith(f"tests/{slug}/") for t in tests) or _tags(m) & set(backlog)):
-            continue  # scénario d'une autre application
+        if not application.visible(application.du_scenario(m, [t["suite"] for t in tests], connus), slug, connus):
+            continue  # scénario d'une autre application du projet
         modeles.append(({**m, "cle": b["cle"], "cree_le": m.get("cree") or b.get("maj") or ""}, tests))
 
     # à quels sujets appartient chaque test
@@ -429,6 +447,12 @@ def deplacer(id_: str, colonne: str, xray=None) -> dict:
         return {"ticket": c, "action": "travail", **lancer_sujet(id_)}
     _deja_en_cours(c)
     reelle, titre, cle = c["colonne_reelle"], c["titre"], c["cle"]
+    if colonne == "maintenance":  # glisser vers « À maintenir » (ou dans la colonne, test à qualifier) : maintenance par le MCP
+        from atelier.generation import maintenir
+
+        if (c.get("maintenance") or {}).get("etat") not in (None, "a_qualifier", "echec_correction"):
+            raise ValueError(f"Déjà en maintenance ({c['maintenance']['libelle']}) : ouvrir le ticket.")
+        return {"ticket": c, "action": "travail", **maintenir.maintenir(cle, "")}
     if colonne == reelle:
         return {"ticket": c, "action": None}
     if colonne in ("conception", "bdd_pret"):
@@ -488,20 +512,10 @@ def executer(cle: str, jdd: str = "", xray: bool = False) -> dict:
 
 
 def corriger(cle: str, consigne: str = "") -> dict:
-    """Run en échec : l'agent corrige par le MCP (demande de maintenance : derniers résultats, corrections de locators
-    proposées, méthode), puis l'atelier relance le dry-run et le run local. L'échec et sa correction enrichissent ce que
-    l'agent sait de l'application."""
-    from atelier.generation import maintenance
+    """Run en échec : maintenance par le MCP (generation/maintenir) avec l'indication de l'automaticien."""
+    from atelier.generation import maintenir
 
-    c = _ticket(cle)
-    if c["type"] != "test" or not c["tests"]:
-        raise ValueError("Pas encore automatisé : rien à corriger.")
-    _deja_en_cours(c)
-    d = maintenance.demande_maintenance(c["tests"], consigne)
-    return _travail(f"Corriger « {c['titre']} »", [
-        {"titre": "Corriger le test (agent)", "type": "ia", "params": {"texte": d["texte"], "attendus": d["attendus"]}},
-        {"titre": "Dry-run", "type": "atelier", "action": "dry_run", "params": {"bdd": cle, "tests": c["tests"]}},
-        {"titre": "Run local (téléphone)", "type": "atelier", "action": "run", "params": {"bdd": cle, "tests": c["tests"]}}], cle, "automatisation")
+    return maintenir.maintenir(cle, consigne)
 
 
 def remplacer_jdd(cle: str, jdd: str) -> dict:
@@ -546,7 +560,194 @@ def ajouter_parcours(nom: str, point_depart: str = "", resultat_attendu: str = "
     return {"sujet": p["id"], **(lancer_sujet(p["id"], automatiser) if lancer else {})}
 
 
+def _resolveur_ecrans():
+    """Trouve un écran de la carte par identifiant, nom, ancien identifiant ou alias — la carte lue une seule fois
+    (carte.ecran relit toute la carte à chaque appel)."""
+    from atelier.discovery import carte
+
+    tous = carte.ecrans()
+
+    def trouver(ref):
+        if not str(ref or "").strip():
+            return None
+        ref_n = carte._norm(ref)
+        for e in tous:
+            if ref in (e.get("id"), e.get("nom")) or ref in (e.get("ids_fusionnes") or []) or ref_n in [carte._norm(a) for a in e.get("alias", [])] \
+                    or (e.get("nom") and carte._norm(e["nom"]) == ref_n):
+                return e
+        return None
+    return trouver
+
+
+def ecrans_du_test(m: dict, tests: list[str], avec_robot: bool = False) -> list[dict]:
+    """Écrans que le test traverse, dans l'ordre, avec leur vignette (capture de la Discovery) : écrans liés à ses étapes,
+    sinon ceux de sa session Discovery, sinon ceux de son parcours. avec_robot : seulement les écrans que son test Robot
+    couvre en plus (couverture des tests : graphe complet, calcul lent, demandé à l'ouverture de la section). Chaque
+    écran dit d'où vient le lien."""
+    from atelier.discovery import carte
+
+    vus, out = set(), []
+    try:
+        trouver = _resolveur_ecrans()
+        dossier_vignettes = carte._dir() / "vignettes"
+    except Exception:  # noqa: BLE001 — pas d'application cartographiée
+        return []
+
+    def ajouter(ref, source, etape=""):
+        try:
+            e = trouver(ref)
+        except (KeyError, ValueError, TypeError):
+            return
+        if not e or e["id"] in vus:
+            return
+        vus.add(e["id"])
+        plats = list((e.get("plateformes") or {}).keys())
+        vignette = next((f"{e['id']}_{p}.png" for p in plats if (dossier_vignettes / f"{e['id']}_{p}.png").exists()), "")
+        out.append({"id": e["id"], "nom": e.get("nom") or "", "titre": e.get("titre") or "", "module": e.get("module") or "",
+                    "vignette": vignette, "source": source, "etape": etape})
+
+    if avec_robot:
+        return _ecrans_robot(tests, ajouter, out)
+    for s in m.get("scenarios") or []:
+        for et in s.get("etapes") or []:
+            if et.get("ecran"):
+                ajouter(et["ecran"], "étape", f"{et.get('mot', '')} {et.get('texte', '')}".strip())
+    if not out and m.get("session"):
+        try:
+            from atelier.generation import parcours_bdd
+
+            for eid in parcours_bdd.ecrans_de_session(m["session"]):
+                ajouter(eid, "session Discovery")
+        except Exception:  # noqa: BLE001 — session illisible : on passe au parcours
+            pass
+    if not out and str(m.get("parcours") or "").startswith("PU-"):
+        try:
+            from atelier.discovery import parcours_utilisateur as pu
+
+            for e in pu.obtenir(m["parcours"]).get("ecrans") or []:
+                ajouter(e.get("id") or e.get("ecran") or "", "parcours")
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def _ecrans_robot(tests: list[str], ajouter, out: list) -> list[dict]:
+    if tests:  # écrans couverts par le test Robot (graphe de couverture)
+        try:
+            from atelier.discovery import connaissance
+            from atelier.intelligence import couverture_avancee as ca
+
+            noms = {x.split("::", 1)[-1] for x in tests}
+            g = connaissance.construire()
+            for e in ca.calculer(g)["ecrans"]:
+                if noms & set(e.get("tests_robot") or []):
+                    cid = (g.noeuds.get(e.get("id")) or type("n", (), {"proprietes": {}})).proprietes.get("id_carte") or e.get("id_carte") or e.get("nom") or ""
+                    ajouter(cid, "test Robot")
+        except Exception:  # noqa: BLE001 — couverture indisponible : les écrans de la conception suffisent
+            pass
+    return out
+
+
+def jeux_du_test(m: dict, tests: list[str], dernier_run: dict | None, historique: list[dict]) -> dict:
+    """Jeux de données d'un test : celui du scénario, celui que ses tests Robot chargent maintenant (&{JDD_<jeu>} de
+    « Initialiser Le Test » : le jeu branché), celui qu'a utilisé le dernier run (environnement, jeu choisi pour ce run
+    seulement s'il y en a un, autres jeux chargés : connexion…), et celui d'un run lancé à l'instant depuis le ticket."""
+    import json
+    import re
+
+    from atelier.domain import projet
+
+    branches = []
+    for tid in tests:
+        fichier, _, nom = tid.partition("::")
+        try:
+            lignes, dedans = projet.safe_path(fichier).read_text("utf-8").splitlines(), False
+        except (OSError, ValueError):
+            continue
+        for l in lignes:
+            if l.strip() and not l[:1].isspace():
+                dedans = l.strip() == nom
+            elif dedans and "Initialiser Le Test" in l:
+                branches += [j for j in re.findall(r"&\{JDD_([A-Za-z0-9_]+)\}", l) if j not in branches]
+    out = {"scenario": m.get("jdd", ""), "branches": branches, "dernier": None, "lance": None}
+    sortie = (dernier_run or {}).get("output") or ""
+    if sortie:
+        try:
+            d = json.loads((projet.safe_path(sortie).parent / "bilan.json").read_text("utf-8"))
+            p, j = d.get("params") or {}, (d.get("bilan") or {}).get("jdd") or {}
+            variantes = p.get("jdd_variantes") or (p.get("contexte") or {}).get("profils_donnees") or {}
+            charges = list(j.get("valeurs") or [])
+            utilises = [variantes.get(b, b) for b in branches if b in charges or not charges] or [variantes.get(b, b) for b in branches]
+            out["dernier"] = {"run": d.get("id", ""), "fin": d.get("fin") or (dernier_run or {}).get("fin", ""), "env": j.get("env") or p.get("jdd_env", ""),
+                              "jeux": utilises, "variante": bool(set(variantes) & set(branches)),
+                              "autres": [c for c in charges if c not in branches and c not in variantes.values()]}
+        except (OSError, ValueError):  # run sans bilan (lancé par l'agent avec l'outil MCP) : le jeu branché, sans détail
+            out["dernier"] = {"run": "", "fin": (dernier_run or {}).get("fin", ""), "env": "",
+                              "jeux": branches, "variante": False, "autres": [], "sans_bilan": True}
+    for w in historique:  # run lancé depuis le ticket, pas encore terminé : le jeu qu'il charge
+        if w["statut"] not in ("a_faire", "en_cours"):
+            continue
+        for e in w.get("etapes_params") or []:
+            v = ((e.get("params") or {}).get("run_params") or {}).get("jdd_variantes") or {}
+            if e.get("action") == "run" and e.get("statut") not in ("fait", "annule"):
+                out["lance"] = {"travail": w["id"], "jeux": [v.get(b, b) for b in branches] or list(v.values()), "variante": bool(v)}
+                break
+        if out["lance"]:
+            break
+    return out
+
+
+def valeurs_jeux(noms, env: str) -> dict:
+    """Valeurs de chaque jeu (pour les voir au survol) : un secret n'est jamais rendu, seule sa référence {{env:NOM}}
+    ou « •••• » apparaît."""
+    from atelier.execution import jdd as jdd_mod
+
+    out = {}
+    for n in sorted({x for x in noms if x}):
+        try:
+            brut = jdd_mod.lire(env, n)
+        except (KeyError, OSError, ValueError):
+            continue
+        d = brut.get("donnees") if isinstance(brut, dict) and isinstance(brut.get("donnees"), dict) else brut if isinstance(brut, dict) else {}
+        vals = {}
+        for k, v in d.items():
+            s = v if isinstance(v, str) else str(v)
+            vals[str(k)] = s if s.startswith("{{") else "••••" if jdd_mod.CLE_SENSIBLE.search(str(k)) else s[:120]
+        out[n] = {"env": env, "description": str((brut or {}).get("description") or "")[:200] if isinstance(brut, dict) else "", "valeurs": vals}
+    return out
+
+
+def committer(cle: str) -> dict:
+    """Commit du code du test (suite, pages, locators, scénario, jeux) depuis le ticket, pour la merge request."""
+    from atelier.generation import versionnement
+
+    c = _ticket(cle)
+    if c["type"] != "test":
+        raise ValueError("Seul un ticket test se commite.")
+    r = versionnement.committer([cle], xray={cle: c.get("xray") or ""})
+    if not r.get("depot"):
+        raise ValueError("Le projet de tests n'est pas un dépôt Git.")
+    return r
+
+
+def ecrans_robot(cle: str) -> list[dict]:
+    """Écrans que le test Robot du ticket couvre en plus de son scénario (section repliée du ticket, calculée à la demande)."""
+    from atelier.domain import memo
+    from atelier.generation import bdd
+
+    with memo.portee():
+        c = _ticket(cle)
+        return ecrans_du_test(bdd.charger(cle) or {}, c.get("tests") or [], avec_robot=True) if c["type"] == "test" else []
+
+
 def ticket(id_: str) -> dict:
+    from atelier.domain import memo
+
+    with memo.portee():  # index des tests, inventaire du dépôt : une seule lecture pour tout le ticket
+        return _ticket_detail(id_)
+
+
+def _ticket_detail(id_: str) -> dict:
     """Le détail d'un ticket. Test : scénario Gherkin, tests Robot, dernier run, Xray, historique. Sujet : ses tests par
     colonne et l'historique de ses travaux."""
     from atelier.execution import orchestrateur
@@ -558,11 +759,14 @@ def ticket(id_: str) -> dict:
         raise KeyError(f"Ticket inconnu : {id_}")
     historique = [{"id": w["id"], "titre": w["titre"], "statut": w["statut"], "cree": w.get("cree", ""),
                    "etapes": [{"titre": e["titre"], "statut": e["statut"], "resultat": e.get("resultat", ""), "erreur": e.get("erreur", ""),
-                               "run_id": e.get("run_id", "")} for e in w["etapes"]]}
+                               "run_id": e.get("run_id", "")} for e in w["etapes"]],
+                   "etapes_params": [{"action": e.get("action", ""), "statut": e["statut"], "params": e.get("params") or {}} for e in w["etapes"]]}
                   for w in orchestrateur.lister() if (w.get("origine") or {}).get("kanban") == id_][:10]
     if x["type"] != "test":
         les_tests = [{k: y[k] for k in ("id", "titre", "colonne", "xray")} for y in t["tickets"] if y["type"] == "test" and id_ in y["sujets"]]
         extra = details_parcours(id_) if x["type"] == "parcours" else {}
+        for w in historique:
+            w.pop("etapes_params", None)
         return {**x, "tests_du_sujet": les_tests, "historique": historique, **extra}
     m = bdd.charger(id_) or {}
     try:
@@ -576,7 +780,23 @@ def ticket(id_: str) -> dict:
         jeux = [j["jeu"] for j in jdd_mod.lister(_env() or "recette")]
     except Exception:  # noqa: BLE001
         jeux = []
-    return {**x, "gherkin": gherkin, "jeux": jeux, "statut_bdd": m.get("statut", ""), "sujets_noms": [{"id": s, "titre": noms.get(s, s)} for s in x["sujets"]],
+    jeux_test = jeux_du_test(m, x.get("tests") or [], x.get("dernier_run"), historique)
+    jeux_test["valeurs"] = valeurs_jeux({*jeux_test["branches"], jeux_test["scenario"], *((jeux_test["dernier"] or {}).get("jeux") or []),
+                                         *((jeux_test["dernier"] or {}).get("autres") or []), *((jeux_test["lance"] or {}).get("jeux") or []), *jeux},
+                                        (jeux_test["dernier"] or {}).get("env") or _env() or "recette")
+    try:
+        from atelier.generation import versionnement
+
+        git = versionnement.etat(id_)
+    except Exception as e:  # noqa: BLE001 — Git illisible : le ticket s'affiche quand même
+        git = {"depot": False, "erreur": str(e)[:200]}
+    for w in historique:
+        w.pop("etapes_params", None)
+    from atelier.generation import maintenir
+
+    return {**x, "gherkin": gherkin, "jeux": jeux, "jeux_test": jeux_test, "git": git, "maintenances": m.get("maintenances") or [],
+            "causes": maintenir.CAUSES, "gherkin_avant": (m.get("maintenance") or {}).get("gherkin_avant", "") if (x.get("maintenance") or {}).get("bdd_modifie") else "",
+            "ecrans": ecrans_du_test(m, x.get("tests") or []), "statut_bdd": m.get("statut", ""), "sujets_noms": [{"id": s, "titre": noms.get(s, s)} for s in x["sujets"]],
             "historique": historique}
 
 

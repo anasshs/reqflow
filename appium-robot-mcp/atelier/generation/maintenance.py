@@ -90,7 +90,7 @@ def vue() -> dict:
             tests.append({"id": tid, "nom": t["nom"], "tags": [x for x in t.get("tags", []) if x not in t.get("cles_xray", []) and x not in cles_bdd],
                           "cles": t.get("cles_xray", []), "consomme": CONSOMME in (t.get("tags") or []), "verifie": verifie,
                           "bdd": [x for x in t.get("tags", []) if x in cles_bdd],
-                          "dernier": {k: dernier[k] for k in ("statut", "fin", "message")} if dernier else None,
+                          "dernier": {k: dernier.get(k, "") for k in ("statut", "fin", "message", "output")} if dernier else None,
                           "perime": bool(dernier) and _date(dernier["fin"]) < modifie - 1})
         suites.append({"fichier": f, "etat": etat, "statut": r.get("statut", ""), "en_workflow": bool(r.get("en_workflow")),
                        "modifie_depuis_validation": bool(r.get("modifie_depuis_validation")) or pages_modifiees, "tests": tests})

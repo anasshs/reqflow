@@ -16,9 +16,20 @@ async function api(url, opt = {}) {
     if (j && j.trim().length >= 10) return api(url, {...opt, body: {...opt.body, derogation_revue: j.trim()}});
     throw new Error(j ? "Justification trop courte (10 caractères au moins)." : d.detail);
   }
+  if (r.status === 401 && d.detail === "Connexion requise.") {  // comptes de la base : se connecter, puis revenir ici
+    location.href = "/connexion?retour=" + encodeURIComponent(location.hash || "");
+    throw new Error(d.detail);
+  }
   if (!r.ok) { const err = new Error(d.detail || r.statusText); err.donnees = d; throw err; }
   return d;
 }
+
+/* Premier lancement : base, compte, espace de travail à régler → assistant. */
+fetch("/api/assistant/etat").then(r => r.ok ? r.json() : null).then(e => {
+  if (!e) return;
+  if (!e.etapes.base || !e.etapes.espace || (!e.comptes && !sessionStorageGet("assistant-plus-tard"))) location.href = "/assistant";
+}).catch(() => {});
+function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch (x) { return null; } }
 
 /* brouillon BDD depuis la Discovery : un déroulé déjà fait par un test BDD existant n'est pas recréé
    (choix : ouvrir le test existant, ou créer quand même une variante). Rend le brouillon, ou null. */
@@ -230,7 +241,7 @@ const Atelier = {
     ["echecs", "Failure Analysis", "impact"], ["gouvernance", "Quality Governance", "rapports"], ["pilotage", "Tableaux de bord", "dashboard"],
     ["activites", "Activités", "activite"], ["comportement", "Analyse comportementale", "branche"], ["tests", "Tests automatisés", "check"],
     ["graphe", "Knowledge Graph", "graphe"], ["ia", "Pilotage IA", "ia"], ["rapports", "Rapports", "rapports"], ["operations", "Suivi des runs", "execution"],
-    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"], ["travaux", "Mes demandes", "activite"], ["donnees-tests", "Données des tests", "donnee"]],
+    ["editeur", "Éditeur de code", "fichier"], ["lots", "Lots TNR", "check"], ["couverture", "Couverture des tests", "graphe"], ["run-graphe", "Run en direct", "execution"], ["travaux", "Mes demandes", "activite"], ["donnees", "Données", "donnee"], ["adoption", "Adopter un dépôt", "branche"]],
   /* barre latérale courte : l'Accueil et Mes demandes (ce que j'ai lancé), les quatre étapes du chemin, le pilotage et les
      paramètres. Chaque écran reste joignable : sous l'étape à laquelle il sert, affiché quand on est dans cette étape.
      Entrée : [adresse, libellé, icône, {num : étape du chemin, sl : sous-libellé, sous : écrans de l'entrée, badge}]. */
@@ -238,9 +249,9 @@ const Atelier = {
      « Plus d'outils », replié (ouvert d'office quand on y est). */
   NAV: [["", [["atelier", "Atelier", "grille", {sl: "Parcours et tests en Kanban"}], ["dashboard", "Tableau de bord", "maison", {sl: "Graphe, run en direct, couverture"}],
       ["travaux", "Mes demandes", "activite", {sl: "Ce que j'ai lancé", badge: true}],
-      ["donnees-tests", "Données des tests", "donnee", {sl: "Jeux de données par test, TNR"}]]],
+      ["donnees", "Données", "donnee", {sl: "Jeux des tests, référentiel, à valider"}]]],
     ["Plus d'outils", "OUTILS"],
-    ["", [["parametres", "Paramètres", "parametres", {sous: [["parametres/applications", "Applications"], ["parametres/projets", "Projets"],
+    ["", [["parametres", "Paramètres", "parametres", {sous: [["parametres/applications", "Applications"], ["parametres/projets", "Projets"], ["parametres/comptes", "Comptes et base"],
         ["parametres/configuration", "Configuration"], ["parametres/connexions", "Connexions"], ["ia", "Pilotage IA"]]}]]]],
   /* Deux chemins vers le test automatisé, côte à côte (bascule en tête de « Mon chemin », mémorisée) :
      - app : de l'application au test (Discovery, parcours, comportement → scénarios BDD → automatisation → exécution) ;
@@ -249,7 +260,7 @@ const Atelier = {
   PISTES: {
     app: {libelle: "Application", titre: "De l'application au test automatisé", etapes: [
       ["discovery", "Comprendre l'application", "recherche", {num: 1, sous: [["discovery", "Discovery"], ["comportement", "Analyse comportementale (MBT)"],
-        ["intelligence", "Application Intelligence"], ["graphe", "Knowledge Graph"], ["discovery/donnees", "Données de test"]]}],
+        ["intelligence", "Application Intelligence"], ["graphe", "Knowledge Graph"], ["donnees/referentiel", "Données (référentiel)"]]}],
       ["bdd", "Concevoir les tests", "bdd", {num: 2, sous: [["bdd", "Scénarios BDD"], ["conception", "Test Design"], ["parcours", "Suivi des fonctionnalités"]]}],
       ["lots", "Automatiser", "editeur", {num: 3, sous: [["lots", "Lots TNR"], ["tests", "Tests automatisés"], ["studio", "Automation Studio"],
         ["studio/keywords", "Composants & Keywords"], ["editeur", "Éditeur de code"]]}],
@@ -264,7 +275,8 @@ const Atelier = {
       ["centre", "Exécuter et analyser", "execution", {num: 4, sous: [["centre", "Execution Center"], ["echecs", "Failure Analysis"],
         ["couverture", "Couverture des tests"], ["releases", "Releases"]]}]]}},
   OUTILS: [["Mon chemin", "PISTE"], ["", [["pilotage", "Pilotage", "dashboard", {sous: [["pilotage", "Tableaux de bord"], ["gouvernance", "Quality Governance"],
-      ["operations", "Suivi des runs"], ["rapports", "Rapports"], ["activites", "Activités"]]}]]]],
+      ["operations", "Suivi des runs"], ["rapports", "Rapports"], ["activites", "Activités"]]}],
+      ["adoption", "Adopter un dépôt", "branche", {sl: "Tests existants → parcours, BDD, carte"}]]]],
   /* écrans de travail rattachés à un module, quand ils n'ont pas leur propre entrée dans la barre latérale */
   PARENT: {editeur: "studio", execution: "centre", "execution-detail": "centre"},
 
@@ -333,6 +345,15 @@ const Atelier = {
     window.addEventListener("hashchange", () => this.ouvrir());
     await this.chargerContexte();
     this.connecterFlux();
+    // base partagée : ce qu'un autre poste a changé arrive ici ; l'écran ouvert se met à jour
+    let attente = null;
+    this.on("synchro", ev => {
+      if (ev.conflits && ev.conflits.length) toast(`${ev.conflits.length} conflit(s) avec un autre poste : la version de la base s'applique, la tienne est gardée à côté (${ev.conflits[0].copie_locale || ev.conflits[0].fichier}).`, "ko");
+      if (ev.en_attente) toast(`${ev.en_attente} suppression(s) venant d'un autre poste en attente de confirmation (Paramètres › Comptes et base).`, "ko");
+      if (!ev.recus) return;
+      clearTimeout(attente);
+      attente = setTimeout(() => { toast(`Mis à jour depuis un autre poste (${ev.recus} fichier(s)).`, "ok"); try { this.ouvrir(); } catch (e) { /* écran sans rechargement */ } }, 800);
+    });
     this.on("run_bilan", () => { this.chargerContexte(); this._alertes(); });
     this.on("app_change", () => this.chargerContexte());
     this.ouvrir();
@@ -527,6 +548,16 @@ const Atelier = {
 `;
     const u = c.utilisateur || "";
     $("#utilisateur").innerHTML = u ? `<span class="avatar" aria-hidden="true">${esc(u.slice(0, 2).toUpperCase())}</span><div><b>${esc(u)}</b><small>Compte du poste</small></div>` : "";
+    api("/api/moi").then(m => {  // compte de l'atelier : nom, rôle, déconnexion
+      if (!m.compte) {
+        if (!m.comptes_actifs) $("#utilisateur").title = "Mode ouvert : aucun compte. Paramètres › Comptes et base pour en créer.";
+        return;
+      }
+      const x = m.compte;
+      $("#utilisateur").innerHTML = `<span class="avatar" aria-hidden="true">${esc(x.identifiant.slice(0, 2).toUpperCase())}</span>
+        <div><b>${esc(x.nom || x.identifiant)}</b><small>${esc(x.role)} · <a href="#" id="u-deco">se déconnecter</a></small></div>`;
+      $("#u-deco").onclick = async ev => { ev.preventDefault(); await fetch("/api/deconnexion", {method: "POST"}); location.href = "/connexion"; };
+    }).catch(() => {});
     if ($("#c-projet")) $("#c-projet").onchange = async e => {
       const id = e.target.value;
       if (!id) return;

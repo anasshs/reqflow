@@ -185,7 +185,9 @@ def construire(avec_declarations: bool = True, inventaire: dict | None = None) -
     if inventaire is not None:
         return _construire(avec_declarations, inventaire)
     empreinte, recent = _empreinte_projet()
-    cle = (empreinte, avec_declarations)
+    from atelier.discovery import carte
+
+    cle = (empreinte, avec_declarations, carte.app_courante() or "")  # un graphe par application active
     if time.time() - recent < STABILITE_S:  # projet en cours de modification : pas de cache
         return _construire(avec_declarations, None)
     with _VERROU_GRAPHE:  # un seul calcul à la fois : les requêtes parallèles attendent le résultat au lieu de le refaire
@@ -337,6 +339,12 @@ def _construire(avec_declarations: bool = True, inventaire: dict | None = None) 
     _depuis_anomalies(g)
     _marquer_automatisation(g)
     _annoter_couverture_tests(g)
+    try:  # isolation des applications du projet : rien d'une autre application dans ce graphe
+        from atelier.discovery import application, carte
+
+        DERNIERE_CONSTRUCTION["autres_applications_retires"] = application.filtrer_graphe(g, carte.app_courante() or "")
+    except Exception:  # noqa: BLE001 — filtrage impossible : le graphe reste complet plutôt que vide
+        pass
     if inventaire is None and avec_declarations:
         DERNIERE_CONSTRUCTION["delta"] = _delta(g)
     DERNIERE_CONSTRUCTION.update(duree_s=round(time.perf_counter() - debut, 3), noeuds=len(g.noeuds), relations=len(g.relations),

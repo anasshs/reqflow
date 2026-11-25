@@ -73,8 +73,10 @@ def vue(env: str = "") -> dict:
         slug = carte.slug(carte.app_courante() or "")
     except Exception:  # noqa: BLE001
         slug = ""
-    if slug and any(t["suite"].startswith(f"tests/{slug}/") for t in tests):  # tests de l'application active
-        tests = [t for t in tests if t["suite"].startswith(f"tests/{slug}/")]
+    from atelier.discovery import application
+
+    connus = application.slugs()
+    tests = [t for t in tests if application.visible(application.du_chemin(t["suite"], connus), slug, connus)]  # application active
     try:
         jeux = jdd.lister(env)
         variantes = jdd.variantes(env)

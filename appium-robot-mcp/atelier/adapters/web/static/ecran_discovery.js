@@ -46,7 +46,7 @@
       const z = $("#di-contenu");
       const garde = setTimeout(() => { const c = $("#di-contenu .corps-carte"); if (c && c.textContent.includes("Chargement…")) c.innerHTML = vide("Toujours en calcul…", "Le serveur n'a pas encore répondu : voir la console du serveur (python web/app.py)."); }, 30000);
       try {
-        if (R.startsWith("donnees")) await DiscoveryDonnees.afficher(z, R);
+        if (R.startsWith("donnees")) { location.replace("#donnees/referentiel/" + R); return; }  // un seul écran de données
         else if (R === "cadrage") await DiscoveryParcours.afficher(z, reste.join("/"));
         else await ({vue, sessions, studio, navigation, comportements, apiObs, resultats, correlation, historique, parametres}[R === "api" ? "apiObs" : R])(z);
       }

@@ -934,6 +934,15 @@ def _proposer_mr(titre: str, description: str = "", cible: str = "", derogation:
     if _modifs_bloquantes():
         raise ValueError("Modifications locales non validées : faire le commit (suites approuvées) avant la merge request : "
                          + ", ".join(_modifs_bloquantes()[:5]))
+    if gitlab_client is None:  # le dépôt du projet de tests doit être celui de GitLab : sinon on pousserait ailleurs
+        from urllib.parse import urlparse
+
+        distant = _git("remote", "get-url", "origin")
+        hote_gitlab = urlparse(os.environ.get("GITLAB_URL") or "").hostname or ""
+        hote_depot = (urlparse(distant).hostname or distant.split("@")[-1].split(":")[0]) if distant else ""
+        if not hote_gitlab or hote_depot.lower() != hote_gitlab.lower():
+            raise ValueError(f"Le dépôt du projet de tests (origin : {hote_depot or 'aucun'}) n'est pas sur le GitLab configuré "
+                             f"({hote_gitlab or 'GITLAB_URL non réglé'}) : cloner le dépôt GitLab des tests comme projet, ou faire pointer origin vers lui.")
     c = gitlab_client or GitLabClient()
     deja = c.mr_ouvertes(branche)
     if not deja and not titre.strip():

@@ -54,7 +54,7 @@ def test_backlog_sujets_et_tests(atelier):
     kanban.ajouter_us("demo-12")
     kanban.ajouter_us("DEMO-99", titre="Plafond de virement")
     t = kanban.tableau()
-    assert [c["id"] for c in t["colonnes"]] == ["a_faire", "conception", "bdd_pret", "automatisation", "automatise", "en_run", "dans_xray"]
+    assert [c["id"] for c in t["colonnes"]] == ["a_faire", "conception", "bdd_pret", "automatisation", "automatise", "en_run", "dans_xray", "maintenance"]
     x = _par_id(t)
     assert {k: v["colonne"] for k, v in x.items() if v["type"] == "test"} == {"VIDE": "a_faire", "PRET": "bdd_pret", "AUTO": "automatise",
                                                                              "CRITERE": "bdd_pret"}
@@ -357,7 +357,7 @@ def test_corriger_un_run_en_echec_par_l_agent(atelier):
     _script(atelier, "CARTE")
     r = kanban.corriger("CARTE", "La carte est sous le pli : défiler jusqu'à ce qu'elle soit visible.")
     t = orchestrateur.obtenir(r["travail"])
-    assert [e["titre"] for e in t["etapes"]] == ["Corriger le test (agent)", "Dry-run", "Run local (téléphone)"]
+    assert [e["titre"] for e in t["etapes"]] == ["Maintenance par l'agent (MCP)", "Dry-run", "Run réel (téléphone), tests impactés compris"]
     assert "sous le pli" in t["etapes"][0]["params"]["texte"] and t["etapes"][2]["params"]["tests"] == ["tests/carte.robot::CARTE"]
 
 
@@ -376,3 +376,54 @@ def test_le_parcours_prend_l_environnement_des_runs(atelier, monkeypatch):
     assert not pu._lire(ancien["id"]).get("environnement")
     kanban.lancer_sujet(ancien["id"])
     assert pu._lire(ancien["id"])["environnement"] == "recette"
+
+
+def test_ecrans_du_test_dans_le_ticket(atelier):
+    """Le ticket d'un test montre les écrans qu'il traverse, dans l'ordre des étapes, avec leur capture si elle existe."""
+    from atelier.discovery import carte
+    from atelier.generation import bdd, kanban
+
+    a = carte.observer([{"key": "titre_accueil", "type": "texte", "libelle": "Accueil", "locators": ["id=titre_accueil"]},
+                        {"key": "bouton_compte", "type": "bouton", "libelle": "Compte", "locators": ["id=bouton_compte"]}], "android")
+    b = carte.observer([{"key": "titre_compte", "type": "texte", "libelle": "Mon compte", "locators": ["id=titre_compte"]},
+                        {"key": "liste_operations", "type": "liste", "libelle": "Opérations", "locators": ["id=liste_operations"]}], "android")
+    _scenario("COMPTE")
+    m = bdd.charger("COMPTE")
+    m["scenarios"][0]["etapes"][0]["ecran"] = a["id"]
+    m["scenarios"][0]["etapes"][1]["ecran"] = b["id"]
+    bdd.sauver(m)
+    (carte._dir() / "vignettes").mkdir(parents=True, exist_ok=True)
+    (carte._dir() / "vignettes" / f"{a['id']}_android.png").write_bytes(b"\x89PNG")
+    e = kanban.ticket("COMPTE")["ecrans"]
+    assert [x["id"] for x in e] == [a["id"], b["id"]] and e[0]["source"] == "étape"
+    assert e[0]["vignette"] == f"{a['id']}_android.png" and e[1]["vignette"] == ""
+
+
+def test_jeux_du_test_branche_utilise_et_lance(atelier):
+    """Le ticket dit quel jeu les tests Robot chargent maintenant, lequel a servi au dernier run (environnement, jeu choisi
+    pour ce run seulement) et lequel charge un run lancé à l'instant."""
+    import json
+
+    from atelier.execution import orchestrateur
+    from atelier.generation import bdd, kanban
+
+    _scenario("CARTE")
+    bdd.associer_jdd("CARTE", "CLIENT_A")
+    (atelier / "tests" / "carte.robot").write_text("*** Test Cases ***\nCARTE\n    [Tags]    CARTE\n    Initialiser Le Test    &{JDD_CLIENT_A}\n"
+                                                    "    No Operation\n", "utf-8")
+    run = atelier / "results" / "runs" / "RUN-1"
+    run.mkdir(parents=True)
+    (run / "bilan.json").write_text(json.dumps({"id": "RUN-1", "fin": "2026-11-24T10:00:00",
+                                                "params": {"jdd_env": "recette", "jdd_variantes": {"CLIENT_A": "CLIENT_B"}},
+                                                "bilan": {"jdd": {"env": "recette", "valeurs": ["LOGIN", "CLIENT_A"]}}}), "utf-8")
+    j = kanban.jeux_du_test(bdd.charger("CARTE"), ["tests/carte.robot::CARTE"], {"output": "results/runs/RUN-1/output.xml"}, [])
+    assert j["scenario"] == "CLIENT_A" and j["branches"] == ["CLIENT_A"]
+    assert j["dernier"]["jeux"] == ["CLIENT_B"] and j["dernier"]["variante"] and j["dernier"]["env"] == "recette"
+    assert j["dernier"]["autres"] == ["LOGIN"]
+    sans = kanban.jeux_du_test(bdd.charger("CARTE"), ["tests/carte.robot::CARTE"], {"output": "results/mcp/output.xml"}, [])
+    assert sans["dernier"]["sans_bilan"] and sans["dernier"]["jeux"] == ["CLIENT_A"]
+    r = kanban.executer("CARTE", jdd="CLIENT_C")
+    t = kanban.ticket("CARTE")
+    assert t["jeux_test"]["lance"] == {"travail": r["travail"], "jeux": ["CLIENT_C"], "variante": True}
+    assert all("etapes_params" not in w for w in t["historique"])
+    orchestrateur.annuler(r["travail"])

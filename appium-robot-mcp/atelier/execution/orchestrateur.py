@@ -435,6 +435,13 @@ def _etape_run(t: dict, e: dict, dry_run: bool):
 
             tests = kanban.tests_du_sujet(e["params"]["sujet"])
         tests = tests or _tests_du_bdd(cle, t["id"])
+        if e["params"].get("impacts_de"):  # maintenance : les tests qui partagent un fichier modifié par l'agent sont rejoués aussi
+            try:
+                from atelier.generation import maintenir
+
+                tests = list(dict.fromkeys(tests + maintenir.detecter_impacts(e["params"]["impacts_de"])["tests"]))
+            except Exception:  # noqa: BLE001 — détection impossible : le test lui-même est vérifié, la confirmation recontrôle
+                pass
         if not tests:
             e.update(statut="echec", fin=_maintenant(), erreur=f"aucun test Robot ne porte le tag {cle or t['id']} : l'automatisation n'a pas abouti")
             return

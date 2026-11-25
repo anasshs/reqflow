@@ -80,4 +80,13 @@ def publier(cles_bdd: list[str], xray=None) -> dict:
         except Exception as e:  # noqa: BLE001 - un scénario refusé n'empêche pas les autres
             refus.append({"scenario": cle, "erreur": str(e)[:300]})
     r = tnr.publier(prets, xray=xray) if prets else {"publies": [], "erreurs": [], "plan": None, "campagne": None}
-    return {**r, "erreurs": refus + list(r.get("erreurs") or [])}
+    publies = [p["scenario"] for p in r.get("publies") or [] if p.get("scenario")]
+    git = None
+    if publies:  # le code des tests publiés va dans le dépôt, prêt pour la merge request ; Git indisponible : publication gardée
+        from atelier.generation import versionnement
+
+        try:
+            git = versionnement.committer(publies, xray={p["scenario"]: p.get("xray") or "" for p in r["publies"]})
+        except Exception as e:  # noqa: BLE001
+            git = {"erreur": str(e)[:300]}
+    return {**r, "erreurs": refus + list(r.get("erreurs") or []), "git": git}

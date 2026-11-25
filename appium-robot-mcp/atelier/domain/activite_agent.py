@@ -17,8 +17,8 @@ FAMILLES = [("ecran", ACTIONS_ECRAN | {"stop_session", "where_am_i", "screen_inf
             ("ecriture", {"write_project_file", "studio_construire_test", "studio_generer_depuis_bdd", "studio_corriger_locator",
                           "studio_factoriser_keywords", "generate_locators_resource", "export_screen_resource", "add_screen_locator",
                           "discovery_proposer", "discovery_parcours_vers_bdd", "discovery_terminer", "discovery_donnee_definir",
-                          "discovery_profil_vers_jdd"}),
-            ("revue", {"studio_soumettre_revue", "studio_revue", "propose_step", "tnr_demander_publication"}),
+                          "discovery_profil_vers_jdd", "maintenance_modifier_bdd"}),
+            ("revue", {"studio_soumettre_revue", "studio_revue", "propose_step", "tnr_demander_publication", "maintenance_rapporter"}),
             ("execution", {"run_robot", "run_tests", "studio_executer_etape", "parse_robot_output", "import_results_to_xray"})]
 
 # étape du cycle de référence (domain/cycle.py) où l'outil fait avancer le travail ; les lectures générales n'en ont pas
@@ -33,7 +33,7 @@ ETAPES_OUTILS = {
                    "test_design_doublons", "testabilite_deposer_proposition", "discovery_profil_vers_jdd"},
     "automatiser": {"studio_socle", "studio_rapprocher_etapes", "studio_keywords_a_juger", "studio_juger_keywords",
                     "studio_generer_depuis_bdd", "studio_construire_test", "write_project_file", "generate_locators_resource",
-                    "studio_soumettre_revue", "run_robot", "run_tests", "check_locator"},
+                    "studio_soumettre_revue", "run_robot", "run_tests", "check_locator", "maintenance_modifier_bdd", "maintenance_rapporter"},
     "publier": {"tnr_conventions", "tnr_demander_publication", "import_results_to_xray", "xray_search_tests", "xray_get_test"},
 }
 TITRES_ETAPES = {"cadrer": "Cadrer", "explorer": "Explorer", "scenariser": "Scénariser", "automatiser": "Automatiser et vérifier",
@@ -92,6 +92,8 @@ def jalon(ev: dict) -> str:
             "write_project_file": f"Fichier écrit {_a(a, 'path')}".strip(),
             "studio_generer_depuis_bdd": "Suite Robot écrite (revue technique)" if str(a.get("ecrire")).lower() == "true" else "",
             "studio_soumettre_revue": f"Script soumis à la revue {_a(a, 'fichier')}".strip(),
+            "maintenance_modifier_bdd": f"Scénario BDD modifié pendant la maintenance {_a(a, 'cle')}".strip(),
+            "maintenance_rapporter": f"Maintenance terminée : compte rendu déposé {_a(a, 'cle')}".strip(),
             "run_robot": f"Tests terminés · {res}" if res else "Tests terminés",
             "run_tests": f"Tests terminés · {res}" if res else "Tests terminés",
             "tnr_demander_publication": "Publication au TNR demandée : à valider dans l'atelier",
@@ -185,6 +187,8 @@ PHRASES = {
     "studio_construire_test": lambda a: f"Cursor assemble un test Robot à partir des keywords existants {_a(a, 'nom')}",
     "studio_generer_depuis_bdd": lambda a: f"Cursor génère la suite Robot depuis le scénario BDD {_a(a, 'cle')}",
     "studio_soumettre_revue": lambda a: f"Cursor soumet un script à la revue technique {_a(a, 'fichier')}",
+    "maintenance_modifier_bdd": lambda a: f"Cursor corrige le scénario BDD en maintenance {_a(a, 'cle')}",
+    "maintenance_rapporter": lambda a: f"Cursor rend compte de la maintenance {_a(a, 'cle')}",
     "read_project_file": lambda a: f"Cursor lit le fichier du projet {_a(a, 'path')}",
     "list_project_files": lambda a: f"Cursor liste les fichiers du projet {_a(a, 'pattern')}",
     "write_project_file": lambda a: f"Cursor écrit le fichier {_a(a, 'path')}",

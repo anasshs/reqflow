@@ -1037,3 +1037,73 @@ Décisions de l'utilisateur :
   l'application permet à l'agent les actions sensibles (classement, « agent_sensible »), la consigne de déroulé ne
   les réserve plus à l'automaticien et, en flux simple, un test consomme_donnee s'exécute sans validation préalable.
   Les autres environnements gardent leurs règles.
+
+## 2026-11-24 — Isolation des applications d'un projet ; un seul écran « Données »
+
+- **Isolation** (atelier/discovery/application.py) : un projet peut porter plusieurs applications ; chaque écran ne montre
+  que l'application active. Appartenance : scénario BDD = application déclarée, sinon celle de son parcours, de sa
+  session Discovery ou du dossier de ses tests (tests/<app>/) ; fichier = dossier d'application de son chemin ; modèle
+  MBT = son application ; jeu de données = application des tests qui l'utilisent (une variante suit sa base) ;
+  variable = application des parcours dont le profil la contient. Sans application, partagé seulement si le projet n'a
+  qu'une application. Appliqué au Kanban (backlog US par application), aux Lots TNR, aux Données des tests, au
+  Knowledge Graph (filtre final, cache par application) et à la couverture des tests.
+- **Données** (#donnees) : un seul point d'entrée pour les données de test, trois onglets — Jeux des tests (lien jeu ↔
+  tests, remplacement pour le prochain TNR ou permanent, « Créer le jeu d'un profil »), Référentiel Discovery (les neuf
+  espaces du référentiel), À valider (données proposées par l'agent, à confirmer ou changer). Discovery › Données et
+  #donnees-tests y mènent.
+- Ticket : scénario Gherkin mis en forme (mots-clés en gras et en couleur, étapes alignées, données en évidence).
+  Colonnes du Kanban : une couleur et un rôle par étape.
+- Ticket test : écrans du test (captures de la Discovery dans l'ordre du scénario ; écrans ajoutés par la couverture du
+  test Robot à part, repliés), jeux de données (branché maintenant dans les tests Robot, utilisé au dernier run avec son
+  environnement et la variante choisie pour ce run, lancé à l'instant ; valeurs au survol, secret jamais rendu : sa
+  référence {{env:…}} ou « •••• »).
+- **Test publié dans Xray = code commité** (décision de l'utilisateur, 2026-11-24, atelier/generation/versionnement.py) :
+  à la publication, la suite, ses pages et locators, le scénario BDD et les fichiers de jeux qui déclarent ses jeux sont
+  commités sur la branche de travail, ou sur une nouvelle branche « atelier/xray-<date> » si la branche courante est
+  protégée (main jamais touchée). Pas de push : la branche part avec la merge request (revue humaine, 3 exécutions
+  stables). Revue technique contrôlée avant toute création de branche. Git indisponible : la publication est gardée,
+  le commit se reprend depuis le ticket (« Commiter le code du test »), qui montre branche, commit, poussé ou non.
+- **Maintenance depuis le Kanban** (décision de l'utilisateur, 2026-11-25, atelier/generation/maintenir.py) : un test
+  dont le dernier run réel échoue va dans la colonne « À maintenir ». L'automaticien qualifie la cause (suggestion de
+  Failure Analysis) : test à maintenir (maintenance par le MCP), anomalie de l'application, donnée de test,
+  environnement. L'agent reproduit, corrige les pages et locators, et le scénario BDD s'il ne correspond plus à
+  l'application (outil maintenance_modifier_bdd, permis seulement pendant une maintenance ouverte, raison obligatoire,
+  jamais pour masquer une anomalie), vérifie en run réel puis rend compte (maintenance_rapporter). Corrigé, le test
+  attend la confirmation humaine : scénario validé, suites approuvées, Gherkin mis à jour dans Xray s'il a changé,
+  code commité ; refuser relance l'agent avec le commentaire. Merge request ensuite (3 exécutions stables ou
+  dérogation). Drapeau « maintenu » et historique dans la fiche du scénario (versionnée avec le test).
+- **Rien de cassé ailleurs** : au début d'une maintenance, l'atelier relève l'empreinte des fichiers dont dépend le test
+  et dit à l'agent quels autres tests les partagent. Tout fichier partagé modifié met les tests qui en dépendent
+  « impactés » (À maintenir) jusqu'à un run réel réussi ; le run de vérification de l'atelier les inclut, et la
+  confirmation est refusée tant qu'un seul n'a pas repassé.
+- Dépôt GitLab des tests (décision de l'utilisateur, 2026-11-25) : le dossier du projet de tests est le clone du dépôt
+  GitLab ; le scénario BDD (bdd/*.feature et sa fiche, historique de maintenance compris) y est commité avec le code
+  Robot. L'état de travail de l'atelier (studio.ETAT_ATELIER) reste local. La merge request est refusée si origin n'est
+  pas sur le GitLab configuré.
+- **Base de l'atelier et comptes** (décision de l'utilisateur, 2026-11-25, docs/BASE_ATELIER.md) : magasin de documents
+  local (SQLite, un fichier, aucun service), déplaçable vers un serveur partagé ; projets et réglages partagés, dossier
+  de chaque projet propre au poste ; comptes avec rôles et projets autorisés, connexion exigée dès qu'un compte existe ;
+  assistant au premier lancement (base, compte, espace de travail avec clone du dépôt GitLab, connexions). En 5 phases.
+- **Toute la base de l'atelier** (décision de l'utilisateur « Do all », 2026-11-25) : travail et connaissance partagés
+  par la base grâce à une synchronisation dossier ↔ base (les moteurs restent inchangés ; conflits gardés à côté,
+  garde-fou des suppressions en masse) ; serveur de données HTTPS (seul composant exposé au réseau, comptes vérifiés
+  par le serveur) ; déplacement de la base d'un poste vers le serveur par amorçage ; paquet zip et raccourcis.
+- Architecture retenue (décision de l'utilisateur, 2026-11-25) : sur la machine serveur, le serveur de données et la
+  base SQLite seulement ; l'atelier (interface, MCP, Appium, clone Git) tourne sur chaque poste et s'y connecte. Un
+  atelier central pour tous (interface et MCP exposés, Appium distant, copie Git partagée) est écarté pour l'instant.
+- **Adopter un dépôt existant** (2026-11-25, atelier/generation/adoption.py, écran #adoption) : pour une application déjà
+  automatisée (Robot, POM, tags Xray, tests en Given / When / Then), pas de Discovery préalable : les tests Gherkin
+  deviennent des scénarios BDD validés (clé = clé Xray, jeu de données repris ; jamais d'écrasement, un test déjà relié
+  à un scénario n'est pas réimporté), chaque suite est proposée comme parcours (les suites techniques — connexion,
+  smoke, commun… — sont décochées ; l'automaticien garde, renomme, réunit), la carte s'amorce avec les locators des
+  pages, et un run cartographié des tests remplit la carte puis donne à chaque parcours les écrans que ses tests
+  traversent. Ensuite MBT, et une Discovery seulement pour les trous de la carte.
+- **Adoption à l'ajout ou à la modification d'un projet, sans perte de connaissance** (demande de l'utilisateur,
+  2026-11-25) : Paramètres › Projets (bouton « Adopter », et après chaque enregistrement) et l'assistant du premier
+  lancement montrent ce que le dépôt apporte (suites, tests Gherkin, clés Xray) et mènent à l'écran d'adoption. Un
+  projet existant qui change de dossier (autre dépôt, nouveau clone) voit sa connaissance et son travail
+  (synchro.PARTAGES) copiés dans le nouveau dossier (atelier/domain/reprise.py) : la connaissance de l'atelier
+  l'emporte sur une version différente du dépôt, gardée à côté (« .conflit-depot-<date> ») ; l'ancien dossier n'est
+  pas modifié ; les scripts Robot du dépôt ne sont pas touchés ; refusé pour le projet actif pendant un run. L'adoption
+  complète sans écraser : un scénario déjà rattaché garde son parcours, les locators connus gardent leur rang (l'import
+  des pages s'ajoute après).

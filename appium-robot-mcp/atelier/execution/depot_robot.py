@@ -77,6 +77,13 @@ _MEMOIRE_DEPOT: dict = {}  # racine -> (signature des fichiers, inventaire) : re
 
 
 def lire_depot(racine: Path | None = None) -> dict:
+    """Inventaire du dépôt Robot (une fois par calcul dans une portée domain/memo, sinon à chaque appel)."""
+    from atelier.domain import memo
+
+    return memo.memoiser(("lire_depot", str((racine or projet.PROJECT_DIR).resolve())), lambda: _lire_depot_memoire(racine))
+
+
+def _lire_depot_memoire(racine: Path | None = None) -> dict:
     """Inventaire du dépôt Robot. Lu à chaque affichage (chemin, Studio, revues) : gardé en mémoire tant qu'aucun fichier
     .robot / .resource n'est ajouté, retiré ou modifié (texte comparé : lire est rapide, analyser est lent), et rendu en copie."""
     import copy

@@ -389,14 +389,55 @@ def etape_appium(env: dict, interactif: bool, saisie=input) -> bool:
     return True
 
 
+def version() -> str:
+    try:
+        return (ICI / "VERSION").read_text("utf-8").strip()
+    except OSError:
+        return "?"
+
+
+def _script_raccourcis(cible: Path) -> str:
+    """PowerShell : raccourcis « AI Test Platform » sur le Bureau et dans le menu Démarrer (objet COM WScript.Shell)."""
+    c = str(cible).replace("'", "''")
+    d = str(cible.parent).replace("'", "''")
+    return ("$s = New-Object -ComObject WScript.Shell; "
+            "foreach ($dossier in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) { "
+            "$l = $s.CreateShortcut((Join-Path $dossier 'AI Test Platform.lnk')); "
+            f"$l.TargetPath = '{c}'; $l.WorkingDirectory = '{d}'; $l.Description = 'AI Test Platform (atelier)'; "
+            "$l.IconLocation = (Join-Path $env:SystemRoot 'System32\\shell32.dll') + ',13'; $l.Save() }")
+
+
+def etape_raccourcis(interactif: bool, forcer: bool = False, saisie=input) -> bool:
+    """Raccourcis du Bureau et du menu Démarrer vers lancer-atelier.cmd (Windows), proposés une fois."""
+    if os.name != "nt":
+        return True
+    marque = Path.home() / ".atelier" / "raccourcis.json"
+    if marque.exists() and not forcer:
+        return True
+    if not forcer and not (interactif and _oui("Créer les raccourcis « AI Test Platform » (Bureau, menu Démarrer)", saisie)):
+        if interactif:
+            marque.parent.mkdir(parents=True, exist_ok=True)
+            marque.write_text(json.dumps({"cree": False}), "utf-8")  # ne plus demander
+        return True
+    r = executer(["powershell", "-NoProfile", "-NonInteractive", "-Command", _script_raccourcis(ICI / "lancer-atelier.cmd")])
+    if r.returncode:
+        alerte("Raccourcis non créés : " + (r.stderr or r.stdout or "").strip()[:200])
+        return False
+    marque.parent.mkdir(parents=True, exist_ok=True)
+    marque.write_text(json.dumps({"cree": True, "cible": str(ICI / "lancer-atelier.cmd")}), "utf-8")
+    ok("Raccourcis « AI Test Platform » créés (Bureau, menu Démarrer).")
+    return True
+
+
 def main(argv=None) -> int:
     a = argparse.ArgumentParser(description="Assistant d'installation et de lancement de l'atelier.")
     a.add_argument("--verifier", action="store_true", help="vérifier et installer ce qui manque, sans lancer")
     a.add_argument("--sans-ouvrir", action="store_true", help="ne pas ouvrir le navigateur")
     a.add_argument("--reinstaller", action="store_true", help="réinstaller les dépendances")
     a.add_argument("--port", type=int, default=int(os.environ.get("WEB_PORT") or 8765))
+    a.add_argument("--raccourcis", action="store_true", help="(re)créer les raccourcis du Bureau et du menu Démarrer")
     o = a.parse_args(argv)
-    print("\nAtelier : préparation du poste")
+    print(f"\nAtelier {version()} : préparation du poste")
     env = {**os.environ, **{k: v for k, v in lire_poste().items() if k in ("WEB_BROWSER_EXECUTABLE", "MCP_HTTP_PORT") and not os.environ.get(k)}}
     etapes_faites = [etape_python() and etape_venv() and etape_dependances(o.reinstaller)]
     if not etapes_faites[0]:
@@ -407,6 +448,7 @@ def main(argv=None) -> int:
     etape_appium(env, interactif=sys.stdin.isatty())
     etape_projet(env, interactif=sys.stdin.isatty())
     etape_cursor(env, o.port, interactif=sys.stdin.isatty())
+    etape_raccourcis(interactif=sys.stdin.isatty(), forcer=o.raccourcis)
     print(f"\n  Atelier prêt{f' ({len(A_REGLER)} point(s) à régler ci-dessus, non bloquant)' if A_REGLER else ''}.")
     if o.verifier:
         return 0

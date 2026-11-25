@@ -930,7 +930,8 @@ def importer_resources(pattern: str = "**/*.resource", s: str | None = None) -> 
                 for cle, locs in els.items():
                     el = e["elements"].setdefault(cle, {"type": cle.split("_")[0], "libelle": "", "locators": {}})
                     for p, loc in locs.items():
-                        el["locators"][p] = list(dict.fromkeys([loc] + (el["locators"].get(p) or [])))[:4]
+                        # les locators déjà connus (Discovery, maintenance) gardent leur rang : l'import s'ajoute après
+                        el["locators"][p] = list(dict.fromkeys((el["locators"].get(p) or []) + [loc]))[:4]
                         elements_total += 1
                 _save_ecran(e, s)
     return {"ecrans_crees": crees, "locators_importes": elements_total}

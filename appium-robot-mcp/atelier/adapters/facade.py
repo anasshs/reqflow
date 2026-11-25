@@ -704,6 +704,27 @@ def discovery_donnee_proposer(cle: str, valeur: str, nom: str = "", type: str = 
 
 
 @outil
+def maintenance_modifier_bdd(cle: str, gherkin: str, raison: str) -> dict:
+    """Pendant une maintenance demandée depuis le Kanban seulement : réécrit le scénario BDD (Gherkin complet, en
+    français) quand il ne correspond plus à l'application (écran, libellé, enchaînement qui ont changé). raison : ce qui
+    a changé dans l'application. Jamais pour faire passer un test sur une anomalie de l'application. La version d'avant
+    est gardée : l'automaticien voit la différence et confirme ; à la confirmation, Xray est mis à jour."""
+    from atelier.generation import maintenir
+
+    return maintenir.modifier_bdd(cle, gherkin, raison, _agent().source())
+
+
+@outil
+def maintenance_rapporter(cle: str, cause: str, resume: str, fichiers: list[str] | None = None) -> dict:
+    """Fin d'une maintenance demandée depuis le Kanban : cause constatée (test, donnees, application, environnement),
+    ce qui était cassé, ce qui a changé et pourquoi, fichiers modifiés. L'automaticien confirme ensuite la résolution
+    (ou la refuse avec un commentaire : la maintenance revient vers l'agent)."""
+    from atelier.generation import maintenir
+
+    return maintenir.rapporter(cle, cause, resume, fichiers, _agent().source())
+
+
+@outil
 def discovery_profil_vers_jdd(profil: str, environnement: str, jeu: str = "") -> dict:
     """Crée (ou met à jour) le jeu de données des tests automatisés (data/jdd/<environnement>.yaml) depuis un profil du
     référentiel Discovery : le test rejoue avec les valeurs de la Discovery. Champ = clé de la variable en minuscules,

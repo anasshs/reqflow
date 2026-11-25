@@ -57,20 +57,47 @@ def _config() -> dict:
 
 
 def utilisateur() -> str:
+    """Compte connecté à l'atelier (comptes de la base), sinon le compte du poste."""
     import getpass
 
+    try:
+        from atelier.domain import utilisateurs
+
+        c = utilisateurs.courant()
+        if c:
+            return c["identifiant"]
+    except Exception:  # noqa: BLE001
+        pass
     try:
         return getpass.getuser()
     except Exception:  # noqa: BLE001
         return "inconnu"
 
 
+def _comptes() -> bool:
+    try:
+        from atelier.domain import utilisateurs
+
+        return utilisateurs.actifs()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def actifs() -> bool:
+    if _comptes():
+        return True
     c = _config()
     return bool(c.get("utilisateurs")) or bool(c.get("erreur"))
 
 
 def role(u: str | None = None) -> str:
+    if _comptes():  # comptes de la base : le rôle du compte ; agent ou processus sans compte connecté : automaticien
+        from atelier.domain import utilisateurs
+
+        x = utilisateurs.obtenir(u) if u else utilisateurs.courant()
+        if x:
+            return x["role"] if x.get("actif", True) else "lecteur"
+        return "lecteur" if u else "automaticien"  # l'agent ne décide jamais à la place d'un relecteur
     c = _config()
     if not actifs():
         return "responsable"  # mode ouvert

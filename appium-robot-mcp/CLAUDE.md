@@ -48,9 +48,20 @@ Projets multiples : Paramètres › Projets et sélecteur du header (atelier/dom
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
 fonctionnalité, demandes d'action validées côté serveur, 13 règles Cursor versionnées (dont « robot-expert » : qualité du code, « model-based-testing » : analyse comportementale), couverture parcours / UI, Test
 Design par catégories et doublons, Champ / Anomalie, échecs reliés à la connaissance, jugements délégués à Cursor (granularité, doublons, redondances, liens
-exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 124 outils MCP (76 historiques
+exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 126 outils MCP (76 historiques
 inchangés) ; classement de sécurité de chaque outil : tests/test_securite_outils.py (à compléter pour tout nouvel outil) ;
 client MCP de test : tests/client_mcp.py.
+Maintenance depuis le Kanban (2026-11-25, atelier/generation/maintenir.py) : colonne « À maintenir » (run réel en échec,
+ou test impacté), cause qualifiée (suggestion de Failure Analysis), maintenance par le MCP (scripts et scénario BDD :
+maintenance_modifier_bdd, compte rendu : maintenance_rapporter), rien de cassé ailleurs (fichier partagé modifié : tests
+impactés en maintenance, rejoués), confirmation humaine (Xray mis à jour, commit), merge request, drapeau « maintenu ».
+Un test publié dans Xray a son code commité (atelier/generation/versionnement.py).
+Base de l'atelier (2026-11-25, 5 phases livrées) : docs/BASE_ATELIER.md — base de documents locale ou serveur de
+données HTTPS (atelier/domain/magasin.py, atelier/serveur_donnees.py), comptes et connexion (utilisateurs.py),
+assistant du premier lancement (assistant_poste.py, /assistant), travail et connaissance synchronisés par la base
+(synchro.py), paquet installable (outils/paquet.py, raccourcis du lanceur).
+Adopter un dépôt existant (2026-11-25, écran #adoption, atelier/generation/adoption.py ; proposé à l'ajout / modification d'un projet, changement de dépôt sans perte de connaissance : domain/reprise.py) : tests Gherkin du dépôt → scénarios BDD
+(clé Xray, jeu de données), suites → parcours proposés (techniques écartées), run cartographié → écrans des parcours.
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).
 Les fichiers racine `server.py`, `app_map.py`, `jdd.py`, `xray_client.py`, `web_backend.py`,
 `xray_live_listener.py`, `cartographie_listener.py` et `web/app.py` ne sont plus que des points
@@ -86,6 +97,8 @@ métier ; l'état de session (driver Appium, page Playwright) vit dans `discover
 - **Réseau d'entreprise** : proxy TLS (certificat via `XRAY_CA_BUNDLE`), Promon sur les builds,
   Oracle par SID. Ne rien supposer d'accessible sur Internet hormis les API Xray/Jira configurées.
 - **Interface locale** : écoute 127.0.0.1 uniquement, jamais exposée.
+  Seule exception, par décision de l'utilisateur (2026-11-25) : le serveur de données de l'atelier
+  (serveur_donnees.py), HTTPS obligatoire hors de la machine et chaque appel authentifié par un compte.
 - **Rétrocompatibilité MCP** : garder les noms et signatures des outils MCP existants
   (Cursor et les règles `.cursor/rules` les utilisent). Ajouter, ne pas casser.
 - **Dépendances** : préférer la bibliothèque standard ; toute nouvelle dépendance doit être

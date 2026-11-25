@@ -205,7 +205,7 @@
   }
 
   /* ================================================================== Paramètres (section à part) */
-  const SECTIONS = [["projets", "Projets"], ["connexions", "Connexions"], ["agents", "Cursor / Claude"], ["statuts", "Statuts des tickets"], ["applications", "Applications"], ["configuration", "Configuration"],
+  const SECTIONS = [["projets", "Projets"], ["comptes", "Comptes et base"], ["connexions", "Connexions"], ["agents", "Cursor / Claude"], ["statuts", "Statuts des tickets"], ["applications", "Applications"], ["configuration", "Configuration"],
     ["perimetre", "Exclusions et criticité"], ["apparence", "Apparence"]];
   Atelier.enregistrer("parametres", {
     afficher(zone, sous) {
@@ -216,7 +216,7 @@
         <section class="carte"><h2 class="titre-carte">${esc(SECTIONS.find(x => x[0] === s)[1])}</h2><div class="corps-carte" id="p-corps">${vide("Chargement…")}</div></section>`;
       $$("[data-p]", zone).forEach(li => li.onclick = () => { location.hash = "parametres/" + li.dataset.p; });
       const corps = $("#p-corps");
-      Promise.resolve().then(() => ({projets, connexions, agents, statuts, applications, configuration, apparence,
+      Promise.resolve().then(() => ({projets, comptes: comptesEtBase, connexions, agents, statuts, applications, configuration, apparence,
         perimetre: x => window.Pilotage.rubrique(x, "perimetre")})[s](corps)).catch(e => {
         corps.innerHTML = `<p><span class="pill ko">Erreur</span> ${esc(e.message)}</p><p class="lib">${/Not Found|404/.test(e.message)
           ? "Le serveur ne connaît pas cette fonction : il tourne sans doute avec une version précédente. Arrêter le serveur (Ctrl+C), relancer « python web/app.py », puis recharger la page (Ctrl+F5)."
@@ -224,6 +224,76 @@
       });
     },
   });
+
+  /* Comptes et base : qui a accès (rôle, projets), mot de passe, et la base de l'atelier (emplacement, export). */
+  async function comptesEtBase(el) {
+    const [moi, base, sy] = await Promise.all([api("/api/moi"), api("/api/base").catch(e => ({moteur: "Base injoignable", chemin: e.message, documents: 0, taille_ko: 0})),
+      api("/api/synchro").catch(() => ({}))]);
+    let liste = null;
+    try { liste = await api("/api/comptes"); } catch (e) { /* pas responsable : seulement son compte */ }
+    const ROLES = ["lecteur", "automaticien", "relecteur", "responsable"];
+    const projetsDe = x => (x.projets || ["*"]).includes("*") ? "Tous" : (x.projets || []).join(", ");
+    el.innerHTML = `
+      ${!moi.comptes_actifs ? `<p><span class="pill warn">Mode ouvert</span> Aucun compte : tout le monde a tous les droits sur ce poste.
+        <a class="btn petit primaire" href="/assistant">Créer le premier compte</a></p>` : ""}
+      ${moi.compte ? `<h3 class="lib">MON COMPTE</h3><p><b>${esc(moi.compte.nom)}</b> <span class="mono">${esc(moi.compte.identifiant)}</span> · ${esc(moi.compte.role)} · projets : ${esc(projetsDe(moi.compte))}</p>
+        <div class="btns"><input class="in" type="password" id="cp-ancien" placeholder="Mot de passe actuel" autocomplete="current-password">
+          <input class="in" type="password" id="cp-nouveau" placeholder="Nouveau (12 caractères au moins)" autocomplete="new-password">
+          <button class="btn" id="cp-changer">Changer mon mot de passe</button></div>` : ""}
+      ${liste ? `<h3 class="lib">COMPTES (${liste.comptes.length})</h3>
+        <table class="table-strat"><tr><th>Compte</th><th>Rôle</th><th>Projets</th><th>Actif</th><th>Dernière connexion</th><th></th></tr>
+          ${liste.comptes.map(x => `<tr data-compte="${esc(x.identifiant)}"><td><b>${esc(x.nom)}</b><br><span class="mono lib">${esc(x.identifiant)}</span></td>
+            <td><select class="in" data-role>${ROLES.map(r => `<option ${r === x.role ? "selected" : ""}>${r}</option>`).join("")}</select></td>
+            <td><select class="in" data-projets multiple size="${Math.min(4, liste.projets.length + 1)}"><option value="*" ${(x.projets || []).includes("*") ? "selected" : ""}>Tous</option>
+              ${liste.projets.map(p => `<option value="${esc(p.id)}" ${(x.projets || []).includes(p.id) ? "selected" : ""}>${esc(p.nom)}</option>`).join("")}</select></td>
+            <td><input type="checkbox" data-actif ${x.actif ? "checked" : ""}></td><td class="lib">${esc((x.derniere_connexion || "—").slice(0, 16).replace("T", " "))}</td>
+            <td><button class="btn petit" data-enregistrer>Enregistrer</button> <button class="btn petit" data-reinit title="Nouveau mot de passe, à transmettre au titulaire">Réinitialiser le mot de passe</button></td></tr>`).join("")}</table>
+        <h3 class="lib">NOUVEAU COMPTE</h3>
+        <div class="btns"><input class="in" id="nc-id" placeholder="Identifiant (ex. a.martin)" autocomplete="off"><input class="in" id="nc-nom" placeholder="Nom affiché">
+          <select class="in" id="nc-role">${ROLES.map(r => `<option ${r === "automaticien" ? "selected" : ""}>${r}</option>`).join("")}</select>
+          <input class="in" type="password" id="nc-mdp" placeholder="Mot de passe initial (12 caractères au moins)" autocomplete="new-password">
+          <button class="btn primaire" id="nc-creer">Créer le compte</button></div>
+        <p class="lib">Le titulaire change son mot de passe à la première connexion (Paramètres › Comptes et base). Aucun mot de passe n'est gardé, seulement son empreinte.</p>` : ""}
+      <h3 class="lib">BASE DE L'ATELIER</h3>
+      <p>${esc(base.moteur)} · <span class="mono">${esc(base.chemin)}</span> · ${base.documents} document(s) · ${base.taille_ko} Ko</p>
+      <p class="lib">Projets, réglages et comptes y sont partagés ; le dossier de chaque projet reste propre au poste. Exporter pour sauvegarder ou déplacer la base ;
+        changer d'emplacement dans <a href="/assistant">l'assistant</a>.</p>
+      ${liste ? `<div class="btns"><button class="btn" id="base-export">Exporter la base</button></div>` : ""}
+      <h3 class="lib">SYNCHRONISATION DU PROJET ACTIF</h3>
+      ${sy.projet ? `<p>Poste <b>${esc(sy.poste || "")}</b> · ${sy.fichiers || 0} fichier(s) de travail et de connaissance suivis${sy.dernier ? ` · dernier passage ${esc((sy.dernier.date || "").slice(11, 19))}` : ""}
+          ${sy.erreur ? `<br><span class="pill ko">Erreur</span> ${esc(sy.erreur)}` : ""}</p>
+        ${sy.dernier && sy.dernier.conflits.length ? `<p><span class="pill warn">${sy.dernier.conflits.length} conflit(s)</span> la version de la base s'applique ; la tienne est gardée à côté :
+          ${sy.dernier.conflits.map(c => `<span class="mono">${esc(c.copie_locale || c.fichier)}</span>`).join(", ")}</p>` : ""}
+        ${sy.dernier && sy.dernier.suppressions_en_attente.length ? `<p><span class="pill warn">${sy.dernier.suppressions_en_attente.length} suppression(s) en attente</span>
+          au-delà du garde-fou : <button class="btn petit" id="sy-confirmer">Confirmer les suppressions</button></p>` : ""}
+        <div class="btns"><button class="btn" id="sy-maintenant">Synchroniser maintenant</button></div>` : `<p class="lib">Aucun projet actif avec un dossier sur ce poste.</p>`}`;
+    const recharger = () => comptesEtBase(el);
+    if ($("#cp-changer", el)) $("#cp-changer", el).onclick = () => api(`/api/comptes/${encodeURIComponent(moi.compte.identifiant)}/mot-de-passe`, {method: "POST",
+      body: {ancien: $("#cp-ancien", el).value, nouveau: $("#cp-nouveau", el).value}}).then(() => { toast("Mot de passe changé : se reconnecter.", "ok"); location.href = "/connexion"; })
+      .catch(e => toast(e.message, "ko"));
+    $$("[data-compte]", el).forEach(tr => {
+      const id = tr.dataset.compte;
+      $("[data-enregistrer]", tr).onclick = () => {
+        const projets = [...$("[data-projets]", tr).selectedOptions].map(o => o.value);
+        api(`/api/comptes/${encodeURIComponent(id)}`, {method: "PATCH", body: {role: $("[data-role]", tr).value, actif: $("[data-actif]", tr).checked,
+          projets: projets.includes("*") || !projets.length ? ["*"] : projets}}).then(() => { toast(`Compte ${id} enregistré.`, "ok"); recharger(); }).catch(e => toast(e.message, "ko"));
+      };
+      $("[data-reinit]", tr).onclick = () => {
+        const n = prompt(`Nouveau mot de passe pour ${id} (12 caractères au moins) :`);
+        if (!n) return;
+        api(`/api/comptes/${encodeURIComponent(id)}/mot-de-passe`, {method: "POST", body: {nouveau: n}}).then(() => toast(`Mot de passe de ${id} réinitialisé.`, "ok")).catch(e => toast(e.message, "ko"));
+      };
+    });
+    if ($("#nc-creer", el)) $("#nc-creer", el).onclick = () => api("/api/comptes", {method: "POST", body: {identifiant: $("#nc-id", el).value, nom: $("#nc-nom", el).value,
+      role: $("#nc-role", el).value, mot_de_passe: $("#nc-mdp", el).value}}).then(x => { toast(`Compte ${x.identifiant} créé.`, "ok"); recharger(); }).catch(e => toast(e.message, "ko"));
+    const synchro = confirmer => api("/api/synchro", {method: "POST", body: {confirmer}})
+      .then(r => { toast(`Synchronisé : ${r.envoyes.length} envoyé(s), ${r.recus.length} reçu(s)${r.conflits.length ? `, ${r.conflits.length} conflit(s)` : ""}.`, "ok"); recharger(); })
+      .catch(e => toast(e.message, "ko"));
+    if ($("#sy-maintenant", el)) $("#sy-maintenant", el).onclick = () => synchro(false);
+    if ($("#sy-confirmer", el)) $("#sy-confirmer", el).onclick = () => { if (confirm("Appliquer ces suppressions sur la base et les autres postes ?")) synchro(true); };
+    if ($("#base-export", el)) $("#base-export", el).onclick = () => api("/api/base/exporter", {method: "POST", body: {}})
+      .then(r => toast(`${r.documents} document(s) exportés : ${r.fichier}`, "ok")).catch(e => toast(e.message, "ko"));
+  }
 
   /* Règles Cursor versionnées (V2, phase 2) : consulter, modifier (nouvelle version), régénérer le contexte projet,
      comparer, activer / restaurer, synchroniser avec aperçu (jamais d'écrasement silencieux), exporter. */
@@ -435,12 +505,33 @@
     };
   }
 
-  async function projets(z, edition = null) {
+  /* Étape « Adopter ce dépôt » après l'ajout ou la modification d'un projet : ce que le dépôt apporte, la connaissance
+     reprise de l'ancien dossier, et l'accès à l'écran d'adoption (qui complète la connaissance sans jamais l'écraser). */
+  function carteAdoption(apres, actif) {
+    const a = apres.adoption, r = apres.reprise, pid = apres.enregistre;
+    if (!a && !r) return "";
+    const conn = Object.entries(a?.connaissance || {}).map(([k, n]) => `${esc(k)} (${n})`).join(", ");
+    return `<div class="bloc-strat ad-etape" style="margin:10px 0;max-width:900px"><h3>Adopter ce dépôt</h3>
+      ${r ? `<p><span class="pill ok">connaissance reprise</span> ${r.copies} fichier(s) de l'atelier copiés depuis l'ancien dossier, ${r.identiques} déjà identiques${r.conflits.length
+        ? `, <b>${r.conflits.length}</b> différent(s) : la connaissance de l'atelier l'emporte, la version du dépôt est gardée à côté (<code>.conflit-depot-…</code>)` : ""}.
+        L'ancien dossier n'est pas modifié.${r.erreurs.length ? ` <span class="pill ko">${r.erreurs.length} erreur(s)</span> ${esc(r.erreurs[0])}` : ""}</p>` : ""}
+      ${a && a.a_adopter ? `<p>Le dépôt contient déjà <b>${a.suites}</b> suite(s) et <b>${a.tests}</b> test(s) Robot, dont ${a.gherkin} en Given / When / Then et ${a.avec_xray} avec une clé Xray :
+          ils peuvent devenir les scénarios BDD et les parcours de l'atelier, et remplir la carte par un run cartographié.</p>
+        <p class="lib">${conn ? `Connaissance déjà présente dans ce dossier : ${conn}. ` : ""}L'adoption complète sans rien écraser : un scénario existant n'est pas réimporté,
+          un scénario déjà rattaché garde son parcours, les locators connus gardent leur rang.</p>
+        <div class="btns">${pid && pid === actif ? `<a class="btn primaire" href="#adoption">Adopter ce dépôt</a>`
+          : pid ? `<button class="btn primaire" data-adopter="${esc(pid)}">Activer ce projet et adopter son dépôt</button>` : ""}</div>`
+        : a ? `<p class="lib">Aucun test Robot dans <code>tests/</code> : rien à adopter, le chemin habituel commence par la Discovery.</p>` : ""}</div>`;
+  }
+
+  async function projets(z, edition = null, apres = null) {
     const d = await api("/api/projets");
     const sec = (p, k) => esc((p?.secrets || {})[k] || "");
     const form = p => `<div class="grille-2" style="max-width:900px">
       <div class="champ"><label for="pj-nom">Nom</label><input class="in" id="pj-nom" value="${esc(p?.nom || "")}" placeholder="Banque mobile"></div>
       <div class="champ"><label for="pj-dos">Dossier du repository de tests</label><input class="in" id="pj-dos" value="${esc(p?.dossier || "")}" placeholder="C:\\Users\\…\\tests-banque"></div>
+      <div class="champ"><label for="pj-dg">Dépôt Git des tests (URL sans identifiant)</label><input class="in" id="pj-dg" value="${esc(p?.depot_git || "")}" placeholder="https://gitlab.<entreprise>/groupe/tests-robot.git"
+        title="Pour cloner le projet sur un autre poste. Changer de dépôt = choisir le dossier de son clone : la connaissance de l'atelier y est reprise"></div>
       <div class="champ"><label for="pj-xr">Clé du projet Xray</label><input class="in" id="pj-xr" value="${esc(p?.xray_projet || "")}" placeholder="DEMO"></div>
       <div class="champ"><label for="pj-jp">Clé du projet Jira (si différente)</label><input class="in" id="pj-jp" value="${esc(p?.jira_projet || "")}"></div>
       <div class="champ"><label for="pj-ju">URL Jira</label><input class="in" id="pj-ju" value="${esc(p?.jira_url || "")}" placeholder="https://<site>.atlassian.net"></div>
@@ -457,11 +548,12 @@
       <div class="btns"><button class="btn primaire" id="pj-ok">${ico("disque")}Enregistrer</button><button class="btn" id="pj-an">Annuler</button></div>`;
     z.innerHTML = `<p class="lib">Un projet = un repository de tests et son projet Xray / Jira. Stratégie, conception, exécutions, échecs, gouvernance et Knowledge Graph
       sont stockés dans le repository : changer de projet change tout le contexte. Liste enregistrée sur ce poste (<code>${esc(d.fichier)}</code>), sans aucun secret.</p>
+      ${apres ? carteAdoption(apres, d.actif) : ""}
       <div id="pj-envs" class="bloc-strat" style="margin:10px 0;max-width:900px"></div>
       ${d.projets.length ? `<table><tr><th>Projet</th><th>Repository</th><th>Xray / Jira</th><th>Secrets</th><th></th></tr>${d.projets.map(p => `<tr><td><b>${esc(p.nom)}</b>${p.id === d.actif ? ' <span class="pill ok">actif</span>' : ""}</td>
         <td class="mono" style="font-size:11px">${esc(p.dossier)}${p.dossier_existe ? "" : ' <span class="pill ko">introuvable</span>'}</td><td>${esc(p.xray_projet || "—")}${p.jira_url ? ` · <span class="lib">${esc(p.jira_url)}</span>` : ""}</td>
         <td>${Object.entries(p.secrets_presents).map(([k, ok]) => `<span class="pill ${ok ? "ok" : "warn"}" title="${esc(p.secrets[k])}">${esc(k.replace("XRAY_", "").replace("JIRA_", "Jira "))}</span>`).join(" ") || "<span class='lib'>globaux</span>"}</td>
-        <td class="btns">${p.id === d.actif ? "" : `<button class="btn petit primaire" data-act="${esc(p.id)}">Activer</button>`}<button class="btn petit" data-mod="${esc(p.id)}">Modifier</button><button class="btn petit" data-dup="${esc(p.id)}">Dupliquer</button>
+        <td class="btns">${p.id === d.actif ? "" : `<button class="btn petit primaire" data-act="${esc(p.id)}">Activer</button>`}<button class="btn petit" data-mod="${esc(p.id)}">Modifier</button><button class="btn petit" data-apercu="${esc(p.id)}" title="Ce que le dépôt apporte (tests Robot, Gherkin, Xray) et l'adopter sans perdre la connaissance">Adopter</button><button class="btn petit" data-dup="${esc(p.id)}">Dupliquer</button>
           ${p.id === d.actif ? "" : `<button class="btn petit danger" data-sup="${esc(p.id)}">Retirer</button>`}</td></tr>`).join("")}</table>`
         : vide("Aucun projet déclaré", `Projet courant : ${Atelier.ctx.projet_chemin || ""} (variable ROBOT_PROJECT_DIR).`)}
       <h3 class="lib" style="margin-top:16px">${edition?.id ? "MODIFIER LE PROJET" : edition?.duplique ? `DUPLIQUER « ${esc(edition.duplique)} » (choisir le nom et le dossier du nouveau repository)` : "AJOUTER UN PROJET"}</h3>${form(edition || (d.projets.length ? null : {dossier: Atelier.ctx.projet_chemin, nom: Atelier.ctx.projet}))}
@@ -469,9 +561,11 @@
     $("#pj-ok").onclick = async () => {
       const b = {id: edition?.id || "", nom: $("#pj-nom").value, dossier: $("#pj-dos").value, xray_projet: $("#pj-xr").value, jira_projet: $("#pj-jp").value,
         jira_url: $("#pj-ju").value, jira_email: $("#pj-je").value, xray_url: $("#pj-xu").value,
-        gitlab_url: $("#pj-gu").value, gitlab_projet: $("#pj-gp").value,
+        gitlab_url: $("#pj-gu").value, gitlab_projet: $("#pj-gp").value, depot_git: $("#pj-dg").value,
         secrets: {XRAY_CLIENT_ID: $("#pj-s1").value, XRAY_CLIENT_SECRET: $("#pj-s2").value, JIRA_API_TOKEN: $("#pj-s3").value, GITLAB_TOKEN: $("#pj-s4").value}};
-      try { await api("/api/projets", {method: "POST", body: b}); toast("Projet enregistré.", "ok"); await Atelier.chargerContexte(); projets(z); } catch (e) { toast(e.message, "ko"); }
+      if (edition?.id && edition.dossier && b.dossier.trim() && b.dossier.trim() !== edition.dossier
+          && !confirm("Le projet change de dossier (autre dépôt) : sa connaissance (carte, parcours, conception, exécutions…) sera copiée dans le nouveau dossier. L'ancien dossier n'est pas modifié. Continuer ?")) return;
+      try { const r = await api("/api/projets", {method: "POST", body: b}); toast("Projet enregistré.", "ok"); await Atelier.chargerContexte(); projets(z, null, r); } catch (e) { toast(e.message, "ko"); }
     };
     $("#pj-an").onclick = () => projets(z);
     /* Environnements : lus dans le projet Xray du projet actif, jamais saisis ici */
@@ -492,6 +586,10 @@
     };
     envs();
     $$("[data-mod]", z).forEach(b => b.onclick = () => projets(z, d.projets.find(p => p.id === b.dataset.mod)));
+    $$("[data-adopter]", z).forEach(b => b.onclick = async () => {
+      try { await api("/api/projets/activer", {method: "POST", body: {id: b.dataset.adopter}}); await Atelier.chargerContexte(); location.hash = "#adoption"; } catch (e) { toast(e.message, "ko"); } });
+    $$("[data-apercu]", z).forEach(b => b.onclick = async () => {
+      try { const a = await api(`/api/projets/${encodeURIComponent(b.dataset.apercu)}/adoption`); projets(z, null, {adoption: a, enregistre: b.dataset.apercu}); } catch (e) { toast(e.message, "ko"); } });
     $$("[data-dup]", z).forEach(b => b.onclick = () => { const p = d.projets.find(x => x.id === b.dataset.dup);
       projets(z, {...p, id: "", nom: `${p.nom} (copie)`, dossier: "", duplique: p.nom}); setTimeout(() => $("#pj-dos")?.focus(), 50); });
     $$("[data-act]", z).forEach(b => b.onclick = async () => {

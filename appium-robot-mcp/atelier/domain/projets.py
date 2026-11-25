@@ -3,8 +3,11 @@
 Chaque projet a ses propres données (stratégie, conception, instantané Xray, campagnes, échecs, gouvernance,
 Knowledge Graph) : elles vivent DANS le dossier du repository, donc changer de projet change tout le contexte.
 
-La liste des projets est une configuration du poste (fichier ATELIER_PROJETS, défaut ~/.atelier-projets.json),
-jamais du dépôt. Elle ne contient AUCUN secret : pour un identifiant ou un jeton, seul le NOM de la variable
+La liste des projets vit dans la base de l'atelier (domain/magasin.py, document config/projets) pour être partagée
+entre postes ; le dossier local de chaque projet et le projet actif restent propres au poste (~/.atelier/poste.json :
+le même projet n'est pas au même endroit sur deux machines). L'ancien fichier du poste (~/.atelier-projets.json) est
+repris dans la base au premier lancement. ATELIER_PROJETS imposé (tests, poste isolé) : fichier seul, comme avant.
+Jamais dans le dépôt. Elle ne contient AUCUN secret : pour un identifiant ou un jeton, seul le NOM de la variable
 d'environnement qui le porte est enregistré (ex. « XRAY_CLIENT_ID_TAM ») ; la valeur reste dans l'environnement.
 Chaque bascule est journalisée (qui, quand, de quel projet vers lequel).
 """
@@ -44,10 +47,16 @@ def _maintenant() -> str:
 
 
 def _auteur() -> str:
-    return os.environ.get("USERNAME") or os.environ.get("USER") or "automaticien"
+    from atelier.domain import roles
+
+    return roles.utilisateur() or os.environ.get("USERNAME") or os.environ.get("USER") or "automaticien"
 
 
-def _charger() -> dict:
+def _mode_fichier() -> bool:
+    return bool(os.environ.get("ATELIER_PROJETS"))
+
+
+def _lire_fichier() -> dict:
     f = _fichier()
     d = json.loads(f.read_text("utf-8")) if f.exists() else {}
     d.setdefault("projets", [])
@@ -55,7 +64,37 @@ def _charger() -> dict:
     return d
 
 
+def _charger() -> dict:
+    if _mode_fichier():
+        return _lire_fichier()
+    from atelier.domain import magasin
+
+    doc = magasin.lire("config", "projets")
+    if doc is None:  # premier lancement avec la base : reprise de l'ancienne liste du poste
+        ancien = _lire_fichier()
+        _sauver(ancien)
+        doc = magasin.lire("config", "projets") or {"projets": []}
+    poste = magasin._config_poste()
+    dossiers = poste.get("dossiers") or {}
+    projets = [{**p, "dossier": dossiers.get(p["id"], "")} for p in doc.get("projets") or []]
+    return {**{k: v for k, v in doc.items() if not k.startswith("_")}, "projets": projets, "actif": poste.get("projet_actif", ""),
+            "_version": doc.get("_version")}
+
+
 def _sauver(d: dict):
+    if not _mode_fichier():
+        from atelier.domain import magasin
+
+        poste = magasin._config_poste()
+        dossiers = {**(poste.get("dossiers") or {}), **{p["id"]: p["dossier"] for p in d.get("projets") or [] if p.get("dossier")}}
+        connus = {p["id"] for p in d.get("projets") or []}
+        magasin.regler_poste(dossiers={k: v for k, v in dossiers.items() if k in connus}, projet_actif=d.get("actif", ""))
+        partages = [{k: v for k, v in p.items() if k != "dossier"} for p in d.get("projets") or []]
+        nouveau = {**{k: v for k, v in d.items() if k not in ("actif", "projets") and not k.startswith("_")}, "projets": partages}
+        actuel = magasin.lire("config", "projets")
+        if actuel is None or {k: v for k, v in actuel.items() if not k.startswith("_")} != nouveau:  # rien de partagé n'a changé : rien à écrire
+            magasin.ecrire("config", "projets", nouveau, par=_auteur())
+        return
     f = _fichier()
     f.parent.mkdir(parents=True, exist_ok=True)
     tmp = f.with_suffix(".tmp")
@@ -66,17 +105,22 @@ def _sauver(d: dict):
 def _vue(p: dict) -> dict:
     """Projet tel qu'affiché : chemins résolus, et pour chaque secret seulement s'il est présent dans l'environnement."""
     return {**p, "secrets_presents": {cible: bool(os.environ.get(src)) for cible, src in (p.get("secrets") or {}).items()},
-            "dossier_existe": Path(p["dossier"]).is_dir()}
+            "dossier_existe": bool(p.get("dossier")) and Path(p["dossier"]).is_dir()}
 
 
 def lister() -> dict:
+    from atelier.domain import utilisateurs
+
     d = _charger()
-    return {"projets": [_vue(p) for p in d["projets"]], "actif": actif_id(), "fichier": str(_fichier())}
+    return {"projets": [_vue(p) for p in d["projets"] if utilisateurs.projet_permis(p["id"])], "actif": actif_id(),
+            "fichier": str(_fichier()) if _mode_fichier() else "base de l'atelier"}
 
 
 def actif_id() -> str:
     """Projet actif = celui dont le dossier est le PROJECT_DIR courant (vérité du processus)."""
     for p in _charger()["projets"]:
+        if not p.get("dossier"):
+            continue  # projet partagé sans dossier sur ce poste
         try:
             if Path(p["dossier"]).expanduser().resolve() == projet.PROJECT_DIR:
                 return p["id"]
@@ -126,6 +170,10 @@ def valider(p: dict) -> dict:
     if gp and not re.fullmatch(r"[\w.-]+(/[\w.-]+)*|\d+", gp):
         raise ValueError("gitlab_projet : chemin « groupe/sous-groupe/projet » ou identifiant numérique.")
     out["gitlab_projet"] = gp
+    dg = str(p.get("depot_git") or "").strip()
+    if dg and (not re.fullmatch(r"(https://[^\s@]+|git@[^\s:]+:[^\s]+|file://\S+)", dg)):
+        raise ValueError("depot_git : adresse https://… (sans identifiant) ou git@hote:groupe/projet.git")
+    out["depot_git"] = dg
     # Les environnements ne se saisissent plus ici : ils sont lus dans le projet Xray (atelier/integrations/xray/environnements.py).
     sec = {}
     for cible, src in (p.get("secrets") or {}).items():
@@ -141,19 +189,31 @@ def valider(p: dict) -> dict:
     return out
 
 
-def enregistrer(p: dict) -> dict:
+def enregistrer(p: dict, occupe: str = "") -> dict:
+    """Ajoute ou modifie un projet. Projet existant qui change de dossier (autre dépôt, nouveau clone) : sa connaissance
+    et son travail sont repris dans le nouveau dossier (domain/reprise.py, rien n'est perdu ni écrasé sans copie) ;
+    s'il était actif, l'atelier passe sur le nouveau dossier (refusé pendant un run : occupe)."""
+    from atelier.domain import reprise
+
     p = valider(p)
+    etait_actif = p["id"] == actif_id()
     with _verrou:
         d = _charger()
+        avant = next((x for x in d["projets"] if x["id"] == p["id"]), None)
+        ancien = (avant or {}).get("dossier") or ""
+        change = bool(ancien) and Path(ancien).expanduser().resolve() != Path(p["dossier"])
+        if change and etait_actif and occupe:
+            raise PermissionError(f"Changement de dossier du projet actif impossible : {occupe}.")
         autres = [x for x in d["projets"] if x["id"] != p["id"]]
-        if any(Path(x["dossier"]).resolve() == Path(p["dossier"]) for x in autres):
+        if any(x.get("dossier") and Path(x["dossier"]).resolve() == Path(p["dossier"]) for x in autres):
             raise ValueError("Ce dossier est déjà déclaré pour un autre projet.")
+        bilan = reprise.reprendre(ancien, p["dossier"]) if change else None
         d["projets"] = autres + [p]
         _sauver(d)
-    _tracer("enregistrement", vers=p["id"])
-    if p["id"] == actif_id():
-        _appliquer(p)  # connexions du projet actif mises à jour sans bascule
-    return lister()
+    _tracer("changement de dossier" if change else "enregistrement", de=ancien if change else "", vers=p["id"])
+    if etait_actif or p["id"] == actif_id():
+        _appliquer(p)  # connexions (et dossier) du projet actif mis à jour sans bascule
+    return {**lister(), "reprise": bilan}
 
 
 def supprimer(pid: str) -> dict:
@@ -193,9 +253,15 @@ def activer(pid: str, occupe: str = "") -> dict:
     """Bascule sur un projet. occupe : raison de refus fournie par l'appelant (run en cours ou en file)."""
     if occupe:
         raise PermissionError(f"Changement de projet impossible : {occupe}.")
+    from atelier.domain import utilisateurs
+
     p = next((x for x in _charger()["projets"] if x["id"] == pid), None)
     if not p:
         raise KeyError(f"Projet inconnu : {pid}")
+    if not utilisateurs.projet_permis(pid):
+        raise PermissionError(f"Le projet {pid} n'est pas ouvert à ton compte : demander l'accès à un responsable.")
+    if not p.get("dossier"):
+        raise FileNotFoundError(f"Le projet {pid} n'a pas de dossier sur ce poste : le cloner ou choisir son dossier (assistant).")
     if not Path(p["dossier"]).is_dir():
         raise FileNotFoundError(f"Dossier du repository introuvable : {p['dossier']}")
     de = actif_id() or str(projet.PROJECT_DIR)

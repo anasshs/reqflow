@@ -77,7 +77,13 @@ def rattacher(lot: str, cles: list[str]) -> list[str]:
 
 
 def _index_tests() -> tuple[dict, dict]:
-    """Tests Robot par clé de scénario BDD, et correspondance clé Xray → clé BDD."""
+    """Tests Robot par clé de scénario BDD, et correspondance clé Xray → clé BDD (une fois par calcul : domain/memo)."""
+    from atelier.domain import memo
+
+    return memo.memoiser("lots._index_tests", _index_tests_calcul)
+
+
+def _index_tests_calcul() -> tuple[dict, dict]:
     from atelier.generation import conception, maintenance
 
     xray_vers_bdd = {v.get("xray"): k for k, v in conception._publications_xray().items() if v.get("xray")}
@@ -144,14 +150,17 @@ def vue(lot: str = "") -> dict:
     lots = _lire()
     lignes = []
     slug = conv["slug"]
+    from atelier.discovery import application
+
+    connus = application.slugs()
     for b in bdd.lister():
         m = bdd.charger(b["cle"]) or {}
         if not m.get("scenarios") or not any(s.get("etapes") for s in m["scenarios"]):
             continue  # scénario vide : rien à suivre
         tests = par_bdd.get(b["cle"], [])
-        # application active seulement : rattaché à un lot, déclaré pour elle, ou automatisé dans tests/<application>/
-        if not (m.get("lot") in lots or (m.get("application") or "") == slug
-                or any(t["suite"].startswith(f"tests/{slug}/") for t in tests)):
+        # application active seulement (règle unique : application déclarée, parcours, session, dossier des tests)
+        proprio = application.du_scenario(m, [t["suite"] for t in tests], connus)
+        if not (proprio == slug or (not proprio and m.get("lot") in lots and len(connus) <= 1)):
             continue
         lignes.append(_ligne({**m, "cle": b["cle"]}, tests, au_tnr, conception.cle_xray_du_scenario(b["cle"])))
     resume = {}

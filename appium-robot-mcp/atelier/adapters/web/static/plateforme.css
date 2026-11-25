@@ -1495,3 +1495,124 @@ button.kb-qualifier { border: 1px solid var(--violet); }
 .lien-btn { background: none; border: 0; padding: 0; color: var(--accent-ink); cursor: pointer; font: inherit; }
 
 .kb-donnee { display: grid; grid-template-columns: minmax(0, 1fr) 190px auto; gap: 8px; align-items: center; }
+
+/* Ticket : scénario Gherkin lisible */
+.kb-gherkin { white-space: normal; font-size: 13px; line-height: 1.55; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.kb-gherkin .gk-com { color: var(--muted); font-size: 11.5px; }
+.kb-gherkin .gk-tags { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0 0; }
+.kb-gherkin .gk-tags span { font-size: 11px; padding: 0 7px; border-radius: 6px; background: var(--violet-soft); color: var(--violet-ink); }
+.kb-gherkin .gk-bloc { margin-top: 6px; font-size: 13.5px; }
+.kb-gherkin .gk-bloc b { color: var(--accent-ink); }
+.kb-gherkin .gk-fonctionnalité, .kb-gherkin .gk-feature { font-size: 14.5px; }
+.kb-gherkin .gk-desc { color: var(--muted); font-size: 12px; padding-left: 14px; }
+.kb-gherkin .gk-etape { padding-left: 18px; position: relative; }
+.kb-gherkin .gk-etape b { display: inline-block; min-width: 82px; font-weight: 700; }
+.kb-gherkin .gk-donne b { color: var(--violet-ink); } .kb-gherkin .gk-quand b { color: var(--accent-ink); }
+.kb-gherkin .gk-alors b { color: var(--ok); } .kb-gherkin .gk-et b { color: var(--muted); padding-left: 14px; min-width: 68px; }
+.kb-gherkin .gk-donnee { font-family: var(--mono, monospace); font-size: 12px; background: var(--accent-soft); border-radius: 4px; padding: 0 4px; }
+.kb-gherkin .gk-table { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin-left: 32px; border-bottom: 1px solid var(--line);
+  font-size: 12px; } .kb-gherkin .gk-table span { padding: 2px 6px; border-left: 1px solid var(--line); }
+
+/* Colonnes du Kanban : une couleur par étape, rôle sous le titre */
+.kb-colonne { --kb-etape: var(--line-2); border-top: 3px solid var(--kb-etape); }
+.kb-col-a_faire { --kb-etape: var(--muted); } .kb-col-conception { --kb-etape: var(--violet); } .kb-col-bdd_pret { --kb-etape: var(--accent); }
+.kb-col-automatisation { --kb-etape: var(--cyan); } .kb-col-automatise { --kb-etape: var(--warn); } .kb-col-en_run { --kb-etape: var(--orange); }
+.kb-col-dans_xray { --kb-etape: var(--ok); }
+.kb-col-tete { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 8px; text-transform: none; letter-spacing: 0; }
+.kb-col-nom { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 700; color: var(--ink); text-transform: uppercase; letter-spacing: .03em; }
+.kb-pastille { width: 9px; height: 9px; border-radius: 50%; background: var(--kb-etape); flex: none; }
+.kb-col-role { grid-column: 1 / -1; font-size: 11px; font-weight: 400; color: var(--muted); }
+.kb-colonne .kb-n { background: var(--kb-etape); color: #fff; font-weight: 700; }
+.kb-colonne .kb-cartes { background: linear-gradient(to bottom, color-mix(in srgb, var(--kb-etape) 6%, transparent), transparent 120px); }
+.kb-colonne.kb-cible { outline-color: var(--kb-etape); }
+
+/* Données : onglets */
+.dn-onglets { margin-bottom: 12px; }
+.dn-badge { background: var(--warn); color: #fff; margin-left: 4px; }
+.dn-props { display: flex; flex-direction: column; gap: 8px; }
+
+/* Ticket : écrans du test */
+.kb-ecrans { flex: none; display: flex; align-items: center; gap: 6px; overflow-x: auto; padding: 4px 2px 10px; }
+.kb-ecrans-legende { margin: 2px 0 0; font-size: 11.5px; }
+.kb-ecran { flex: none; width: 104px; display: flex; flex-direction: column; gap: 3px; padding: 5px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); cursor: zoom-in; text-align: left; font: inherit; color: inherit; }
+.kb-ecran:hover { border-color: var(--accent-line); }
+.kb-ecran img { width: 100%; height: 170px; object-fit: cover; object-position: top; border-radius: 5px; background: var(--line); }
+.kb-ecran-vide { height: 170px; display: grid; place-items: center; font-size: 11px; color: var(--muted); background: var(--line); border-radius: 5px; }
+.kb-ecran b { font-size: 11.5px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.kb-ecran .lib { font-size: 10.5px; }
+.kb-fleche { color: var(--muted); flex: none; }
+.kb-ecran-grand { display: grid; grid-template-columns: minmax(0, 320px) 1fr; gap: 16px; align-items: start; }
+.kb-ecran-grand img { width: 100%; border-radius: 10px; border: 1px solid var(--line); }
+@media (max-width: 700px) { .kb-ecran-grand { grid-template-columns: 1fr; } }
+.kb-ecrans-robot summary { cursor: pointer; margin: 4px 0; }
+
+/* Ticket : jeux de données du test */
+.kb-jeux { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 6px 0 8px; font-size: 13px; }
+.kb-jeux dt { color: var(--muted); }
+.kb-jeux dd { margin: 0; }
+
+.kb-jeu { cursor: help; border-bottom: 1px dotted var(--muted); }
+.kb-git-fichiers summary { cursor: pointer; margin: 2px 0 4px; }
+
+/* Kanban : maintenance */
+.kb-col-maintenance { --kb-etape: var(--ko); }
+.kb-maint { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ko) 16%, transparent); color: var(--ko); }
+.kb-maint svg { width: 12px; height: 12px; }
+.kb-maint-en_correction { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.kb-maint-a_confirmer { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.kb-maint-impacte, .kb-maint-application, .kb-maint-donnees, .kb-maint-environnement { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.kb-maintenu { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--ok); color: var(--ok); }
+.kb-maint-bloc textarea { width: 100%; margin: 6px 0; }
+.kb-maint-hist li { margin-bottom: 6px; }
+.kb-bdd-diff details { margin-top: 4px; }
+.kb-maint-hist li { display: block; }
+
+/* Pages autonomes : connexion, assistant du premier lancement */
+body.page-seule { display: block; min-height: 100vh; background: var(--bg); }
+.seule { max-width: 720px; margin: 0 auto; padding: 48px 16px; display: flex; flex-direction: column; gap: 16px; }
+.seule h1 { margin: 0 0 4px; font-size: 24px; }
+.seule-carte { display: flex; flex-direction: column; gap: 8px; padding: 24px; }
+.seule-carte h2 { margin: 0 0 4px; font-size: 18px; }
+.seule-carte h3 { margin: 12px 0 0; font-size: 14px; }
+.seule-carte label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.seule-carte .in { width: 100%; }
+.seule-carte .ligne-case { display: flex; gap: 8px; align-items: center; color: var(--ink); }
+.seule-carte .ligne-case input { width: auto; }
+.seule .erreur { color: var(--ko); min-height: 1.2em; margin: 4px 0; }
+.as-etapes { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0; flex-wrap: wrap; }
+.as-etapes button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 6px 12px; cursor: pointer; font: inherit; }
+.as-etapes .courante button { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.as-etapes .faite button { color: var(--ok); }
+.as-projet { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.as-liste { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+
+/* Notification d'activité : run ou Discovery en cours, jusqu'à la fin */
+.activite { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: 320px; max-width: calc(100vw - 32px); }
+.activite[hidden] { display: none; }
+.act-carte { background: var(--surface); border: 1px solid var(--line-2); border-left: 4px solid var(--accent); border-radius: 10px; box-shadow: var(--shadow);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.act-discovery { border-left-color: var(--cyan, var(--accent)); }
+.act-tete { display: flex; align-items: center; gap: 8px; }
+.act-tete .lib { margin-left: auto; font-size: 12px; }
+.act-titre { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-ligne { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-barre { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.act-barre span { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+.act-btns { display: flex; gap: 12px; font-size: 12.5px; }
+.act-point { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; animation: act-pulse 1.4s ease-in-out infinite; }
+@keyframes act-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .act-point { animation: none; } .act-barre span { transition: none; } }
+.act-reduire { align-self: flex-end; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); border-radius: 6px; width: 26px; height: 22px; cursor: pointer; line-height: 1; }
+.act-pastille { display: inline-flex; align-items: center; gap: 8px; align-self: flex-end; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink);
+  border-radius: 999px; padding: 6px 12px; box-shadow: var(--shadow); cursor: pointer; font: inherit; font-size: 12.5px; }
+.toast { z-index: 70; }
+
+/* Adopter un dépôt existant */
+.ad-chiffres { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.ad-chiffres div { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; }
+.ad-chiffres b { font-size: 20px; }
+.g-adoption .carte { margin-bottom: 14px; }
+.g-adoption td .in { width: 100%; min-width: 180px; }
