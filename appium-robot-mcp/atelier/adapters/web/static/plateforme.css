@@ -1614,5 +1614,11 @@ body.page-seule { display: block; min-height: 100vh; background: var(--bg); }
 .ad-chiffres { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 10px; }
 .ad-chiffres div { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; }
 .ad-chiffres b { font-size: 20px; }
+#ecran.g-adoption { display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; padding-bottom: 72px; } /* le cadre de l'écran a une hauteur fixe : la page défile */
+#ecran.g-adoption > * { flex: none; } /* chaque section garde sa hauteur (sinon elles sont écrasées pour tenir dans le cadre) */
 .g-adoption .carte { margin-bottom: 14px; }
+.ad-modale > div { width: min(1100px, 96vw); }
+.ad-modale .corps-carte { overflow: auto; min-height: 0; } /* le tableau défile dans la fenêtre, les boutons restent visibles */
+.ad-modale .table-strat th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.ad-modale td .in { width: 100%; min-width: 200px; }
 .g-adoption td .in { width: 100%; min-width: 180px; }
