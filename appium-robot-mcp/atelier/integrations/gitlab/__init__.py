@@ -16,14 +16,23 @@ import urllib.parse
 from atelier.integrations.http import http, variable_secrete
 
 
+def _cible() -> tuple[str, str]:
+    """GitLab de l'application active (fiche : depot.gitlab_url / depot.gitlab_projet), sinon celui du projet."""
+    from atelier.domain import projet
+
+    d = projet.depot_application()
+    return ((d.get("gitlab_url") or os.environ.get("GITLAB_URL") or "").rstrip("/"),
+            (d.get("gitlab_projet") or os.environ.get("GITLAB_PROJET") or "").strip().strip("/"))
+
+
 def configure() -> bool:
-    return bool(os.environ.get("GITLAB_URL") and os.environ.get("GITLAB_PROJET") and variable_secrete("GITLAB_TOKEN"))
+    base, proj = _cible()
+    return bool(base and proj and variable_secrete("GITLAB_TOKEN"))
 
 
 class GitLabClient:
     def __init__(self):
-        self.base = (os.environ.get("GITLAB_URL") or "").rstrip("/")
-        self.projet = (os.environ.get("GITLAB_PROJET") or "").strip().strip("/")
+        self.base, self.projet = _cible()
         self._jeton = variable_secrete("GITLAB_TOKEN")
         if not (self.base and self.projet and self._jeton):
             raise RuntimeError("GitLab non configuré : URL, projet (Paramètres › Projets) et jeton (GITLAB_TOKEN ou variable du projet).")

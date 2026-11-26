@@ -22,7 +22,8 @@ import re
 from atelier.generation import pom
 
 OTP = re.compile(r"(?i)\botp\b|code (de confirmation|re[çc]u|sms)|code par sms")
-INTENTIONS = ("ouvrir", "toucher", "saisir", "revenir", "otp", "verifier", "appel")
+INTENTIONS = ("ouvrir", "toucher", "saisir", "revenir", "otp", "sms", "verifier", "appel")
+# sms : étape prédéfinie SMS par adb autre que l'OTP (repère avant l'envoi, lien reçu ouvert ou gardé : etapes_sms.py)
 
 
 def element(locator: str) -> dict:
@@ -42,7 +43,12 @@ def element(locator: str) -> dict:
 
 
 def intention(etape: dict) -> str:
+    from atelier.generation import etapes_sms
+
     texte, champ = etape.get("texte", ""), etape.get("jdd", "")
+    predef = etapes_sms.reconnaitre(etape)
+    if predef:
+        return "otp" if predef == "otp" else "sms"
     if pom.RETOUR.match(texte):
         return "revenir"
     if OTP.search(texte):
@@ -60,12 +66,15 @@ def intention(etape: dict) -> str:
 
 def etape(e: dict) -> dict:
     """Étape du plan : intention, écran, élément de la carte, donnée du jeu (secret ou non), texte d'origine."""
+    from atelier.generation import etapes_sms
+
     champ = e.get("jdd") or ""
     loc = e.get("locator") or ""
     return {"id": e.get("id", ""), "mot": e.get("type", ""), "texte": e.get("texte", ""), "intention": intention(e),
             "ecran": e.get("ecran") or "", "locator": loc, "element": element(loc) if loc else {},
             "donnee": champ, "secret": bool(champ and pom.SECRET.search(champ)),
             "attendu": e.get("resultat_attendu") or "",
+            "sms": etapes_sms.reconnaitre(e),  # étape prédéfinie SMS (etapes_sms.py), « » sinon
             # décision « réutiliser sans réécrire » : élément du socle à appeler, le texte de l'étape (Xray) reste tel quel
             "reutilise": (e.get("keyword_lie") or {}).get("keyword", "")}
 

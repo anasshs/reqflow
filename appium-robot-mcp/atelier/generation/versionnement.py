@@ -43,7 +43,7 @@ def fichiers(cle: str) -> list[str]:
                 out |= maintenance._fichiers_du_test(inv, tid)
     for f in bdd._fichiers(cle):
         if f.exists():
-            out.add(f.relative_to(projet.PROJECT_DIR).as_posix())
+            out.add(projet.relatif(f))
     jeux = set()
     for tid in tests:
         fichier, _, _nom = tid.partition("::")
@@ -51,11 +51,11 @@ def fichiers(cle: str) -> list[str]:
             jeux |= set(re.findall(r"&\{JDD_([A-Za-z0-9_]+)\}", projet.safe_path(fichier).read_text("utf-8")))
         except (OSError, ValueError):
             pass
-    d = projet.PROJECT_DIR / "data" / "jdd"
+    d = projet.racine_code() / "data" / "jdd"
     for y in sorted(d.glob("*.yaml")) if d.exists() and jeux else []:
         texte = y.read_text("utf-8", errors="replace")
         if any(re.search(rf"(?m)^{re.escape(j)}:", texte) for j in jeux):
-            out.add(y.relative_to(projet.PROJECT_DIR).as_posix())
+            out.add(projet.relatif(y))
     return sorted(f for f in out if not f.startswith(studio.ETAT_ATELIER))
 
 
@@ -89,7 +89,7 @@ def _branche_de_travail() -> tuple[str, bool]:
     while _git("rev-parse", "--verify", "--quiet", f"refs/heads/{nom}"):
         n += 1
         nom = "atelier/xray-" + time.strftime("%Y%m%d-%H%M") + f"-{n}"
-    r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), "switch", "-c", nom], capture_output=True, text=True, encoding="utf-8",
+    r = subprocess.run(["git", "-C", str(projet.racine_code()), "switch", "-c", nom], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=15)
     if r.returncode:
         raise RuntimeError(r.stderr.strip()[:300])

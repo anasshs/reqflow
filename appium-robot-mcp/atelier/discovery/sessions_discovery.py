@@ -548,3 +548,215 @@ def agir(action: str, locator: str = "", element: dict | None = None, confirme: 
                              "ecran": (obs or {}).get("id")})
     regles = comportements.proposer_regles(comps, (obs or {}).get("nom") or (obs or {}).get("id", ""))
     return {**verdict, "execute": True, "ecran": obs, "comportements": comps, "regles_proposees": regles}
+
+
+# =========================================================================== saisir et vérifier depuis le miroir
+MODES_VERIFICATION = {"texte": "le texte affiché", "visible": "l'élément est affiché"}
+
+
+def _session_et_element(locator: str, element: dict | None):
+    from atelier.discovery import comportements, session
+    from atelier.discovery.observation import observer
+
+    s = active()
+    if not s or s["statut"] != "En cours":
+        raise PermissionError("Démarrer (ou reprendre) la session avant de saisir ou de vérifier.")
+    if not session.plateforme():
+        raise RuntimeError("Aucun device ni navigateur connecté.")
+    if not locator:
+        raise ValueError("Locator obligatoire.")
+    etat = comportements.etat_ecran()
+    el = next((e for e in etat if locator in (e.get("locators") or [])), None) or dict(element or {})
+    ecran = (observer([e for e in etat if e.get("key")]) or {}).get("id", "")
+    return s, el, ecran
+
+
+def _consigner(s: dict, liste: str, entree: dict):
+    """Saisie ou vérification gardée dans la session : relue, corrigée ou retirée ensuite (jeux de données du parcours)."""
+    with _verrou:
+        s = _lire(s["id"])
+        s.setdefault(liste, []).append(entree)
+        _ecrire(s)
+
+
+def saisir(locator: str, valeur=None, element: dict | None = None, cle: str = "", nom: str = "", depuis: dict | None = None) -> dict:
+    """L'automaticien renseigne un champ depuis le miroir de l'écran, de trois façons :
+    - une valeur tapée : elle devient une donnée du parcours (variable du catalogue, profil du parcours ; secret au coffre) ;
+    - une donnée existante du catalogue (depuis={"variable": CLE}) : elle rejoint le parcours, sa valeur ne change pas ;
+    - un champ d'un jeu de données des tests (depuis={"jdd": JEU, "champ": c}) : sa valeur est reprise dans le parcours.
+    Dans tous les cas la saisie se fait par la référence {{var:CLE}}, le jeu de données des tests du parcours est tenu à
+    jour, et le scénario BDD généré dira « je renseigne … avec la donnée … », jamais la valeur."""
+    from atelier.discovery import actions, donnees
+
+    s, el, ecran = _session_et_element(locator, element)
+    interdite = _interdite_session(s, el)
+    if interdite:
+        _evenement(s["id"], {"type": "refus", "detail": f"saisie refusée : action interdite pour la session (« {interdite} »)"})
+        raise PermissionError(f"Saisie interdite par la configuration de la session (« {interdite} »).")
+    libelle = (nom or el.get("libelle") or el.get("key") or "champ").strip()
+    parcours = s["config"].get("parcours", "")
+    depuis = depuis or {}
+    if depuis.get("variable"):
+        cle = str(depuis["variable"]).strip().upper()
+        v = donnees.variable(cle)
+        profil = donnees.ajouter_au_parcours(parcours, cle) if parcours else ""
+        d = {"cle": cle, "nom": v["nom"], "profil": profil, "secret": v["sensibilite"] == "secrète", "reference": "{{var:" + cle + "}}",
+             "valeur": "donnée du catalogue", "jdd": None}
+        source = "catalogue"
+    elif depuis.get("jdd"):
+        from atelier.execution import jdd
+
+        jeu, champ = str(depuis["jdd"]).strip(), str(depuis.get("champ") or "").strip()
+        brut = ((jdd.lire(donnees._env_du_parcours(parcours) if parcours else "recette", jeu) or {}).get("donnees") or {})
+        if champ not in brut:
+            raise KeyError(f"Champ « {champ} » absent du jeu {jeu}.")
+        if isinstance(brut[champ], str) and "{{" in brut[champ]:
+            raise ValueError(f"{jeu}.{champ} est calculé au run ({brut[champ]}) : choisir une donnée du catalogue, ou taper la valeur.")
+        nature = donnees.nature_champ(libelle, el.get("input_type") or "")
+        secret = nature["secret"] or bool(donnees.SECRET.search(champ.upper()))  # mot_de_passe d'un jeu : secret, au coffre
+        d = donnees.enregistrer_saisie((cle or champ).upper(), brut[champ], nom=libelle, type_=nature["type"], secret=secret,
+                                       parcours=parcours, role="saisie")
+        source = f"jdd {jeu}.{champ}"
+    else:
+        nature = donnees.nature_champ(libelle, el.get("input_type") or el.get("type_html") or "")
+        d = donnees.enregistrer_saisie((cle or donnees.cle_de_libelle(libelle)).upper(), valeur, nom=libelle, type_=nature["type"],
+                                       secret=nature["secret"], parcours=parcours, role="saisie")
+        source = "saisie"
+    reference = d["reference"]
+    actions.type_text(locator, donnees.resoudre_saisie(reference, locator), affiche=reference)  # la valeur n'est jamais journalisée
+    jeu_test = d.get("jdd") or (donnees.jdd_du_parcours(parcours) if parcours else None)
+    _consigner(s, "saisies", {"date": _maintenant(), "ecran": ecran, "locator": locator, "champ": libelle, "variable": d["cle"],
+                              "source": source})
+    return {"execute": True, "variable": d["cle"], "nom": d["nom"], "valeur": d["valeur"], "secret": d["secret"], "profil": d["profil"],
+            "source": source, "jdd": jeu_test}
+
+
+def verifier(locator: str, mode: str = "texte", element: dict | None = None, attendu=None, cle: str = "", nom: str = "") -> dict:
+    """L'automaticien désigne une vérification sur le miroir : l'élément est affiché, ou il affiche un texte. La valeur
+    attendue (le texte constaté, ou celui qu'il donne) devient une donnée du jeu de données (ATTENDU_…), modifiable
+    ensuite ; le scénario BDD généré porte l'assertion à cet endroit du déroulé."""
+    from atelier.discovery import donnees
+
+    if mode not in MODES_VERIFICATION:
+        raise ValueError(f"Vérification : {', '.join(MODES_VERIFICATION)}.")
+    s, el, ecran = _session_et_element(locator, element)
+    libelle = (nom or el.get("libelle") or el.get("key") or "élément").strip()
+    constate = str(el.get("libelle") or "").strip()
+    entree = {"date": _maintenant(), "ecran": ecran, "locator": locator, "element": libelle, "mode": mode, "present": bool(el.get("locators"))}
+    if mode == "texte":
+        attendu = constate if attendu in (None, "") else str(attendu)
+        if not attendu:
+            raise ValueError("Aucun texte affiché par cet élément : vérifier plutôt qu'il est affiché, ou donner le texte attendu.")
+        d = donnees.enregistrer_saisie((cle or donnees.cle_de_libelle(libelle, "ATTENDU")).upper(), attendu, nom=f"{libelle} (attendu)",
+                                       parcours=s["config"].get("parcours", ""), role="assertion")
+        entree.update(variable=d["cle"], conforme=attendu == constate)
+    _consigner(s, "assertions", entree)
+    # même date que la consigne : relie l'événement à sa version corrigée (ou retirée) lors de la génération du BDD
+    _evenement(s["id"], {"date": entree["date"], "type": "assertion", "ecran": ecran, "locator": locator, "mode": mode,
+                         "variable": entree.get("variable", ""), "element": libelle, "detail": f"{libelle} : " + (f"affiche la donnée {entree['variable']}" if mode == "texte" else "est affiché")})
+    return {"execute": True, **{k: entree.get(k) for k in ("mode", "element", "variable", "conforme")}}
+
+
+# =========================================================================== étapes prédéfinies (adb)
+ETAPES_PREDEFINIES = {
+    "preparer_sms": {"libelle": "Préparer la réception d'un SMS", "champ": False,
+                     "aide": "Avant l'action qui envoie le SMS : seul un SMS reçu ensuite sera lu."},
+    "otp": {"libelle": "Saisir l'OTP reçu par SMS", "champ": True,
+            "aide": "Clique ensuite sur le champ du code : le code du SMS y est saisi (jamais affiché ni enregistré)."},
+    "lien": {"libelle": "Ouvrir le lien reçu par SMS", "champ": False,
+             "aide": "Le lien du SMS est ouvert sur l'appareil (application ou navigateur)."},
+    "lien_recuperer": {"libelle": "Récupérer le lien reçu par SMS", "champ": False,
+                       "aide": "Le lien est gardé dans la donnée de session LIEN_SMS, sans être ouvert."},
+}  # textes des étapes BDD correspondantes et leur automatisation : generation/etapes_sms.py
+FENETRE_SMS_MS = 120_000  # sans repère : un SMS des 2 dernières minutes
+
+
+def etapes_predefinies(plateforme: str = "") -> list[dict]:
+    """Étapes prédéfinies proposées pendant une session (Android : lecture des SMS par adb)."""
+    dispo = plateforme in ("", "android")
+    return [{"id": k, **{c: v[c] for c in ("libelle", "champ", "aide")}, "disponible": dispo,
+             "raison": "" if dispo else "Lecture des SMS par adb : Android seulement."} for k, v in ETAPES_PREDEFINIES.items()]
+
+
+def etape_predefinie(nom: str, locator: str = "", element: dict | None = None, delai_s: int = 90, expediteur: str = "",
+                     lanceur=None, dormir=None) -> dict:
+    """Étape prédéfinie jouée sur l'appareil de la session, puis consignée (le BDD généré la reprend, le test automatisé
+    la rejoue avec les mêmes keywords) :
+    - preparer_sms : repère (heure de l'appareil) ; seuls les SMS reçus ensuite sont lus ;
+    - otp : attend le SMS, saisit son code dans le champ désigné ; le code n'est ni renvoyé, ni journalisé, ni écrit ;
+    - lien / lien_recuperer : attend le SMS, garde le lien (donnée de session LIEN_SMS) et l'ouvre sur l'appareil (lien)."""
+    from atelier.discovery import actions, donnees, session, sms
+
+    if nom not in ETAPES_PREDEFINIES:
+        raise ValueError(f"Étape prédéfinie : {', '.join(ETAPES_PREDEFINIES)}.")
+    s = active()
+    if not s or s["statut"] != "En cours":
+        raise PermissionError("Démarrer (ou reprendre) la session avant une étape prédéfinie.")
+    if (session.plateforme() or s["config"].get("plateforme")) != "android":
+        raise ValueError("Étapes SMS : appareil Android de la session seulement (lecture par adb).")
+    serial = s["config"].get("device", "")
+    if serial == "navigateur":
+        serial = ""
+    ecran, entree = "", {"date": _maintenant(), "etape": nom}
+    if nom == "otp":
+        if not locator:
+            raise ValueError("Désigner le champ du code OTP sur l'écran.")
+        s, el, ecran = _session_et_element(locator, element)
+        entree.update(locator=locator, champ=(el.get("libelle") or el.get("key") or "code OTP"))
+    with _verrou:
+        s = _lire(s["id"])
+        repere = s.get("repere_sms")
+    if nom == "preparer_sms":
+        repere = sms.heure_appareil(serial, lanceur)
+        resultat = {"repere": repere}
+    else:
+        if not repere:  # pas de repère : un SMS récent seulement (jamais une vieille opération)
+            repere = sms.heure_appareil(serial, lanceur) - FENETRE_SMS_MS
+        r = sms.attendre("code" if nom == "otp" else "lien", serial, repere, delai_s, expediteur=expediteur, lanceur=lanceur,
+                         **({"dormir": dormir} if dormir else {}))
+        repere = r["date"] + 1  # ce SMS est consommé : le suivant devra être plus récent
+        entree["date"] = _maintenant()  # l'étape se place après l'attente, dans l'ordre réel du déroulé
+        if nom == "otp":
+            actions.type_text(locator, r["valeur"], affiche="{{otp}}")  # seule la référence est journalisée
+            resultat = {"saisi": True}
+        else:
+            try:
+                donnees.definir_contexte("LIEN_SMS", r["valeur"], "Lien reçu par SMS")
+            except Exception:  # noqa: BLE001 — contexte indisponible : le lien est rendu quand même
+                pass
+            if nom == "lien":
+                sms.ouvrir_lien(r["valeur"], serial, lanceur)
+            resultat = {"lien": r["valeur"], "ouvert": nom == "lien"}
+        entree["expediteur"] = r["expediteur"]
+    with _verrou:
+        s = _lire(s["id"])
+        s["repere_sms"] = repere
+        s.setdefault("predefinies", []).append(entree)
+        _ecrire(s)
+    _evenement(s["id"], {"date": entree["date"], "type": "predefinie", "etape": nom, "ecran": ecran, "locator": locator,
+                         "detail": ETAPES_PREDEFINIES[nom]["libelle"]})
+    return {"execute": True, "etape": nom, "libelle": ETAPES_PREDEFINIES[nom]["libelle"], **resultat}
+
+
+def corriger_consigne(sid: str, liste: str, index: int, retirer: bool = False, **champs) -> dict:
+    """Corriger (élément, mode) ou retirer une saisie ou une vérification consignée ; la valeur, elle, se modifie dans
+    le jeu de données (la variable)."""
+    if liste not in ("saisies", "assertions"):
+        raise ValueError("Liste : saisies ou assertions.")
+    with _verrou:
+        s = _lire(sid)
+        l = s.get(liste) or []
+        if not 0 <= index < len(l):
+            raise KeyError(f"{liste} : entrée {index} inconnue.")
+        if retirer:
+            l.pop(index)
+        else:
+            for k in ("element", "champ", "mode"):
+                if k in champs and champs[k] not in (None, ""):
+                    if k == "mode" and champs[k] not in MODES_VERIFICATION:
+                        raise ValueError(f"Vérification : {', '.join(MODES_VERIFICATION)}.")
+                    l[index][k] = str(champs[k])[:200]
+            l[index]["corrige"] = _maintenant()
+        s[liste] = l
+        _ecrire(s)
+    return {"saisies": s.get("saisies", []), "assertions": s.get("assertions", [])}

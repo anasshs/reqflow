@@ -629,6 +629,19 @@ def discovery_demarrer(environnement: str = "", mode: str = "assistee", perimetr
 
 
 @outil
+def discovery_etape_predefinie(etape: str, locator: str = "", delai_s: int = 90, expediteur: str = "") -> dict:
+    """Étape prédéfinie jouée pendant une session Discovery Android (SMS lus par adb), consignée pour le BDD et
+    l'automatisation (le test généré la rejoue avec les mêmes keywords) :
+    - « preparer_sms » : À APPELER AVANT l'action qui envoie le SMS (seul un SMS reçu ensuite sera lu) ;
+    - « otp » : attend le SMS et saisit son code dans le champ « locator » (le code n'est jamais renvoyé) ;
+    - « lien » : attend le SMS, ouvre son lien sur l'appareil ; « lien_recuperer » : rend le lien sans l'ouvrir.
+    Sans SMS dans « delai_s » secondes : erreur explicite (ne rien inventer). expediteur : filtre facultatif (ex. BANQUEX)."""
+    from atelier.discovery import sessions_discovery
+
+    return sessions_discovery.etape_predefinie(str(etape or "").strip(), locator, None, int(delai_s or 90), expediteur)
+
+
+@outil
 def discovery_parcours_cadre(parcours: str = "") -> dict:
     """Cadrage d'un parcours utilisateur préparé par l'automaticien avant l'exploration (Discovery › Préparer un parcours).
     Sans argument : les parcours préparés (identifiant, nom, statut, exigences, profil de données, cible). Avec un
@@ -894,8 +907,9 @@ def technologies_disponibles() -> list[dict]:
 
 @outil
 def perimetre_automatisation(entree: str, reference: str) -> dict:
-    """Résout un point d'entrée en tests Xray : entree = parcours (identifiant PU-…), us (clé de la User Story) ou plan
-    (clé du Test Plan Xray). Pour chaque test : scénario BDD (clé) ou « à concevoir », implémentations existantes par
+    """Résout un point d'entrée en tests Xray : entree = parcours (identifiant PU-…), us (clé de la User Story), plan
+    (clé du Test Plan Xray), test (clé d'un test existant) ou libre (demande en clair : tests existants proches, avec
+    leur « score »). Pour chaque test : scénario BDD (clé) ou « à concevoir », implémentations existantes par
     technologie (robot, uiautomator, espresso). Lecture seule."""
     from atelier.generation import perimetre
 
@@ -904,12 +918,24 @@ def perimetre_automatisation(entree: str, reference: str) -> dict:
 
 @outil
 def automatiser_perimetre(entree: str, reference: str, technologie: str = "", tests: list[str] | None = None) -> dict:
-    """Dépose dans la boîte de l'atelier la demande d'automatiser un périmètre (parcours, us ou plan) avec une technologie
-    (voir technologies_disponibles ; vide = celle de l'application) ; tests : sélection (vide = tous). La demande se
-    traite ensuite par atelier_demande_suivante : BDD, génération, contrôle, run réel ; rien n'est publié dans Xray."""
+    """Dépose dans la boîte de l'atelier la demande d'automatiser un périmètre (parcours, us, plan, test ou libre) avec une
+    technologie (voir technologies_disponibles ; vide = celle de l'application) ; tests : sélection (vide = tous ; en
+    « libre », vide = concevoir le scénario depuis la demande en clair). La demande se traite ensuite par
+    atelier_demande_suivante : BDD, génération, contrôle, run réel ; rien n'est publié dans Xray ni validé."""
     from atelier.generation import perimetre
 
     return perimetre.automatiser(entree, reference, technologie, tests)
+
+
+@outil
+def porter_vers_xcuitest(ecrire: bool = True) -> dict:
+    """Convertit le patrimoine Robot (AppiumLibrary) de l'application en XCUITest (Swift, iOS natif, sans Appium), écrit
+    dans son dépôt iOS (Genere/ du dossier XCUITest ; Socle/Atelier.swift créé s'il manque). Rend le bilan : keywords et
+    tests complets, et pour chaque test ce qui reste (« locator iOS absent », structure IF / FOR, keyword non converti).
+    ecrire=False : bilan seul. Un élément non traduit fait échouer le test en le nommant, jamais un faux succès."""
+    from atelier.generation import robot2swift
+
+    return robot2swift.porter(bool(ecrire))
 
 
 @outil
@@ -1031,6 +1057,17 @@ def run_tests(tests: list[str], dry_run: bool = False, jdd_env: str = "", output
         return {"technologie": technologie, "tests": tests,
                 **instrumentation.lancer(dossier, appareil or instrumentation.appareil(), tests,
                                          extra={"otp_mode": os.environ.get("OTP_MODE", "arret")})}
+    if technologie == "xcuitest":  # tests Swift « Classe/methode » (ou Classe), xcodebuild sur le Mac, dépôt iOS de l'application
+        from atelier.execution import jdd as jdd_mod, xcuitest
+
+        if dry_run:
+            return {"technologie": technologie, "dry_run": True, **xcuitest.compiler()}
+        valeurs = {}
+        if jdd_env:  # jeux utilisés par les tests choisis, résolus (secrets compris) et passés en variables d'environnement
+            jeux = xcuitest.jeux_des_tests(tests)
+            valeurs = jdd_mod.resoudre(jdd_env, jeux)["jeux"] if jeux else {}
+        return {"technologie": technologie, "tests": tests,
+                **xcuitest.executer(tests, valeurs, extra={"otp_mode": os.environ.get("OTP_MODE", "arret")})}
     sel = robot.selection_tests(tests)
     output_dir = output_dir or f"results/tests/{datetime.now():%Y%m%d-%H%M%S-%f}"
     revue = centre.controle_revue(sel["cible"], dry_run, derogation, tests)

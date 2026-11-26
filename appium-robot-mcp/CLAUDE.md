@@ -48,7 +48,7 @@ Projets multiples : Paramètres › Projets et sélecteur du header (atelier/dom
 V2 (workbench piloté par Cursor, docs/CAHIER_V2.md) : phases 0 à 7 livrées (docs/V2_BILAN.md) — parcours de
 fonctionnalité, demandes d'action validées côté serveur, 13 règles Cursor versionnées (dont « robot-expert » : qualité du code, « model-based-testing » : analyse comportementale), couverture parcours / UI, Test
 Design par catégories et doublons, Champ / Anomalie, échecs reliés à la connaissance, jugements délégués à Cursor (granularité, doublons, redondances, liens
-exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 131 outils MCP (76 historiques
+exigence ↔ test, orphelins, corrélation écran ↔ exigence : atelier/intelligence/jugement_ia.py). 133 outils MCP (76 historiques
 inchangés) ; classement de sécurité de chaque outil : tests/test_securite_outils.py (à compléter pour tout nouvel outil) ;
 client MCP de test : tests/client_mcp.py.
 Maintenance depuis le Kanban (2026-11-25, atelier/generation/maintenir.py) : colonne « À maintenir » (run réel en échec,
@@ -65,6 +65,10 @@ Adopter un dépôt existant (2026-11-25, écran #adoption, atelier/generation/ad
 Automatisation multi-technologies (2026-11-25 ; docs/AUTOMATISATION_MULTI_CIBLES.md) : plan neutre (generation/plan_automatisation.py) et
 technologies (generation/technologies/ : robot-appium, robot-web, robot-selenium, robot-api, uiautomator, espresso),
 points d'entrée (generation/perimetre.py, écran #automatiser), exécution Kotlin (execution/instrumentation.py), portage (generation/portage.py).
+QAFlow (2026-11-26, nouvelle interface /qaflow à côté de /plateforme ; docs/REFONTE_UI_QAFLOW.md, ROADMAP) : Q0 à Q4 livrées.
+Code des tests au niveau de l'APPLICATION (2026-11-26) : fiche application `depot` {dossier, gitlab_url, gitlab_projet,
+branche} et `jira_projets` ; le code généré (tests, resources, libraries, data/jdd, args, Kotlin, Espresso) passe par
+`projet.racine_code()` / `projet.safe_path()` (dépôt de l'application active, sinon le projet) ; la connaissance reste au projet.
 Le code vit dans le paquet `atelier/` (moteurs + intégrations + façades).
 Les fichiers racine `server.py`, `app_map.py`, `jdd.py`, `xray_client.py`, `web_backend.py`,
 `xray_live_listener.py`, `cartographie_listener.py` et `web/app.py` ne sont plus que des points

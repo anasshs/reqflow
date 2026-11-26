@@ -165,9 +165,9 @@ def test_lancement_simule_et_refus_d_installation(kotlin):
             return 0, SORTIE
         return 0, "BUILD SUCCESSFUL"
 
-    r = instrumentation.lancer("uiautomator", "16f4f7c3", [], lanceur=lanceur)
+    r = instrumentation.lancer("uiautomator", "APPAREIL01", [], lanceur=lanceur)
     assert not r["ok"] and r["etape"] == "installation" and "Installer via USB" in r["message"]
-    r = instrumentation.lancer("uiautomator", "16f4f7c3", ["ma.demo.tnr.bdd.VirementBddTest"], jdd={"VIREMENT_STANDARD": {"montant": "1"}},
+    r = instrumentation.lancer("uiautomator", "APPAREIL01", ["ma.demo.tnr.bdd.VirementBddTest"], jdd={"VIREMENT_STANDARD": {"montant": "1"}},
                                extra={"mot_de_passe": "secret-ne-pas-journaliser"}, construire_avant=False, lanceur=lanceur)
     assert (r["passes"], r["echecs"], r["ignores"]) == (1, 1, 1) and not r["ok"]
     assert "secret-ne-pas-journaliser" not in r["commande"] and "mot_de_passe ***" in r["commande"]

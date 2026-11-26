@@ -220,6 +220,50 @@ def normaliser_dossier(d: str) -> str:
     return d
 
 
+def normaliser_depot(d: dict | None) -> dict:
+    """Dépôt du code des tests de l'application : dossier local (clone), GitLab (https), projet GitLab (groupe/chemin ou
+    identifiant), branche cible des merge requests. Le jeton GitLab reste au niveau du projet (coffre / variable)."""
+    d = dict(d or {})
+    out = {"dossier": str(d.get("dossier") or "").strip(), "gitlab_url": str(d.get("gitlab_url") or "").strip().rstrip("/"),
+           "gitlab_projet": str(d.get("gitlab_projet") or "").strip().strip("/"), "branche": str(d.get("branche") or "").strip()}
+    if out["gitlab_url"] and not out["gitlab_url"].startswith("https://"):
+        raise ValueError("URL GitLab de l'application : https:// attendu.")
+    if out["branche"] and not re.fullmatch(r"[\w./-]{1,100}", out["branche"]):
+        raise ValueError("Branche cible : lettres, chiffres, / . - _ seulement.")
+    return {k: v for k, v in out.items() if v}
+
+
+def normaliser_depots(l) -> list[dict]:
+    """Dépôts de l'application, un par technologie ou famille (robot, uiautomator, espresso, xcuitest…) : chacun son
+    dossier local et son GitLab. Une technologie ne peut appartenir qu'à un dépôt."""
+    from atelier.generation import technologies
+
+    connues = set(technologies.noms()) | {"robot"}
+    out, vues = [], set()
+    for d in l or []:
+        x = normaliser_depot(d)
+        techs = [str(t).strip() for t in (d.get("technologies") or []) if str(t).strip()]
+        inconnues = [t for t in techs if t not in connues]
+        if inconnues:
+            raise ValueError(f"Technologie inconnue pour un dépôt : {', '.join(inconnues)} (connues : {', '.join(sorted(connues))}).")
+        doublons = [t for t in techs if t in vues]
+        if doublons:
+            raise ValueError(f"Technologie déclarée dans deux dépôts : {', '.join(doublons)}.")
+        vues |= set(techs)
+        if x.get("dossier") or x.get("gitlab_url"):
+            out.append({"technologies": techs, **x})
+    return out
+
+
+def normaliser_jira_projets(l) -> list[str]:
+    """Projets Jira associés à l'application (clés en majuscules, sans doublon)."""
+    cles = [str(x).strip().upper() for x in (l.split(",") if isinstance(l, str) else l or []) if str(x).strip()]
+    mauvaises = [c for c in cles if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,19}", c)]
+    if mauvaises:
+        raise ValueError(f"Clé de projet Jira invalide : {', '.join(mauvaises)}.")
+    return list(dict.fromkeys(cles))
+
+
 def normaliser_tests_xray(tx: dict | None) -> dict:
     """Comment reconnaître les tests de l'application dans le projet Xray : dossiers du Test Repository
     (« dossiers », sous-dossiers compris), valeurs du champ Jira du mapping (« valeurs »), ou ancien format
@@ -906,15 +950,22 @@ def importer_resources(pattern: str = "**/*.resource", s: str | None = None) -> 
             if m:
                 courant = (m.group(1) + m.group(2), toks[1:])
                 groupes.setdefault(f.stem, []).append(courant)
+        cfg = config_app(s)
+        prefixe_app = (cfg.get("android") or {}).get("app_package") or ""
         for nom_fichier, variables in groupes.items():
             par_ecran: dict = {}
+            # fichier de locators d'un écran (« transfer_amount_locators.robot ») : l'écran porte le nom sans le suffixe
+            ecran_fichier = re.sub(r"[_-]?locators?$", "", nom_fichier, flags=re.I) or nom_fichier
             for nom, valeurs in variables:
                 plat = "ios" if nom.upper().endswith("_IOS") else "web" if nom.upper().endswith("_WEB") else \
                     "android" if nom.upper().endswith("_ANDROID") else ""
                 ecran_nom = re.sub(r"^[&$](LOC_)?|_(ANDROID|IOS|WEB|SECOURS)$", "", nom, flags=re.I)
-                ecran_nom = slug(ecran_nom if nom.startswith("&") else nom_fichier)
+                ecran_nom = slug(ecran_nom if nom.startswith("&") else ecran_fichier)
+                # ${X_ANDROID} et ${X_IOS} : un seul élément « x », un locator par plateforme
                 paires = [v.split("=", 1) for v in valeurs if "=" in v] if nom.startswith("&") else \
-                    [(slug(nom[1:]), valeurs[0])] if valeurs else []
+                    [(slug(re.sub(r"_(ANDROID|IOS|WEB)$", "", nom[1:], flags=re.I)), valeurs[0])] if valeurs else []
+                if prefixe_app:  # ${APP_ID} du dépôt = paquet de l'application : le locator devient utilisable tel quel
+                    paires = [(c, v.replace("${APP_ID}", prefixe_app)) for c, v in paires]
                 for cle, loc in paires:
                     if not re.match(r"^(id|accessibility_id|xpath|css|data-testid|role|text|android|nsp|chain|class|name)=|^//", loc):
                         continue

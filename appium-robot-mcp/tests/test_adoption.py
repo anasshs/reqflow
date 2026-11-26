@@ -136,10 +136,10 @@ def test_adoption_n_ecrase_pas_la_connaissance(depot):
     (res / "compte.resource").write_text("*** Variables ***\n${BTN_SOLDE_ANDROID}    id=demo:id/importe\n", "utf-8")
     adoption.importer_locators()
     e = carte.ecran("compte")
-    e["elements"]["btn_solde_android"]["locators"]["android"] = ["id=demo:id/connu"]
+    e["elements"]["btn_solde"]["locators"]["android"] = ["id=demo:id/connu"]
     carte._save_ecran(e)
     adoption.importer_locators()
-    assert carte.ecran("compte")["elements"]["btn_solde_android"]["locators"]["android"] == ["id=demo:id/connu", "id=demo:id/importe"]
+    assert carte.ecran("compte")["elements"]["btn_solde"]["locators"]["android"] == ["id=demo:id/connu", "id=demo:id/importe"]
 
 
 def test_changer_de_depot_reprend_la_connaissance(tmp_path, monkeypatch):
@@ -169,3 +169,27 @@ def test_changer_de_depot_reprend_la_connaissance(tmp_path, monkeypatch):
     import pytest as _p
     with _p.raises(PermissionError):
         projets.enregistrer({"id": pid, "nom": "Banque Démo", "dossier": str(ancien)}, occupe="run en cours")
+
+
+def test_etapes_gardent_leurs_arguments(depot):
+    from atelier.generation import adoption
+
+    (depot / "tests" / "banque_demo" / "comptes" / "args.robot").write_text(
+        "*** Test Cases ***\nAvec arguments\n    [Tags]    DEMO-110\n    Given le compte est    ${COMPTE_A}\n    Then le solde est affiché\n", "utf-8")
+    s = adoption.lire_suite("tests/banque_demo/comptes/args.robot")
+    assert s["tests"][0]["etapes"] == [("given", "le compte est ${COMPTE_A}"), ("then", "le solde est affiché")]
+
+
+def test_locators_en_robot_un_ecran_par_fichier(depot):
+    from atelier.discovery import carte
+    from atelier.generation import adoption
+
+    carte.maj_app(**{"android": {"app_package": "com.demo.banque"}})
+    f = depot / "resources" / "locators" / "virement" / "transfer_amount_locators.robot"
+    f.parent.mkdir(parents=True)
+    f.write_text("*** Variables ***\n${MONTANT_INPUT}    ${MONTANT_INPUT_${PLATFORM}}\n"
+                 "${MONTANT_INPUT_ANDROID}    id=${APP_ID}:id/etAmount\n${MONTANT_INPUT_IOS}    accessibility_id=amount\n", "utf-8")
+    r = adoption.importer_locators()
+    assert r["ecrans_crees"] == 1
+    assert carte.ecran("transfer_amount")["elements"]["montant_input"]["locators"] == {
+        "android": ["id=com.demo.banque:id/etAmount"], "ios": ["accessibility_id=amount"]}

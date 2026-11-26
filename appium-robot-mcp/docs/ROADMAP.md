@@ -312,3 +312,100 @@ Une phase à la fois. Points d'entrée : parcours, User Story, Test Plan Xray ; 
 ### A (suite). Exécution réelle sur appareil
 - [ ] Installation des APK sur le Redmi (confirmation MIUI à l'écran) ou image d'émulateur Android 33 (téléchargement en cours)
 - [ ] Suite login exécutée en Kotlin ; temps et stabilité comparés à Robot ; comportement de Promon constaté
+
+## Refonte de l'interface : QAFlow (docs/REFONTE_UI_QAFLOW.md, 2026-11-25)
+
+Nouvelle interface à côté de l'actuelle (/qaflow, même session, même API) ; bascule quand elle est rodée.
+
+- [x] Q0. Coquille et raccourci : /qaflow, en-tête (application, version, plateformes, Centre d'activité IA, thème,
+      retour à l'interface actuelle), menu latéral et menu exécution (renvois ↗), accueil à bulle sans pourcentage global,
+      choix Concevoir / Automatiser, agrégat /api/qaflow/accueil, lien « Nouvelle interface » dans /plateforme (tests/test_qaflow.py)
+- [ ] Q1. Concevoir
+  - [x] Consulter les parcours (#parcours) : statut métier, filtre par statut, écrans, BDD validés, tests généré / exécuté /
+        validé QA ; agrégat /api/qaflow/parcours (atelier/intelligence/qaflow.py)
+  - [x] Espace de travail d'un parcours (#parcours/<id>) : onglets Aperçu (cadrage, ce qui manque, exigences), Écrans,
+        Scénarios et tests (trois notions, technologies), Sessions, Historique ; /api/qaflow/parcours/{id}
+  - [x] Ajouter un parcours (#ajouter) : étape 1 « cadrer » (même API que le cadrage actuel), puis espace du parcours
+  - [x] Session assistée en direct (#session/<parcours>[/<session>]) : étapes 2 à 5 — cible (appareil ou adresse web),
+        miroir de l'écran cliquable (classement côté serveur : navigation sûre exécutée, action sensible confirmée,
+        interdite refusée), chrono, compteurs et événements en direct, pause, annotation, fin, résultats, génération
+        du scénario BDD (≥ 2 écrans) ; lecture /api/qaflow/session/{sid}, écritures par les routes Discovery existantes
+  - [x] Saisir et vérifier depuis le miroir (modes Naviguer / Saisir / Vérifier) : une valeur saisie devient une donnée
+        du profil du parcours (catalogue Discovery, secret au coffre) et se saisit par {{var:CLE}} ; une vérification
+        (« affiche le texte » ou « est affiché ») est consignée dans la session, sa valeur attendue devient une donnée
+        ATTENDU_… ; le BDD généré reprend saisies (« je renseigne … avec la donnée … ») et vérifications (« Alors … »),
+        corrigées ou retirées entre-temps (sessions_discovery.saisir / verifier / corriger_consigne,
+        donnees.enregistrer_saisie, parcours_bdd.etapes_de_session ; tests/test_saisie_verification_session.py)
+  - [x] Saisir : taper une valeur, ou choisir une donnée existante (donnée du parcours, variable du catalogue proche du
+        champ, champ d'un jeu de données des tests ; secrets masqués) ; le jeu de données du test du parcours
+        (data/jdd/<env>.yaml, jeu = profil du parcours, secret → {{env:CLE}}) est réécrit à chaque saisie ou
+        modification (donnees.donnees_pour_saisie, jdd_du_parcours, ajouter_au_parcours, retirer_du_parcours)
+  - [x] Étapes prédéfinies « SMS par adb » (Android) pendant la session et par le MCP (discovery_etape_predefinie) :
+        préparer la réception d'un SMS (repère), saisir l'OTP reçu dans le champ désigné (code jamais affiché ni écrit),
+        ouvrir / récupérer le lien reçu (LIEN_SMS) ; BDD : textes fixes, repère inséré avant l'action qui envoie le SMS ;
+        Robot : bibliothèque SMS du dépôt réutilisée, sinon libraries/SmsAdb.py livrée une fois, OTP selon ${OTP_MODE} ;
+        Kotlin : Bdd.otpDansChamp / lienSms ; Espresso : lien « à implémenter » (discovery/sms.py, generation/etapes_sms.py,
+        règle discovery.mdc ; tests/test_etapes_sms.py)
+  - [x] Onglet « Jeux de données » : ajouter une donnée (nouvelle, ou existante du catalogue), la modifier, la retirer du
+        parcours ; jeu des tests affiché avec ses champs
+  - [x] Jeux de données du parcours (onglet « Jeux de données ») : données du parcours modifiables à tout moment (valeur
+        du profil, secret remplacé sans être affiché), saisies et vérifications des sessions (retirer, changer le type) ; jeux des scénarios (Validé s'il existe dans
+        data/jdd/<env>.yaml, À faire sinon), scénarios qui consomment une donnée sans jeu, données proposées par l'IA
+        (À valider, bouton Confirmer), profil de données ; aucune valeur secrète ; /api/qaflow/parcours/{id}/jdd
+- [x] Q2. Automatiser (#automatiser/<référence>, #automatisation/<demande>) : référence US, test existant, parcours, plan
+      de test ou expression libre (tests existants proches proposés, sinon le MCP conçoit le scénario depuis la demande) ;
+      technologie ; options « rechercher l'existant d'abord » et « exécuter après génération » ; demande déposée au MCP ;
+      suivi test par test lu dans l'atelier (demande prise, scénario BDD, script généré, exécuté, validé QA — jamais
+      d'après le compte rendu de l'agent), relu toutes les 5 s ; automatisations récentes
+      (generation/perimetre.py : entrées test et libre ; generation/suivi_automatisation.py ; tests/test_automatisation_qaflow.py)
+- [x] Q3. Centre d'activité IA complet (travaux : étapes réelles, dépendance, livrables, erreur, décision acceptée ou
+      refusée depuis le panneau ; demandes à l'agent avec compte rendu et lien vers le suivi QAFlow ; session en cours ;
+      ce qui attend l'utilisateur d'abord) et centre d'exécution QAFlow (#execution : en cours, en file, exécutions
+      réussies / en échec, tests passés / échoués — des nombres, aucun pourcentage —, exécutions récentes avec type,
+      environnement, version) ; /api/qaflow/activite, /api/qaflow/execution (tests/test_activite_execution_qaflow.py)
+- [x] Q4. Release notes (#releases, #releases/<id>) : Release Note déposée en fichier (PDF, DOCX, TXT, MD → texte à relire,
+      bibliothèque standard seulement : atelier/intelligence/documents.py) ou collée ; évolutions et tests impactés ;
+      tests complémentaires à concevoir (évolution sans test ou non rattachée) ; analyse IA ; build reçu ; périmètre en trois
+      catégories, chaque test avec sa raison, proposé / retenu / retiré (justifié) / ajouté ; validation ; campagne préparée
+      vers le centre d'exécution (tests/test_documents_releases_qaflow.py)
+  - [x] Processus de release en 8 étapes lues dans les données (Release Note analysée → build reçu → périmètre validé →
+        Test Plan Xray → Test Execution Xray → exécution lancée → résultats dans Xray → verdict du build), étape courante
+        mise en avant ; SORTIE de la release = Test Execution Xray (découpage unique / par type / par module, environnement)
+        rangée dans le Test Plan de la release, puis une campagne par Test Execution qui écrit ses résultats dans cette
+        exécution, relecture des résultats Xray, verdict Passed / Failed (qaflow.processus_release,
+        /api/qaflow/releases/{id}/processus ; tests/test_processus_release_qaflow.py, Xray simulé)
+- [x] Contrôle avant bascule, comme le MCP (vrai serveur MCP, tests/test_qaflow_mcp_bout_en_bout.py) : conception (écrans,
+      données, graphe, plan de test, BDD depuis la carte) puis automatisation (périmètre test / libre, dépôt, prise par
+      atelier_demande_suivante, plan, génération Robot, dry-run) ; corrigé : envoi jamais réglé (« lien ») → la demande
+      d'automatisation attend le MCP dans la boîte au lieu d'être refusée ; test déjà automatisé sans BDD affiché « Sans BDD »
+- [x] Gardés dans le nouveau processus : Knowledge Graph (#graphe : vues fonctionnel / parcours et écrans / tests, moteur
+      graphe.js réutilisé, détail d'un nœud, valider / rejeter, en direct), couverture du graphe par les tests (calque
+      couvert / partiel / échec / sans test, liste à couvrir), MBT dans l'espace du parcours (onglet Modèle : construire,
+      couverture comportementale par niveau en nombres, chemins proposés, BDD générés), exécution en direct dans le centre
+      d'exécution (test courant, keyword, chemin d'écrans, statuts, arrêt ; écran de l'appareil seulement pour un run mobile)
+- [x] MBT terminé → au choix : « Concevoir » (scénarios BDD à relire, onglet Scénarios du parcours) ou « Automatiser ces
+      chemins » (scénarios créés ou déjà existants envoyés au MCP : point d'entrée « tests », liste de clés)
+- [x] Menu de droite : Exécution en direct (#direct : graphe du run, écrans en couches dans l'ordre parcouru, état de
+      chaque écran, tests, dernières actions) et Couverture des parcours (#couverture : parcours × étapes, écrans, matrice
+      tests × écrans ; même calcul que le tableau du dashboard, /api/couverture/carte)
+- [x] Code au niveau de l'APPLICATION : fiche application = projet Xray, projets Jira associés, cibles (URL web, package
+      Android, bundle iOS), dépôt des tests (dossier local, GitLab https, projet GitLab, branche cible) ; le code généré
+      (tests, resources, libraries, data/jdd, args, projets Kotlin / Espresso) est écrit, lu, exécuté et commité dans le
+      dépôt de l'application active, merge request sur son GitLab ; la connaissance (carte, BDD, graphe, Discovery,
+      releases, résultats) reste au projet ; sans dépôt déclaré, comportement historique (projet.racine_code / safe_path /
+      relatif, gitlab._cible ; tests/test_depot_application.py). Projet = accès Jira (URL, e-mail, jeton) et Xray (client
+      id / secret) au coffre, écran QAFlow #parametres
+- [x] Technologie iOS native XCUITest (Swift) : generation/technologies/xcuitest.py (même plan d'automatisation ; Socle/Atelier.swift :
+      éléments depuis les locators de la carte, données JDD_<JEU>_<CHAMP> en variables d'environnement, OTP par OTP_CODE ;
+      tests Bdd/<Classe>Tests.swift, clé Xray dans le nom test_TAM_301_…) ; conversion Robot → XCUITest
+      (generation/robot2swift.py, outil porter_vers_xcuitest, bouton dans QAFlow Automatiser : AppiumLibrary et BuiltIn
+      courants, keywords utilisateur → k_<slug>, arguments intégrés, ${X_${PLATFORM}} résolu en iOS, ${JDD}[champ] ;
+      sinon échec nommé : « locator iOS absent », structure IF / FOR) ; exécution xcodebuild sur Mac
+      (execution/xcuitest.py, run_tests(technologie="xcuitest"), résultats → outbox Xray) ; projet Xcode dans la fiche
+      (xcode_projet, xcode_schema, xcode_cible, xcode_destination, dossier_xcuitest). SIMPLE : 1 017 keywords, 218 complets,
+      185 tests, 20 complets — le reste attend surtout les locators iOS (Discovery iOS)
+- [x] Plusieurs dépôts par application, un par technologie (fiche : depots [{technologies, dossier, gitlab_url, gitlab_projet,
+      branche}]) : projet.pour_technologie / racine_code(technologie) ; commit et merge request vers le GitLab du dépôt
+- [ ] Essai sur Mac : compilation (build-for-testing) et run XCUITest réels, merge request vers le dépôt iOS
+- [ ] Q5. Menu latéral refait dans QAFlow
+- [ ] Q6. Bascule (décision de l'utilisateur)

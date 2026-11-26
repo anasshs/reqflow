@@ -25,6 +25,7 @@ import json
 import re
 
 from atelier.generation import bdd
+from atelier.generation.etapes_sms import TEXTES as ETAPES_SMS
 
 
 def _lisible(e: dict) -> str:
@@ -226,6 +227,13 @@ def etapes_de_session(sid: str, plateforme: str, noms_variables: dict | None = N
     if any(x.get("type") == "transition" for x in evts):  # les transitions disent l'ordre ; « nouvel écran » n'en est que l'écho
         evts = [x for x in evts if x.get("type") != "ecran"]
     evts = _remettre_actions_en_ordre(evts, plateforme)
+    try:  # vérifications consignées : la version corrigée fait foi, une vérification retirée ne donne pas d'étape
+        from atelier.discovery import sessions_discovery
+
+        consignees = {(a.get("date"), a.get("locator")): a for a in sessions_discovery._lire(sid).get("assertions") or []}
+    except (KeyError, ValueError, OSError):
+        consignees = {}
+    dernier_sms = 0  # index après la dernière étape SMS : le repère suivant se cherche au-delà
     depart = next((x["de"] for x in evts if x.get("type") == "transition" and x.get("de")), None) \
         or next((x["ecran"] for x in evts if x.get("type") == "ecran" and x.get("ecran")), None)
     if depart and evts and next((x for x in evts if x.get("type") in ("transition", "ecran", "action")), {}).get("type") == "action":
@@ -245,6 +253,33 @@ def etapes_de_session(sid: str, plateforme: str, noms_variables: dict | None = N
             courant = e["ecran"]
             etapes.append(bdd._etape("Étant donné", f"que je suis sur l'écran {_lisible(carte.ecran(courant))}", ecran=courant))
             continue
+        if t == "predefinie" and e.get("etape") in ETAPES_SMS:
+            nom = e["etape"]
+            if nom != "preparer_sms" and not any(x.get("predefinie") == "preparer_sms" for x in etapes[dernier_sms:]):
+                # le test doit poser le repère AVANT l'action qui envoie le SMS : juste avant la dernière action faite
+                i = max((k for k, x in enumerate(etapes) if k >= dernier_sms and x["type"] in ("when", "and") and x.get("locator")),
+                        default=len(etapes))
+                etapes.insert(i, bdd._etape("Et", ETAPES_SMS["preparer_sms"], ecran=etapes[i - 1].get("ecran", "") if i else courant or "",
+                                            predefinie="preparer_sms"))
+            etapes.append(bdd._etape("Et", ETAPES_SMS[nom], ecran=courant or e.get("ecran") or "", locator=e.get("locator") or "",
+                                     predefinie=nom))
+            if nom != "preparer_sms":
+                dernier_sms = len(etapes)
+            continue
+        if t == "assertion" and e.get("locator"):
+            a = consignees.get((e.get("date"), e.get("locator")))
+            if a is None:
+                continue  # retirée après la session
+            lib = (a.get("element") or "l'élément").strip()
+            ecran_a = courant or a.get("ecran") or ""
+            if a.get("mode") == "texte" and a.get("variable"):
+                var = a["variable"]
+                nom_var = noms_variables.get(var, var)
+                etapes.append(bdd._etape("Alors", f"{lib.lower()} affiche la donnée {nom_var}", ecran=ecran_a, locator=a["locator"],
+                                         jdd=var.lower(), variable=var, assertion=True))
+            else:
+                etapes.append(bdd._etape("Alors", f"{lib.lower()} est affiché", ecran=ecran_a, locator=a["locator"], assertion=True))
+            continue
         if t != "action":
             continue
         nom, a = _action(e.get("detail", ""))
@@ -260,6 +295,8 @@ def etapes_de_session(sid: str, plateforme: str, noms_variables: dict | None = N
             if c["classe"] in ("sensitive", "forbidden"):
                 avertissements.append(f"Action {classement.LIBELLES[c['classe']]} « {lib} » : à autoriser explicitement dans le scénario.")
             etapes.append(bdd._etape("Quand", f"je touche {lib.lower()}", ecran=courant or "", locator=a["locator"]))
+        elif nom == "type_text" and str(a.get("text") or "").strip() == "{{otp}}":
+            continue  # saisie du code OTP : c'est l'étape prédéfinie « je saisis le code OTP reçu par SMS »
         elif nom == "type_text" and a.get("locator"):
             m = re.fullmatch(r"\{\{\s*var\s*:\s*([A-Z0-9_]+)\s*\}\}", str(a.get("text") or "").strip())
             var = m.group(1) if m else ""
@@ -381,7 +418,7 @@ def brouillon(ecrans: list[str] | None = None, parcours: str = "", session: str 
         for e in fideles:
             if e.get("locator"):
                 locators["connus"] += 1
-            if e["type"] != "then" and e.get("jdd") and e["texte"].startswith("je renseigne"):
+            if e.get("jdd") and (e["texte"].startswith("je renseigne") or (e["type"] == "then" and e.get("variable"))):
                 donnees.append(e["jdd"])
                 if e.get("variable"):
                     variables[e["jdd"]] = e["variable"]

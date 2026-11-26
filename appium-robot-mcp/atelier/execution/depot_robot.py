@@ -82,7 +82,7 @@ def lire_depot(racine: Path | None = None) -> dict:
     """Inventaire du dépôt Robot (une fois par calcul dans une portée domain/memo, sinon à chaque appel)."""
     from atelier.domain import memo
 
-    return memo.memoiser(("lire_depot", str((racine or projet.PROJECT_DIR).resolve())), lambda: _lire_depot_memoire(racine))
+    return memo.memoiser(("lire_depot", str((racine or projet.racine_code()).resolve())), lambda: _lire_depot_memoire(racine))
 
 
 def _lire_depot_memoire(racine: Path | None = None) -> dict:
@@ -90,7 +90,7 @@ def _lire_depot_memoire(racine: Path | None = None) -> dict:
     .robot / .resource n'est ajouté, retiré ou modifié (texte comparé : lire est rapide, analyser est lent), et rendu en copie."""
     import copy
 
-    racine = (racine or projet.PROJECT_DIR).resolve()
+    racine = (racine or projet.racine_code()).resolve()  # dépôt de code de l'application active, sinon le projet
     fichiers = sorted(p for ext in ("*.robot", "*.resource") for p in racine.rglob(ext)
                       if not (set(p.relative_to(racine).parts) & EXCLUS))
     sig = []

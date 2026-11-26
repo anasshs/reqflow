@@ -313,6 +313,13 @@ def _relations_fonctionnelles(g: Graphe):
 
 
 def _construire(avec_declarations: bool = True, inventaire: dict | None = None) -> Graphe:
+    from atelier.domain import memo
+
+    with memo.portee():  # inventaire du dépôt et index des tests lus une fois pour toute la construction
+        return _construire_graphe(avec_declarations, inventaire)
+
+
+def _construire_graphe(avec_declarations: bool = True, inventaire: dict | None = None) -> Graphe:
     from atelier.execution import depot_robot
     from atelier.execution.robot import derniers_resultats
     from atelier.intelligence import patrimoine_xray

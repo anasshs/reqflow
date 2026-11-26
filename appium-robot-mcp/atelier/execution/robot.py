@@ -26,6 +26,8 @@ def env_robot(base: dict | None = None) -> dict:
     v = env.get("PYTHONIOENCODING", "")
     if ":" in v:
         env["PYTHONIOENCODING"] = v.split(":", 1)[0] or "utf-8"
+    if env.get("JIRA_BASE_URL") and not env.get("JIRA_BASE"):  # listeners de projet qui lisent JIRA_BASE (même URL)
+        env["JIRA_BASE"] = env["JIRA_BASE_URL"]
     return env
 
 
@@ -37,7 +39,8 @@ def environnement_des_jeux(target: str, fichiers: list[str] | None = None) -> di
 
     cibles = fichiers or [target]
     chemins = [p for c in cibles for p in ([projet.safe_path(c)] if projet.safe_path(c).is_file() else projet.safe_path(c).rglob("*.robot"))]
-    noms = sorted({n for f in chemins for n in re.findall(r"JDD_([A-Z0-9_]+)", f.read_text("utf-8", errors="ignore"))})
+    # usage réel du jeu (&{JDD_<NOM>} ou ${JDD_<NOM>}[…]) : une mention dans une documentation (${ENV:JDD_…}) ne compte pas
+    noms = sorted({n for f in chemins for n in re.findall(r"[&$]\{JDD_([A-Z0-9_]+)\}", f.read_text("utf-8", errors="ignore"))})
     if not noms:
         return {}
     complets = [e for e in jdd.environnements() if not any(jdd.detecter(c, e)["inconnus"] for c in cibles)]
@@ -57,7 +60,7 @@ def selection_tests(ids: list[str]) -> dict:
     fichiers, noms, entiers = [], [], set()
     for i in ids or []:
         f, _, nom = str(i).partition("::")
-        f = projet.safe_path(f).relative_to(projet.PROJECT_DIR).as_posix()
+        f = projet.relatif(projet.safe_path(f))
         if not projet.safe_path(f).is_file():
             raise FileNotFoundError(f"Suite introuvable : {f}")
         if f not in fichiers:
@@ -135,7 +138,7 @@ def run_robot(target: str, include_tags: list[str] | None = None,
               jdd_jeux: list[str] | None = None, events_url: str = "",
               relancer_echecs: bool = False, cartographie: bool = False, timeout_s: int = 3600,
               tests: list[str] | None = None, jira_champs_execution: dict | None = None,
-              jdd_variantes: dict | None = None) -> dict:
+              jdd_variantes: dict | None = None, fichiers_arguments: list[str] | None = None) -> dict:
     """Lance une suite ou un dossier Robot Framework du projet puis renvoie le bilan.
     tests : tests précis (« <fichier>::<nom> », d'une ou plusieurs suites) au lieu de target : Robot --test.
     variables : ex. {'PLATFORM': 'android', 'DEVICE': 'emulator-5554'} (sélection du device).
@@ -165,6 +168,9 @@ def run_robot(target: str, include_tags: list[str] | None = None,
       tests mobiles, test Xray qui passe par chaque écran). Ralentit un peu chaque action.
     relancer_echecs : rejoue uniquement les tests en échec du run précédent (même output_dir).
       Pour mettre à jour la même exécution Xray, passer sa clé dans xray_ticket.
+    fichiers_arguments : fichiers d'arguments du projet (ex. ['args/android.args', 'args/xray.args']) : le dépôt garde son
+      lancement habituel (langue, variables, listeners du projet) ; les options de l'atelier, placées après, l'emportent
+      sur une option à valeur unique (dossier de sortie), les listeners s'additionnent.
     La session Appium du MCP est fermée avant le run pour libérer le device."""
     sel = selection_tests(tests) if tests else None
     if sel:
@@ -211,7 +217,10 @@ def run_robot(target: str, include_tags: list[str] | None = None,
     if report_path.exists():
         report_path.unlink()
 
-    cmd = [sys.executable, "-m", "robot", "--outputdir", output_dir]
+    cmd = [sys.executable, "-m", "robot"]
+    for a in fichiers_arguments or []:
+        cmd += ["--argumentfile", str(projet.safe_path(a))]
+    cmd += ["--outputdir", str(out_abs)]  # absolu : Robot tourne dans le dépôt de code, les résultats restent dans le projet
     if cartographie:
         app = carte.app_courante()
         if not app:
@@ -268,11 +277,11 @@ def run_robot(target: str, include_tags: list[str] | None = None,
         cmd.append("--dryrun")
     for nom in (sel["noms"] if sel else []):
         cmd += ["--test", nom.replace("[", "[[]")]  # motif Robot : « [ » ouvrirait une classe de caractères
-    cmd += sel["fichiers"] if sel else [projet.safe_path(target).relative_to(projet.PROJECT_DIR).as_posix()]
+    cmd += sel["fichiers"] if sel else [projet.relatif(projet.safe_path(target))]
 
     try:
         # stdin=DEVNULL : Robot ne lit jamais l'entrée ; hériter d'un tube que le parent lit (serveur MCP HTTP) le bloquait
-        proc = subprocess.Popen(cmd, cwd=projet.PROJECT_DIR, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        proc = subprocess.Popen(cmd, cwd=projet.racine_code(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 text=True, errors="replace", env=env_robot())
         EN_COURS["proc"], EN_COURS["arret"] = proc, False
         try:
@@ -341,6 +350,15 @@ def _tests_du_resultat(f: Path) -> list:
     m = _MEMOIRE_RESULTATS.get(str(f))
     if m and m[0] == sig:
         return m[1]
+    disque = f.with_name(".tests_du_resultat.json")  # lecture déjà faite par un autre processus (gros output.xml : minutes)
+    try:
+        d = json.loads(disque.read_text("utf-8"))
+        if d.get("sig") == [st.st_mtime_ns, st.st_size] and d.get("projet") == str(projet.PROJECT_DIR):
+            l = [tuple(x) for x in d["tests"]]
+            _MEMOIRE_RESULTATS[str(f)] = (sig, l)
+            return l
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
     try:
         res = ExecutionResult(str(f))
     except Exception:
@@ -349,12 +367,17 @@ def _tests_du_resultat(f: Path) -> list:
     for t in res.suite.all_tests:
         src = Path(str(t.source)) if t.source else None
         try:
-            rel = src.resolve().relative_to(projet.PROJECT_DIR).as_posix() if src else ""
+            rel = projet.relatif(src) if src else ""
         except ValueError:
             rel = str(src)
         l.append((f"{rel}::{t.name}", {"statut": t.status, "message": t.message[:300], "reel": _execute(t),
                                         "fin": str(t.end_time or ""), "output": f.relative_to(projet.PROJECT_DIR).as_posix()}))
     _MEMOIRE_RESULTATS[str(f)] = (sig, l)
+    try:
+        disque.write_text(json.dumps({"sig": [st.st_mtime_ns, st.st_size], "projet": str(projet.PROJECT_DIR), "tests": l},
+                                     ensure_ascii=False), "utf-8")
+    except OSError:
+        pass  # dossier en lecture seule : la mémoire du processus suffit
     return l
 
 

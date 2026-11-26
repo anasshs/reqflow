@@ -35,7 +35,7 @@ READ_ONLY_RE = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 
 # --------------------------------------------------------------------------- fichiers
 def _jdd_dir() -> Path:
-    return projet.PROJECT_DIR / os.environ.get("JDD_DIR", "data/jdd")
+    return projet.racine_code() / os.environ.get("JDD_DIR", "data/jdd")
 
 
 def _load(name: str) -> dict:
@@ -319,7 +319,7 @@ def importer(env: str, contenu: str, format_: str, ecraser: bool = False, ecrire
         return {**apercu, "ecrit": False}
     roles.exiger("importer_donnees")
     fusion = {**existants, **{n: {k: v for k, v in (("description", j["description"]), ("profil", j.get("profil", "")), ("donnees", j["donnees"])) if v} for n, j in jeux.items()}}
-    rel = chemin.relative_to(projet.PROJECT_DIR).as_posix()
+    rel = projet.relatif(chemin)
     entete = chemin.read_text("utf-8").split("\n\n")[0] + "\n\n" if chemin.exists() and chemin.read_text("utf-8").startswith("#") else ""
     editeur.enregistrer(rel, entete + yaml.safe_dump(fusion, allow_unicode=True, sort_keys=False))
     return {**apercu, "ecrit": True, "fichier": rel}

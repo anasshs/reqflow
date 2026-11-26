@@ -62,7 +62,8 @@ def _etape(mot: str, texte: str, **kw) -> dict:
             "ecran": kw.get("ecran", ""), "locator": kw.get("locator", ""), "jdd": kw.get("jdd", ""),
             "api": kw.get("api", ""), "assertion": bool(kw.get("assertion", t == "then")),
             "valide": bool(kw.get("valide", False)), "resultat_attendu": kw.get("resultat_attendu", ""),
-            **({"variable": kw["variable"]} if kw.get("variable") else {})}  # variable du référentiel Discovery utilisée pour ce champ
+            **({"variable": kw["variable"]} if kw.get("variable") else {}),  # variable du référentiel Discovery utilisée pour ce champ
+            **({"predefinie": kw["predefinie"]} if kw.get("predefinie") else {})}  # étape prédéfinie (SMS par adb : etapes_sms.py)
 
 
 # =========================================================================== Gherkin <-> modèle
@@ -593,7 +594,7 @@ def generer_robot(m: dict, inventaire: dict | None = None, cible: str = "", type
                 a_creer.append(e["texte"])
                 ecran_de[e["texte"]] = e.get("ecran") or ""
                 etape_de[e["texte"]] = {"type": e["type"], "locator": e.get("locator") or "", "jdd": e.get("jdd") or "",
-                                        "texte": e["texte"]}
+                                        "texte": e["texte"], **({"predefinie": e["predefinie"]} if e.get("predefinie") else {})}
                 if x["proches"]:
                     proches[e["texte"]] = x["proches"]
             if x.get("confirme"):

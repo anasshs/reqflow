@@ -71,6 +71,20 @@ def _type(texte: str) -> str:
     return next((t for t, motif in _MOTS_TYPE if re.search(rf"(?i)\b(?:{motif})", texte)), "")
 
 
+# messages de commit conventionnels (« feat(vol): … », « fix: … », « refactor(cartes)!: … ») : le préfixe dit le type
+_CONVENTIONNEL = re.compile(r"(?i)^(feat|feature|fix|refactor|refactoring|revert|perf|chore|ci|build|tests?|testing|style|docs)"
+                            r"\s*(?:\(([^)]*)\))?\s*!?\s*:")
+_TYPE_CONVENTIONNEL = {"feat": "nouvelle", "feature": "nouvelle", "fix": "correction", "revert": "suppression"}
+
+
+def type_conventionnel(texte: str) -> tuple[str, str]:
+    """(type, portée) d'une ligne au format commit conventionnel, sinon ("", "")."""
+    m = _CONVENTIONNEL.match((texte or "").strip())
+    if not m:
+        return "", ""
+    return _TYPE_CONVENTIONNEL.get(m.group(1).lower(), "technique"), (m.group(2) or "").strip()
+
+
 # =========================================================================== lecture du texte collé (règles)
 def analyser_texte(texte: str) -> dict:
     """Découpe une Release Note collée : version, date, clés Jira citées, et une évolution par puce ou par ligne.
@@ -98,8 +112,9 @@ def analyser_texte(texte: str) -> dict:
             evolutions[-1]["cles_jira"] = sorted(set(evolutions[-1]["cles_jira"]) | set(_CLE_JIRA.findall(contenu)))
             evolutions[-1]["ligne_fin"] = n
             continue
-        evolutions.append({"id": f"E{len(evolutions) + 1}", "texte": contenu, "type": type_rubrique or _type(contenu) or "modification",
-                           "rubrique": rubrique, "ligne": n, "ligne_fin": n, "cles_jira": sorted(set(_CLE_JIRA.findall(contenu))), "origine": "règles"})
+        conv, portee = type_conventionnel(contenu)  # le préfixe du commit l'emporte sur la rubrique (« NOUVEAUTÉS » pour tout)
+        evolutions.append({"id": f"E{len(evolutions) + 1}", "texte": contenu, "type": conv or type_rubrique or _type(contenu) or "modification",
+                           **({"portee": portee} if portee else {}), "rubrique": rubrique, "ligne": n, "ligne_fin": n, "cles_jira": sorted(set(_CLE_JIRA.findall(contenu))), "origine": "règles"})
     return {"version": (v.group(1) or v.group(2)) if v else "", "date": d.group(1) if d else "",
             "cles_jira": sorted(set(_CLE_JIRA.findall(texte or ""))), "evolutions": evolutions}
 

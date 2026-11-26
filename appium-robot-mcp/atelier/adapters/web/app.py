@@ -1320,6 +1320,10 @@ async def apps_choisir(req: Request):
     return cfg
 
 
+AUTOMATISATION_CHAMPS = ("technologie_defaut", "projet_kotlin", "paquet_kotlin", "projet_espresso", "paquet_espresso",
+                         "dossier_xcuitest", "xcode_projet", "xcode_schema", "xcode_cible", "xcode_destination")
+
+
 @app.post("/api/apps/maj")
 async def apps_maj(req: Request):
     b = await req.json()
@@ -1336,6 +1340,15 @@ async def apps_maj(req: Request):
     if "liste_rouge" in b:
         champs["liste_rouge"] = {"textes": [t for t in b["liste_rouge"] if t.strip()],
                                  "cles": amap.config_app().get("liste_rouge", {}).get("cles", [])}
+    if "depot" in b:  # dépôt du code des tests de l'application (dossier, GitLab, branche cible)
+        champs["depot"] = _call(amap.normaliser_depot, b["depot"])
+    if "depots" in b:  # un dépôt par technologie (robot, uiautomator, espresso, xcuitest…)
+        champs["depots"] = _call(amap.normaliser_depots, b["depots"])
+    if "automatisation" in b:  # technologie par défaut, projets Kotlin / Xcode (dossier, schéma, cible, destination)
+        champs["automatisation"] = {**(amap.config_app(b.get("slug") or None).get("automatisation") or {}),
+                                    **{k: str(v).strip() for k, v in (b["automatisation"] or {}).items() if k in AUTOMATISATION_CHAMPS}}
+    if "jira_projets" in b:
+        champs["jira_projets"] = _call(amap.normaliser_jira_projets, b["jira_projets"])
     return _call(amap.maj_app, b.get("slug") or None, **champs)
 
 
@@ -1491,6 +1504,144 @@ async def carte_exporter(req: Request):
 @app.get("/plateforme")
 def page_plateforme():
     return FileResponse(STATIC / "plateforme.html", headers=SANS_CACHE)
+
+
+# --------------------------------------------------------------------------- QAFlow (nouvelle interface, docs/REFONTE_UI_QAFLOW.md)
+@app.get("/qaflow")
+def page_qaflow():
+    """Nouvelle interface, à côté de l'actuelle (/plateforme) jusqu'à la bascule : mêmes API, même session."""
+    return FileResponse(STATIC / "qaflow.html", headers=SANS_CACHE)
+
+
+@app.get("/api/qaflow/accueil")
+async def qaflow_accueil():
+    """Accueil QAFlow en une lecture : application (nom, version, environnements), centre d'exécution, dernières
+    exécutions, dernière release, tâches IA actives. Assemblage de lectures existantes, rien d'écrit."""
+    from atelier.execution import demandes
+    from atelier.intelligence import releases
+
+    def lire():
+        try:
+            cfg = amap.config_app() if amap.app_courante() else {}
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        out = {"application": {"slug": cfg.get("slug", ""), "nom": cfg.get("nom", ""), "version": cfg.get("build", ""),
+                               "plateformes": cfg.get("plateformes") or [], "type": amap.type_app(cfg) if cfg else ""},
+               "applications": [{"slug": a["slug"], "nom": a.get("nom", a["slug"])} for a in amap.apps()]}
+        for cle, f in (("centre", lambda: centre.vue_ensemble()["kpi"]), ("executions", lambda: historique.lister()[:5]),
+                       ("release", lambda: (releases.lister() or [None])[0]), ("activite", lambda: demandes.lister(20)["compteurs"])):
+            try:
+                out[cle] = f()
+            except Exception as e:  # noqa: BLE001 — une source indisponible n'empêche pas l'accueil
+                out[cle] = None
+                out.setdefault("indisponibles", []).append(f"{cle} : {e}")
+        return out
+
+    return await asyncio.to_thread(_call, lire)
+
+
+@app.get("/api/qaflow/parcours")
+async def qaflow_parcours():
+    """Parcours de l'application active, statut QAFlow et chiffres réels (lecture seule)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.parcours)
+
+
+@app.get("/api/qaflow/parcours/{pid}")
+async def qaflow_parcours_detail(pid: str):
+    """Espace de travail d'un parcours (lecture seule)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.parcours_detail, pid)
+
+
+@app.get("/api/qaflow/parcours/{pid}/jdd")
+async def qaflow_parcours_jdd(pid: str):
+    """Jeux de données du parcours : jeux des scénarios, données proposées par l'agent, profil (lecture seule)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.jeux_de_donnees, pid)
+
+
+@app.get("/api/qaflow/activite")
+async def qaflow_activite():
+    """Centre d'activité IA : travaux, demandes à l'agent, session en cours (étapes, livrables, erreurs, décisions)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.activite)
+
+
+@app.get("/api/qaflow/execution")
+async def qaflow_execution():
+    """Centre d'exécution QAFlow : en cours, en file, compteurs, exécutions récentes."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.execution)
+
+
+@app.get("/api/qaflow/releases/{rid}/processus")
+async def qaflow_release_processus(rid: str, build: str = ""):
+    """Processus de la release : Release Note → build → périmètre → Test Plan → Test Execution Xray → exécution → verdict."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.processus_release, rid, build)
+
+
+@app.post("/api/qaflow/document-texte")
+async def qaflow_document_texte(req: Request):
+    """Texte d'un document déposé (TXT, MD, DOCX, PDF), à relire avant de créer la release ; rien n'est enregistré."""
+    import base64
+    import binascii
+
+    from atelier.intelligence import documents
+
+    b = await req.json()
+    try:
+        contenu = base64.b64decode(str(b.get("contenu") or ""), validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, "Contenu du fichier illisible (base64 attendu).") from None
+    return await asyncio.to_thread(_call, documents.texte, str(b.get("nom") or ""), contenu)
+
+
+@app.get("/api/qaflow/donnees-saisie")
+async def qaflow_donnees_saisie(parcours: str = "", libelle: str = ""):
+    """Données qu'on peut choisir pour un champ : celles du parcours, du catalogue, des jeux de données des tests."""
+    from atelier.discovery import donnees
+
+    return await asyncio.to_thread(_call, donnees.donnees_pour_saisie, parcours, libelle)
+
+
+@app.post("/api/qaflow/parcours/{pid}/donnee")
+async def qaflow_parcours_donnee(pid: str, req: Request):
+    """Ajouter ou modifier une donnée du parcours (nouvelle, ou existante du catalogue) ; le jeu des tests suit."""
+    from atelier.discovery import donnees
+
+    b = await req.json()
+    cle = str(b.get("cle") or "").strip().upper()
+    if b.get("existante") and b.get("valeur") in (None, ""):
+        def ajouter():
+            profil = donnees.ajouter_au_parcours(pid, cle)
+            return {"cle": cle, "profil": profil, "jdd": donnees.jdd_du_parcours(pid)}
+        return await asyncio.to_thread(_call, ajouter)
+    return await asyncio.to_thread(_call, donnees.enregistrer_saisie, cle, b.get("valeur"), b.get("nom", ""), b.get("type", "texte"),
+                                   bool(b.get("secret")), pid, "assertion" if cle.startswith("ATTENDU_") else "saisie")
+
+
+@app.post("/api/qaflow/parcours/{pid}/donnee/retirer")
+async def qaflow_parcours_donnee_retirer(pid: str, req: Request):
+    from atelier.discovery import donnees
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, donnees.retirer_du_parcours, pid, str(b.get("cle") or "").strip().upper())
+
+
+@app.get("/api/qaflow/session/{sid}")
+async def qaflow_session(sid: str):
+    """Session assistée en direct : durée, compteurs, derniers événements (lecture seule)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.session_en_direct, sid)
 
 
 # --------------------------------------------------------------------------- comptes, connexion, assistant du poste
@@ -2242,6 +2393,51 @@ async def discovery_agir(req: Request):
     return r
 
 
+@app.post("/api/discovery/saisir")
+async def discovery_saisir(req: Request):
+    """Saisie depuis le miroir : la valeur devient une donnée du jeu du parcours, saisie par sa référence {{var:CLE}}."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, sessions_discovery.saisir, b.get("locator", ""), b.get("valeur"), b.get("element") or {},
+                                b.get("cle", ""), b.get("nom", ""), b.get("depuis") or None)
+    emit({"type": "discovery", "saisie": r.get("variable")})  # jamais la valeur
+    return r
+
+
+@app.post("/api/discovery/verifier")
+async def discovery_verifier(req: Request):
+    """Vérification désignée sur le miroir (texte affiché ou élément affiché) ; la valeur attendue va au jeu de données."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, sessions_discovery.verifier, b.get("locator", ""), b.get("mode", "texte"), b.get("element") or {},
+                                b.get("attendu"), b.get("cle", ""), b.get("nom", ""))
+    emit({"type": "discovery", "assertion": r.get("variable") or r.get("mode")})
+    return r
+
+
+@app.get("/api/discovery/etapes-predefinies")
+def discovery_etapes_predefinies():
+    """Étapes prédéfinies proposées pendant la session en cours (SMS par adb : Android)."""
+    s = sessions_discovery.active()
+    return _call(sessions_discovery.etapes_predefinies, ((s or {}).get("config") or {}).get("plateforme", ""))
+
+
+@app.post("/api/discovery/etape-predefinie")
+async def discovery_etape_predefinie(req: Request):
+    """Joue une étape prédéfinie (preparer_sms, otp, lien, lien_recuperer) ; le code OTP n'est jamais renvoyé."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, sessions_discovery.etape_predefinie, b.get("etape", ""), b.get("locator", ""),
+                                b.get("element") or {}, int(b.get("delai_s") or 90), b.get("expediteur", ""))
+    emit({"type": "discovery", "predefinie": r.get("etape")})
+    return r
+
+
+@app.post("/api/discovery/consignes/{sid}")
+async def discovery_consignes(sid: str, req: Request):
+    """Corriger ou retirer une saisie / une vérification consignée pendant une session."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, sessions_discovery.corriger_consigne, sid, b.get("liste", ""), int(b.get("index", -1)),
+                                   bool(b.get("retirer")), element=b.get("element"), champ=b.get("champ"), mode=b.get("mode"))
+
+
 @app.post("/api/discovery/classer")
 async def discovery_classer(req: Request):
     from atelier.discovery import classement
@@ -2692,7 +2888,7 @@ def _executer_job(job: dict):
         # appliquées en direct) ; sinon l'outil MCP run_robot (transitions en demandes à valider)
         # profil de données choisi (jdd_variantes) : le moteur aussi, l'outil MCP historique garde sa signature
         par_moteur = params.get("tests") or any(params.get(k) for k in ("jira_transition_start", "jira_transition_end", "jira_champs_execution",
-                                                                         "jdd_variantes"))
+                                                                         "jdd_variantes", "fichiers_arguments"))
         bilan = centre.executer_avec_retry(robot_moteur.run_robot if par_moteur else outils.run_robot, params, job.get("retry", False))
     except Exception as e:
         bilan = {"statut": "erreur", "erreur": str(e)}
@@ -4105,6 +4301,15 @@ async def automatisation_porter():
     return await asyncio.to_thread(_call, portage.porter)
 
 
+@app.post("/api/automatisation/porter-xcuitest")
+async def automatisation_porter_xcuitest(req: Request):
+    """Convertir le patrimoine Robot de l'application en XCUITest (dépôt iOS) ; ecrire=false : bilan seul."""
+    from atelier.generation import robot2swift
+
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, robot2swift.porter, b.get("ecrire", True) is not False)
+
+
 @app.post("/api/automatisation/lancer")
 async def automatisation_lancer(req: Request):
     """« Automatiser et vérifier » : dépose la demande dans la boîte de l'atelier (le MCP prend le relais)."""
@@ -4112,7 +4317,25 @@ async def automatisation_lancer(req: Request):
 
     b = await req.json()
     return await asyncio.to_thread(_call, perimetre.automatiser, b.get("entree", ""), b.get("reference", ""),
-                                   b.get("technologie", ""), b.get("tests") or None)
+                                   b.get("technologie", ""), b.get("tests") or None, None, "",
+                                   b.get("rechercher_existant", True) is not False, b.get("executer", True) is not False,
+                                   b.get("ecran", ""))
+
+
+@app.get("/api/automatisation/suivis")
+async def automatisation_suivis():
+    """Automatisations récentes (QAFlow) : état de l'agent, tests générés."""
+    from atelier.generation import suivi_automatisation
+
+    return await asyncio.to_thread(_call, suivi_automatisation.lister)
+
+
+@app.get("/api/automatisation/suivis/{did}")
+async def automatisation_suivi(did: str):
+    """Une automatisation, test par test, d'après l'état réel de l'atelier (BDD, généré, exécuté, validé QA)."""
+    from atelier.generation import suivi_automatisation
+
+    return await asyncio.to_thread(_call, suivi_automatisation.suivi, did)
 
 
 @app.get("/api/studio/git")

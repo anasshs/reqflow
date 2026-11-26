@@ -1118,7 +1118,7 @@ async function rendreAssistant() {
   const html = {
     1: `<h3 id="wz-titre">Déclarer l'application</h3>
       <p class="small muted">Chaque application a sa propre carte, sa liste rouge et ses comptes de test.</p>
-      <label for="wz-nom">Nom</label><input id="wz-nom" placeholder="Attijari Mobile" value="${esc(cfg.nom || "")}" ${WZ.app ? "disabled" : ""}>
+      <label for="wz-nom">Nom</label><input id="wz-nom" placeholder="Ma banque mobile" value="${esc(cfg.nom || "")}" ${WZ.app ? "disabled" : ""}>
       <label>Plateformes</label><div class="row" style="align-items:center">${["android", "ios", "web"].map(p => `<label class="check"><input type="checkbox" name="wz-p" value="${p}" ${(cfg.plateformes || ["android"]).includes(p) ? "checked" : ""} ${WZ.app ? "disabled" : ""}> ${PLAT[p]}</label>`).join("")}</div>
       <div class="row"><div><label for="wz-pkg">Package Android</label><input id="wz-pkg" value="${esc(cfg.android?.app_package || "")}"></div><div><label for="wz-act">Activité</label><input id="wz-act" value="${esc(cfg.android?.app_activity || "")}"></div></div>
       <div class="row"><div><label for="wz-bundle">Bundle iOS</label><input id="wz-bundle" value="${esc(cfg.ios?.bundle_id || "")}"></div><div><label for="wz-url">URL web</label><input id="wz-url" value="${esc(cfg.web?.url || "")}"></div></div>

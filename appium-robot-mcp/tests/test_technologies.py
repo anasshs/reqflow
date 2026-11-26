@@ -58,9 +58,10 @@ def test_registre_et_technologie_par_defaut():
     from atelier.generation import technologies
 
     noms = [t["nom"] for t in technologies.lister()]
-    assert noms == ["robot-appium", "robot-web", "robot-selenium", "robot-api", "uiautomator", "espresso"]
+    assert noms == ["robot-appium", "robot-web", "robot-selenium", "robot-api", "uiautomator", "espresso", "xcuitest"]
     assert {t["nom"]: t["disponible"] for t in technologies.lister()} == {
-        "robot-appium": True, "robot-web": True, "robot-selenium": True, "robot-api": True, "uiautomator": True, "espresso": True}
+        "robot-appium": True, "robot-web": True, "robot-selenium": True, "robot-api": True, "uiautomator": True, "espresso": True,
+        "xcuitest": True}
     with pytest.raises(KeyError):
         technologies.obtenir("cobol")
     assert technologies.par_defaut({"type": "mobile", "plateformes": ["android"]}) == "robot-appium"

@@ -10,7 +10,22 @@ from __future__ import annotations
 
 import re
 
-ENTREES = {"parcours": "Parcours", "us": "User Story", "plan": "Test Plan Xray"}
+ENTREES = {"parcours": "Parcours", "us": "User Story", "plan": "Test Plan Xray", "test": "Test existant", "libre": "Expression libre",
+           "tests": "Sélection de tests"}  # tests : clés séparées par des virgules (chemins MBT retenus, sélection d'écran)
+SEUIL_LIBRE = 0.25  # mots communs (Jaccard) entre l'expression libre et le titre d'un test pour le proposer comme existant
+
+CONSIGNE_LIBRE = ("Automatise avec le MCP de l'atelier, technologie « {techno} », la demande de l'automaticien : « {texte} ». "
+                  "1) {recherche}2) sinon conçois le scénario BDD depuis le Knowledge Graph, les parcours et les exigences "
+                  "(knowledge_graph, discovery_parcours_cadre, test_design_proposer ou discovery_parcours_vers_bdd), au statut "
+                  "brouillon, sans donnée littérale (jeu de données) ; s'il manque une connaissance (écran jamais découvert), "
+                  "arrête-toi et dis quelle Discovery faire ; 3) check_jdd, studio_socle(), studio_plan_automatisation(cle) ; "
+                  "4) studio_generer_depuis_bdd(cle, ecrire=True, technologie=\"{techno}\") et complète ce qui reste « à implémenter » ; "
+                  "5) contrôle (dry-run Robot, ou compilation Kotlin) ; {execution}6) ne publie rien dans Xray et ne valide rien : "
+                  "généré, exécuté et validé par la QA restent distincts. Termine par atelier_demande_terminee avec la clé du "
+                  "scénario BDD, le fichier écrit et l'état (automatisé et vérifié / à concevoir / bloqué : raison).")
+RECHERCHE = ("cherche d'abord l'existant (scénarios BDD, tests Xray : xray_search_tests, parcours, keywords) : si un test couvre "
+             "déjà la demande, automatise-le plutôt que d'en créer un ; ")
+EXECUTION = "vérifie par un vrai run (run_tests) ; un échec de l'application est qualifié, jamais masqué ; "
 CLE = re.compile(r"^[A-Z][A-Z0-9_]+-\d+$")
 
 CONSIGNE = ("Automatise avec le MCP de l'atelier, technologie « {techno} », les tests suivants ({entree} {reference}) : {tests}. "
@@ -104,6 +119,46 @@ def _cles_us(reference: str) -> list[str]:
     return list(dict.fromkeys(cles))
 
 
+def _tests_connus() -> list[dict]:
+    """Tests connus de l'atelier : copie locale Xray, puis scénarios BDD qui n'y sont pas (clé, titre, type)."""
+    from atelier.generation import bdd, conception
+    from atelier.intelligence import patrimoine_xray
+
+    out = [{"cle": t["cle"], "titre": t.get("resume", ""), "type": t.get("type", "")} for t in (patrimoine_xray.charger() or {}).get("tests", [])]
+    vus = {t["cle"] for t in out}
+    for b in bdd.lister():
+        cle = conception.cle_xray_du_scenario(b["cle"]) or b["cle"]
+        if cle not in vus:
+            out.append({"cle": cle, "titre": b.get("titre", ""), "type": "BDD"})
+            vus.add(cle)
+    return out
+
+
+def _test_existant(reference: str) -> dict:
+    ref = reference.strip()
+    t = next((x for x in _tests_connus() if x["cle"].upper() == ref.upper()), None)
+    if not t:
+        raise KeyError(f"Test inconnu : {ref} (ni dans la copie locale Xray, ni parmi les scénarios BDD).")
+    return t
+
+
+def _candidats_libres(texte: str, limite: int = 8) -> list[dict]:
+    """Tests existants dont le titre partage assez de mots avec la demande en clair (les plus proches d'abord)."""
+    from atelier.generation.reutilisation import mots
+
+    voulu = mots(texte)
+    if not voulu:
+        return []
+    notes = []
+    for t in _tests_connus():
+        m = mots(t["titre"])
+        if m:
+            score = len(voulu & m) / len(voulu | m)
+            if score >= SEUIL_LIBRE:
+                notes.append((score, t))
+    return [{**t, "score": round(s, 2)} for s, t in sorted(notes, key=lambda x: -x[0])[:limite]]
+
+
 def _cles_plan(reference: str, xray=None) -> list[dict]:
     """Tests d'un Test Plan Xray (clé, résumé, type), par pages de 100."""
     from atelier.integrations.xray import XrayClient
@@ -130,8 +185,14 @@ def resoudre(entree: str, reference: str, xray=None) -> dict:
     if entree not in ENTREES:
         raise ValueError(f"Point d'entrée : {', '.join(ENTREES)}.")
     if not reference:
-        raise ValueError("Référence obligatoire (identifiant du parcours, clé de l'US ou du Test Plan).")
-    if entree == "plan":
+        raise ValueError("Référence obligatoire (identifiant du parcours, clé de l'US, du Test Plan ou du test, ou la demande en clair).")
+    if entree == "libre":
+        bruts = _candidats_libres(reference)
+    elif entree == "test":
+        bruts = [_test_existant(reference)]
+    elif entree == "tests":
+        bruts = [_test_existant(k) for k in dict.fromkeys(x.strip() for x in reference.split(",") if x.strip())]
+    elif entree == "plan":
         bruts = _cles_plan(reference.upper(), xray)
     else:
         bruts = [{"cle": c, "titre": "", "type": ""} for c in (_cles_parcours(reference) if entree == "parcours" else _cles_us(reference.upper()))]
@@ -144,7 +205,8 @@ def resoudre(entree: str, reference: str, xray=None) -> dict:
         m = bdd.charger(cle_bdd) if cle_bdd else None
         tests.append({"cle": t["cle"], "titre": t["titre"] or (m or {}).get("titre", ""), "type": t["type"],
                       "bdd": cle_bdd, "implementations": impl.get(t["cle"], {}),
-                      "a_concevoir": not cle_bdd and t["type"] not in ("Cucumber", "Gherkin")})
+                      "a_concevoir": not cle_bdd and t["type"] not in ("Cucumber", "Gherkin"),
+                      **({"score": t["score"]} if "score" in t else {})})
     return {"entree": entree, "libelle": ENTREES[entree], "reference": reference, "tests": tests,
             "bilan": {"tests": len(tests), "avec_bdd": sum(1 for t in tests if t["bdd"]),
                       "a_concevoir": sum(1 for t in tests if t["a_concevoir"]),
@@ -153,21 +215,41 @@ def resoudre(entree: str, reference: str, xray=None) -> dict:
 
 
 def automatiser(entree: str, reference: str, technologie: str = "", tests: list[str] | None = None, xray=None,
-                mode: str = "") -> dict:
+                mode: str = "", rechercher_existant: bool = True, executer: bool = True, ecran: str = "") -> dict:
     """Dépose la demande d'automatisation dans la boîte de l'atelier : le MCP la prend (atelier_demande_suivante).
-    tests : sélection parmi le périmètre (vide = tous). mode : boite / cli (vide = réglage du projet)."""
+    tests : sélection parmi le périmètre (vide = tous ; en expression libre, vide = concevoir depuis la demande).
+    mode : boite / cli (vide = réglage du projet). rechercher_existant / executer : options de l'expression libre
+    (chercher un test existant avant d'en concevoir un ; vérifier par un vrai run). Rien n'est jamais validé ici."""
     from atelier.generation import technologies
     from atelier.integrations import boite_cursor
 
     techno = technologie or technologies.par_defaut()
     technologies.obtenir(techno)  # inconnue ou indisponible : refus avant de déposer
+    entree = (entree or "").strip().lower()
     p = resoudre(entree, reference, xray)
-    choisis = [t for t in p["tests"] if not tests or t["cle"] in tests]
-    if not choisis:
-        raise ValueError("Aucun test à automatiser dans ce périmètre.")
+    choisis = [t for t in p["tests"] if tests and t["cle"] in tests] if entree == "libre" else \
+        [t for t in p["tests"] if not tests or t["cle"] in tests]
+    if entree == "libre" and not choisis:  # aucun test existant retenu : le MCP conçoit depuis la demande en clair
+        texte = CONSIGNE_LIBRE.format(techno=techno, texte=" ".join(reference.split())[:600],
+                                      recherche=RECHERCHE if rechercher_existant else "",
+                                      execution=EXECUTION if executer else "")
+        titre = f"Automatiser ({techno}) : « {' '.join(reference.split())[:80]} »"
+    else:
+        if not choisis:
+            raise ValueError("Aucun test à automatiser dans ce périmètre.")
+        texte = CONSIGNE.format(techno=techno, entree=p["libelle"].lower(), reference=reference if entree != "libre" else "en clair",
+                                tests=", ".join(t["cle"] for t in choisis))
+        if not executer:
+            texte = texte.replace("5) vérifie par un vrai run (run_tests) ; un échec de l'application est qualifié, jamais masqué ; ", "")
+        titre = f"Automatiser ({techno}) : {p['libelle']} {reference if entree != 'libre' else ''} — {len(choisis)} test(s)".replace("  ", " ")
     cles = [t["cle"] for t in choisis]
-    texte = CONSIGNE.format(techno=techno, entree=p["libelle"].lower(), reference=reference, tests=", ".join(cles))
-    d = boite_cursor.deposer(f"Automatiser ({techno}) : {p['libelle']} {reference} — {len(cles)} test(s)", texte,
-                             attendus=["studio_generer_depuis_bdd", "run_tests"], mode=mode)
+    if not mode and boite_cursor.envoi() == "lien":
+        # envoi jamais réglé (« lien » par défaut) : l'automatisation passe par le MCP, la demande attend donc dans la boîte
+        # (atelier_demande_suivante) au lieu d'être refusée
+        mode = "boite"
+    d = boite_cursor.deposer(titre, texte, attendus=["studio_generer_depuis_bdd", "run_tests"], mode=mode, ecran=ecran)
+    from atelier.generation import suivi_automatisation
+
+    suivi_automatisation.enregistrer(d.get("id", ""), entree, reference, techno, cles, executer=executer)
     return {"demande": d.get("id", ""), "mode": d.get("mode", ""), "technologie": techno, "tests": cles,
-            "a_concevoir": [t["cle"] for t in choisis if t["a_concevoir"]]}
+            "a_concevoir": [t["cle"] for t in choisis if t["a_concevoir"]], "libre": entree == "libre" and not choisis}

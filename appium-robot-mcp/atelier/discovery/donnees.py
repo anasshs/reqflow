@@ -269,6 +269,142 @@ def proposer_variable(cle: str, valeur, nom: str = "", type_: str = "texte", des
             "saisie": "{{var:" + cle + "}}", "consigne": "Saisir avec type_text(locator, \"{{var:" + cle + "}}\")."}
 
 
+def cle_de_libelle(libelle: str, prefixe: str = "") -> str:
+    """Clé technique tirée d'un libellé de champ : « Adresse e-mail » → ADRESSE_E_MAIL (préfixe éventuel : ATTENDU_…)."""
+    base = re.sub(r"[^A-Z0-9]+", "_", _sans_accent(str(libelle or "")).upper()).strip("_") or "CHAMP"
+    return (f"{prefixe}_{base}" if prefixe else base)[:60].strip("_")
+
+
+def enregistrer_saisie(cle: str, valeur, nom: str = "", type_: str = "texte", secret: bool = False, parcours: str = "",
+                       role: str = "saisie", par: str = "") -> dict:
+    """Donnée donnée par l'automaticien pendant une session (valeur saisie dans un champ, ou valeur attendue d'une
+    vérification) : la variable entre au catalogue si elle n'y est pas (confirmée d'office : c'est lui qui la donne),
+    rejoint le profil du parcours, sa valeur est réglée pour ce profil et posée dans le contexte de la session. Elle reste
+    modifiable à tout moment (Discovery › Données, ou l'onglet Jeux de données du parcours). Un secret va au coffre."""
+    cle = str(cle or "").strip().upper()
+    if valeur in (None, ""):
+        raise ValueError("Valeur vide : rien à enregistrer.")
+    tout = _lire("variables")
+    if cle not in tout:
+        quoi = "Valeur attendue d'une vérification" if role == "assertion" else "Valeur saisie"
+        qui = par or _utilisateur_courant() or "l'automaticien"
+        enregistrer_variable(cle, {"nom": nom or cle, "type": type_ if type_ in TYPES else "texte", "source": {"type": "manuelle"},
+                                   "description": f"{quoi} par {qui} pendant une session"
+                                   + (f" du parcours {parcours}" if parcours else ""),
+                                   **({"sensibilite": "secrète"} if secret else {})})
+    elif (tout[cle].get("proposee") or {}).get("a_valider"):  # proposée par l'agent, donnée ici par l'automaticien : confirmée
+        tout[cle]["proposee"] = {**tout[cle]["proposee"], "a_valider": False, "confirmee": _maintenant()}
+        _ecrire("variables", tout)
+    profil = ajouter_au_parcours(parcours, cle) if parcours else ""
+    definir_valeur(cle, valeur, profil=profil) if profil else definir_valeur(cle, valeur)
+    try:  # la session en cours l'utilise tout de suite ({{var:CLE}})
+        definir_contexte(cle, valeur, nom or cle, secret)
+    except Exception:  # noqa: BLE001 — hors session : la valeur reste au profil
+        pass
+    v = variable(cle)
+    _tracer("donnée de l'automaticien", cle, parcours=parcours, profil=profil, role=role)
+    return {"cle": cle, "nom": v["nom"], "profil": profil, "valeur": _affichable(v, valeur), "secret": v["sensibilite"] == "secrète",
+            "reference": "{{var:" + cle + "}}", "jdd": jdd_du_parcours(parcours) if parcours else None}
+
+
+def ajouter_au_parcours(parcours: str, cle: str) -> str:
+    """La variable rejoint le profil du parcours (créé s'il n'existe pas) ; renvoie le nom du profil."""
+    variable(cle)  # inconnue : KeyError, rien n'est ajouté
+    profil = _profil_du_parcours(parcours)
+    p = profils_dict()[profil]
+    if cle not in (p.get("variables") or []):
+        enregistrer_profil(profil, [*(p.get("variables") or []), cle], p.get("description", ""), p.get("nature", "groupe"))
+    return profil
+
+
+def retirer_du_parcours(parcours: str, cle: str) -> dict:
+    """La variable quitte le profil du parcours (elle reste au catalogue et dans les autres profils)."""
+    from atelier.discovery import parcours_utilisateur as pu
+
+    profil = pu._lire(parcours).get("profil_donnees") or ""
+    p = profils_dict().get(profil)
+    if not p or cle not in (p.get("variables") or []):
+        raise KeyError(f"{cle} n'est pas une donnée du parcours.")
+    enregistrer_profil(profil, [x for x in p["variables"] if x != cle], p.get("description", ""), p.get("nature", "groupe"))
+    _tracer("donnée retirée du parcours", cle, parcours=parcours, profil=profil)
+    return {"cle": cle, "profil": profil, "jdd": jdd_du_parcours(parcours)}
+
+
+def _env_du_parcours(parcours: str, env: str = "") -> str:
+    from atelier.discovery import parcours_utilisateur as pu
+
+    if not env:
+        try:
+            env = pu._lire(parcours).get("environnement") or ""
+        except (KeyError, ValueError):
+            env = ""
+    if not env:
+        from atelier.execution import donnees_tests
+
+        env = donnees_tests._env()
+    return str(env).strip().lower()
+
+
+def jdd_du_parcours(parcours: str, env: str = "") -> dict:
+    """Jeu de données des tests du parcours (data/jdd/<env>.yaml, jeu nommé comme le profil du parcours), réécrit depuis
+    le profil à chaque changement : le test automatisé rejoue avec les données saisies ou choisies. Secret → {{env:CLE}}.
+    Une donnée sans valeur empêche la mise à jour : c'est dit, jamais bloquant pour la saisie."""
+    env = _env_du_parcours(parcours, env)
+    try:
+        profil = _profil_du_parcours(parcours)
+        r = profil_vers_jdd(profil, env)
+        return {"jeu": r["jeu"], "env": env, "a_jour": True, "fichier": r.get("fichier") or f"data/jdd/{env}.yaml"}
+    except Exception as e:  # noqa: BLE001 — valeur manquante, environnement au nom invalide : signalé à l'écran
+        return {"jeu": "", "env": env, "a_jour": False, "erreur": str(e)[:300]}
+
+
+def donnees_pour_saisie(parcours: str = "", libelle: str = "", env: str = "") -> dict:
+    """Ce que l'automaticien peut choisir au lieu de taper une valeur : les données du parcours, les variables du
+    catalogue proches du champ, les champs des jeux de données des tests existants. Aucune valeur sensible renvoyée ;
+    une valeur calculée au run ({{…}}) n'est pas proposée à la saisie."""
+    from atelier.discovery import parcours_utilisateur as pu
+    from atelier.execution import jdd
+
+    profil = ""
+    if parcours:
+        try:
+            profil = pu._lire(parcours).get("profil_donnees") or ""
+        except (KeyError, ValueError):
+            profil = ""
+    du_parcours = []
+    for v in variables(profil=profil) if profil else []:
+        du_parcours.append({"cle": v["cle"], "nom": v["nom"], "type": v["type"], "secret": v["sensibilite"] == "secrète",
+                            "valeur": v["valeurs"]["profils"].get(profil, v["valeurs"]["defaut"])})
+    deja = {x["cle"] for x in du_parcours}
+    try:
+        catalogue = [x for x in rechercher(libelle, limite=8) if x["cle"] not in deja] if libelle else []
+    except Exception:  # noqa: BLE001
+        catalogue = []
+    env = _env_du_parcours(parcours, env) if parcours else (env or "recette")
+    jeux = []
+    try:
+        for j in jdd.lister(env):
+            brut = (jdd.lire(env, j["jeu"]) or {}).get("donnees") or {}
+            champs = [{"champ": c, "calcule": isinstance(x, str) and "{{" in x, "secret": bool(SECRET.search(c.upper())),
+                       # un champ qui désigne un secret n'affiche jamais sa valeur (elle reste choisissable, lue côté serveur)
+                       "valeur": None if isinstance(x, str) and "{{" in x else MASQUE if SECRET.search(c.upper()) else x}
+                      for c, x in brut.items()]
+            jeux.append({"jeu": j["jeu"], "description": j.get("description", ""), "champs": champs})
+    except Exception:  # noqa: BLE001 — pas de fichier pour cet environnement
+        jeux = []
+    return {"profil": profil, "env": env, "du_parcours": du_parcours,
+            "catalogue": [{k: x[k] for k in ("cle", "nom", "type", "sensibilite", "score")} for x in catalogue], "jeux": jeux}
+
+
+def _utilisateur_courant() -> str:
+    try:
+        from atelier.domain import roles
+
+        return roles.utilisateur()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def propositions(parcours: str = "") -> list[dict]:
     """Variables proposées par l'agent et pas encore confirmées (d'un parcours, ou toutes), avec leur valeur."""
     out = []

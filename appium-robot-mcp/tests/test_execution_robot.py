@@ -177,4 +177,4 @@ def test_la_file_transmet_le_profil_de_donnees():
     assert "jdd_variantes" not in inspect.signature(facade.run_robot).parameters
     assert "jdd_variantes" in inspect.signature(facade.run_tests).parameters
     app = (Path(__file__).resolve().parents[1] / "atelier" / "adapters" / "web" / "app.py").read_text("utf-8")
-    assert '"jdd_variantes"))' in app
+    assert '"jdd_variantes", "fichiers_arguments"))' in app  # profil de données et fichiers d'arguments du projet : le moteur

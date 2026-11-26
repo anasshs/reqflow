@@ -127,11 +127,52 @@ def verifier_type_relation(t: str):
         raise ValueError(f"Type de relation inconnu : {t} (types : {', '.join(TYPES_RELATIONS)})")
 
 
+class _Relations(dict):
+    """Relations d'un graphe, avec un numéro de version qui change à chaque modification : l'index des relations par
+    nœud (sortants / entrants) n'est recalculé que si les relations ont changé."""
+    version = 0
+
+    def _touche(self):
+        self.version = self.version + 1
+
+    def __setitem__(self, k, v):
+        self._touche()
+        super().__setitem__(k, v)
+
+    def __delitem__(self, k):
+        self._touche()
+        super().__delitem__(k)
+
+    def pop(self, *a):
+        self._touche()
+        return super().pop(*a)
+
+    def popitem(self):
+        self._touche()
+        return super().popitem()
+
+    def setdefault(self, k, v=None):
+        if k not in self:
+            self._touche()
+        return super().setdefault(k, v)
+
+    def update(self, *a, **kw):
+        self._touche()
+        super().update(*a, **kw)
+
+    def clear(self):
+        self._touche()
+        super().clear()
+
+    def __reduce__(self):  # pickle : un dict ordinaire suffit (l'index se reconstruit)
+        return (_Relations, (dict(self),))
+
+
 class Graphe:
     def __init__(self, nom: str = ""):
         self.nom = nom
         self.noeuds: dict[str, Noeud] = {}
-        self.relations: dict[str, Relation] = {}
+        self.relations: dict[str, Relation] = _Relations()
 
     # ------------------------------------------------------------------ construction
     def noeud(self, id: str, type: str, libelle: str, **kw) -> Noeud:
@@ -175,11 +216,31 @@ class Graphe:
         self.retirer_noeud(source)
 
     # ------------------------------------------------------------------ lecture
+    def _index(self) -> tuple[dict, dict]:
+        """Relations par nœud de départ et d'arrivée, recalculées seulement si les relations ont changé (graphe de
+        plusieurs milliers de nœuds : un parcours de toutes les relations à chaque appel coûtait des dizaines de
+        secondes)."""
+        rels = self.relations
+        if type(rels) is not _Relations:  # relations remplacées par un dict ordinaire (filtre, sous-graphe…)
+            rels = self.relations = _Relations(rels)
+        cle = (id(rels), rels.version, len(rels))
+        idx = getattr(self, "_idx", None)
+        if not idx or idx[0] != cle:
+            de, vers = {}, {}
+            for r in rels.values():
+                de.setdefault(r.de, []).append(r)
+                vers.setdefault(r.vers, []).append(r)
+            idx = self._idx = (cle, de, vers)
+        return idx[1], idx[2]
+
+    def __getstate__(self):  # l'index n'est pas conservé (cache disque du graphe)
+        return {k: v for k, v in self.__dict__.items() if k != "_idx"}
+
     def sortants(self, id: str, fiables: bool = False) -> list[Relation]:
-        return [r for r in self.relations.values() if r.de == id and (r.fiable or not fiables)]
+        return [r for r in self._index()[0].get(id, ()) if r.fiable or not fiables]
 
     def entrants(self, id: str, fiables: bool = False) -> list[Relation]:
-        return [r for r in self.relations.values() if r.vers == id and (r.fiable or not fiables)]
+        return [r for r in self._index()[1].get(id, ()) if r.fiable or not fiables]
 
     def voisinage(self, ids: list[str], profondeur: int = 1) -> "Graphe":
         """Sous-graphe des nœuds à moins de `profondeur` relations (dans les deux sens)."""

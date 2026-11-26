@@ -144,6 +144,11 @@ def corps_etape(etape: dict | None, var: str, type_app: str) -> list[str]:
         return []
     texte, champ = etape.get("texte", ""), etape.get("jdd", "")
     loc = "${" + var + "}" if var else ""
+    from atelier.generation import etapes_sms
+
+    predef = etapes_sms.reconnaitre(etape)
+    if predef:  # SMS par adb : keywords de la bibliothèque SMS (celle du dépôt, sinon celle livrée par l'atelier)
+        return etapes_sms.corps(predef, loc, type_app)
     mobile = type_app in ("mobile", "web-selenium")  # SeleniumLibrary : mêmes keywords qu'AppiumLibrary (Click Element…)
     if RETOUR.match(texte):
         return ["    Go Back"]
@@ -168,10 +173,16 @@ def _bloc(nom: str, doc: str, args: list[str], corps: list[str] | None = None) -
     return [nom, f"    [Documentation]    {doc}", *args, f"    Fail    Keyword à implémenter : {nom}", ""]
 
 
+def _ligne_bibliotheque(chemin: str, lib: str) -> str:
+    """« Library    … » : chemin relatif à la page pour un fichier du projet, nom tel quel (Process, Collections…)."""
+    return f"Library    {_rel(chemin, lib)}" if lib.endswith(".py") else f"Library    {lib}"
+
+
 def contenu_page(chemin: str, page: str, keywords: list[tuple], existant: str = "",
-                 commun: str = "", avec_locators: bool = False) -> tuple[str, list[str]]:
+                 commun: str = "", avec_locators: bool = False, bibliotheques: list[str] | None = None) -> tuple[str, list[str]]:
     """(contenu, keywords ajoutés). Existant : on n'ajoute que les keywords absents, en fin de fichier. Un keyword est
-    (nom, doc, args) ou (nom, doc, args, corps) ; sans corps, c'est un stub « À implémenter »."""
+    (nom, doc, args) ou (nom, doc, args, corps) ; sans corps, c'est un stub « À implémenter ». bibliotheques : lignes
+    Library que les corps exigent (SMS par adb…), ajoutées si absentes."""
     from atelier.domain import projet
 
     deja = _definis(existant)
@@ -179,11 +190,15 @@ def contenu_page(chemin: str, page: str, keywords: list[tuple], existant: str = 
     blocs = [l for k in nouveaux for l in _bloc(*k)]
     loc = f"{DOSSIER_LOCATORS}/{page}.resource"
     import_loc = f"Resource    {_rel(chemin, loc)}"
+    libs = [_ligne_bibliotheque(chemin, b) for b in dict.fromkeys(bibliotheques or [])]
     if existant:
         if not nouveaux:
             return existant, []
         if avec_locators and import_loc not in existant:  # la page reçoit ses premiers locators : import ajouté
             existant = _ajouter_import(existant, import_loc)
+        for l in libs:
+            if l not in existant:
+                existant = _ajouter_import(existant, l)
         base = existant.rstrip() + "\n"
         return (base + ("\n" if _SECTION_KW.search(existant) else "\n*** Keywords ***\n") + "\n".join(blocs)).rstrip() + "\n", [k[0] for k in nouveaux]
     imports = []
@@ -191,6 +206,7 @@ def contenu_page(chemin: str, page: str, keywords: list[tuple], existant: str = 
         imports.append(import_loc)
     if commun and commun != chemin:
         imports.append(f"Resource    {_rel(chemin, commun)}")
+    imports += libs
     texte = ["*** Settings ***",
              f"Documentation    Page « {page} » (Page Object Model) : les keywords de l'écran. Ses locators : {loc}.",
              *imports, "", "*** Keywords ***", *blocs]
@@ -218,8 +234,11 @@ def preparer(a_creer: list[dict], inv: dict, suite: str, commun_existant: str = 
 
     commun = commun_existant or COMMUN_DEFAUT
     type_app = type_app or _type_app()
+    from atelier.generation import etapes_sms
+
     par_page: dict[str, list] = {}
     locators: dict[str, dict] = {}
+    libs: dict[str, list] = {}
     for k in a_creer:
         # étape sans écran connu : page du module (ou du scénario), jamais le socle commun
         page = "commun" if k["nom"] == "Initialiser Le Test" else nom_page(k["ecran"]) if k.get("ecran") else (page_defaut or "general")
@@ -233,6 +252,9 @@ def preparer(a_creer: list[dict], inv: dict, suite: str, commun_existant: str = 
             doc = (doc.replace("À implémenter : aucun keyword du dépôt ne correspond.", "").strip()
                    + f" Généré depuis l'étape « {etape['texte']} »" + (f" (écran {k['ecran']})" if k.get("ecran") else "") + " : à relire.").strip()
         par_page.setdefault(page, []).append((k["nom"], doc, k.get("args") or [], corps))
+        predef = etapes_sms.reconnaitre(etape) if etape else ""
+        if predef and corps:
+            libs.setdefault(page, []).extend(etapes_sms.imports(predef, type_app))
     pages = []
     for page, kws in par_page.items():
         chemin = commun if page == "commun" else chemin_page(page, inv)
@@ -240,10 +262,16 @@ def preparer(a_creer: list[dict], inv: dict, suite: str, commun_existant: str = 
             existant = projet.lire_fichier(chemin)
         except (FileNotFoundError, OSError, ValueError):
             existant = ""
-        contenu, ajoutes = contenu_page(chemin, page, kws, existant, commun if page != "commun" else "", bool(locators.get(page)))
+        contenu, ajoutes = contenu_page(chemin, page, kws, existant, commun if page != "commun" else "", bool(locators.get(page)),
+                                        libs.get(page))
         pages.append({"chemin": chemin, "page": page, "contenu": contenu, "nouveau": not existant, "keywords": ajoutes,
                       "locators": {"chemin": f"{DOSSIER_LOCATORS}/{page}.resource", "variables": locators.get(page, {})}})
-    return {"pages": pages, "imports": [p["chemin"] for p in pages]}
+    if etapes_sms.BIBLIOTHEQUE in {b for l in libs.values() for b in l} and not projet.safe_path(etapes_sms.BIBLIOTHEQUE).exists():
+        # aucune bibliothèque SMS dans le dépôt : celle de l'atelier est écrite une fois (jamais par-dessus un fichier existant)
+        pages.append({"chemin": etapes_sms.BIBLIOTHEQUE, "page": "bibliotheque_sms", "contenu": etapes_sms.MODELE, "nouveau": True,
+                      "keywords": ["Marquer Le Début De L'Attente SMS", "Récupérer Le Code OTP", "Récupérer Le Lien Reçu Par SMS"],
+                      "locators": {}})
+    return {"pages": pages, "imports": [p["chemin"] for p in pages if p["chemin"].endswith(".resource")]}
 
 
 def contenu_locators(chemin: str, variables: dict, existant: str = "") -> str:

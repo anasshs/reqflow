@@ -98,6 +98,11 @@ class Espresso(Technologie):
             return lignes + ["        pressBack()"]
         if i == "otp":
             return lignes + ['        if (Vue.otpMode() != "validation") return  // arrêt sur l\'écran OTP, rien n\'est validé']
+        if i == "sms" and e.get("sms") == "preparer_sms":
+            return lignes + ["        // repère SMS : sans objet tant que la lecture des SMS n'est pas portée en Espresso"]
+        if i == "sms":  # lecture des SMS (adb) : pas encore portée en Espresso, jamais un faux succès
+            a_impl.append(e["texte"])
+            return lignes + [f"        Vue.aImplementer({ks(e['texte'])})"]
         if not v:
             a_impl.append(e["texte"])
             return lignes + [f"        Vue.aImplementer({ks(e['texte'])})"]

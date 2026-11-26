@@ -190,6 +190,39 @@ object Bdd {{
         Cible(By.res(Pattern.compile(".*:id/btnValidate"))).cliquer()
         return false
     }}
+
+    /** Premier SMS reçu après le repère dont « extraire » tire une valeur (90 s au plus) ; le SMS est ensuite consommé. */
+    private fun attendreSms(quoi: String, extraire: (String) -> String?): String {{
+        val fin = System.currentTimeMillis() + 90_000
+        while (System.currentTimeMillis() < fin) {{
+            val sms = Simple.device.executeShellCommand("content query --uri content://sms/inbox --projection date:body --sort \\"date DESC\\"")
+            for (m in Regex("date=(\\\\d+), body=(.*)").findAll(sms)) {{
+                val date = m.groupValues[1].toLongOrNull() ?: 0
+                if (date < debutOtp) break
+                val v = extraire(m.groupValues[2])
+                if (v != null) {{ debutOtp = date + 1; return v }}
+            }}
+            Thread.sleep(3_000)
+        }}
+        throw AssertionError("Aucun SMS avec $quoi reçu en 90 s")
+    }}
+
+    /** Étape prédéfinie « je saisis le code OTP reçu par SMS » : vrai si le test s'arrête là (mode arret). */
+    fun otpDansChamp(champ: Cible): Boolean {{
+        if (Simple.otpMode != "validation") return true
+        val code = attendreSms("un code") {{ b ->
+            (Regex("(?i)\\\\bcode\\\\b\\\\s*:?\\\\s*(\\\\d{{4,8}})").find(b) ?: Regex("(?<!\\\\d)(\\\\d{{6}})(?!\\\\d)").find(b))?.groupValues?.get(1)
+        }}
+        champ.saisir(code)
+        return false
+    }}
+
+    /** Étapes prédéfinies « je récupère / j'ouvre le lien reçu par SMS » : le lien, ouvert sur l'appareil si demandé. */
+    fun lienSms(ouvrir: Boolean): String {{
+        val lien = attendreSms("un lien") {{ b -> Regex("https?://[^\\\\s\\"'<>]+").find(b)?.value?.trimEnd('.', ',', ';', ')') }}
+        if (ouvrir) Simple.device.executeShellCommand("am start -a android.intent.action.VIEW -d '$lien'")
+        return lien
+    }}
 }}
 '''
 
@@ -247,8 +280,17 @@ class UiAutomator(Technologie):
         i = e["intention"]
         if i == "revenir":
             return lignes + ["        Simple.device.pressBack()"]
+        if i == "otp" and e.get("sms") == "otp" and e["locator"]:  # étape prédéfinie : le code va dans le champ désigné
+            page = nom_page(e["ecran"] or page_defaut)
+            el = nom_element(e)
+            pages_util.setdefault(page, {"ecran": e["ecran"] or page_defaut, "elements": {}})["elements"][el] = (cible(e["locator"]), e["locator"])
+            return lignes + [f"        if (Bdd.otpDansChamp({page}.{el})) return  // mode arret : arrêt sur l'écran OTP, rien n'est validé"]
         if i == "otp":
             return lignes + ["        if (Bdd.otp()) return  // mode arret : le test s'arrête sur l'écran OTP, rien n'est validé"]
+        if i == "sms":
+            if e.get("sms") == "preparer_sms":
+                return lignes + ["        Bdd.avantOtp()"]
+            return lignes + [f"        v[\"LIEN_SMS\"] = Bdd.lienSms(ouvrir = {'true' if e.get('sms') == 'lien' else 'false'})"]
         if i == "ouvrir" and not e["locator"]:
             if re.search(r"(?i)connect", e["texte"]):
                 return lignes + ["        Simple.seConnecter()"]

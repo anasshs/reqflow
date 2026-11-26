@@ -217,7 +217,7 @@ def robocop(chemin: str, contenu: str | None = None) -> dict:
                   [sys.executable, "-m", "robocop", str(analyse)])            # versions antérieures à la commande « check »
         r = None
         for cmd in essais:
-            r = subprocess.run(cmd, cwd=projet.PROJECT_DIR, capture_output=True, text=True, errors="replace", timeout=120)
+            r = subprocess.run(cmd, cwd=projet.racine_code(), capture_output=True, text=True, errors="replace", timeout=120)
             if not re.search(r"No such (command|option)|unrecognized|no such option", r.stderr + r.stdout, re.I):
                 break
         sortie = (r.stdout + r.stderr).replace(str(analyse), chemin).replace(analyse.as_posix(), chemin)
@@ -398,7 +398,7 @@ def definition(chemin: str, contenu: str, ligne: int, colonne: int) -> dict:
     if imp and not texte[:1].isspace():
         cible = imp.group(3).strip()
         try:
-            rel = (projet.safe_path(chemin).parent / cible).resolve().relative_to(projet.PROJECT_DIR).as_posix()
+            rel = (projet.safe_path(chemin).parent / cible).resolve().relative_to(projet.racine_code()).as_posix()
         except ValueError:
             return rien("fichier", cible, f"{cible} est hors du projet.")
         if projet.safe_path(rel).is_file():

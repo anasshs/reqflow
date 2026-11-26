@@ -25,7 +25,7 @@ from atelier.integrations.interface_web import ENTETE_JETON, FICHIER_JETON_DEFAU
 COOKIE = "atelier_jeton"
 ROUTES_PROCESSUS = ("/api/events", "/api/externe/", "/api/mcp/image", "/api/mcp/controle", "/api/run/image")
 TAILLE_MAX_DEFAUT = 2 * 1024 * 1024
-PAGES = ("/", "/plateforme", "/connexion", "/assistant")  # pages qui posent le cookie de session
+PAGES = ("/", "/plateforme", "/qaflow", "/connexion", "/assistant")  # pages qui posent le cookie de session
 COOKIE_COMPTE = "atelier_compte"  # session du compte connecté (comptes de la base)
 ROUTES_SANS_COMPTE = ("/api/connexion", "/api/deconnexion", "/api/assistant/etat", "/api/assistant/compte")
 

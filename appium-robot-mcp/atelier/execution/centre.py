@@ -49,7 +49,7 @@ def _maintenant() -> str:
 # =========================================================================== contexte figé
 def _git(*args) -> str:
     try:
-        r = subprocess.run(["git", "-C", str(projet.PROJECT_DIR), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
+        r = subprocess.run(["git", "-C", str(projet.racine_code()), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
         return r.stdout.strip() if r.returncode == 0 else ""
     except Exception:
         return ""

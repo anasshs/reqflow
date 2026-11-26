@@ -78,7 +78,8 @@ def lire_suite(fichier: str, racine: Path | None = None) -> dict:
             m = _RE_PREFIXE.match(c[0])
             if m:
                 mot = m.group(1).lower()
-                courant["etapes"].append((PREFIXES[mot], m.group(2).strip()))
+                # arguments du mot-clé (cellules suivantes) gardés dans l'étape : « Le Compte De Connexion Est ${COMPTE} »
+                courant["etapes"].append((PREFIXES[mot], " ".join([m.group(2).strip(), *c[1:]]).strip()))
                 courant["langue"] = courant["langue"] or ("en" if mot in EN else "fr")
             j = re.search(r"&\{JDD_([A-Za-z0-9_]+)\}", brute)
             if j and not courant["jdd"]:
@@ -277,9 +278,9 @@ def ecrans_des_parcours(depuis_depot: bool = True) -> dict:
     bilan, deduits_total = {}, 0
     for p in pu.lister():
         cles = {b["cle"] for b in bdd.lister() if (bdd.charger(b["cle"]) or {}).get("parcours") == p["id"]}
-        # clés que la carte retient par écran : la clé Xray du test (scénarios repris du dépôt : clé BDD = clé Xray)
         if not cles:
             continue
+        # clés que la carte retient par écran : la clé Xray du test (scénarios repris du dépôt : clé BDD = clé Xray)
         traverses = [e["id"] for e in ecrans if cles & set(e.get("utilise_par") or [])]
         deduits = [e["id"] for e in ecrans if e["id"] not in traverses and not pu.ecran_transitoire(e)
                    and cles & statiques.get(f"ecran:{e.get('nom') or e['id']}", set())]
@@ -323,4 +324,9 @@ def importer_locators() -> dict:
     """Amorce la carte avec les locators des pages du dépôt (Page Object Model : une page ≈ un écran)."""
     from atelier.discovery import carte_outils
 
-    return carte_outils.map_import_existing("**/*.resource")
+    # pages en .resource, ou fichiers de locators en .robot sous resources/locators (convention de nombreux dépôts)
+    total = {"ecrans_crees": 0, "locators_importes": 0}
+    for motif in ("**/*.resource", "resources/locators/**/*.robot"):
+        r = carte_outils.map_import_existing(motif)
+        total = {k: total[k] + r.get(k, 0) for k in total}
+    return total

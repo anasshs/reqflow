@@ -10,6 +10,7 @@ référence, carte, revue, exécution, remontée Xray (outbox), Kanban, couvertu
   robot-api      Robot Framework + RequestsLibrary API (squelette, phase 6 de la roadmap)
   uiautomator    Kotlin + UI Automator 2           Android, application installée
   espresso       Kotlin + Espresso                 Android, dans le processus de l'application (exécution : code source requis)
+  xcuitest       Swift + XCUITest                  iOS natif (projet Xcode de l'application, Mac ; bien plus rapide qu'Appium)
 
 Conception : docs/AUTOMATISATION_MULTI_CIBLES.md. Le paramètre « cible » de bdd.generer_robot (chemin de la suite) n'a
 rien à voir : ici on parle de technologie.
@@ -48,10 +49,15 @@ class NonDisponible(RuntimeError):
 
 
 def _registre() -> dict[str, Technologie]:
-    from atelier.generation.technologies import espresso, kotlin, robot
+    from atelier.generation.technologies import espresso, kotlin, robot, xcuitest
 
-    t = [robot.RobotAppium(), robot.RobotWeb(), robot.RobotSelenium(), robot.RobotApi(), kotlin.UiAutomator(), espresso.Espresso()]
+    t = [robot.RobotAppium(), robot.RobotWeb(), robot.RobotSelenium(), robot.RobotApi(), kotlin.UiAutomator(), espresso.Espresso(),
+         xcuitest.Xcuitest()]
     return {x.nom: x for x in t}
+
+
+def noms() -> list[str]:
+    return list(_registre())
 
 
 def lister() -> list[dict]:

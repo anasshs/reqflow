@@ -20,6 +20,8 @@ NATURE = {
     **dict.fromkeys(["discovery_demarrer", "discovery_terminer", "discovery_donnees_pour_champs", "discovery_donnee", "discovery_donnee_definir",
                      "discovery_donnees_contexte", "discovery_profil_vers_jdd"], "É"),  # données : seul le contexte de la session est écrit, jamais le catalogue
     **dict.fromkeys(["propose_step", "discovery_proposer", "discovery_parcours_vers_bdd", "discovery_donnee_proposer"], "P"),
+    "porter_vers_xcuitest": "É",  # conversion Robot → Swift écrite dans le dépôt iOS de l'application (Genere/, réécrit)
+    "discovery_etape_predefinie": "A",  # SMS lus par adb sur l'appareil de la session (OTP saisi, lien ouvert), session en cours exigée
     # maintenance demandée depuis le Kanban : scénario réécrit seulement pendant une maintenance ouverte, confirmé ensuite
     "maintenance_modifier_bdd": "É", "maintenance_rapporter": "P",
     # dépôt, exécution, données
@@ -67,7 +69,7 @@ def _outils() -> dict:
 def test_chaque_outil_est_classe():
     o = _outils()
     assert set(o) == set(NATURE), f"non classés : {sorted(set(o) - set(NATURE))} ; disparus : {sorted(set(NATURE) - set(o))}"
-    assert len(o) == 131  # + porter_vers_kotlin ; + 2 points d'entrée (perimetre_automatisation, automatiser_perimetre) ; + 2 technologies (technologies_disponibles, studio_plan_automatisation) ; + 2 maintenance (maintenance_modifier_bdd, maintenance_rapporter) ; + discovery_donnee_proposer (données proposées par l'agent) ; + 4 Model-Based Testing + run_tests + 2 TNR
+    assert len(o) == 133  # + discovery_etape_predefinie (SMS par adb) ; + porter_vers_kotlin ; + 2 points d'entrée (perimetre_automatisation, automatiser_perimetre) ; + 2 technologies (technologies_disponibles, studio_plan_automatisation) ; + 2 maintenance (maintenance_modifier_bdd, maintenance_rapporter) ; + discovery_donnee_proposer (données proposées par l'agent) ; + 4 Model-Based Testing + run_tests + 2 TNR
 
 
 def test_ecritures_externes_par_demande():

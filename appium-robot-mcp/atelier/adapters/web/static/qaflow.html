@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QAFlow</title>
+<meta name="description" content="QAFlow : concevoir des parcours de test, les automatiser et piloter leur exécution">
+<link rel="icon" href="data:,">
+<script>
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("qaflow-theme"); } catch (e) { /* stockage indisponible */ }
+    document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+  })();
+</script>
+<link rel="stylesheet" href="/static/qaflow.css">
+<link rel="stylesheet" href="/static/qaflow_graphe.css">
+</head>
+<body>
+<header class="qf-entete">
+  <a class="qf-logo" href="#accueil" aria-label="QAFlow, accueil"><span class="qf-logo-marque" aria-hidden="true"></span>QAFlow</a>
+  <label class="qf-app"><span>Application courante</span><select id="qf-app" aria-label="Application courante"></select></label>
+  <span class="qf-contexte" id="qf-contexte"></span>
+  <div class="qf-droite">
+    <button class="qf-activite" id="qf-activite" aria-haspopup="dialog" aria-controls="qf-panneau-activite" title="Centre d'activité IA : traitements en cours">
+      <span class="qf-ico" aria-hidden="true">⟳</span><span>Activité IA</span><b id="qf-activite-n" hidden></b></button>
+    <button class="qf-icone" id="qf-theme" title="Basculer le thème clair / sombre" aria-label="Basculer le thème">◐</button>
+    <a class="qf-lien-ancien" href="/plateforme" title="Interface actuelle de l'atelier (toujours disponible)">Interface actuelle</a>
+    <span class="qf-utilisateur" id="qf-utilisateur"></span>
+  </div>
+</header>
+<nav class="qf-nav" aria-label="Navigation">
+  <a href="#accueil" data-nav="accueil"><span aria-hidden="true">⌂</span>Accueil</a>
+  <a href="#parcours" data-nav="concevoir"><span aria-hidden="true">◇</span>Parcours</a>
+  <a href="#automatiser" data-nav="automatiser"><span aria-hidden="true">&lt;/&gt;</span>Automatisation</a>
+  <a href="/plateforme#tests" class="qf-ext"><span aria-hidden="true">✓</span>Tests</a>
+  <a href="#execution" data-nav="execution"><span aria-hidden="true">▶</span>Exécution</a>
+  <a href="#releases" data-nav="releases"><span aria-hidden="true">⇪</span>Release Notes</a>
+  <a href="#graphe" data-nav="graphe"><span aria-hidden="true">✳</span>Knowledge Graph</a>
+  <a href="/plateforme#rapports" class="qf-ext"><span aria-hidden="true">▤</span>Rapports</a>
+  <a href="#parametres" data-nav="parametres"><span aria-hidden="true">⚙</span>Paramètres</a>
+</nav>
+<main class="qf-principal" id="qf-principal" tabindex="-1"></main>
+<aside class="qf-menu-exec" aria-label="Menu exécution">
+  <h2>Menu exécution</h2>
+  <a href="#execution" data-nav="execution"><b>Centre d'exécution</b><span>Suivre les exécutions</span></a>
+  <a href="#direct" data-nav="direct"><b>Exécution en direct</b><span>Graphe du run en cours, écran par écran</span></a>
+  <a href="#couverture" data-nav="couverture"><b>Couverture des parcours</b><span>Parcours × tests, écrans, matrice</span></a>
+  <a href="/plateforme#conception" class="qf-ext"><b>Tests manuels</b><span>Patrimoine Xray et conception</span></a>
+  <a href="/plateforme#tests" class="qf-ext"><b>Tests automatisés</b><span>Référentiel, scripts, vérification</span></a>
+  <a href="/plateforme#lots" class="qf-ext"><b>Plans de test</b><span>Plans, campagnes, périmètres TNR</span></a>
+  <a href="/plateforme#echecs" class="qf-ext"><b>Résultats et anomalies</b><span>Échecs qualifiés, anomalies</span></a>
+  <a href="/plateforme#rapports" class="qf-ext"><b>Rapports d'exécution</b><span>Rapports et métriques</span></a>
+</aside>
+<div class="qf-voile" id="qf-voile" hidden></div>
+<section class="qf-panneau" id="qf-panneau-activite" role="dialog" aria-modal="true" aria-labelledby="qf-activite-titre" hidden>
+  <header><h2 id="qf-activite-titre">Centre d'activité IA</h2><button class="qf-icone" id="qf-activite-fermer" aria-label="Fermer">✕</button></header>
+  <div id="qf-activite-liste"></div>
+</section>
+<script src="/static/graphe.js"></script>
+<script src="/static/qaflow.js"></script>
+</body>
+</html>
