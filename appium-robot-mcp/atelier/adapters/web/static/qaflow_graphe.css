@@ -1,0 +1,69 @@
+/* QAFlow — Knowledge Graph : le moteur de rendu de l'interface actuelle (graphe.js, GrapheVue, sans dépendance) réutilisé
+   tel quel ; ses couleurs sont reliées aux jetons QAFlow, ses règles reprises de plateforme.css (préfixe gv-). */
+.qf-graphe {
+  --surface: var(--carte); --surface-3: var(--carte-2); --bg-2: var(--fond-2); --line: var(--bord);
+  --ink: var(--texte); --ink-2: var(--texte-2); --muted: var(--texte-3);
+  --accent-ink: var(--accent-2); --accent-line: var(--halo);
+  --ok: var(--vert); --ko: var(--rouge); --warn: var(--orange);
+  --ko-soft: color-mix(in srgb, var(--rouge) 15%, transparent); --warn-soft: color-mix(in srgb, var(--orange) 15%, transparent);
+  --c-application: #60A5FA; --c-fonctionnel: #22D3EE; --c-technique: #EAB308; --c-jira: #A78BFA;
+  --c-xray: #EC4899; --c-bdd: #22C55E; --c-automation: #F97316;
+  --f-exigences: var(--c-jira); --f-parcours: var(--c-fonctionnel); --f-application: var(--c-application);
+  --f-actions: var(--c-automation); --f-donnees: var(--c-bdd); --f-locators: var(--c-technique); --f-tests: var(--c-xray);
+  --f-execution: var(--ko); --f-resultats: var(--ink-2);
+  position: relative; height: 560px; border: 1px solid var(--bord); border-radius: var(--rayon); background: var(--fond-2); overflow: hidden;
+}
+[data-theme="light"] .qf-graphe { --c-application: #2563EB; --c-fonctionnel: #0891B2; --c-technique: #CA8A04; --c-jira: #7C3AED;
+  --c-xray: #DB2777; --c-bdd: #16A34A; --c-automation: #EA580C; }
+
+.gv-prov { display: none; font-size: 8.5px; text-anchor: end; fill: var(--muted); }
+.gv-svg { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; user-select: none; }
+.gv-svg:active { cursor: grabbing; }
+.gv-lien path { fill: none; stroke-width: 1.4; opacity: .75; }
+.gv-lien.gv-deduit path, .gv-lien.gv-a-valider path { stroke-dasharray: 5 4; stroke: var(--warn) !important; }
+.gv-lien.gv-preuve path { stroke-dasharray: 1.5 4; stroke-linecap: round; }
+.gv-lien-texte { font-size: 10px; fill: var(--ink-2); text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: var(--bg-2); stroke-width: 4px; }
+.gv-loin .gv-lien-texte { display: none; }
+.gv-noeud { cursor: pointer; }
+.gv-boite { fill: color-mix(in srgb, var(--c) 12%, var(--surface)); stroke: var(--c); stroke-width: 1.3; }
+.gv-ico-fond { fill: color-mix(in srgb, var(--c) 22%, transparent); }
+.gv-ico { stroke: var(--c); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.gv-boite.gv-a-valider { stroke-dasharray: 5 3; stroke: var(--warn); }
+.gv-boite.gv-anomalie { fill: var(--ko-soft); stroke: var(--ko); }
+.gv-libelle { font-size: 12.5px; fill: var(--ink); font-weight: 600; }
+.gv-sous { font-size: 9.5px; fill: var(--muted); }
+.gv-sel .gv-boite { stroke-width: 2.4; filter: drop-shadow(0 0 8px var(--c)); }
+.gv-impact .gv-boite { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 2.2; }
+.gv-estompe { opacity: .15; }
+.gv-pastille-auto { fill: var(--ok); } .gv-pastille-manuel { fill: var(--surface-3); stroke: var(--muted); }
+.gv-centre-cercle { fill: url(#gv-degrade); stroke: var(--accent); stroke-width: 2; filter: drop-shadow(0 4px 14px var(--accent-line)); }
+.gv-centre-texte { font-size: 15px; font-weight: 700; fill: #fff; text-anchor: middle; }
+.gv-grappe text { font-size: 12px; font-weight: 700; letter-spacing: .05em; fill: var(--gc); }
+.gv-grappe-fond { fill: color-mix(in srgb, var(--gc) 4%, transparent); stroke: color-mix(in srgb, var(--gc) 30%, transparent); stroke-width: 1; }
+.gv-texte-cache, .gv-lien-texte.gv-court { display: none; }
+.gv-pastille-ko { fill: var(--ko); }
+.gv-plus { cursor: pointer; }
+.gv-plus rect { fill: var(--surface); stroke: var(--c); stroke-dasharray: 4 3; }
+.gv-plus text { font-size: 11px; font-weight: 600; fill: var(--c); text-anchor: middle; }
+.gv-mini[hidden] { display: none; }
+.gv-mini { position: absolute; right: 10px; bottom: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.gv-legende { display: none; }
+.gv-boite.gv-nouveau { stroke: var(--ok) !important; stroke-width: 3px; filter: drop-shadow(0 0 6px var(--ok)); }
+
+/* couverture du graphe par les tests (calque QAFlow : classe posée sur le nœud d'après proprietes.couverture_tests) */
+.qf-cv-couvert .gv-boite { stroke: var(--vert); stroke-width: 2.4; }
+.qf-cv-partiel .gv-boite { stroke: var(--orange); stroke-width: 2.4; stroke-dasharray: 6 3; }
+.qf-cv-echec .gv-boite { stroke: var(--rouge); stroke-width: 2.6; fill: var(--ko-soft); }
+.qf-cv-non_couvert .gv-boite { stroke: var(--texte-3); stroke-width: 2; stroke-dasharray: 2 3; }
+/* exécution en direct : état de chaque écran pendant le run */
+.qf-run-en_cours .gv-boite { stroke: var(--accent-2); stroke-width: 3; filter: drop-shadow(0 0 8px var(--accent-2)); }
+.qf-run-reussi .gv-boite { stroke: var(--vert); stroke-width: 2.4; }
+.qf-run-echec .gv-boite { stroke: var(--rouge); stroke-width: 2.6; fill: var(--ko-soft); }
+.qf-run-visite .gv-boite { stroke: var(--texte-2); stroke-width: 2; }
+.qf-run-a_venir .gv-boite { stroke: var(--texte-3); stroke-dasharray: 2 3; opacity: .7; }
+.qf-run-pastille { display: inline-block; width: 14px; height: 10px; border-radius: 3px; border: 2px solid; margin-right: 5px; vertical-align: -1px; }
+.qf-run-pastille.qf-run-en_cours { border-color: var(--accent-2); } .qf-run-pastille.qf-run-reussi { border-color: var(--vert); }
+.qf-run-pastille.qf-run-echec { border-color: var(--rouge); } .qf-run-pastille.qf-run-visite { border-color: var(--texte-2); }
+.qf-run-pastille.qf-run-a_venir { border-color: var(--texte-3); border-style: dashed; }
+.qf-legende-cv { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--texte-2); margin: 8px 0; }
+.qf-legende-cv i { display: inline-block; width: 14px; height: 10px; border-radius: 3px; border: 2px solid; margin-right: 5px; vertical-align: -1px; }

@@ -1,0 +1,91 @@
+---
+description: Automaticien expert Robot Framework (Browser, SeleniumLibrary, AppiumLibrary, RequestsLibrary) — qualité du code des tests
+globs: "**/*.robot,**/*.resource,**/*.py"
+alwaysApply: false
+---
+Tu écris comme un automaticien senior : un test que l'équipe peut relire, rejouer et maintenir sans toi. La revue de
+l'atelier contrôle ces points (contrôles « style », « pom », « locators », « conventions », Robocop) ; un écart
+bloquant empêche l'approbation. Avant d'écrire : studio_socle (keywords, locators, structure, conventions du dépôt).
+
+## Architecture (Page Object Model, toujours)
+- Suite = *** Settings *** + *** Test Cases *** : étapes Gherkin françaises seulement, aucun keyword défini, aucun
+  locator, aucune donnée littérale. Une suite par parcours métier.
+- Une ressource par page / écran (le dossier où le dépôt range déjà ses pages) : keywords métier de l'écran.
+- Locators de l'écran dans leur fichier (&{LOC_<ÉCRAN>_<PLATEFORME>}), mêmes clés métier sur Android, iOS et web.
+- Socle commun : Initialiser Le Test (par test : première ligne ou Test Setup, jamais Suite Setup), Terminer Le Test
+  (Test Teardown), Localiser (principal puis secours), attentes génériques.
+- Données : jeux de données de l'atelier (&{JDD_<NOM>}, par environnement), jamais en dur, jamais en *** Variables ***
+  de la suite ; secrets jamais écrits. Le profil utilisé en Discovery devient le jeu de données du test
+  (discovery_profil_vers_jdd) : un keyword lit ${JDD}[<clé de la variable en minuscules>] (ex. ${JDD}[demo_email]).
+  Date relative (rendez-vous à J+7…) : {{date:+7}} dans le jeu, recalculée à chaque run ; jamais une date figée.
+
+## Keywords
+- Nom métier à l'impératif ou en phrase Gherkin (« Saisir Le Montant », « le récapitulatif s'affiche »), jamais
+  technique (« Click Button 3 »). Un keyword = une intention ; pas de wrapper 1:1 d'un keyword de bibliothèque.
+- [Documentation] d'une ligne, [Arguments] nommés, 15 lignes au plus : sinon découper en keywords du socle.
+- Réutiliser avant de créer : studio_rapprocher_etapes ; un synonyme d'un keyword existant n'est pas un nouveau keyword.
+- Pas de logique de test dans les keywords de page (IF / FOR seulement pour une vraie variante d'écran).
+- Jamais Run Keyword And Ignore Error / Run Keyword And Return Status pour masquer un échec : un échec doit échouer.
+
+## Synchronisation (la première cause de tests instables)
+- Jamais Sleep. Attendre un état observable :
+  · Browser : les keywords attendent déjà (auto-wait) ; Wait For Elements State <loc> visible|enabled|detached,
+    Wait For Load State, assertions intégrées (Get Text <loc> == …, Get Element Count <loc> == 1). Une assertion
+    intégrée ne relance que 1 s par défaut : après une navigation (site Next.js, page lourde), attendre l'état avec un
+    délai explicite : Wait For Condition    Url    $=    /fr/tarifs    timeout=15s (même syntaxe que Get Url) ;
+  · SeleniumLibrary : Wait Until Element Is Visible / Enabled, Wait Until Page Contains Element, timeouts explicites,
+    jamais Set Selenium Speed ni attente implicite longue ;
+  · AppiumLibrary : Wait Until Element Is Visible, Wait Until Page Contains Element, Wait Until Page Does Not Contain
+    (spinner) ; timeouts par paramètre, pas de pause.
+- Une action = son attente puis son assertion (l'écran suivant est affiché, le message attendu est visible).
+- L'assertion doit pouvoir ÉCHOUER si l'action n'a rien fait. « visible » (Browser) veut dire « non masqué », pas « à
+  l'écran » : un titre déjà présent sur la page avant le clic ne prouve pas la navigation. Lien vers une section de la même
+  page (ancre « /page#agenda ») : vérifier l'adresse (Get Url    contains    \#agenda ; « # » en début de cellule est un
+  commentaire Robot, l'échapper), puis le titre. Autre page : vérifier l'adresse ou un titre propre à la page d'arrivée.
+- L'assertion finale vérifie le RÉSULTAT ATTENDU du parcours (discovery_parcours_cadre), pas un élément voisin : « la page
+  Tarifs affiche ses offres » se vérifie sur les offres (nombre de cartes, nom de chaque offre), pas sur un sélecteur de
+  devise. Texte attendu : le titre exact ou une phrase qui n'appartient qu'à cette page, jamais un mot isolé (« plan »).
+
+## Par bibliothèque
+- Browser (web, défaut de l'atelier) : New Browser / New Context / New Page dans le socle ; sélecteurs uniques
+  (role=, data-testid=, css= borné à une zone) ; une page par test (isolation) ; Take Screenshot dans le teardown si échec
+  ET si une page est ouverte (Get Page Ids) : un test qui échoue avant New Page ne doit pas faire échouer son teardown.
+  · role=…[name="…"] compare le nom accessible ENTIER, casse comprise. Ce nom n'est pas toujours le texte affiché : le
+    CSS (text-transform) change la casse affichée (« Lun. 23 Nov. » pour « lun. 23 nov. »), un libellé fait de plusieurs
+    <span> n'a pas les espaces du rendu. Le lire dans l'arbre d'accessibilité, ou ajouter le drapeau i
+    (role=button[name="lun. 23 nov." i]) ; check_locator → 1 élément avant de l'écrire.
+  · Fenêtre modale (role=dialog) : borner ses locators à la fenêtre (role=dialog >> role=button[name="Continuer"]) et
+    attendre son ouverture (Wait For Elements State <fenêtre> visible) avant d'y agir.
+  · Élément qui dépend d'une donnée (jour d'un calendrier, créneau, ligne d'un tableau) : un locator modèle dans le
+    fichier de locators (modele_jour=role=dialog >> role=button[name="{}" i]) rempli par Format String avec la valeur
+    calculée depuis ${JDD} ; jamais la valeur vue en Discovery figée dans le locator.
+- SeleniumLibrary (seulement si le dépôt l'utilise déjà ; ne jamais la mélanger avec Browser dans une suite) :
+  Open Browser dans le socle, Close All Browsers en Suite Teardown, Capture Page Screenshot si échec.
+- AppiumLibrary : capabilities dans le socle (pas dans les tests) ; locators id / accessibility_id / UiSelector ;
+  Compose : testTag exposé en resource-id (testTagsAsResourceId) ; gestes par élément (Swipe By Percent, Scroll
+  Element Into View), jamais par coordonnées absolues ; Hide Keyboard après une saisie ; contexte NATIVE / WEBVIEW
+  explicite ; Capture Page Screenshot et Close Application en teardown.
+- RequestsLibrary : Create Session dans le socle, URL de base en variable, statut et schéma vérifiés
+  (Status Should Be, champs attendus), jamais de jeton en dur (variable d'environnement).
+
+## Tests
+- Indépendants (aucun ordre imposé), rejouables 3 fois de suite, données remises en état ou consommées (tag
+  consomme_donnee). Tags : clé du test (Xray ou identifiant BDD) + smoke / e2e / negatif : les tags du scénario BDD
+  (@e2e, @consomme_donnee) passent tels quels dans [Tags] à la génération.
+- Donnée que chaque run consomme (créneau réservé, inscription, numéro unique) : le jeu donne la valeur souhaitée ; si
+  l'application ne la propose plus, le keyword prend la suivante disponible (Log … WARN), la retient
+  (Set Test Variable) et la vérifie dans le résultat. Rien de disponible : échec explicite (Fail), jamais masqué.
+- Chaque test vérifie un résultat métier à la fin ; un cas négatif vérifie le message d'erreur exact attendu QUAND
+  L'APPLICATION L'AFFICHE. Champ obligatoire refusé par le navigateur (attribut required, bulle native) : vérifier
+  l'état du formulaire (Get Property <champ> required == True, Evaluate JavaScript <champ> (e) => e.validity.valueMissing)
+  et l'absence de confirmation, jamais validationMessage : ce texte vient du navigateur et suit sa langue (« Please fill
+  out this field. » en run, « Veuillez renseigner ce champ. » sur un poste français), pas l'application. Un champ
+  pré-rempli (indicatif +212) n'est pas « vide » : relever required / valueMissing sur l'écran avant d'écrire l'assertion.
+- Nommage : test = phrase métier ; variables constantes en ${MAJUSCULES}, locales en ${minuscules}.
+
+## Avant de soumettre
+- locator_robustesse sur chaque nouveau locator ; check_locator → 1 élément ; studio_executer_etape pour vérifier à
+  l'écran ; run_robot en dry_run ; Robocop sans erreur ; puis studio_soumettre_revue (3 runs stables + revue humaine).
+- check_locator sur la valeur EXACTE écrite dans le fichier de locators : la vérification est journalisée pour ce
+  locator ; sans elle, un locator que la carte n'a jamais vu tel quel (fenêtre, titre de confirmation) reste
+  « obsolète » dans la revue (contrôle « locators »).

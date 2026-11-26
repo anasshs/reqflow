@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Test Platform</title>
+<meta name="description" content="AI Test Engineering Platform — espaces de travail de l'automaticien">
+<link rel="icon" href="data:,">
+<script>
+  /* thème avant le premier rendu (évite le flash) : choix mémorisé, sinon préférence du système */
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("atelier-theme"); } catch (e) { /* stockage indisponible */ }
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+<link rel="stylesheet" href="/static/plateforme.css">
+</head>
+<body>
+<script>
+  /* barre latérale réduite : état mémorisé, posé avant le premier rendu */
+  try { if (localStorage.getItem("atelier-nav") === "reduite") document.body.classList.add("nav-reduite"); } catch (e) { /* stockage indisponible */ }
+</script>
+<aside class="nav-lat" aria-label="Navigation">
+  <a class="logo" href="#atelier" title="Atelier">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 29 27H3Z" fill="none" stroke="var(--logo-1)" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M16 12 22.5 24h-13Z" fill="var(--logo-2)"/></svg>
+    <div><b>AI Test Platform</b><small>Enterprise</small></div>
+  </a>
+  <nav class="onglets" id="onglets" aria-label="Espaces"></nav>
+  <div class="nav-pied"><button id="b-nav" aria-expanded="true"></button></div>
+</aside>
+<header class="entete">
+  <div class="ctx" id="ctx" aria-label="Contexte de travail"></div>
+  <div class="droite">
+    <button class="btn-demandes" id="b-demandes" title="Mes demandes" aria-label="Mes demandes"></button>
+    <button class="icone" id="b-alertes" title="Anomalies et propositions à valider" aria-label="Anomalies"></button>
+    <button class="icone" id="b-aide" title="Aide" aria-label="Aide"></button>
+    <button class="icone" id="b-theme" title="Basculer le thème clair / sombre" aria-label="Basculer le thème"></button>
+    <a class="btn petit" href="/qaflow" title="Nouvelle interface QAFlow (aperçu, en cours de refonte) : mêmes données, même session">Nouvelle interface</a>
+    <a class="icone" href="/" title="Interface classique (connexion device, carte, agent intégré)" aria-label="Interface classique"></a>
+    <div class="utilisateur" id="utilisateur"></div>
+  </div>
+</header>
+<main id="ecran"></main>
+<script src="/static/graphe.js"></script>
+<script src="/static/plateforme.js"></script>
+<script src="/static/ecran_graphe.js"></script>
+<script src="/static/ecran_bdd.js"></script>
+<script src="/static/ecran_editeur.js"></script>
+<script src="/static/ecran_execution.js"></script>
+<script src="/static/ecran_suivi.js"></script>
+<script src="/static/ecran_divers.js"></script>
+<script src="/static/ecran_pilotage.js"></script>
+<script src="/static/ecran_accueil.js"></script>
+<script src="/static/ecran_couverture_intel.js"></script>
+<script src="/static/ecran_strategie.js"></script>
+<script src="/static/ecran_conception.js"></script>
+<script src="/static/ecran_comportement.js"></script>
+<script src="/static/ecran_parcours.js"></script>
+<script src="/static/ecran_studio.js"></script>
+<script src="/static/ecran_releases.js"></script>
+<script src="/static/ecran_ia.js"></script>
+<script src="/static/ecran_centre.js"></script>
+<script src="/static/ecran_tests.js"></script>
+<script src="/static/ecran_lots.js"></script>
+<script src="/static/ecran_couverture_tests.js"></script>
+<script src="/static/ecran_run_graphe.js"></script>
+<script src="/static/ecran_travaux.js"></script>
+<script src="/static/ecran_atelier.js"></script>
+<script src="/static/ecran_donnees.js"></script>
+
+<script src="/static/ecran_echecs.js"></script>
+<script src="/static/ecran_gouvernance.js"></script>
+<script src="/static/ecran_intelligence.js"></script>
+<script src="/static/ecran_discovery_donnees.js"></script>
+<script src="/static/ecran_discovery_parcours.js"></script>
+<script src="/static/ecran_discovery.js"></script>
+<script src="/static/discovery_flottant.js"></script>
+<script src="/static/console_agent.js"></script>
+<script src="/static/ecran_adoption.js"></script>
+<script src="/static/ecran_automatiser.js"></script>
+<script src="/static/activite.js"></script>
+<script src="/static/suivi_cursor.js"></script>
+<script>Atelier.demarrer();</script>
+</body>
+</html>

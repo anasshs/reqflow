@@ -1,0 +1,41 @@
+nom: Banque Démo Web
+plateformes:
+- web
+android:
+  app_package: ''
+  app_activity: ''
+ios:
+  bundle_id: ''
+web:
+  url: ''
+build: 1.0.0
+langue: fr
+liste_rouge:
+  textes:
+  - confirm
+  - \bvalid
+  - \bpayer\b
+  - \bpaie
+  - envoyer
+  - \bsign
+  - supprim
+  - cl[oô]tur
+  - r[ée]sili
+  - d[ée]connex
+  - d[ée]connecter
+  - logout
+  - transf[ée]r
+  - acheter
+  - souscri
+  - accepter
+  - effectuer
+  - '[ée]mettre'
+  - bloquer
+  - opposition
+  - commander
+  - recharger
+  cles: []
+comptes: []
+ecran_depart: ''
+etape_assistant: 1
+cree: '2026-11-14T13:16:37'

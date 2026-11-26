@@ -1,0 +1,24 @@
+{
+ "description": "Empreintes SHA-256 des règles livrées par les versions précédentes de l'atelier (avant la V2) : un fichier installé identique est « à mettre à jour », pas « modifié localement ».",
+ "empreintes": {
+  "automation": [
+   "3b6d635ea091bfd8934f5469056b760d29cb1ea69308ddb24634b3e6120c4ca0",
+   "4509a4202c100997df343d7aa3a9c1320f62f0f96b15e347a2ed527c369eee67",
+   "4b24ca63548bc72a4f850f6fd01e3f91b0f8125fc2414c5a77aeafacbc578224",
+   "6d131a977df24ee4f6655b2a85d799fc9bff9248a212d21eb62013288037d159",
+   "9fe9a2594025ca3e69ecc971b618657d3504dd0e195d85638b5464b432951dde",
+   "a9ec3b7f44f53e23ae9adc56e5243b6583ad22df7370e61b5e2237d096f61eba",
+   "e0e62bc68ceb5fd66504ece5062c51d7c7face03792ef869627fd871cf2c1416",
+   "e24fd68eaf942c992e474ee993314d8619128d7a53bbc96c22286253e2e096db",
+   "f836bd76029a9968b0fec9b84a5dca4066109453ac190231340e7e9317a4be3a"
+  ],
+  "discovery": [
+   "03ac4030e60a3b176480e48843fbc9888e4ccce6225704cfbb63a7958fa01d47",
+   "055a1f39ec76b2af66cf29bad07e649ce3abf89be2dceccd64aa0ea488367100",
+   "9d4ec343fcdbeb034c2a3f27143e26befbe125b04f609677a5ef053f721e27ac",
+   "a1c0c8a8dbeee3c693f7d58286fc7cbcc454e532ea4f593228cb4eec13e4bc38",
+   "e3cbd3218bf3352be817a28357d1e9795db5bb05419e32e85fbf081bba1001f9",
+   "f96d0b4fc72c2a7dadbcbf44858d52ade76e1b19a5318568465c48efc2cd481d"
+  ]
+ }
+}

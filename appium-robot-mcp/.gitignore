@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+results/
+.mcp_snapshots/
+*.pyc
+.env
+.pytest_cache/
+dist/

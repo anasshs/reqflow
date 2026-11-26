@@ -1,0 +1,323 @@
+"""Parcours utilisateur (initiation de Discovery) : cadrage enregistré avant l'exploration, déroulé par une session,
+écrans proposés puis validés. Le lien écran ↔ exigence n'est jamais créé par le cadrage. Application fictive."""
+import pytest
+
+
+def _el(cle, libelle, type_="bouton"):
+    return {"key": cle, "type": type_, "libelle": libelle, "locators": [f"id={cle}"]}
+
+
+EXIGENCES = [{"cle": "DEMO-1", "type": "epic", "resume": "Virements"},
+             {"cle": "DEMO-2", "type": "user_story", "resume": "Saisir un virement", "description": "En tant que client…",
+              "criteres": ["Le montant est obligatoire", "Le plafond est contrôlé"]},
+             {"cle": "DEMO-4", "type": "user_story", "resume": "Consulter les comptes"}]
+
+
+@pytest.fixture
+def banque(projet):
+    """Trois écrans déjà vus (accueil, saisie, récapitulatif), trois exigences dans la copie locale, un profil de données."""
+    from atelier.discovery import carte, connaissance, donnees
+    from atelier.intelligence import patrimoine_xray
+
+    donnees._MEMOIRE.clear()
+    donnees._CHOIX.clear()
+    carte.creer_app("Banque Web", ["web"], web={"url": "https://recette.exemple.fr"}, type_="web")
+    ids = {}
+    for nom, cle, libelle in (("accueil", "lien_virements", "Virements"), ("virement_saisie", "bouton_valider", "Valider le virement"),
+                              ("virement_recap", "bouton_confirmer", "Confirmer")):
+        e = carte.observer([_el(cle, libelle)], "web", f"https://recette.exemple.fr/{nom}")
+        carte.renommer(e["id"], nom, "Virements")
+        ids[nom] = e["id"]
+    patrimoine_xray.enregistrer({"projet": "DEMO", "exigences": EXIGENCES, "tests": []}, "test")
+    donnees.enregistrer_variable("MONTANT", {"nom": "Montant du virement", "type": "nombre"})
+    donnees.enregistrer_variable("BENEFICIAIRE", {"nom": "Bénéficiaire"})
+    donnees.definir_valeur("MONTANT", 25)
+    donnees.enregistrer_profil("CLIENT_STANDARD", ["MONTANT", "BENEFICIAIRE"], "Client courant", "profil")
+    connaissance.vider_cache()
+    return ids
+
+
+def _graphe():
+    from atelier.discovery import connaissance
+
+    connaissance.vider_cache()
+    return connaissance.construire()
+
+
+def _derouler(pid, ecrans):
+    """Une session rattachée au parcours, qui traverse les écrans dans l'ordre donné (événements de la carte)."""
+    from atelier.discovery import carte, sessions_discovery
+    from atelier.domain import evenements
+
+    s = sessions_discovery.creer({"plateforme": "web", "parcours": pid, "device": "navigateur"})
+    sessions_discovery.demarrer(s["id"])
+    for eid in ecrans:
+        evenements.publier({"type": "carte_change", "ecran": {"id": eid, "nom": carte.ecran(eid).get("nom")}})
+    return sessions_discovery.arreter(s["id"])
+
+
+def test_cadrage_controle_et_enregistre(banque):
+    from atelier.discovery import parcours_utilisateur as pu
+    from atelier.domain import ontologie
+
+    with pytest.raises(ValueError, match="nom du parcours"):
+        pu.enregistrer("", {"objectif": "sans nom"})
+    with pytest.raises(ValueError, match="copie locale Jira"):
+        pu.enregistrer("", {"nom": "Virement", "exigences": ["DEMO-999"]})
+    with pytest.raises(ValueError, match="Profil de données inconnu"):
+        pu.enregistrer("", {"nom": "Virement", "profil_donnees": "INCONNU"})
+    with pytest.raises(ValueError, match="non déclarée"):
+        pu.enregistrer("", {"nom": "Virement", "plateforme": "android"})
+    assert pu.lister() == []                                                 # un refus n'enregistre rien
+
+    p = pu.enregistrer("", {"nom": "Faire un virement interne", "objectif": "Virer entre deux comptes", "exigences": ["demo-2"]})
+    # seule plateforme de l'application (web) : choisie d'office, le parcours est prêt à dérouler
+    assert p["id"] == "PU-faire_un_virement_interne" and p["statut"] == "Prêt" and p["noeud"] == "parcours:faire_un_virement_interne"
+    assert p["plateforme"] == "web" and p["controles"]["pret"] is True and not p["controles"]["bloquants"]
+    assert [x["cle"] for x in p["exigences"]] == ["DEMO-2"] and p["exigences"][0]["criteres"] == ["Le montant est obligatoire", "Le plafond est contrôlé"]
+    with pytest.raises(ValueError, match="existe déjà"):
+        pu.enregistrer("", {"nom": "faire un virement INTERNE"})
+
+    p = pu.enregistrer(p["id"], {"profil_donnees": "CLIENT_STANDARD", "plateforme": "web", "environnement": "recette", "pilote": "cursor",
+                                 "resultat_attendu": "Le virement est confirmé"})
+    assert p["statut"] == "Prêt" and p["controles"]["pret"] and p["nom"] == "Faire un virement interne"      # les autres champs restent
+    assert [x["cle"] for x in p["donnees"]["pretes"]] == ["MONTANT"] and p["donnees"]["bloquees"][0]["cle"] == "BENEFICIAIRE"
+    assert "valeur" not in p["donnees"]["pretes"][0]                          # aucune valeur de donnée dans le cadrage
+    assert any("BENEFICIAIRE" in a for a in p["controles"]["avertissements"])
+    assert [h["action"] for h in reversed(p["historique"])][:2] == ["création", "modification"]
+    assert {h.get("champ") for h in p["historique"]} >= {"profil de données", "qui navigue"}  # plateforme : posée dès la création
+
+    # Knowledge Graph : parcours déclaré (validé) et lien exigence → parcours validé d'office, lu « a le parcours »
+    g = _graphe()
+    n = g.noeuds["parcours:faire_un_virement_interne"]
+    assert (n.statut, n.provenance, n.libelle) == ("validé", "déclaré", "Faire un virement interne")
+    rel = g.relations["user_story:DEMO-2|associe_a|parcours:faire_un_virement_interne"]
+    assert rel.statut == "validé" and ontologie.metier(rel, g)["type"] == "HAS_JOURNEY"
+    assert not [r for r in g.relations.values() if r.type == "impacte"]      # aucun « réalisé par » créé par le cadrage
+    assert "PU-faire_un_virement_interne" in p["demande_cursor"] and "discovery_parcours_cadre" in p["demande_cursor"]
+
+
+def test_modifier_un_parcours_enregistre(banque):
+    from atelier.discovery import parcours_utilisateur as pu
+
+    p = pu.enregistrer("", {"nom": "Virement", "exigences": ["DEMO-2"], "plateforme": "web"})
+    p = pu.enregistrer(p["id"], {"nom": "Virement interne", "exigences": ["DEMO-1", "DEMO-4"]})
+    assert p["id"] == "PU-virement" and p["noeud"] == "parcours:virement"      # l'identifiant et le nœud ne changent pas
+    g = _graphe()
+    assert g.noeuds["parcours:virement"].libelle == "Virement interne"
+    liens = sorted(r.de for r in g.relations.values() if r.vers == "parcours:virement" and r.type == "associe_a")
+    assert liens == ["epic:DEMO-1", "user_story:DEMO-4"]                     # DEMO-2 retirée, les deux autres ajoutées
+    assert [(x["id"], x["nom"]) for x in pu.lister()] == [("PU-virement", "Virement interne")]
+    copie = pu.dupliquer(p["id"], "Virement externe")
+    assert copie["id"] == "PU-virement_externe" and [x["cle"] for x in copie["exigences"]] == ["DEMO-1", "DEMO-4"] and copie["sessions"] == []
+    assert pu.archiver(p["id"])["statut"] == "Archivé" and [x["id"] for x in pu.lister()] == ["PU-virement_externe"]
+    assert len(pu.lister(archives=True)) == 2 and pu.archiver(p["id"], False)["statut"] == "Prêt"
+
+
+def test_deroule_puis_validation_des_ecrans(banque):
+    from atelier.discovery import correlation, parcours_utilisateur as pu
+
+    p = pu.enregistrer("", {"nom": "Faire un virement", "exigences": ["DEMO-2"], "profil_donnees": "CLIENT_STANDARD", "plateforme": "web",
+                            "environnement": "recette", "point_depart": "accueil"})
+    s = _derouler(p["id"], [banque["accueil"], banque["virement_saisie"], banque["virement_saisie"], banque["virement_recap"]])
+    c = s["config"]                                                          # le cadrage a complété la configuration de la session
+    assert (c["parcours"], c["perimetre"], c["profil_donnees"], c["environnement"], c["point_depart"]) == \
+        (p["id"], "Faire un virement", "CLIENT_STANDARD", "recette", "accueil")
+    p = pu.obtenir(p["id"])
+    assert p["statut"] == "Validé" and [x["id"] for x in p["sessions"]] == [s["id"]]        # déroulé d'un parcours cadré : validé d'office
+    assert [e["nom"] for e in p["ecrans"]] == ["accueil", "virement_saisie", "virement_recap"]             # ordre du déroulé, sans répétition
+    assert {e["lien"] for e in p["ecrans"]} == {"validé"} and p["ecrans_a_valider"] == 0
+    g = _graphe()
+    rel = g.relations["parcours:faire_un_virement|contient|ecran:virement_saisie"]
+    assert rel.statut == "validé" and s["id"] in rel.source                  # fait observé, avec le déroulé pour origine
+
+    # Corrélation : l'exigence du parcours est présélectionnée d'abord pour ses écrans (à faire juger par l'IA), jamais un lien
+    co = correlation.ecran(banque["virement_recap"])
+    assert co["candidats"][0]["cle"] == "DEMO-2" and co["candidats"][0]["parcours"] == ["Faire un virement"]
+    assert co["exigences_proposees"] == []                                    # seule l'IA propose
+    assert co["realisees"] == [] and not [r for r in g.relations.values() if r.type == "impacte"]
+    cand = correlation.correlations_a_juger(banque["virement_recap"])["ecrans"][0]["candidats"][0]
+    assert cand["cle"] == "DEMO-2" and cand["parcours"] == ["Faire un virement"]
+
+    # l'utilisateur retire l'accueil, qui n'appartient pas au parcours
+    with pytest.raises(ValueError, match="au moins un écran"):
+        pu.valider(p["id"], [])
+    p = pu.valider(p["id"], [banque["virement_saisie"], banque["virement_recap"]])
+    assert p["statut"] == "Validé" and [(e["nom"], e["lien"]) for e in p["ecrans"]] == [("virement_saisie", "validé"), ("virement_recap", "validé")]
+    g = _graphe()
+    assert "parcours:faire_un_virement|contient|ecran:accueil" not in g.relations
+    assert g.relations["parcours:faire_un_virement|contient|ecran:virement_recap"].statut == "validé"
+
+    # nouveau déroulé : l'écran retiré n'est pas reproposé, les écrans validés le restent
+    _derouler(p["id"], [banque["accueil"], banque["virement_saisie"]])
+    p = pu.obtenir(p["id"])
+    assert [e["nom"] for e in p["ecrans"]] == ["virement_saisie", "virement_recap"] and len(p["sessions"]) == 2
+    assert {e["lien"] for e in p["ecrans"]} == {"validé"} and [e["au_dernier_deroule"] for e in p["ecrans"]] == [True, False]
+    assert "parcours:faire_un_virement|contient|ecran:accueil" not in _graphe().relations
+
+
+def test_ecran_renomme_reste_dans_le_parcours(banque):
+    from atelier.discovery import carte, parcours_utilisateur as pu
+
+    p = pu.enregistrer("", {"nom": "Virement", "plateforme": "web"})
+    _derouler(p["id"], [banque["virement_saisie"]])
+    carte.renommer(banque["virement_saisie"], "virement_formulaire", "Virements")
+    e = pu.obtenir(p["id"])["ecrans"][0]
+    assert (e["nom"], e["lien"]) == ("virement_formulaire", "validé")         # le lien a suivi le renommage
+    assert pu.valider(p["id"])["ecrans"][0]["lien"] == "validé"
+
+
+def test_pour_l_agent_lecture_seule_et_demarrage(banque, monkeypatch):
+    from atelier.adapters import facade
+    from atelier.discovery import parcours_utilisateur as pu, session, sessions_discovery
+
+    p = pu.enregistrer("", {"nom": "Faire un virement", "objectif": "Virer", "exigences": ["DEMO-2"], "profil_donnees": "CLIENT_STANDARD",
+                            "plateforme": "web", "environnement": "recette"})
+    assert [x["id"] for x in facade.discovery_parcours_cadre()["parcours"]] == [p["id"]]
+    c = facade.discovery_parcours_cadre(p["id"])
+    assert c["exigences"][0]["criteres"] and c["donnees"]["bloquees"][0]["cle"] == "BENEFICIAIRE" and "25" not in str(c)   # jamais de valeur
+    with pytest.raises(KeyError, match="Parcours inconnu"):
+        facade.discovery_parcours_cadre("PU-inconnu")
+    with pytest.raises(KeyError):
+        pu.obtenir("../../etc")                                              # identifiant contrôlé avant tout accès au disque
+
+    monkeypatch.setattr(session, "plateforme", lambda: "web")
+    s = facade.discovery_demarrer(parcours=p["id"])
+    assert s["config"]["parcours"] == p["id"] and s["config"]["environnement"] == "recette" and s["config"]["profil_donnees"] == "CLIENT_STANDARD"
+    assert pu.obtenir(p["id"])["statut"] == "En cours" and pu.obtenir(p["id"])["session_active"] == s["id"]
+    with pytest.raises(ValueError, match="en cours"):
+        pu.archiver(p["id"])
+    sessions_discovery.arreter(s["id"])
+    pu.archiver(p["id"])
+    with pytest.raises(ValueError, match="archivé"):
+        sessions_discovery.creer({"plateforme": "web", "parcours": p["id"]})
+    sans = sessions_discovery.creer({"plateforme": "web"})                   # une Discovery sans parcours reste possible, inchangée
+    assert sans["config"]["parcours"] == "" and sans["config"]["perimetre"] == ""
+
+
+def test_routes_web(banque):
+    from fastapi.testclient import TestClient
+
+    from web_app_loader import charger_app_web
+
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200                                     # la page pose le jeton de session
+    v = c.get("/api/discovery/cadrage").json()
+    assert v["parcours"] == [] and v["options"]["plateformes"] == ["web"] and v["options"]["profils"][0]["nom"] == "CLIENT_STANDARD"
+    assert "accueil" in v["options"]["ecrans"]
+    assert c.post("/api/discovery/cadrage", json={"objectif": "sans nom"}).status_code == 400
+    p = c.post("/api/discovery/cadrage", json={"nom": "Virement", "exigences": ["DEMO-2"], "inconnu": "ignoré"}).json()
+    assert p["id"] == "PU-virement"
+    p = c.post("/api/discovery/cadrage", json={"id": p["id"], "plateforme": "web"}).json()
+    assert p["statut"] == "Prêt" and c.get(f"/api/discovery/cadrage/{p['id']}").json()["nom"] == "Virement"
+    assert c.get("/api/discovery/cadrage/PU-inconnu").status_code == 400
+    assert c.post(f"/api/discovery/cadrage/{p['id']}/valider", json={}).status_code == 400               # rien à valider avant un déroulé
+    assert c.post(f"/api/discovery/cadrage/{p['id']}/archiver", json={"motif": "doublon"}).json()["statut"] == "Archivé"
+    assert c.get("/api/discovery/cadrage").json()["parcours"] == [] and len(c.get("/api/discovery/cadrage?archives=true").json()["parcours"]) == 1
+    assert c.post(f"/api/discovery/cadrage/{p['id']}/supprimer", json={}).status_code == 404
+
+
+def test_reste_a_explorer(banque):
+    """Ce que les parcours validés et les actions déjà essayées ne couvrent pas : la mesure de l'utilité d'une exploration."""
+    from atelier.discovery import carte, parcours_utilisateur as pu, reste
+
+    r = reste.a_explorer()
+    s = r["synthese"]
+    assert (s["ecrans"], s["hors_parcours"], s["dans_un_parcours"], s["parcours_valides"], s["rien"]) == (3, 3, 0, 0, False)
+    assert s["a_essayer"] + s["non_sures"] == 3                               # un élément interactif par écran, aucun essayé
+    accueil = next(x for x in r["ecrans"] if x["nom"] == "accueil")
+    assert accueil["a_essayer"] == 1 and accueil["a_essayer_exemples"][0]["libelle"] == "Virements"       # un lien de navigation est sûr
+    assert next(x for x in r["ecrans"] if x["nom"] == "virement_recap")["non_sures"] == 1                # « Confirmer » : jamais en autonome
+
+    # un parcours cadré puis déroulé : ses écrans traversés en font partie d'office
+    p = pu.enregistrer("", {"nom": "Faire un virement", "plateforme": "web"})
+    _derouler(p["id"], [banque["accueil"], banque["virement_saisie"]])
+    r = reste.a_explorer()
+    assert (r["synthese"]["hors_parcours"], r["synthese"]["parcours_valides"]) == (1, 1)
+    assert next(x for x in r["ecrans"] if x["nom"] == "accueil")["parcours"] == ["Faire un virement"]
+    pu.valider(p["id"], [banque["virement_saisie"]])                                                    # l'accueil retiré
+    r = reste.a_explorer()
+    par_nom = {x["nom"]: x for x in r["ecrans"]}
+    assert (r["synthese"]["hors_parcours"], r["synthese"]["parcours_valides"]) == (2, 1)
+    assert par_nom["virement_saisie"]["parcours"] == ["Faire un virement"] and not par_nom["virement_saisie"]["hors_parcours"]
+    assert par_nom["accueil"]["hors_parcours"] and par_nom["accueil"]["parcours_proposes"] == []          # retiré à la validation
+    assert [x["hors_parcours"] for x in r["ecrans"]] == [True, True, False]                              # le reste d'abord
+
+    # une action essayée ne reste plus à explorer
+    carte.marquer_essaye(banque["accueil"], "web", "lien_virements")
+    assert next(x for x in reste.a_explorer()["ecrans"] if x["nom"] == "accueil")["a_essayer"] == 0
+
+
+def test_reste_a_explorer_carte_vide_et_route(projet):
+    from fastapi.testclient import TestClient
+
+    from atelier.discovery import carte, reste
+    from web_app_loader import charger_app_web
+
+    r = reste.a_explorer()
+    assert (r["application"], r["carte_vide"], r["ecrans"], r["perimetres"], r["perimetre"]) == ("", True, [], [], None)   # aucune application
+    carte.creer_app("Banque Web", ["web"], web={"url": "https://recette.exemple.fr"}, type_="web")
+    r = reste.a_explorer()
+    assert r["carte_vide"] and r["synthese"]["ecrans"] == 0 and r["synthese"]["rien"] is False            # carte vide : tout reste à explorer
+    c = TestClient(charger_app_web(), base_url="http://127.0.0.1:8765")
+    assert c.get("/").status_code == 200
+    assert c.get("/api/discovery/reste").json()["carte_vide"] is True
+
+
+def test_perimetre_d_exploration(banque):
+    """Un module ou un parcours validé borne le reste à explorer, la session et les suggestions. Un écran découvert
+    pendant la session fait partie du périmètre : c'est le delta."""
+    from atelier.discovery import assistance, carte, parcours_utilisateur as pu, reste, sessions_discovery
+    from atelier.domain import evenements
+
+    carte.renommer(banque["accueil"], "accueil", "Accueil")                   # deux modules : Accueil (1 écran), Virements (2)
+    assert [(x["noeud"], len(x["ecrans"])) for x in reste.perimetres()] == [("module:Accueil", 1), ("module:Virements", 2)]
+    r = reste.a_explorer("module:Virements")
+    assert sorted(x["nom"] for x in r["ecrans"]) == ["virement_recap", "virement_saisie"] and r["synthese"]["ecrans"] == 2
+    assert r["perimetre"] == {"noeud": "module:Virements", "type": "module", "libelle": "Virements", "ecrans": 2}
+    assert reste.a_explorer("virements")["perimetre"]["noeud"] == "module:Virements"       # libellé sans ambiguïté accepté
+    with pytest.raises(KeyError, match="Périmètre inconnu"):
+        reste.a_explorer("module:Inconnu")
+
+    p = pu.enregistrer("", {"nom": "Saisir un virement", "plateforme": "web"})             # un parcours validé est aussi un périmètre
+    _derouler(p["id"], [banque["virement_saisie"]])
+    assert "parcours:saisir_un_virement" in [x["noeud"] for x in reste.perimetres()]       # déroulé : écrans validés, déjà un périmètre
+    assert reste.perimetre("parcours:saisir_un_virement")["ecrans"] == [banque["virement_saisie"]]
+
+    # la session porte le périmètre ; un texte libre qui ne désigne rien reste un simple libellé
+    with pytest.raises(KeyError, match="Périmètre inconnu"):
+        sessions_discovery.creer({"plateforme": "web", "perimetre_noeud": "module:Inconnu"})
+    libre = sessions_discovery.creer({"plateforme": "web", "perimetre": "les écrans de paiement"})
+    assert (libre["config"]["perimetre"], libre["config"]["perimetre_noeud"]) == ("les écrans de paiement", "")
+    par_libelle = sessions_discovery.creer({"plateforme": "web", "perimetre": "module:Virements"})   # ce que Cursor passe à discovery_demarrer
+    assert par_libelle["config"]["perimetre_noeud"] == "module:Virements"
+    s = sessions_discovery.creer({"plateforme": "web", "perimetre_noeud": "module:Virements"})
+    assert (s["config"]["perimetre"], s["config"]["perimetre_noeud"]) == ("Virements", "module:Virements")
+    assert sessions_discovery.perimetre_actif() is None                       # tant que la session n'est pas démarrée
+    sessions_discovery.demarrer(s["id"])
+    actif = sessions_discovery.perimetre_actif()
+    assert actif["ecrans"] == {banque["virement_saisie"], banque["virement_recap"]} and len(actif["connus_au_debut"]) == 3
+    assert sessions_discovery.hors_perimetre(banque["accueil"], actif) and not sessions_discovery.hors_perimetre(banque["virement_saisie"], actif)
+
+    # suggestions : rien hors du périmètre ; un écran découvert pendant la session en fait partie
+    hors = assistance.suggerer([_el("lien_virements", "Virements", "lien")], {"id": banque["accueil"]}, "web", ia=False)
+    assert hors["suggestions"] == [] and hors["perimetre"] == {"noeud": "module:Virements", "libelle": "Virements", "dans_le_perimetre": False}
+    nouveau = carte.observer([_el("lien_plafonds", "Voir mes plafonds", "lien")], "web", "https://recette.exemple.fr/plafonds")
+    evenements.publier({"type": "carte_change", "ecran": {"id": nouveau["id"], "nouveau": True}})
+    dedans = assistance.suggerer([_el("lien_plafonds", "Voir mes plafonds", "lien")], {"id": nouveau["id"]}, "web", ia=False)
+    assert dedans["perimetre"]["dans_le_perimetre"] and [x["cle"] for x in dedans["suggestions"]] == ["lien_plafonds"]
+    sessions_discovery.arreter(s["id"])
+    assert assistance.suggerer([], {"id": banque["accueil"]}, "web", ia=False)["perimetre"] is None       # hors session : rien n'est borné
+
+
+def test_ecran_de_passage_reste_a_confirmer(banque):
+    """Un écran de chargement ou d'erreur traversé pendant le déroulé n'entre pas d'office dans le parcours."""
+    from atelier.discovery import carte, parcours_utilisateur as pu
+
+    attente = carte.observer([_el("sablier", "Chargement en cours")], "web", "https://recette.exemple.fr/attente")
+    carte.renommer(attente["id"], "loading_screen", "Virements")
+    p = pu.enregistrer("", {"nom": "Virement", "plateforme": "web"})
+    _derouler(p["id"], [banque["accueil"], attente["id"], banque["virement_saisie"]])
+    liens = {e["nom"]: e["lien"] for e in pu.obtenir(p["id"])["ecrans"]}
+    assert liens == {"accueil": "validé", "loading_screen": "à valider", "virement_saisie": "validé"}
+    assert pu.obtenir(p["id"])["statut"] == "Exploré"                     # un écran reste à confirmer : pas validé d'office

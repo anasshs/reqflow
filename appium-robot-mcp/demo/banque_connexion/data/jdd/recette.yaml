@@ -1,0 +1,51 @@
+# Jeux de données de la recette — application FICTIVE Banque Démo.
+# Les mots de passe ci-dessous sont ceux des comptes fictifs codés dans app/connexion.html :
+# ce ne sont pas des secrets. Dans un vrai projet : {{env:VAR}} (jamais en clair dans le dépôt).
+
+CLIENT_ACTIF:
+  description: Client actif, identifiants corrects
+  donnees:
+    identifiant: "client.demo"
+    mot_de_passe: "Demo#2026"
+    nom_affiche: "Client Démo"
+
+MOT_DE_PASSE_INVALIDE:
+  description: Client existant, mot de passe erroné
+  donnees:
+    identifiant: "client.demo"
+    mot_de_passe: "Mauvais#0000"
+    message_attendu: "Identifiant ou mot de passe incorrect."
+
+IDENTIFIANT_INCONNU:
+  description: Identifiant qui n'existe pas (même message que le mot de passe erroné)
+  donnees:
+    identifiant: "client.inconnu"
+    mot_de_passe: "Demo#2026"
+    message_attendu: "Identifiant ou mot de passe incorrect."
+
+CHAMPS_VIDES:
+  description: Aucun champ renseigné
+  donnees:
+    message_attendu: "Veuillez saisir votre identifiant et votre mot de passe."
+
+COMPTE_BLOQUE:
+  description: Compte bloqué par le back-office
+  donnees:
+    identifiant: "client.bloque"
+    mot_de_passe: "Bloque#2026"
+    message_attendu: "Votre compte est bloqué. Contactez votre conseiller."
+
+TROIS_ECHECS:
+  description: Trois mots de passe erronés consécutifs (règle de blocage DEMO-304)
+  donnees:
+    identifiant: "client.demo"
+    mot_de_passe: "Mauvais#0000"
+    tentatives: "3"
+    message_attendu: "Votre compte est bloqué. Contactez votre conseiller."
+
+DECONNEXION:
+  description: Connexion puis déconnexion
+  donnees:
+    identifiant: "client.demo"
+    mot_de_passe: "Demo#2026"
+    message_attendu: "Vous êtes déconnecté."

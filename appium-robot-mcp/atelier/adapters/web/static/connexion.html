@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion · AI Test Platform</title>
+<link rel="icon" href="data:,">
+<script>
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("atelier-theme"); } catch (e) { /* stockage indisponible */ }
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+<link rel="stylesheet" href="/static/plateforme.css">
+</head>
+<body class="page-seule">
+<main class="seule">
+  <form class="carte seule-carte" id="f" autocomplete="on">
+    <h1>AI Test Platform</h1>
+    <p class="lib">Connecte-toi avec ton compte de l'atelier.</p>
+    <label for="id">Identifiant</label>
+    <input class="in" id="id" name="username" autocomplete="username" required autofocus>
+    <label for="mdp">Mot de passe</label>
+    <input class="in" id="mdp" name="password" type="password" autocomplete="current-password" required>
+    <p class="erreur" id="err" role="alert"></p>
+    <button class="btn primaire" type="submit">Se connecter</button>
+    <p class="lib">Pas de compte ? Un responsable de l'atelier le crée (Paramètres › Comptes et base).</p>
+  </form>
+</main>
+<script>
+  "use strict";
+  const retour = new URLSearchParams(location.search).get("retour") || "";
+  document.getElementById("f").onsubmit = async e => {
+    e.preventDefault();
+    const err = document.getElementById("err");
+    err.textContent = "";
+    const r = await fetch("/api/connexion", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({identifiant: document.getElementById("id").value, mot_de_passe: document.getElementById("mdp").value})});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { err.textContent = d.detail || "Connexion refusée."; document.getElementById("mdp").value = ""; return; }
+    location.href = "/plateforme" + (retour.startsWith("#") ? retour : "");
+  };
+</script>
+</body>
+</html>

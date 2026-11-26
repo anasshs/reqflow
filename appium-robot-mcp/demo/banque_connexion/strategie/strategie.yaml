@@ -1,0 +1,501 @@
+version: 2
+statut: Draft
+infos:
+  nom: Stratégie de test — Espace client
+  application: Banque Démo Web
+  version_application: 1.0.0
+  responsable: Responsable QA
+  cree_le: '2026-11-14T13:33:43'
+  modifie_le: '2026-11-14T13:33:47'
+rubriques:
+  objectifs:
+  - id: obj_2940a0
+    nom: Automatiser la régression du module Connexion
+    description: ''
+    categorie: Automatisation
+    priorite: Haute
+    indicateur: couverture_automatisee
+    comparateur: '>='
+    cible: 80.0
+    responsable: Automaticien
+    echeance: '2026-12-31'
+    modules:
+    - per_96ea7b
+    types: []
+  - id: obj_442eaa
+    nom: Couvrir toutes les exigences par au moins un test
+    description: ''
+    categorie: Couverture
+    priorite: Haute
+    indicateur: couverture_fonctionnelle
+    comparateur: '>='
+    cible: 100.0
+    responsable: ''
+    echeance: '2026-12-15'
+    modules: []
+    types: []
+  - id: obj_6c0f39
+    nom: Taux de réussite de la TNR
+    description: ''
+    categorie: Qualité
+    priorite: Moyenne
+    indicateur: taux_reussite
+    comparateur: '>='
+    cible: 95.0
+    responsable: ''
+    echeance: ''
+    modules: []
+    types: []
+  - id: obj_0ce95f
+    nom: TNR Connexion en moins de 30 s
+    description: ''
+    categorie: Délai
+    priorite: Basse
+    indicateur: duree_moyenne_run
+    comparateur: <=
+    cible: 30.0
+    responsable: ''
+    echeance: ''
+    modules: []
+    types: []
+  - id: obj_cf5de2
+    nom: Stabilité des tests automatisés
+    description: ''
+    categorie: Stabilité
+    priorite: ''
+    indicateur: taux_instables
+    comparateur: <=
+    cible: 5.0
+    responsable: ''
+    echeance: ''
+    modules: []
+    types: []
+  perimetre:
+  - id: per_96ea7b
+    nom: Connexion
+    niveau: module
+    parent: ''
+    description: Accès à l'espace client web
+    criticite: Critique
+    priorite: Haute
+    inclus: true
+    justification: ''
+    responsable: Test Lead
+    jira: []
+    xray: []
+  - nom: DEMO-300 Accès à l'espace client
+    niveau: exigence
+    parent: per_96ea7b
+    description: ''
+    criticite: ''
+    priorite: ''
+    inclus: true
+    justification: ''
+    responsable: ''
+    jira:
+    - DEMO-300
+    xray: []
+    id: per_f316e7
+  - nom: DEMO-310 Se connecter avec identifiant et mot de passe
+    niveau: exigence
+    parent: per_96ea7b
+    description: ''
+    criticite: ''
+    priorite: ''
+    inclus: true
+    justification: ''
+    responsable: ''
+    jira:
+    - DEMO-310
+    xray:
+    - DEMO-301
+    - DEMO-302
+    - DEMO-303
+    - DEMO-305
+    - DEMO-309
+    id: per_4aa817
+  - nom: DEMO-311 Bloquer le compte après trois échecs
+    niveau: exigence
+    parent: per_96ea7b
+    description: ''
+    criticite: ''
+    priorite: ''
+    inclus: true
+    justification: ''
+    responsable: ''
+    jira:
+    - DEMO-311
+    xray:
+    - DEMO-304
+    - DEMO-306
+    id: per_8b534f
+  - nom: DEMO-312 Réinitialiser un mot de passe oublié
+    niveau: exigence
+    parent: per_96ea7b
+    description: ''
+    criticite: ''
+    priorite: ''
+    inclus: true
+    justification: ''
+    responsable: ''
+    jira:
+    - DEMO-312
+    xray:
+    - DEMO-308
+    id: per_9ef536
+  - nom: DEMO-313 Se déconnecter
+    niveau: exigence
+    parent: per_96ea7b
+    description: ''
+    criticite: ''
+    priorite: ''
+    inclus: true
+    justification: ''
+    responsable: ''
+    jira:
+    - DEMO-313
+    xray:
+    - DEMO-307
+    id: per_7f2706
+  - id: per_af8cfd
+    nom: Authentification par identifiant
+    niveau: fonctionnalite
+    parent: per_96ea7b
+    description: ''
+    criticite: Critique
+    priorite: Haute
+    inclus: true
+    justification: ''
+    responsable: ''
+    jira: []
+    xray: []
+  - id: per_9e03de
+    nom: Connexion biométrique
+    niveau: fonctionnalite
+    parent: per_96ea7b
+    description: ''
+    criticite: Haute
+    priorite: ''
+    inclus: false
+    justification: 'Non disponible sur le web : traitée dans la stratégie mobile.'
+    responsable: ''
+    jira: []
+    xray: []
+  - id: per_d3e67c
+    nom: Page de connexion (web)
+    niveau: interface
+    parent: per_96ea7b
+    description: ''
+    criticite: ''
+    priorite: ''
+    inclus: true
+    justification: ''
+    responsable: ''
+    jira: []
+    xray: []
+  types_tests:
+  - id: typ_0e7c9a
+    nom: Fonctionnel
+    description: ''
+    objectif: Vérifier les règles d'accès
+    priorite: Haute
+    actif: true
+    niveau: niv_a65ae1
+    methode: Mixte
+    automatisation_autorisee: true
+    cible_auto: 70.0
+    responsable: ''
+    outils:
+    - Robot Framework
+    - Xray
+    modules:
+    - per_96ea7b
+  - id: typ_78e53b
+    nom: Régression
+    description: ''
+    objectif: Détecter les régressions à chaque version
+    priorite: Haute
+    actif: true
+    niveau: niv_316fcd
+    methode: Automatisée
+    automatisation_autorisee: true
+    cible_auto: 80.0
+    responsable: ''
+    outils:
+    - Robot Framework
+    - Playwright
+    modules:
+    - per_96ea7b
+  - id: typ_3352dd
+    nom: Sécurité
+    description: ''
+    objectif: Blocage, messages non discriminants, session
+    priorite: Haute
+    actif: true
+    niveau: ''
+    methode: Manuelle
+    automatisation_autorisee: false
+    cible_auto: ''
+    responsable: ''
+    outils: []
+    modules:
+    - per_96ea7b
+  niveaux:
+  - id: niv_8af115
+    nom: Unitaires
+    objectif: ''
+    perimetre: ''
+    responsable: Développeurs
+    types: []
+    environnement: ''
+    outil: pytest / Jest
+    automatisation: Complète
+    part_cible: 45.0
+    criteres_validation: ''
+  - id: niv_0b4686
+    nom: API
+    objectif: ''
+    perimetre: ''
+    responsable: ''
+    types: []
+    environnement: ''
+    outil: Robot + RequestsLibrary
+    automatisation: Complète
+    part_cible: 25.0
+    criteres_validation: ''
+  - id: niv_a65ae1
+    nom: Système
+    objectif: ''
+    perimetre: ''
+    responsable: ''
+    types: []
+    environnement: ''
+    outil: Robot Framework
+    automatisation: Partielle
+    part_cible: 15.0
+    criteres_validation: ''
+  - id: niv_316fcd
+    nom: End-to-End
+    objectif: ''
+    perimetre: ''
+    responsable: ''
+    types: []
+    environnement: ''
+    outil: Robot + Playwright
+    automatisation: Partielle
+    part_cible: 10.0
+    criteres_validation: ''
+  - id: niv_ab6b42
+    nom: Acceptation métier
+    objectif: ''
+    perimetre: ''
+    responsable: Métier
+    types: []
+    environnement: ''
+    outil: ''
+    automatisation: Aucune
+    part_cible: 5.0
+    criteres_validation: ''
+  environnements:
+  - id: env_c17fcd
+    nom: RECETTE
+    type: TEST
+    usage: Tests système et régression
+    url: app/connexion.html
+    plateforme: Web
+    application: Banque Démo Web
+    version: 1.0.0
+    os_version: ''
+    terminal: ''
+    navigateur: Chromium
+    resolution: ''
+    jdd_env: recette
+    acces: env:JDD_RECETTE_MDP
+    services: []
+    par_defaut: true
+    derniere_verification:
+      resultat: disponible
+      detail: fichier local présent
+      date: '2026-11-14T13:33:45'
+  - id: env_1d9aa5
+    nom: PREPROD
+    type: PREPROD
+    usage: Recette métier
+    url: https://preprod.banque-demo.invalid/
+    plateforme: Web
+    application: ''
+    version: ''
+    os_version: ''
+    terminal: ''
+    navigateur: ''
+    resolution: ''
+    jdd_env: ''
+    acces: ''
+    services: []
+    par_defaut: false
+  criteres:
+  - id: cri_00553d
+    description: Couverture fonctionnelle suffisante
+    type: entrée
+    obligatoire: true
+    verification: automatique
+    indicateur: couverture_fonctionnelle
+    comparateur: '>='
+    seuil: 75.0
+    responsable: Test Lead
+    preuve: ''
+  - id: cri_07e6ae
+    description: Environnement RECETTE opérationnel
+    type: entrée
+    obligatoire: true
+    verification: manuelle
+    indicateur: ''
+    comparateur: ''
+    seuil: ''
+    responsable: Automaticien
+    preuve: ''
+    validation:
+      par: root
+      date: '2026-11-14T13:33:45'
+      preuve: Vérification de disponibilité OK (page de connexion présente).
+  - id: cri_612de6
+    description: Aucun test automatisé en échec
+    type: sortie
+    obligatoire: true
+    verification: automatique
+    indicateur: tests_en_echec
+    comparateur: <=
+    seuil: 0.0
+    responsable: ''
+    preuve: ''
+  - id: cri_8c0fee
+    description: Rapport de campagne validé
+    type: sortie
+    obligatoire: true
+    verification: manuelle
+    indicateur: ''
+    comparateur: ''
+    seuil: ''
+    responsable: QA Manager
+    preuve: ''
+  risques:
+  - id: ris_989710
+    nom: Absence d'identifiants techniques stables
+    description: ''
+    categorie: Automatisation
+    probabilite: '2'
+    impact: '3'
+    mitigation: Exiger des id HTML sur les champs ; locators de secours.
+    responsable: ''
+    elements:
+    - per_96ea7b
+    statut: Maîtrisé
+  - id: ris_83f119
+    nom: Règle de blocage non conforme (DEMO-311)
+    description: ''
+    categorie: Métier
+    probabilite: '4'
+    impact: '4'
+    mitigation: Anomalie à corriger avant mise en production ; test DEMO-304 bloquant.
+    responsable: Chef de projet
+    elements:
+    - per_96ea7b
+    statut: Ouvert
+  - id: ris_556fc2
+    nom: Données de test partagées entre équipes
+    description: ''
+    categorie: Données
+    probabilite: '3'
+    impact: '2'
+    mitigation: Comptes dédiés à l'automatisation.
+    responsable: ''
+    elements: []
+    statut: Ouvert
+  donnees:
+  - id: don_8dcb07
+    nom: Client actif
+    type: Fichier
+    jdd: CLIENT_ACTIF
+    environnement: env_c17fcd
+    source: data/jdd/recette.yaml
+    prerequis: ''
+    sensibilite: Interne
+    nature: Synthétiques
+    preparation: Compte créé dans le back-office de recette
+    nettoyage: Aucun (lecture seule)
+  - id: don_ec09ce
+    nom: Compte bloqué
+    type: Fichier
+    jdd: COMPTE_BLOQUE
+    environnement: env_c17fcd
+    source: ''
+    prerequis: ''
+    sensibilite: Interne
+    nature: Synthétiques
+    preparation: ''
+    nettoyage: ''
+  - id: don_b8db8a
+    nom: Trois échecs consécutifs
+    type: Dynamique
+    jdd: TROIS_ECHECS
+    environnement: env_c17fcd
+    source: ''
+    prerequis: ''
+    sensibilite: ''
+    nature: Synthétiques
+    preparation: ''
+    nettoyage: Débloquer le compte après le test
+  outils:
+  - id: out_161ca8
+    nom: Xray Cloud
+    usage: Référentiel des tests et des exécutions
+    projet: DEMO
+    url: ''
+    responsable: ''
+  - id: out_bee2e3
+    nom: Robot Framework
+    usage: Exécution des tests automatisés
+    projet: ''
+    url: ''
+    responsable: ''
+  - id: out_c4dfd0
+    nom: Playwright
+    usage: Pilotage du navigateur (démonstration)
+    projet: ''
+    url: ''
+    responsable: ''
+  - id: out_2510c9
+    nom: Jira
+    usage: Exigences (epics, user stories)
+    projet: DEMO
+    url: ''
+    responsable: ''
+plan_automatisation:
+  DEMO-308:
+    statut: Approuvé
+    framework: Robot + Playwright
+    effort: 1 j
+    commentaire: Parcours critique, données disponibles
+    par: root
+    date: '2026-11-14T13:33:47'
+  DEMO-309:
+    statut: Rejeté
+    framework: ''
+    effort: ''
+    commentaire: 'Expiration de session : test manuel exploratoire, coût de maintenance
+      élevé'
+    par: root
+    date: '2026-11-14T13:33:47'
+commentaires:
+- date: '2026-11-14T13:33:47'
+  auteur: root
+  texte: '[soumettre] Première version pour revue'
+  version: 1
+- date: '2026-11-14T13:33:47'
+  auteur: root
+  texte: '[approuver] Validée en comité qualité'
+  version: 1
+- date: '2026-11-14T13:33:47'
+  auteur: root
+  texte: '[publier] Version initiale'
+  version: 1

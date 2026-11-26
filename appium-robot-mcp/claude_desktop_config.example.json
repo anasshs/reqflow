@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "appium-robot": {
+      "command": "/CHEMIN/appium-robot-mcp/.venv/bin/python",
+      "args": [
+        "/CHEMIN/appium-robot-mcp/server.py"
+      ],
+      "env": {
+        "APPIUM_URL": "http://127.0.0.1:4723",
+        "ROBOT_PROJECT_DIR": "/CHEMIN/banque-mobile-tests",
+        "ROBOT_XRAY_LISTENER": "listeners/XrayListener.py:{exec_key}",
+        "XRAY_CLIENT_ID": "xxxxxxxx",
+        "XRAY_CLIENT_SECRET": "xxxxxxxx",
+        "XRAY_CA_BUNDLE": "/CHEMIN/certificat-racine-societe.pem",
+        "JIRA_BASE_URL": "https://VOTRE-SITE.atlassian.net",
+        "JIRA_EMAIL": "prenom.nom@societe.ma",
+        "JIRA_API_TOKEN": "xxxxxxxx",
+        "WEB_EVENTS_URL": "http://127.0.0.1:8765/api/events"
+      }
+    }
+  }
+}

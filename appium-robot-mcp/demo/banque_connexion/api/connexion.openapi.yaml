@@ -1,0 +1,31 @@
+# API FICTIVE de l'application de démonstration (aucun service réel).
+openapi: 3.0.3
+info:
+  title: Banque Démo — API d'accès
+  version: 1.0.0
+paths:
+  /auth/login:
+    post:
+      tags: [Connexion]
+      summary: Authentifier un client (identifiant + mot de passe)
+      operationId: login
+      x-jira: [DEMO-310, DEMO-311]
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, properties: {identifiant: {type: string}, mot_de_passe: {type: string}}}
+      responses: {"200": {description: Session ouverte}, "401": {description: Identifiants incorrects}, "423": {description: Compte bloqué}}
+  /auth/logout:
+    post:
+      tags: [Connexion]
+      summary: Fermer la session
+      x-jira: [DEMO-313]
+      security: [{session: []}]
+      responses: {"204": {description: Session fermée}}
+  /auth/password-reset:
+    post:
+      tags: [Connexion]
+      summary: Demander la réinitialisation du mot de passe
+      x-jira: [DEMO-312]
+      parameters: [{name: identifiant, in: query}]
+      responses: {"202": {description: E-mail envoyé si le compte existe}}

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant · AI Test Platform</title>
+<link rel="icon" href="data:,">
+<script>
+  let ADOPTION = null;  // aperçu du dépôt du projet créé : étape « Adopter ce dépôt »
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("atelier-theme"); } catch (e) { /* stockage indisponible */ }
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+<link rel="stylesheet" href="/static/plateforme.css">
+</head>
+<body class="page-seule">
+<main class="seule assistant">
+  <header><h1>Mettre en place l'atelier</h1>
+    <p class="lib">Quatre étapes : la base qui garde projets, réglages et comptes ; ton compte ; l'espace de travail (le projet et son dossier sur ce poste) ; les connexions.</p></header>
+  <ol class="as-etapes" id="etapes"></ol>
+  <section class="carte seule-carte" id="corps"><p class="lib">Chargement…</p></section>
+</main>
+<script>
+  "use strict";
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+  async function api(url, body) {
+    const r = await fetch(url, body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401 && d.detail === "Connexion requise.") { location.href = "/connexion?retour=" + encodeURIComponent("#"); throw new Error(d.detail); }
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+    return d;
+  }
+  const ETAPES = [["base", "Base"], ["compte", "Compte"], ["espace", "Espace de travail"], ["connexions", "Connexions"]];
+  let E = null, courante = "";
+
+  function plusTard() { try { sessionStorage.setItem("assistant-plus-tard", "1"); } catch (e) { /* stockage indisponible */ } }
+
+  async function charger(vers) {
+    E = await api("/api/assistant/etat");
+    courante = vers || ETAPES.map(x => x[0]).find(k => !E.etapes[k] && !(k === "compte" && sessionStorage.getItem("assistant-plus-tard"))) || "connexions";
+    dessiner();
+  }
+
+  function dessiner() {
+    $("#etapes").innerHTML = ETAPES.map(([k, lib], i) => `<li class="${k === courante ? "courante" : ""} ${E.etapes[k] ? "faite" : ""}">
+      <button data-etape="${k}">${E.etapes[k] ? "✓" : i + 1}. ${esc(lib)}</button></li>`).join("");
+    document.querySelectorAll("[data-etape]").forEach(b => b.onclick = () => { courante = b.dataset.etape; dessiner(); });
+    const err = '<p class="erreur" id="err" role="alert"></p>';
+    const b = E.base;
+    if (courante === "base") {
+      $("#corps").innerHTML = `<h2>1. La base de l'atelier</h2>
+        <p>Une base locale sur ce poste : un seul fichier, aucun service qui tourne, rien qui ralentit la machine. Elle garde les projets, les réglages et les comptes ;
+          plus tard, elle se déplace sur un serveur partagé (export puis import).</p>
+        <p class="lib">Actuelle : <span class="mono">${esc(b.type === "serveur" ? b.url : b.chemin)}</span>${b.ok ? ` · ${b.documents} document(s)` : ` · <span class="erreur">${esc(b.erreur || "")}</span>`}</p>
+        <label for="b-chemin">Emplacement : un fichier sur ce poste (vide : défaut), ou l'adresse du serveur de données de l'équipe (https://serveur:8443)</label>
+        <input class="in" id="b-chemin" value="${b.type === "serveur" ? esc(b.url || "") : b.configuree ? esc(b.chemin) : ""}" placeholder="${esc(b.chemin)}">
+        <label for="b-ca">Certificat de l'autorité du serveur (facultatif, fichier .pem)</label><input class="in" id="b-ca" placeholder="ex. C:\certs\entreprise.pem">
+        <label class="ligne-case"><input type="checkbox" id="b-deplacer"> Copier le contenu de la base actuelle dans le nouvel emplacement (serveur : seulement s'il est encore vide)</label>
+        ${err}<div class="btns"><button class="btn primaire" id="b-ok">Utiliser cette base</button></div>`;
+      $("#b-ok").onclick = () => api("/api/assistant/base", {chemin: $("#b-chemin").value, deplacer: $("#b-deplacer").checked, ca: $("#b-ca").value}).then(() => charger()).catch(e => { $("#err").textContent = e.message; });
+    } else if (courante === "compte") {
+      if (E.comptes) {
+        $("#corps").innerHTML = `<h2>2. Ton compte</h2>${E.moi ? `<p>Connecté : <b>${esc(E.moi.nom)}</b> (${esc(E.moi.role)}).</p>` : `<p>Des comptes existent : <a href="/connexion">se connecter</a>.</p>`}
+          <p class="lib">Les autres comptes se créent dans Paramètres › Comptes et base (rôle et projets autorisés).</p>
+          <div class="btns"><button class="btn primaire" id="suite">Continuer</button></div>`;
+        $("#suite").onclick = () => charger("espace");
+        return;
+      }
+      $("#corps").innerHTML = `<h2>2. Le premier compte (responsable)</h2>
+        <p>Il gère ensuite les autres comptes : leur rôle (lecteur, automaticien, relecteur, responsable) et les projets qu'ils voient. Dès qu'il existe, il faut se connecter.</p>
+        <label for="c-id">Identifiant</label><input class="in" id="c-id" autocomplete="username" placeholder="ex. a.martin">
+        <label for="c-nom">Nom affiché</label><input class="in" id="c-nom">
+        <label for="c-mdp">Mot de passe (12 caractères au moins)</label><input class="in" id="c-mdp" type="password" autocomplete="new-password">
+        <label for="c-mdp2">Encore une fois</label><input class="in" id="c-mdp2" type="password" autocomplete="new-password">
+        ${err}<div class="btns"><button class="btn primaire" id="c-ok">Créer le compte</button><button class="btn" id="c-tard" title="L'atelier reste ouvert à tous sur ce poste">Plus tard (mode ouvert)</button></div>`;
+      $("#c-ok").onclick = () => {
+        if ($("#c-mdp").value !== $("#c-mdp2").value) { $("#err").textContent = "Les deux mots de passe diffèrent."; return; }
+        api("/api/assistant/compte", {identifiant: $("#c-id").value, nom: $("#c-nom").value, mot_de_passe: $("#c-mdp").value}).then(() => charger()).catch(e => { $("#err").textContent = e.message; });
+      };
+      $("#c-tard").onclick = () => { plusTard(); charger("espace"); };
+    } else if (courante === "espace") {
+      const sansDossier = E.projets.filter(p => !p.dossier), avec = E.projets.filter(p => p.dossier);
+      $("#corps").innerHTML = `<h2>3. L'espace de travail</h2>
+        <p>Un projet = un dépôt de tests Robot (GitLab) et son projet Xray / Jira. Son dossier sur ce poste est un clone du dépôt : les tests y vivent, l'atelier y écrit, Git les pousse vers GitLab.</p>
+        ${avec.length ? `<p>Projets déjà prêts sur ce poste : ${avec.map(p => `<button class="btn petit ${p.id === E.projet_actif ? "primaire" : ""}" data-activer="${esc(p.id)}">${esc(p.nom)}</button>`).join(" ")}</p>` : ""}
+        ${sansDossier.length ? `<h3>Projets de l'équipe sans dossier sur ce poste</h3>${sansDossier.map(p => `<div class="as-projet"><b>${esc(p.nom)}</b> <span class="lib">${esc(p.depot_git || "")}</span>
+          <input class="in" data-dossier="${esc(p.id)}" placeholder="Dossier sur ce poste, ex. C:\\Users\\moi\\Documents\\${esc(p.nom)}">
+          <label class="ligne-case"><input type="checkbox" data-cloner="${esc(p.id)}" ${p.depot_git ? "checked" : "disabled"}> cloner le dépôt</label>
+          <button class="btn petit" data-rattacher="${esc(p.id)}">Utiliser</button></div>`).join("")}` : ""}
+        <h3>Nouveau projet</h3>
+        <label for="p-nom">Nom</label><input class="in" id="p-nom" placeholder="ex. DEMO">
+        <label for="p-depot">Dépôt Git des tests (GitLab)</label><input class="in" id="p-depot" placeholder="https://gitlab.exemple/groupe/tests-robot.git">
+        <label for="p-dossier">Dossier sur ce poste</label><input class="in" id="p-dossier" placeholder="ex. C:\\Users\\moi\\Documents\\tests-demo">
+        <label class="ligne-case"><input type="checkbox" id="p-cloner"> Cloner le dépôt dans ce dossier (sinon : le dossier existe déjà)</label>
+        <label for="p-xray">Projet Xray (clé)</label><input class="in" id="p-xray" placeholder="ex. DEMO">
+        <label for="p-gitlab">Projet GitLab (groupe/projet, pour les merge requests)</label><input class="in" id="p-gitlab">
+        ${err}<div class="btns"><button class="btn primaire" id="p-ok">Créer et ouvrir</button></div>
+        <p class="lib">Git demande lui-même tes identifiants GitLab au premier clone (gestionnaire d'identifiants du poste) : l'atelier ne les voit jamais.</p>`;
+      const fin = r => { ADOPTION = r.adoption && r.adoption.a_adopter ? r.adoption : null; toast("Espace prêt."); charger("connexions"); return r; };
+      document.querySelectorAll("[data-activer]").forEach(x => x.onclick = () => api("/api/assistant/espace", {...E.projets.find(p => p.id === x.dataset.activer)}).then(fin).catch(e => { $("#err").textContent = e.message; }));
+      document.querySelectorAll("[data-rattacher]").forEach(x => x.onclick = () => {
+        const id = x.dataset.rattacher;
+        api("/api/assistant/espace", {id, nom: E.projets.find(p => p.id === id).nom, dossier: document.querySelector(`[data-dossier="${id}"]`).value,
+          cloner: document.querySelector(`[data-cloner="${id}"]`).checked}).then(fin).catch(e => { $("#err").textContent = e.message; });
+      });
+      $("#p-ok").onclick = () => { $("#p-ok").disabled = true; $("#err").textContent = $("#p-cloner").checked ? "Clone en cours…" : "";
+        api("/api/assistant/espace", {nom: $("#p-nom").value, depot_git: $("#p-depot").value, dossier: $("#p-dossier").value, cloner: $("#p-cloner").checked,
+          xray_projet: $("#p-xray").value, gitlab_projet: $("#p-gitlab").value}).then(fin).catch(e => { $("#err").textContent = e.message; $("#p-ok").disabled = false; }); };
+    } else {
+      const c = E.connexions;
+      const l = [["XRAY_BASE_URL", "Xray"], ["JIRA_BASE_URL", "Jira"], ["GITLAB_URL", "GitLab"], ["GITLAB_PROJET", "Projet GitLab"]];
+      $("#corps").innerHTML = `<h2>4. Les connexions</h2>
+        <p>Adresses de Xray, Jira et GitLab, et leurs jetons. Les jetons vont dans le coffre du système de ce poste : jamais dans la base ni dans un fichier.</p>
+        <ul class="as-liste">${l.map(([k, lib]) => `<li>${c[k] ? "✓" : "○"} ${esc(lib)}</li>`).join("")}</ul>
+        ${ADOPTION ? `<h2>5. Adopter ce dépôt</h2><p>Le dépôt contient déjà ${ADOPTION.suites} suite(s) et ${ADOPTION.tests} test(s) Robot (${ADOPTION.gherkin} en Given / When / Then,
+          ${ADOPTION.avec_xray} avec une clé Xray). L'atelier peut en faire ses scénarios, ses parcours et sa carte, sans rien écraser de la connaissance existante.</p>
+          <div class="btns"><a class="btn primaire" href="/plateforme#adoption">Adopter ce dépôt</a></div>` : ""}
+        <div class="btns"><a class="btn" href="/plateforme#parametres/connexions">Régler les connexions</a>
+          <a class="btn primaire" href="/plateforme">${E.termine ? "Ouvrir l'atelier" : "Ouvrir l'atelier (le reste plus tard)"}</a></div>`;
+    }
+  }
+  function toast(m) { /* page autonome : le message suffit dans la zone d'erreur */ const e = $("#err"); if (e) e.textContent = m; }
+  charger().catch(e => { $("#corps").innerHTML = `<p class="erreur">${esc(e.message)}</p>`; });
+</script>
+</body>
+</html>

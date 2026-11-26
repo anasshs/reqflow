@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Le MÊME écran que android_classique.xml, réécrit en Jetpack Compose avec des testTag : tous les identifiants ont
+     changé de nom (« com.exemple.banque:id/valider » devient « Sp_valider_btn »), les libellés visibles restent. -->
+<hierarchy rotation="0">
+  <android.view.View class="android.view.View" bounds="[0,0][1080,2340]" displayed="true">
+    <android.widget.TextView class="android.widget.TextView" text="Virement" resource-id="Sp_titre_txt" bounds="[40,100][600,180]" displayed="true"/>
+    <android.widget.EditText class="android.widget.EditText" text="" resource-id="Sp_montant_input" bounds="[40,300][1040,400]" displayed="true" clickable="true"/>
+    <android.widget.EditText class="android.widget.EditText" text="" resource-id="Sp_motif_input" bounds="[40,450][1040,550]" displayed="true" clickable="true"/>
+    <android.widget.TextView class="android.widget.TextView" text="L'opération est immédiate" bounds="[40,600][1040,660]" displayed="true"/>
+    <android.view.View class="android.view.View" resource-id="Sp_valider_btn" bounds="[40,2000][1040,2120]" displayed="true" clickable="true">
+      <android.widget.TextView class="android.widget.TextView" text="Valider" bounds="[400,2030][680,2090]" displayed="true"/>
+    </android.view.View>
+    <android.view.View class="android.view.View" bounds="[40,2150][1040,2270]" displayed="true" clickable="true">
+      <android.widget.TextView class="android.widget.TextView" text="Annuler" bounds="[400,2180][680,2240]" displayed="true"/>
+    </android.view.View>
+  </android.view.View>
+</hierarchy>

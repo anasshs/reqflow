@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Banque démo — Accueil</title></head>
+<body>
+  <h1>Accueil</h1>
+  <nav>
+    <a href="comptes.html" data-testid="lien-comptes">Mes comptes</a>
+    <a href="aide.html" id="lienAide">Aide</a>
+    <a href="deconnexion.html">Se déconnecter</a>
+    <a id="externe" href="http://localhost:9/ailleurs">Site partenaire</a>
+  </nav>
+  <label for="montant">Montant</label>
+  <input id="montant" name="montant" placeholder="0,00" oninput="localStorage.setItem('saisie', '1')">
+  <input type="checkbox" id="cgu" onchange="localStorage.setItem('case', '1')"> <label for="cgu">J'accepte</label>
+</body></html>

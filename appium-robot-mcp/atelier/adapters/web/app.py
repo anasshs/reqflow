@@ -1,0 +1,5274 @@
+"""
+Interface web « Atelier d'automatisation » — Robot Framework (AppiumLibrary / Browser library)
++ Xray + Jira.
+
+Façade web : routes minces qui appellent les moteurs (aucune logique métier ici).
+
+Lancement (depuis le dossier appium-robot-mcp) :
+    python web/app.py            -> http://127.0.0.1:8765
+
+Écoute uniquement en local (127.0.0.1). Sécurité : jeton de session (cookie HttpOnly
+SameSite=Strict), contrôle Host / Origin, jeton propre aux processus locaux sur /api/events et
+/api/externe/*, taille des requêtes plafonnée (voir securite.py). Ne pas exposer sur le réseau.
+"""
+from __future__ import annotations
+
+import asyncio
+import collections
+import json
+import os
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.request
+import uuid
+from collections import deque
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+
+import uvicorn  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse, Response  # noqa: E402
+
+from atelier.adapters import facade as outils  # noqa: E402
+from atelier.adapters.web.agent import Agent  # noqa: E402
+from atelier.adapters.web.securite import SecuriteLocale, jeton_processus  # noqa: E402
+from atelier.discovery import carte as amap  # noqa: E402
+from atelier.discovery import carte_outils, espaces, exploration, session  # noqa: E402
+from atelier.domain import declarations, evenements, projet  # noqa: E402
+from atelier.domain import projets  # noqa: E402
+from atelier.discovery import sessions_discovery  # noqa: E402  (abonne la timeline au bus d'événements)
+from atelier.generation import sessions_agent  # noqa: E402
+from atelier.execution import jdd  # noqa: E402
+from atelier.execution import centre, direct, echecs, historique  # noqa: E402
+from atelier.discovery import intelligence_app  # noqa: E402
+from atelier.execution import robot as robot_moteur  # noqa: E402
+from atelier.generation import bdd, conception, editeur, studio  # noqa: E402
+from atelier.intelligence import gouvernance, strategie  # noqa: E402
+from atelier.generation import locators as gen_locators  # noqa: E402
+from atelier.intelligence import assistant  # noqa: E402
+from atelier.intelligence import patrimoine_xray  # noqa: E402
+
+outils.WEB_EVENTS_URL = ""  # dans ce processus, l'agent intégré émet lui-même ses événements
+HOOK_TYPES = {"carte_change", "exploration", "locators_change", "navigation"}
+
+PORT = int(os.environ.get("WEB_PORT", "8765"))
+STATIC = Path(__file__).resolve().parent / "static"
+CONFIG_PATH = Path(os.environ.get("ATELIER_CONFIG", Path.home() / ".atelier-automatisation.json"))
+CONFIG_DEFAUT = {
+    "apps": {"android": {}, "ios": {}, "web": {"browser": "chromium", "headless": True}},
+    "prereglages": {},
+    "jql_candidats": os.environ.get("XRAY_CANDIDATS_JQL", ""),  # vide : tests du projet Xray actif (aucune clé client en dur)
+    "statut_sous_tache_fini": "Terminé",
+}
+
+app = FastAPI(title="Atelier d'automatisation", docs_url=None, redoc_url=None, openapi_url=None)
+JETON_SESSION = secrets.token_urlsafe(32)  # nouveau à chaque démarrage : la page doit être rechargée
+JETON_PROCESSUS = jeton_processus()
+from atelier.domain import utilisateurs as _comptes  # noqa: E402 — comptes de la base : connexion exigée dès qu'un compte existe
+
+app.add_middleware(SecuriteLocale, port=PORT, jeton_session=JETON_SESSION, jeton_evenements=JETON_PROCESSUS, comptes=_comptes)
+clients: set[WebSocket] = set()
+history: deque = deque(maxlen=400)
+externes: dict = {}  # steps proposés par Cursor / Claude Desktop via le MCP : id -> {...}
+state = {"explo": None, "loop": None, "flux": {"platform": None, "udid": None}, "run": None, "dernier_run": None,
+         "dernier_bilan": None, "produits": [], "dernier_mcp": 0.0, "sante_cache": {}}
+
+
+# --------------------------------------------------------------------------- config
+def config() -> dict:
+    if CONFIG_PATH.exists():
+        try:
+            data = json.loads(CONFIG_PATH.read_text("utf-8"))
+            return {**CONFIG_DEFAUT, **data, "apps": {**CONFIG_DEFAUT["apps"], **data.get("apps", {})}}
+        except json.JSONDecodeError:
+            pass
+    return json.loads(json.dumps(CONFIG_DEFAUT))
+
+
+def save_config(cfg: dict):
+    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), "utf-8")
+
+
+# --------------------------------------------------------------------------- diffusion
+async def _broadcast(ev: dict):
+    for ws in list(clients):
+        try:
+            await ws.send_text(json.dumps(ev, ensure_ascii=False, default=str))
+        except Exception:
+            clients.discard(ws)
+
+
+def emit(ev: dict):
+    """Appelable depuis n'importe quel thread (agent, run)."""
+    ev.setdefault("heure", time.strftime("%H:%M:%S"))
+    if ev.get("type") == "outil" and ev.get("nom") in ("write_project_file", "generate_locators_resource"):
+        chemin = (ev.get("args") or {}).get("path") or (ev.get("args") or {}).get("fichier")
+        if chemin and chemin not in state["produits"]:
+            state["produits"].append(chemin)
+            ev = {**ev, "produits": state["produits"]}
+    history.append(ev)
+    _call_silencieux(direct.observer, ev)  # état « en direct » du run, relu par l'écran Exécution à tout moment
+    if state["loop"]:
+        asyncio.run_coroutine_threadsafe(_broadcast(ev), state["loop"])
+
+
+agent = Agent(emit)
+evenements.abonner(emit, HOOK_TYPES)  # carte et exploration : événements directs vers la page
+
+
+@app.on_event("startup")
+async def _startup():
+    state["loop"] = asyncio.get_running_loop()
+    _call_silencieux(projets.au_demarrage)  # dernier projet actif (sauf ROBOT_PROJECT_DIR imposé)
+    try:
+        from atelier.domain import prerequis
+
+        msg = prerequis.message_demarrage(PORT)  # le projet de tests et les prérequis, dès le lancement
+        try:
+            print(msg, flush=True)
+        except UnicodeEncodeError:  # console Windows sans UTF-8 : le message passe quand même, sans accents
+            print(msg.encode("ascii", "replace").decode("ascii"), flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+    threading.Thread(target=_call_silencieux, args=(_verifier_connexions, True, 0), daemon=True).start()  # page Connexions prête
+    if os.environ.get("ATELIER_SYNCHRO", "oui").lower() not in ("non", "0", "false"):
+        threading.Thread(target=_boucle_synchro, daemon=True, name="synchro-base").start()
+
+
+def _boucle_synchro():
+    """Synchronisation du projet actif avec la base (travail et connaissance) : un passage toutes les quelques
+    secondes ; ce qui arrive d'un autre poste rafraîchit l'écran ouvert."""
+    from atelier.domain import synchro
+
+    pause = max(3, int(os.environ.get("ATELIER_SYNCHRO_SECONDES") or 10))
+    while True:
+        try:
+            pa = synchro.projet_actif()
+            if pa:
+                b = synchro.synchroniser(*pa)
+                if b.get("recus") or b.get("supprimes_local") or b.get("conflits") or b.get("suppressions_en_attente"):
+                    emit({"type": "synchro", "recus": len(b.get("recus") or []) + len(b.get("supprimes_local") or []),
+                          "conflits": b.get("conflits") or [], "en_attente": len(b.get("suppressions_en_attente") or []),
+                          "fichiers": (b.get("recus") or [])[:20]})
+        except Exception as e:  # noqa: BLE001 — base injoignable, droits… : l'atelier continue, réessai au prochain passage
+            state["synchro_erreur"] = str(e)[:300]
+        else:
+            state["synchro_erreur"] = ""
+        time.sleep(pause)
+
+
+@app.get("/api/synchro")
+def synchro_etat():
+    from atelier.domain import synchro
+
+    pa = synchro.projet_actif()
+    return {**(synchro.etat(pa[0]) if pa else {"projet": ""}), "erreur": state.get("synchro_erreur", "")}
+
+
+@app.post("/api/synchro")
+async def synchro_maintenant(req: Request):
+    """Passage immédiat ; confirmer : appliquer des suppressions nombreuses mises en attente par le garde-fou."""
+    from atelier.domain import synchro
+
+    b = await req.json()
+    pa = synchro.projet_actif()
+    if not pa:
+        raise HTTPException(400, "Aucun projet actif avec un dossier sur ce poste.")
+    return await asyncio.to_thread(_call, synchro.synchroniser, pa[0], pa[1], bool(b.get("confirmer")))
+
+
+# --------------------------------------------------------------------------- projets (repository + Xray / Jira)
+def _occupation() -> str:
+    """Raison de refuser une bascule de projet : un run en cours ou en file s'exécute dans le projet courant."""
+    if centre.FILE.en_cours is not None:
+        return f"run {centre.FILE.en_cours.get('id', '')} en cours"
+    if centre.FILE.attente():
+        return f"{len(centre.FILE.attente())} run(s) en file d'attente"
+    return ""
+
+
+@app.get("/api/projets")
+def projets_lister():
+    return {**_call(projets.lister), "journal": projets.journal(30)}
+
+
+@app.post("/api/projets")
+async def projets_enregistrer(req: Request):
+    """Enregistre le projet ; renvoie aussi ce que son dépôt apporte à l'adoption (étape « Adopter ce dépôt »)."""
+    from atelier.generation import adoption
+
+    b = await req.json()
+    r = _call(projets.enregistrer, b, _occupation())
+    state["sante_cache"].clear()
+    p = next((x for x in r["projets"] if x["nom"] == str(b.get("nom") or "").strip()), None)
+    return {**r, "enregistre": (p or {}).get("id", ""), "adoption": _call(adoption.apercu, p["dossier"]) if p and p.get("dossier") else None}
+
+
+@app.get("/api/projets/{pid}/adoption")
+def projets_adoption(pid: str):
+    """Aperçu de l'adoption du dépôt d'un projet (sans l'activer)."""
+    from atelier.generation import adoption
+
+    p = next((x for x in _call(projets.lister)["projets"] if x["id"] == pid), None)
+    if not p or not p.get("dossier"):
+        raise HTTPException(404, "Projet inconnu ou sans dossier sur ce poste.")
+    return _call(adoption.apercu, p["dossier"])
+
+
+@app.post("/api/projets/supprimer")
+async def projets_supprimer(req: Request):
+    return _call(projets.supprimer, (await req.json()).get("id", ""))
+
+
+@app.get("/api/connexions")
+def connexions_lister():
+    return _call(projets.connexions)
+
+
+@app.post("/api/connexions/general")
+async def connexions_general(req: Request):
+    r = _call(projets.enregistrer_general, await req.json())
+    state["sante_cache"].clear()
+    return r
+
+
+@app.post("/api/connexions/secret/verser")
+async def connexions_secret_verser(req: Request):
+    """Verse dans le coffre un secret présent seulement comme variable du poste (valeur jamais renvoyée)."""
+    r = _call(projets.verser_dans_coffre, str((await req.json()).get("nom", "")))
+    state["sante_cache"].clear()
+    return r
+
+
+@app.post("/api/connexions/secret")
+async def connexions_secret(req: Request):
+    """Secret saisi dans l'interface : mémoire du serveur local uniquement (ni disque, ni log, jamais renvoyé)."""
+    b = await req.json()
+    try:
+        r = projets.saisir_secret(str(b.get("nom", "")), str(b.get("valeur", "")), bool(b.get("memoriser", True)))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None  # le message ne contient jamais la valeur
+    state["sante_cache"].clear()
+    return r
+
+
+@app.post("/api/connexions/secret/effacer")
+async def connexions_secret_effacer(req: Request):
+    r = _call(projets.effacer_secret, str((await req.json()).get("nom", "")))
+    state["sante_cache"].clear()
+    return r
+
+
+@app.post("/api/projets/activer")
+async def projets_activer(req: Request):
+    r = _call(projets.activer, (await req.json()).get("id", ""), _occupation())
+    state["sante_cache"].clear()  # état des connexions à revérifier pour le nouveau projet
+    threading.Thread(target=_call_silencieux, args=(_verifier_connexions, True, 0), daemon=True).start()
+    state["produits"] = []
+    emit({"type": "projet_change", "projet": r["actif"]})
+    return r
+
+
+@app.websocket("/ws")
+async def ws_endpoint(ws: WebSocket):
+    await ws.accept()
+    clients.add(ws)
+    for ev in list(history)[-150:]:  # rattrapage après rechargement de la page
+        await ws.send_text(json.dumps({**ev, "rejeu": True}, ensure_ascii=False, default=str))
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        clients.discard(ws)
+
+
+@app.post("/api/events")
+async def events(req: Request):
+    """Reçoit les événements du listener Robot et du MCP (Cursor, Claude Desktop)."""
+    ev = await req.json()
+    if ev.get("source") == "mcp" and ev.get("type") != "mcp_connexion":  # se connecter n'est pas agir
+        state["dernier_mcp"] = time.time()
+    if ev.get("type") == "mcp_outil":  # activité de l'agent, gardée pour la vue « Cursor en direct » et pour la revue
+        ev = {**ev, "heure": time.strftime("%H:%M:%S"), **_expliquer_appel(ev)}
+        if ev.get("client"):
+            state.setdefault("agent", {})["client"] = ev["client"]
+        state.setdefault("activite_mcp", collections.deque(maxlen=300)).append(ev)
+        _call_silencieux(sessions_agent.enregistrer_appel, ev)
+        if ev.get("etat") == "fin" and ev.get("famille") == "ecran" and state["flux"].get("platform") in ("android", "ios"):
+            asyncio.get_running_loop().run_in_executor(None, _tracer_ecran_mobile, ev.get("nom", ""))
+    if ev.get("type") == "mcp_annonce":  # Cursor dit ce qu'il va faire (outil agent_annoncer) : console Cursor
+        ev = {**ev, "heure": time.strftime("%H:%M:%S")}
+        a = state.setdefault("agent", {})
+        a.update({"intention": ev.get("intention", ""), "etape": ev.get("etape", ""), "heure": ev["heure"]})
+        if ev.get("modele"):
+            a["modele"] = ev["modele"]
+        state.setdefault("activite_mcp", collections.deque(maxlen=300)).append(ev)
+    if ev.get("type") == "session" and ev.get("etat") == "ouverte":
+        state["flux"] = {"platform": ev.get("platform"), "udid": ev.get("udid") or None}
+    if ev.get("type") == "mcp_connexion":  # quel agent est connecté au MCP (poignée de main, flux, fin de session)
+        _noter_connexion(ev)
+        ev = {**ev, "connexions": _connexions()}
+    emit(ev)
+    _call_silencieux(sessions_discovery.observer_evenement, ev)  # MCP / listener : timeline de la session Discovery
+    return {"ok": True}
+
+
+_DOCS_OUTILS = {f.__name__: f.__doc__ or "" for f in outils.OUTILS}
+
+
+INACTIF_APRES_S = 600  # sans requête ni flux ouvert depuis 10 min : session gardée, agent « inactif »
+
+
+def _noter_connexion(ev: dict):
+    sessions = state.setdefault("connexions_mcp", {})
+    s = sessions.setdefault(ev.get("session", ""), {"depuis": time.time(), "flux": 0})
+    s.update(client=ev.get("client", ""), agent=ev.get("agent", ""), vu=time.time())
+    if ev["etat"] == "connecte":
+        s.update(depuis=time.time(), ferme=False, flux=0)
+        state.setdefault("agent", {})["client"] = ev.get("client", "")
+    elif ev["etat"] == "flux":
+        s["flux"] = max(0, s.get("flux", 0) + (1 if ev.get("ouvert") else -1))
+    elif ev["etat"] == "deconnecte":
+        s["ferme"] = True
+
+
+def _connexions() -> list[dict]:
+    """Un agent par client déclaré (le plus récent l'emporte) : connecté (flux ouvert, ou requête depuis moins de 10 min),
+    inactif (session ouverte, silencieuse depuis), déconnecté (session fermée)."""
+    par_agent: dict = {}
+    for sid, s in (state.get("connexions_mcp") or {}).items():
+        age = time.time() - s.get("vu", 0)
+        etat = "deconnecte" if s.get("ferme") else "connecte" if s.get("flux", 0) > 0 or age < INACTIF_APRES_S else "inactif"
+        x = {"agent": s.get("agent") or "Agent MCP", "client": s.get("client", ""), "etat": etat, "session": sid,
+             "depuis": time.strftime("%H:%M", time.localtime(s.get("depuis", 0))), "vu_il_y_a_s": int(age)}
+        cle = x["client"].split(" ")[0] or sid
+        if cle not in par_agent or s.get("vu", 0) >= par_agent[cle][0]:
+            par_agent[cle] = (s.get("vu", 0), x)
+    rang = {"connecte": 0, "inactif": 1, "deconnecte": 2}
+    return sorted((x for _, x in par_agent.values()), key=lambda x: (rang[x["etat"]], x["vu_il_y_a_s"]))
+
+
+def _regles_outils() -> dict:
+    try:
+        from atelier.integrations import regles_cursor
+
+        return regles_cursor.regles_par_outil(list(_DOCS_OUTILS))
+    except Exception:  # noqa: BLE001 - règles illisibles : la console reste utilisable
+        return {"outils": {}, "toujours": [], "version": 0}
+
+
+def _expliquer_appel(ev: dict) -> dict:
+    """Console Cursor : l'appel en français et les règles .mdc du projet qui encadrent cet outil."""
+    from atelier.domain import activite_agent
+
+    nom = ev.get("nom", "")
+    args = dict(ev.get("args") or {})
+    if nom in ("tap", "type_text") and args.get("locator") and ev.get("etat") == "debut":
+        lib = activite_agent.libelle_element(str(args["locator"]))
+        if lib:
+            args["element"] = lib
+    agent = activite_agent.nom_agent(ev.get("client") or state.get("agent", {}).get("client", ""))
+    etape = activite_agent.etape_outil(nom)
+    return {"phrase": activite_agent.decrire(nom, args, _DOCS_OUTILS.get(nom, ""), agent=agent),
+            "regles": _regles_outils()["outils"].get(nom, []), "agent": agent, "etape_cycle": etape,
+            "etape_titre": activite_agent.TITRES_ETAPES.get(etape, ""), "jalon": activite_agent.jalon({**ev, "args": args})}
+
+
+SANS_CACHE = {"Cache-Control": "no-cache"}  # le navigateur revalide : après un git pull, les nouveaux écrans apparaissent
+
+
+def _call(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+# --------------------------------------------------------------------------- pilotage externe
+@app.post("/api/externe/step")
+async def externe_step(req: Request):
+    """Step proposé par l'agent externe (Cursor) : affiché puis validé ou corrigé ici."""
+    b = await req.json()
+    pid = "x" + uuid.uuid4().hex[:7]
+    step = {"n": len(agent.steps) + 1, "gherkin": b["gherkin"], "keyword": b.get("keyword", ""),
+            "locators": b.get("locators", []), "commentaire": b.get("commentaire", ""),
+            "statut": "proposé", "source": "cursor"}
+    agent.steps.append(step)
+    externes[pid] = {"step": step, "reponse": None}
+    state["dernier_mcp"] = time.time()
+    emit({"type": "attente", "id": pid, "nature": "step", "step": step})
+    return {"id": pid}
+
+
+@app.get("/api/externe/reponse/{pid}")
+def externe_reponse(pid: str):
+    e = externes.get(pid)
+    if not e:
+        raise HTTPException(404, "Step inconnu.")
+    if not e["reponse"]:
+        return {"decision": None}
+    decision, texte = e["reponse"]
+    return {"decision": decision, "texte": texte}
+
+
+# --------------------------------------------------------------------------- page, état, santé
+@app.get("/")
+def index():
+    return FileResponse(STATIC / "index.html", headers=SANS_CACHE)
+
+
+def _attente_courante():
+    if agent.pending:
+        return {"id": agent.pending["id"], **agent.pending["payload"]}
+    for pid, e in externes.items():
+        if not e["reponse"]:
+            return {"id": pid, "nature": "step", "step": e["step"]}
+    return None
+
+
+@app.get("/api/etat")
+def etat():
+    return {"session": session.plateforme(), "flux": state["flux"], "agent_occupe": agent.busy,
+            "run_en_cours": centre.FILE.en_cours is not None, "steps": agent.steps,
+            "attente": _attente_courante(), "dernier_bilan": state["dernier_bilan"],
+            "produits": state["produits"], "projet": str(projet.PROJECT_DIR),
+            "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"),
+            "agent_integre": bool(os.environ.get("ANTHROPIC_API_KEY")), "config": config(),
+            "app_carte": amap.app_courante(), "applications": amap.apps(),
+            "exploration": bool(state["explo"] and state["explo"].is_alive())}
+
+
+def _http_ok(url: str, timeout: float = 3) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status < 500
+    except Exception:
+        return False
+
+
+_pool_sante = None
+DELAI_SANTE = 8  # secondes par contrôle : au-delà, la page s'affiche et le résultat arrive au rafraîchissement suivant
+
+
+def _controles() -> dict:
+    """Contrôles de connexion (fonctions sans argument → (ok, détail)), exécutés en parallèle."""
+    def appium():
+        return _http_ok(session.APPIUM_URL.rstrip("/") + "/status"), session.APPIUM_URL
+
+    def device():
+        d = outils.list_devices()
+        n = len(d["android"]) + len(d["ios_simulateurs"]) + len(d["ios_physiques"])
+        return n > 0, f"{len(d['android'])} Android, {len(d['ios_simulateurs']) + len(d['ios_physiques'])} iOS"
+
+    def xray():
+        from atelier.integrations.xray import XrayClient
+        XrayClient().token()
+        return True, "connecté"
+
+    def jira():
+        from atelier.integrations.jira import JiraClient
+        return True, JiraClient().myself().get("displayName", "connecté")
+
+    def gitlab():
+        from atelier.integrations.gitlab import GitLabClient
+        u = GitLabClient().utilisateur()
+        return True, f"{u.get('login')} · {os.environ.get('GITLAB_PROJET', '')}"
+    return {"appium": appium, "device": device, "xray": xray, "jira": jira, "gitlab": gitlab}
+
+
+def _verifier_connexions(forcer: bool = False, attendre: float | None = None) -> dict:
+    """Lance les contrôles (au plus toutes les 10 min, sauf forcer) en parallèle et attend au plus « attendre »
+    secondes : un contrôle plus lent est marqué « en cours » et met le cache à jour quand il se termine."""
+    global _pool_sante
+    import concurrent.futures
+
+    cache = state["sante_cache"]
+    if forcer or time.time() - cache.get("t", 0) > 600 or "futures" not in cache:
+        if _pool_sante is None:
+            _pool_sante = concurrent.futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="sante")
+        cache["t"] = time.time()
+        for cle in _controles():
+            cache.pop(cle, None)  # pas d'ancien résultat présenté comme actuel
+        futures = {}
+        for cle, fn in _controles().items():
+            def tache(cle=cle, fn=fn, gen=cache["t"]):
+                try:
+                    r = fn()
+                except Exception as e:  # noqa: BLE001
+                    r = (False, str(e)[:160])
+                if state["sante_cache"].get("t") == gen:  # pas de résultat périmé après une nouvelle vérification
+                    state["sante_cache"][cle] = r
+                return r
+            futures[cle] = _pool_sante.submit(tache)
+        cache["futures"] = futures
+    en_cours = [f for f in cache["futures"].values() if not f.done()]
+    attendre = DELAI_SANTE if attendre is None else attendre
+    if en_cours and attendre > 0:
+        concurrent.futures.wait(en_cours, timeout=attendre)
+    return cache
+
+
+def _sante_items() -> list[dict]:
+    items = []
+
+    def item(cle, nom, ok, detail, solution, optionnel=False):
+        items.append({"cle": cle, "nom": nom, "ok": ok, "detail": detail,
+                      "solution": "" if ok else solution, "optionnel": optionnel})
+
+    cache = _verifier_connexions()
+    attente = (None, f"pas de réponse en {DELAI_SANTE} s : vérification toujours en cours (réseau, proxy ou certificat ?)")
+
+    def res(cle):
+        r = cache.get(cle)
+        return r if r else attente
+
+    ok, detail = res("appium")
+    item("appium", "Appium", ok, detail, "Lance « appium » dans un terminal (mobile uniquement).", optionnel=True)
+    ok, detail = res("device")
+    item("device", "Device mobile", ok, detail,
+         "Démarre un émulateur Android ou le Simulateur iOS, ou branche un téléphone (débogage USB).",
+         optionnel=True)
+    from atelier.domain import prerequis
+
+    try:
+        mo = prerequis.mobile()
+        item("mobile", "Outils mobiles", mo["ok"], mo["detail"], mo["solution"], optionnel=True)
+    except Exception:  # noqa: BLE001
+        pass
+    pr = prerequis.projet()
+    item("projet", "Projet de tests", pr["ok"], pr["dossier"] if pr["ok"] else f"{pr['raison']} ({pr['dossier']})", pr["solution"])
+    nav = prerequis.navigateur()
+    item("web", "Navigateur web", nav["ok"], nav["detail"], nav["solution"], optionnel=True)
+    item("xray", "Xray", *res("xray"),
+         "Renseigne XRAY_CLIENT_ID / XRAY_CLIENT_SECRET (et XRAY_CA_BUNDLE derrière le proxy).")
+    item("jira", "Jira", *res("jira"),
+         "Renseigne JIRA_BASE_URL, JIRA_EMAIL et JIRA_API_TOKEN.", optionnel=True)
+    item("gitlab", "GitLab", *res("gitlab"),
+         "URL et projet GitLab dans Paramètres › Projets ; jeton d'accès personnel (portées api, write_repository) "
+         "dans GITLAB_TOKEN ou la variable du projet ; GITLAB_CA_BUNDLE pour un certificat interne.", optionnel=True)
+    envs_db = sorted({k.split("_")[1].lower() for k in os.environ if re.match(r"DB_[A-Z0-9]+_HOST$", k)})
+    item("base", "Base de données", bool(envs_db), ", ".join(envs_db) or "",
+         "Renseigne DB_<ENV>_HOST, _PORT, _SID, _USER, _PASSWORD pour la recherche de données.",
+         optionnel=True)
+    try:
+        from atelier.integrations import agents_ia
+
+        mh = agents_ia.etat_serveur_http()
+        if mh.get("attendu") or mh.get("url_cursor"):
+            item("mcp_http", "MCP pour Cursor (URL)", mh["ok"], mh["message"],
+                 f"Lancer l'atelier avec {prerequis.commande_lancement()} (ou MCP_HTTP_PORT=8000) ; port occupé : fermer l'autre programme. "
+                 f"Journal du serveur : {mh.get('journal', '')}", optionnel=True)
+    except Exception:  # noqa: BLE001
+        pass
+    age = time.time() - state["dernier_mcp"] if state["dernier_mcp"] else None
+    item("cursor", "Cursor / Claude Desktop", age is not None and age < 900,
+         f"dernière action il y a {int(age // 60)} min" if age is not None else "pas encore vu",
+         "Paramètres › Cursor / Claude : installer le MCP et les règles en un clic.",
+         optionnel=True)
+    return items
+
+
+@app.get("/api/sante")
+async def sante(rafraichir: bool = False):
+    if rafraichir:
+        await asyncio.to_thread(_verifier_connexions, True, 0)
+    return await asyncio.to_thread(_sante_items)
+
+
+@app.get("/api/config")
+def get_config():
+    return config()
+
+
+@app.post("/api/config")
+async def post_config(req: Request):
+    cfg = config()
+    b = await req.json()
+    for k, v in b.items():
+        if k == "apps":
+            for p, vals in v.items():
+                cfg["apps"].setdefault(p, {}).update(vals)
+        elif k == "prereglage":
+            cfg["prereglages"][v["nom"]] = v["valeurs"]
+        elif k == "supprimer_prereglage":
+            cfg["prereglages"].pop(v, None)
+        else:
+            cfg[k] = v
+    save_config(cfg)
+    return cfg
+
+
+# --------------------------------------------------------------------------- device et écran
+@app.get("/api/devices")
+def devices():
+    return _call(outils.list_devices)
+
+
+@app.get("/api/postes-mac")
+async def postes_mac_liste():
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, lambda: {"postes": postes_mac.postes(), "appareils": postes_mac.appareils(forcer=True)})
+
+
+@app.post("/api/postes-mac/scanner")
+async def postes_mac_scanner():
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, postes_mac.scanner)
+
+
+@app.post("/api/postes-mac/identite")
+async def postes_mac_identite(req: Request):
+    b = await req.json()
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, postes_mac.identite, str(b.get("hote", "")).strip(), int(b.get("port") or 47610))
+
+
+@app.post("/api/postes-mac/appairer")
+async def postes_mac_appairer(req: Request):
+    b = await req.json()
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, postes_mac.appairer, str(b.get("hote", "")).strip(), int(b.get("port") or 47610),
+                                   str(b.get("code", "")))
+
+
+@app.post("/api/postes-mac/{pid}/oublier")
+async def postes_mac_oublier(pid: str):
+    from atelier.integrations import postes_mac
+
+    return await asyncio.to_thread(_call, postes_mac.oublier, pid)
+
+
+@app.get("/api/devices/diagnostic")
+def devices_diagnostic():
+    return _call(session.diagnostic_devices)
+
+
+@app.get("/api/agents-ia")
+def agents_ia_etat():
+    from atelier.integrations import agents_ia
+
+    age = time.time() - state["dernier_mcp"] if state["dernier_mcp"] else None
+    return {**_call(agents_ia.etat, PORT), "derniere_activite_s": int(age) if age is not None else None, "connexions": _connexions()}
+
+
+@app.post("/api/agents-ia/installer")
+async def agents_ia_installer(req: Request):
+    from atelier.integrations import agents_ia
+
+    b = await req.json()
+    if b.get("regles"):
+        if b.get("agent") == "claude_code":
+            return _call(agents_ia.installer_regles_claude_code, bool(b.get("ecraser")))
+        return _call(agents_ia.installer_regles, bool(b.get("ecraser")))
+    return _call(agents_ia.installer, b.get("agent", "cursor"), PORT)
+
+
+@app.post("/api/connecter")
+async def connecter(req: Request):
+    """Connexion en un clic : device détecté + app mémorisée. Renvoie 'besoin' s'il manque une info."""
+    b = await req.json()
+    p = b["platform"]
+    cfg = config()
+    vals = {**cfg["apps"].get(p, {}), **{k: v for k, v in b.get("valeurs", {}).items() if v not in ("", None)}}
+    if p == "web" and not vals.get("url"):
+        return {"besoin": ["url"]}
+    if b.get("valeurs"):
+        cfg["apps"].setdefault(p, {}).update(b["valeurs"])
+        save_config(cfg)
+    udid = b.get("udid") or ""
+    if p != "web" and not udid:
+        devs = await asyncio.to_thread(outils.list_devices)
+        liste = ([d["udid"] for d in devs["android"]] if p == "android"
+                 else [d["udid"] for d in devs["ios_simulateurs"]] + devs["ios_physiques"])
+        if not liste:
+            raise HTTPException(400, "Aucun device détecté : démarre un émulateur ou branche un téléphone.")
+        udid = liste[0]
+    params = {"platform": p}
+    if p == "web":
+        params.update(url=vals["url"], browser=vals.get("browser", "chromium"),
+                      headless=bool(vals.get("headless", True)))
+    else:
+        params["udid"] = udid
+        for k in (("app_package", "app_activity") if p == "android" else ("bundle_id",)):
+            if vals.get(k):
+                params[k] = vals[k]
+    res = await asyncio.to_thread(_call, outils.start_session, **params)
+    state["flux"] = {"platform": p, "udid": udid or None}
+    emit({"type": "session", "etat": "ouverte", "platform": p, "udid": udid})
+    return res
+
+
+@app.delete("/api/session")
+def session_stop():
+    emit({"type": "session", "etat": "fermee"})
+    return {"message": _call(outils.stop_session)}
+
+
+@app.post("/api/flux")
+async def flux(req: Request):
+    state["flux"] = await req.json()
+    return state["flux"]
+
+
+@app.post("/api/ecran/point")
+async def ecran_point(req: Request):
+    """Élément touché sur l'image de l'écran, avec sa zone pour le surligner."""
+    b = await req.json()
+    el = await asyncio.to_thread(_call, outils.element_at, b["x"], b["y"])
+    rect = el.get("rect")
+    if rect:
+        w = await asyncio.to_thread(session.window_size)
+        el["zone"] = {"x": rect[0] / w["width"], "y": rect[1] / w["height"],
+                      "w": rect[2] / w["width"], "h": rect[3] / w["height"]}
+    return el
+
+
+@app.post("/api/action")
+async def action(req: Request):
+    body = await req.json()
+    nom, args = body["nom"], body.get("args", {})
+    if nom not in {"tap", "type_text", "swipe", "press_back", "wait_for", "check_locator", "open_url"}:
+        raise HTTPException(400, f"Action non autorisée : {nom}")
+    res = await asyncio.to_thread(_call, getattr(outils, nom), **args)
+    emit({"type": "outil", "nom": nom, "args": args, "manuel": True})
+    return {"resultat": res}
+
+
+def _grab() -> bytes | None:
+    """Image courante : navigateur du MCP en web, adb / simctl en mobile (sans passer par Appium)."""
+    p, udid = state["flux"].get("platform"), state["flux"].get("udid")
+    ir = state.get("image_run")  # run web en cours : la dernière image du navigateur du run
+    if ir and time.time() - ir["t"] < 20:
+        return ir["img"]
+    try:
+        if p == "web":
+            if session.is_web():
+                return session.screenshot_png()
+            im = state.get("image_mcp")  # navigateur piloté par l'agent dans le processus MCP
+            return im["png"] if im and time.time() - im["t"] < 1800 else None
+        from atelier.integrations import postes_mac
+
+        if udid and postes_mac.postes() and postes_mac.appareil(udid):
+            return session.screenshot_png() if session.etat.get("driver") is not None else None
+        adb = session.chemin_adb() if p == "android" else None
+        if adb:
+            cmd = [adb] + (["-s", udid] if udid else []) + ["exec-out", "screencap", "-p"]
+            return subprocess.run(cmd, capture_output=True, timeout=8).stdout or None
+        if p == "ios" and session.etat.get("driver") is not None and session.etat.get("platform") == "ios":
+            try:  # iPhone réel (iOS 17+ : idevicescreenshot n'y arrive plus) comme simulateur : la session ouverte
+                return session.screenshot_png()
+            except Exception:  # noqa: BLE001
+                pass
+        if p == "ios" and shutil.which("xcrun") and (not udid or session.est_simulateur(udid)):
+            with tempfile.NamedTemporaryFile(suffix=".png") as f:
+                r = subprocess.run(["xcrun", "simctl", "io", udid or "booted", "screenshot", f.name],
+                                   capture_output=True, timeout=8)
+                if r.returncode == 0:
+                    return Path(f.name).read_bytes()
+            if udid and shutil.which("idevicescreenshot"):
+                with tempfile.NamedTemporaryFile(suffix=".png") as f:
+                    subprocess.run(["idevicescreenshot", "-u", udid, f.name], capture_output=True, timeout=8)
+                    return Path(f.name).read_bytes() or None
+        if session.etat["driver"] is not None:
+            return session.driver().get_screenshot_as_png()
+    except Exception:
+        return None
+    return None
+
+
+@app.post("/api/run/image")
+async def run_image(req: Request):
+    """Image du navigateur d'un run web (listener du run, jeton des processus) : l'aperçu en direct l'affiche."""
+    import base64
+
+    b = await req.json()
+    try:
+        img = base64.b64decode(b.get("image") or "")
+    except ValueError:
+        img = b""
+    if not img or len(img) > 4_000_000:
+        raise HTTPException(400, "Image absente ou trop grande.")
+    state["image_run"] = {"img": img, "t": time.time()}
+    emit({"type": "run_image"})
+    return {"ok": True}
+
+
+@app.post("/api/mcp/image")
+async def mcp_image(req: Request):
+    """Image du navigateur piloté par l'agent (processus MCP), envoyée après chaque action visible."""
+    import base64
+
+    b = await req.json()
+    png = base64.b64decode(b.get("png") or "")
+    if not png or len(png) > 8_000_000:
+        raise HTTPException(400, "Image absente ou trop grande.")
+    state["image_mcp"] = {"png": png, "t": time.time(), "outil": b.get("outil", "")}
+    _call_silencieux(sessions_agent.enregistrer_image, png, b.get("outil", ""))
+    emit({"type": "mcp_image", "outil": b.get("outil", "")})
+    return {"ok": True}
+
+
+def _tracer_ecran_mobile(outil: str):
+    """Mobile : l'écran après une action de l'agent est lu sur le device (adb / simctl) et gardé dans sa session."""
+    png = _grab()
+    if png:
+        _call_silencieux(sessions_agent.enregistrer_image, png, outil)
+
+
+@app.get("/api/mcp/controle")
+def mcp_controle():
+    """Lu par le serveur MCP avant chaque outil : « actif », « pause » ou « arret » (décidé par l'automaticien)."""
+    return {"etat": state.get("controle_agent", "actif")}
+
+
+@app.post("/api/agent/pilotage")
+async def agent_pilotage(req: Request):
+    """Pause, arrêt ou reprise de l'agent (Cursor) depuis la vue en direct."""
+    etat = (await req.json()).get("etat", "")
+    if etat not in ("actif", "pause", "arret"):
+        raise HTTPException(400, "État : actif, pause ou arret.")
+    state["controle_agent"] = etat
+    emit({"type": "agent_pilotage", "etat": etat})
+    return {"etat": etat}
+
+
+@app.get("/api/agent/sessions")
+async def agent_sessions():
+    return await asyncio.to_thread(_call, sessions_agent.lister)
+
+
+@app.get("/api/agent/sessions/{sid}")
+async def agent_session(sid: str):
+    return await asyncio.to_thread(_call, sessions_agent.detail, sid)
+
+
+@app.get("/api/agent/sessions/{sid}/{nom}")
+async def agent_session_image(sid: str, nom: str):
+    return Response(_call(sessions_agent.image, sid, nom), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+# --------------------------------------------------------------------------- boîte de demandes à Cursor
+@app.get("/api/cursor/boite")
+def cursor_boite():
+    from atelier.integrations import boite_cursor
+
+    return _call(boite_cursor.etat)
+
+
+@app.post("/api/cursor/boite")
+async def cursor_boite_deposer(req: Request):
+    """Dépose une demande : « boite » (Cursor vient la chercher par le MCP) ou « cli » (l'atelier lance l'agent)."""
+    from atelier.integrations import boite_cursor
+
+    b = await req.json()
+    return _call(boite_cursor.deposer, b.get("titre", ""), b.get("texte", ""), b.get("attendus") or [], b.get("ecran", ""),
+                 b.get("mode", ""))
+
+
+@app.post("/api/cursor/envoi")
+async def cursor_envoi(req: Request):
+    """Mode d'envoi des demandes à Cursor, réglé une fois pour le projet (Paramètres › Cursor / Claude)."""
+    from atelier.integrations import boite_cursor
+
+    b = await req.json()
+    if b.get("agent") and b["agent"] != boite_cursor.agent():
+        _call(boite_cursor.regler_agent, b["agent"])  # Cursor ou Claude Code traite les demandes de l'atelier
+    if "ia_cursor" in b and bool(b["ia_cursor"]) != boite_cursor.etat()["ia"]["boutons_cursor"]:
+        _call(boite_cursor.regler_ia, bool(b["ia_cursor"]))  # Cursor est l'IA de l'atelier : affiche les boutons « Demander à Cursor »
+    if "cli_force" in b and bool(b["cli_force"]) != boite_cursor.cli()["force"]:
+        _call(boite_cursor.regler_force, bool(b["cli_force"]))  # option --force de la ligne de commande : choix explicite
+    return _call(boite_cursor.regler_envoi, b.get("envoi") or boite_cursor.envoi())
+
+
+@app.post("/api/cursor/cli/verifier")
+async def cursor_cli_verifier():
+    """Interroge l'agent en ligne de commande : serveur MCP de l'atelier chargé ou à approuver, outils autorisés ou non."""
+    from atelier.integrations import boite_cursor
+
+    return await asyncio.to_thread(_call, boite_cursor.verifier_cli)
+
+
+@app.post("/api/cursor/cli/autoriser")
+def cursor_cli_autoriser():
+    """Autorise les seuls outils de l'atelier pour l'agent en ligne de commande (.cursor/cli.json du projet de tests)."""
+    from atelier.integrations import boite_cursor
+
+    return _call(boite_cursor.autoriser_outils_cli)
+
+
+@app.post("/api/cursor/boite/{did}/annuler")
+def cursor_boite_annuler(did: str):
+    from atelier.integrations import boite_cursor
+
+    return _call(boite_cursor.annuler, did)
+
+
+@app.get("/api/mcp/activite")
+async def mcp_activite(depuis: int = 0):
+    """Appels d'outils de l'agent (Cursor, Claude) : les plus récents, pour la vue « Cursor en direct »."""
+    l = list(state.get("activite_mcp") or [])
+    actif = time.time() - (state.get("dernier_mcp") or 0) < 120
+    im = state.get("image_mcp")
+    r = _regles_outils()
+    return {"actif": actif, "dernier": state.get("dernier_mcp"), "evenements": l[-max(1, min(300, depuis or 150)):],
+            "agent": state.get("agent") or {}, "regles_toujours": r["toujours"], "regles_version": r["version"],
+            "controle": state.get("controle_agent", "actif"), "attente": _attente_courante(),
+            "flux": state["flux"], "image_agent": {"t": im["t"], "outil": im["outil"]} if im else None, "connexions": _connexions()}
+
+
+@app.get("/api/frame.png")
+async def frame():
+    png = await asyncio.to_thread(_grab)
+    if not png:
+        raise HTTPException(404, "Rien à afficher.")
+    return Response(png, media_type="image/jpeg" if png[:3] == b"\xff\xd8\xff" else "image/png", headers={"Cache-Control": "no-store"})
+
+
+# --------------------------------------------------------------------------- locators
+@app.get("/api/locators")
+def locators():
+    return gen_locators.captures()
+
+
+@app.post("/api/locators/ajouter")
+async def locators_ajouter(req: Request):
+    b = await req.json()
+    res = _call(outils.add_screen_locator, b["ecran"], b["cle"], b["locator"], b.get("platform", ""))
+    emit({"type": "locators_change"})
+    emit({"type": "outil", "nom": "add_screen_locator", "args": b, "manuel": True})
+    return res
+
+
+@app.post("/api/completer")
+async def completer(req: Request):
+    """Prépare (et lance si demandé) la reprise des steps validés sur une autre plateforme."""
+    b = await req.json()
+    cible = b["platform"]
+    ecrans = locators()
+    manquants = {nom: [k for k in {**e["android"], **e["ios"]} if k not in e[cible]]
+                 for nom, e in ecrans.items() if (e["android"] or e["ios"])}
+    manquants = {k: v for k, v in manquants.items() if v}
+    steps = [s["gherkin"] for s in agent.steps if s.get("statut") in ("validé", "corrigé")]
+    consigne = (f"Une session {cible} est ouverte. Rejoue les steps validés ci-dessous sur cette plateforme, "
+                f"sans les modifier, pour relever les locators manquants avec les mêmes clés métier "
+                f"(capture_screen_locators avec selection, ou add_screen_locator). Propose un step uniquement "
+                f"si le parcours diffère sur {cible}.\n\nSteps validés :\n"
+                + "\n".join(f"- {s}" for s in steps)
+                + "\n\nClés à relever par écran :\n"
+                + "\n".join(f"- {e} : {', '.join(k)}" for e, k in manquants.items())
+                + "\n\nTermine par generate_locators_resource(overwrite=True) pour chaque écran complété.")
+    if b.get("lancer"):
+        _call(agent.start, consigne)
+        emit({"type": "consigne", "texte": f"Compléter les locators sur {cible}"})
+    return {"consigne": consigne, "manquants": manquants}
+
+
+# --------------------------------------------------------------------------- agent intégré
+@app.post("/api/agent")
+async def agent_start(req: Request):
+    body = await req.json()
+    _call(agent.start, body["instruction"])
+    emit({"type": "consigne", "texte": body["instruction"]})
+    return {"ok": True}
+
+
+@app.post("/api/agent/reponse")
+async def agent_reponse(req: Request):
+    b = await req.json()
+    if b["id"] in externes:
+        e = externes[b["id"]]
+        statut = {"valider": "validé", "corriger": "corrigé"}.get(b["decision"], "refusé")
+        e["step"]["statut"] = statut
+        if b.get("texte"):
+            e["step"]["correction"] = b["texte"]
+        e["reponse"] = (statut, b.get("texte", ""))
+        emit({"type": "attente_fin", "id": b["id"], "decision": b["decision"]})
+        emit({"type": "step", "step": e["step"]})
+        return {"ok": True}
+    _call(agent.answer, b["id"], b["decision"], b.get("texte", ""))
+    return {"ok": True}
+
+
+@app.post("/api/agent/stop")
+def agent_stop():
+    agent.stop()
+    return {"ok": True}
+
+
+@app.post("/api/agent/reset")
+def agent_reset():
+    agent.reset()
+    externes.clear()
+    state["produits"].clear()
+    emit({"type": "agent_reset"})
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- Xray, Jira
+@app.get("/api/xray/tests")
+async def xray_tests(jql: str = ""):
+    from atelier.intelligence import source_tests
+
+    jql = jql or (source_tests.source()["jql"] if amap.app_courante() else "") or config()["jql_candidats"] \
+        or (f'project = "{projets.cle_xray()}" ORDER BY key' if projets.cle_xray() else "")
+    if not jql:
+        raise HTTPException(400, "Aucune JQL de tests : déclarer la clé Xray du projet (Paramètres › Projets).")
+    return await asyncio.to_thread(_call, outils.xray_search_tests, jql, 80)
+
+
+@app.get("/api/xray/test/{key}")
+async def xray_test(key: str):
+    return await asyncio.to_thread(_call, outils.xray_get_test, key)
+
+
+@app.post("/api/xray/inspect")
+async def xray_inspect(req: Request):
+    b = await req.json()
+    info = await asyncio.to_thread(_call, outils.xray_inspect_ticket, b["ticket"])
+    try:  # statuts possibles de l'exécution, pour les listes de choix
+        from atelier.integrations.jira import JiraClient
+        info["statuts"] = await asyncio.to_thread(JiraClient().statuts_projet, info["projet"])
+    except Exception:
+        info["statuts"] = []
+    return info
+
+
+@app.get("/api/jira/sous-taches/{key}")
+async def jira_sous_taches(key: str):
+    from atelier.integrations.jira import JiraClient
+
+    jc = JiraClient()
+    taches = await asyncio.to_thread(_call, jc.sous_taches, key)
+    statuts = []
+    if taches:
+        statuts = [t["statut_cible"] for t in await asyncio.to_thread(_call, jc.transitions, taches[0]["cle"])]
+    return {"sous_taches": taches, "statuts": statuts}
+
+
+@app.post("/api/jira/transition")
+async def jira_transition(req: Request):
+    b = await req.json()
+    res = []
+    for key in b["cles"]:
+        try:
+            res.append({"cle": key, "ok": True,
+                        "statut": await asyncio.to_thread(outils.jira_transition, key, b["statut"])})
+        except Exception as e:
+            res.append({"cle": key, "ok": False, "erreur": str(e)})
+    return res
+
+
+@app.post("/api/qualifier")
+async def qualifier(req: Request):
+    b = await req.json()
+    return {"message": await asyncio.to_thread(_call, outils.qualify_failure, b["run_id"], b["qualification"],
+                                               b.get("commentaire", ""), b.get("message", ""))}
+
+
+# --------------------------------------------------------------------------- projet, JDD, résultats
+@app.get("/api/projet/fichiers")
+def fichiers(pattern: str = "**/*.robot"):
+    return _call(outils.list_project_files, pattern)
+
+
+@app.get("/api/projet/fichier")
+def projet_fichier(chemin: str):
+    """Lecture d'un fichier du projet de tests (limitée au projet)."""
+    return {"chemin": chemin, "contenu": _call(projet.lire_fichier, chemin)[:200000]}
+
+
+@app.get("/api/jdd")
+def jdd_envs():
+    return _call(outils.list_jdd)
+
+
+@app.get("/api/jdd/detecter")
+def jdd_detecter(target: str, env: str):
+    """Jeux de données référencés (JDD_<NOM>) dans les fichiers de la suite choisie."""
+    return _call(jdd.detecter, target, env)
+
+
+@app.get("/api/jdd/{env}")
+def jdd_env(env: str):
+    return _call(outils.list_jdd, env)
+
+
+@app.post("/api/jdd/verifier")
+async def jdd_verifier(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, outils.check_jdd, b["env"], b["jeux"])
+
+
+@app.get("/api/resultats/fichier")
+def resultat_fichier(chemin: str, dossier: str = "results/mcp"):
+    base = projet.safe_path(dossier)
+    f = (base / chemin).resolve()
+    if base not in f.parents or not f.is_file():
+        raise HTTPException(404, "Fichier introuvable.")
+    return FileResponse(f)
+
+
+# --------------------------------------------------------------------------- applications et carte
+@app.get("/api/apps")
+def apps_liste():
+    return {"active": amap.app_courante(), "applications": amap.apps()}
+
+
+@app.post("/api/apps")
+async def apps_creer(req: Request):
+    b = await req.json()
+    cfg = _call(amap.creer_app, b["nom"], b.get("plateformes") or [], b.get("android"), b.get("ios"), b.get("web"),
+                b.get("build", ""), b.get("langue", "fr"), None, None,
+                b.get("projet_xray") or projets.cle_xray(), b.get("tests_xray") or {}, b.get("type", ""), b.get("api"))
+    atelier = config()  # les réglages de connexion suivent l'application
+    for p in ("android", "ios", "web"):
+        if b.get(p):
+            atelier["apps"].setdefault(p, {}).update({k: v for k, v in b[p].items() if v})
+    save_config(atelier)
+    emit({"type": "app_change", "slug": cfg["slug"]})
+    return cfg
+
+
+@app.get("/api/centre/vue-xray")
+async def centre_vue_xray(depuis: str = "", jusqu: str = ""):
+    return await asyncio.to_thread(_call, centre.vue_xray, 20, depuis, jusqu)
+
+
+@app.get("/api/centre/xray/execution/{cle}")
+async def centre_xray_execution(cle: str):
+    return await asyncio.to_thread(_call, centre.detail_execution_xray, cle)
+
+
+@app.post("/api/centre/xray/execution/{cle}/relancer")
+async def centre_xray_relancer(cle: str, req: Request):
+    """Nouveau run dans la même Exécution (Test Execution Xray) : tous ses tests automatisés, ou ses échecs."""
+    b = await req.json()
+    r = _call(centre.params_relance, cle, bool(b.get("echecs")), b.get("plateforme", ""))
+    job = await asyncio.to_thread(_call, _mettre_en_file, r["params"], b.get("priorite") or "Normal", r["campagne"],
+                                  f"{cle} · {'échecs' if b.get('echecs') else 'tous les tests'}")
+    return {**job, "tests": r["tests"], "non_automatises": r["non_automatises"]}
+
+
+@app.get("/api/centre/xray/statuts")
+async def centre_xray_statuts():
+    """Statuts de test run du projet (Xray) ; mis en cache pour la session."""
+    from atelier.intelligence import patrimoine_xray
+
+    cle = projets.cle_xray()
+    cache = state.setdefault("statuts_xray", {})
+    if cle not in cache:
+        cache[cle] = await asyncio.to_thread(_call, patrimoine_xray.statuts_runs)
+    return cache[cle]
+
+
+@app.post("/api/centre/xray/run-statut")
+async def centre_xray_run_statut(req: Request):
+    """Change le statut d'un test run dans Xray (action explicite depuis le tableau de bord)."""
+    from atelier.intelligence import patrimoine_xray
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, patrimoine_xray.changer_statut_run, b.get("execution", ""), b.get("test", ""), b.get("statut", ""))
+    emit({"type": "xray_change", **r})
+    return r
+
+
+@app.get("/api/centre/xray/execution/{cle}/transitions")
+async def centre_xray_transitions(cle: str):
+    from atelier.integrations.jira import JiraClient
+
+    return await asyncio.to_thread(_call, lambda: JiraClient().transitions(cle))
+
+
+@app.post("/api/centre/xray/execution/{cle}/transition")
+async def centre_xray_transition(cle: str, req: Request):
+    """Statut Jira (workflow) de la Test Execution : transition explicite depuis le tableau de bord."""
+    from atelier.integrations.jira import JiraClient
+    from atelier.intelligence import patrimoine_xray
+
+    nom = (await req.json()).get("transition", "")
+    statut = await asyncio.to_thread(_call, lambda: JiraClient().transition(cle, nom))
+    _call(patrimoine_xray.maj_statut_execution, cle, statut or nom)
+    return {"execution": cle, "statut": statut or nom}
+
+
+@app.get("/api/centre/executions-xray")
+async def centre_executions_xray():
+    return await asyncio.to_thread(_call, centre.executions_xray)
+
+
+@app.post("/api/centre/executions-xray/actualiser")
+async def centre_executions_actualiser(req: Request):
+    from atelier.intelligence import patrimoine_xray
+
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, patrimoine_xray.importer_executions, "", None, b.get("depuis", ""), b.get("jusqu", ""))
+
+
+@app.get("/api/conception/repository")
+def conception_repository():
+    """Dossiers du Test Repository Xray et applications du projet qui s'y rattachent."""
+    from atelier.intelligence import patrimoine_xray
+
+    return {**_call(patrimoine_xray.dossiers_repository), "applications": [
+        {"slug": a["slug"], "nom": a.get("nom", a["slug"]), "type": a.get("type", ""), "plateformes": a.get("plateformes", []),
+         "dossiers": (a.get("tests_xray") or {}).get("dossiers", []), "valeurs": (a.get("tests_xray") or {}).get("valeurs", [])}
+        for a in amap.apps()], "active": amap.app_courante()}
+
+
+@app.get("/api/apps/configuration")
+def apps_configuration():
+    """Configuration de l'application active : source des tests (JQL + dossiers) et politique des US."""
+    from atelier.intelligence import patrimoine_xray, source_tests, testabilite_us
+
+    slug = amap.app_courante()
+    if not slug:
+        return {"application": None}
+    cfg = amap.config_app(slug)
+    return {"application": {"slug": slug, "nom": cfg.get("nom", slug), "projet_xray": cfg.get("projet_xray") or projets.cle_xray()},
+            "source": _call(source_tests.source, slug), "dossiers": _call(patrimoine_xray.dossiers_repository)["dossiers"],
+            "espaces": [e for e in testabilite_us.tous_espaces() if e.get("application") == slug],
+            "espaces_non_rattaches": [e for e in testabilite_us.tous_espaces() if not e.get("application")],
+            "copie_marquee": patrimoine_xray.charger_brut_marque()}
+
+
+@app.post("/api/apps/source")
+async def apps_source(req: Request):
+    from atelier.intelligence import source_tests
+
+    b = await req.json()
+    r = _call(source_tests.enregistrer, b.get("slug") or amap.app_courante(), b.get("jql", ""), b.get("dossiers") or [])
+    emit({"type": "app_change", "slug": b.get("slug") or amap.app_courante()})
+    return r
+
+
+@app.post("/api/apps/source/conteneurs")
+async def apps_source_conteneurs(req: Request):
+    """JQL des Test Plans et des Test Executions de l'application."""
+    from atelier.intelligence import source_tests
+
+    b = await req.json()
+    r = _call(source_tests.enregistrer_conteneurs, b.get("slug") or amap.app_courante(), b.get("jql_plans", ""), b.get("jql_executions", ""))
+    emit({"type": "app_change", "slug": b.get("slug") or amap.app_courante()})
+    return r
+
+
+@app.post("/api/apps/source/tester")
+async def apps_source_tester(req: Request):
+    from atelier.intelligence import source_tests
+
+    return await asyncio.to_thread(_call, source_tests.tester, (await req.json()).get("jql", ""))
+
+
+@app.post("/api/testabilite/espaces/rattacher")
+async def testabilite_rattacher(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    b = await req.json()
+    return _call(testabilite_us.rattacher_espace, b.get("projet_jira", ""), b.get("application") or amap.app_courante())
+
+
+@app.post("/api/apps/dupliquer")
+async def apps_dupliquer(req: Request):
+    b = await req.json()
+    r = _call(amap.dupliquer_app, b.get("slug", ""), b.get("nom", ""), bool(b.get("avec_carte")))
+    emit({"type": "app_change", "slug": r["slug"]})
+    return r
+
+
+@app.post("/api/apps/archiver")
+async def apps_archiver(req: Request):
+    """Archive locale (restaurable) : aucun effet sur Xray, Jira ni les tests du dépôt."""
+    r = _call(amap.archiver_app, (await req.json()).get("slug", ""))
+    emit({"type": "app_change", "slug": r.get("active")})
+    return r
+
+
+@app.get("/api/apps/archives")
+def apps_archives():
+    return _call(amap.archives_apps)
+
+
+@app.post("/api/apps/restaurer")
+async def apps_restaurer(req: Request):
+    return _call(amap.restaurer_app, (await req.json()).get("archive", ""))
+
+
+@app.post("/api/apps/choisir")
+async def apps_choisir(req: Request):
+    b = await req.json()
+    cfg = _call(amap.choisir_app, b["slug"])
+    atelier = config()
+    for p in ("android", "ios", "web"):
+        if cfg.get(p):
+            atelier["apps"].setdefault(p, {}).update({k: v for k, v in cfg[p].items() if v})
+    save_config(atelier)
+    emit({"type": "app_change", "slug": b["slug"]})
+    return cfg
+
+
+AUTOMATISATION_CHAMPS = ("technologie_defaut", "projet_kotlin", "paquet_kotlin", "projet_espresso", "paquet_espresso",
+                         "dossier_xcuitest", "xcode_projet", "xcode_schema", "xcode_cible", "xcode_destination")
+
+
+@app.post("/api/apps/maj")
+async def apps_maj(req: Request):
+    b = await req.json()
+    champs = {k: b[k] for k in ("build", "comptes", "ecran_depart", "etape_assistant", "langue", "plateformes",
+                                "android", "ios", "web", "api") if k in b}
+    if str(b.get("nom") or "").strip():
+        champs["nom"] = str(b["nom"]).strip()  # le slug (dossier) ne change pas
+    if "projet_xray" in b:
+        champs["projet_xray"] = str(b["projet_xray"] or "").strip().upper()
+    if "tests_xray" in b:  # dossiers et valeurs se complètent : une clé absente garde sa valeur actuelle
+        actuel = (amap.config_app(b.get("slug") or None).get("tests_xray") or {})
+        nouveau = b["tests_xray"] or {}
+        champs["tests_xray"] = amap.normaliser_tests_xray({**{k: actuel[k] for k in ("dossiers", "valeurs") if k in actuel and k not in nouveau}, **nouveau})
+    if "liste_rouge" in b:
+        champs["liste_rouge"] = {"textes": [t for t in b["liste_rouge"] if t.strip()],
+                                 "cles": amap.config_app().get("liste_rouge", {}).get("cles", [])}
+    if "depot" in b:  # dépôt du code des tests de l'application (dossier, GitLab, branche cible)
+        champs["depot"] = _call(amap.normaliser_depot, b["depot"])
+    if "depots" in b:  # un dépôt par technologie (robot, uiautomator, espresso, xcuitest…)
+        champs["depots"] = _call(amap.normaliser_depots, b["depots"])
+    if "automatisation" in b:  # technologie par défaut, projets Kotlin / Xcode (dossier, schéma, cible, destination)
+        champs["automatisation"] = {**(amap.config_app(b.get("slug") or None).get("automatisation") or {}),
+                                    **{k: str(v).strip() for k, v in (b["automatisation"] or {}).items() if k in AUTOMATISATION_CHAMPS}}
+    if "jira_projets" in b:
+        champs["jira_projets"] = _call(amap.normaliser_jira_projets, b["jira_projets"])
+    return _call(amap.maj_app, b.get("slug") or None, **champs)
+
+
+@app.get("/api/carte/graphe")
+def carte_graphe():
+    if not amap.app_courante():
+        return {"app": None, "nodes": [], "edges": [], "depart": ""}
+    return _call(amap.graphe)
+
+
+@app.get("/api/carte/ecran/{eid}")
+def carte_ecran(eid: str):
+    return _call(carte_outils.ecran_detail, eid)
+
+
+@app.get("/api/carte/vignette/{nom}")
+def carte_vignette(nom: str):
+    if not re.fullmatch(r"e_[0-9a-f]{8}_(android|ios|web)\.png", nom):
+        raise HTTPException(404, "Vignette inconnue.")
+    f = amap._dir() / "vignettes" / nom
+    if not f.exists():
+        raise HTTPException(404, "Vignette absente.")
+    return FileResponse(f)
+
+
+@app.post("/api/carte/renommer")
+async def carte_renommer(req: Request):
+    b = await req.json()
+    e = _call(amap.renommer, b["id"], b["nom"], b.get("module"))
+    emit({"type": "carte_change"})
+    return {"id": e["id"], "nom": e.get("nom")}
+
+
+@app.post("/api/carte/fusionner")
+async def carte_fusionner(req: Request):
+    b = await req.json()
+    e = _call(amap.fusionner, b["source"], b["cible"])
+    emit({"type": "carte_change"})
+    return {"id": e["id"]}
+
+
+@app.post("/api/carte/supprimer")
+async def carte_supprimer(req: Request):
+    b = await req.json()
+    _call(amap.supprimer_ecran, b["id"])
+    emit({"type": "carte_change"})
+    return {"ok": True}
+
+
+@app.post("/api/carte/transition")
+async def carte_transition(req: Request):
+    b = await req.json()
+    _call(amap.maj_transition, b["id"], b.get("interdite"), bool(b.get("supprimer")))
+    emit({"type": "carte_change"})
+    return {"ok": True}
+
+
+@app.post("/api/carte/locators")
+async def carte_locators(req: Request):
+    b = await req.json()
+    return _call(amap.definir_locators, b["id"], b["cle"], b["plateforme"], b["locators"])
+
+
+@app.post("/api/carte/revu")
+async def carte_revu(req: Request):
+    b = await req.json()
+    _call(amap.marquer_revu, b["id"])
+    emit({"type": "carte_change"})
+    return {"ok": True}
+
+
+@app.post("/api/carte/depart")
+async def carte_depart(req: Request):
+    b = await req.json()
+    _call(amap.maj_app, None, ecran_depart=b["id"])
+    emit({"type": "carte_change"})
+    return {"ok": True}
+
+
+@app.post("/api/carte/ou-suis-je")
+async def carte_ici():
+    return await asyncio.to_thread(_call, outils.where_am_i)
+
+
+@app.post("/api/carte/aller")
+async def carte_aller(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, outils.goto_screen, b["ecran"])
+
+
+@app.post("/api/carte/explorer")
+async def carte_explorer(req: Request):
+    if state["explo"] and state["explo"].is_alive():
+        raise HTTPException(409, "Une exploration est déjà en cours.")
+    b = await req.json()
+    if b.get("depuis"):
+        r = await asyncio.to_thread(_call, outils.goto_screen, b["depuis"])
+        if not r.get("arrive"):
+            raise HTTPException(400, "Impossible d'atteindre l'écran de départ choisi.")
+
+    def worker():
+        try:
+            exploration.explorer(int(b.get("max_ecrans", 25)), int(b.get("profondeur", 3)), int(b.get("duree", 900)))
+        except Exception as e:
+            emit({"type": "exploration", "fin": True, "erreur": str(e)})
+
+    state["explo"] = threading.Thread(target=worker, daemon=True)
+    state["explo"].start()
+    return {"ok": True}
+
+
+@app.post("/api/carte/explorer/stop")
+def carte_explorer_stop():
+    outils.stop_exploration()
+    return {"ok": True}
+
+
+@app.get("/api/carte/noms")
+def carte_noms():
+    return _call(amap.proposer_noms)
+
+
+@app.get("/api/carte/tags")
+def carte_tags():
+    return _call(outils.map_tags_report)
+
+
+@app.post("/api/carte/tags/ticket")
+async def carte_tags_ticket(req: Request):
+    b = await req.json()
+    from atelier.integrations.jira import JiraClient
+
+    rap = outils.map_tags_report()
+    nom = amap.config_app().get("nom", "")
+    cle = await asyncio.to_thread(_call, JiraClient().creer_ticket, b["projet"],
+                                  f"Ajouter les identifiants de test — {nom} ({rap['nb']} éléments)", rap["texte"])
+    return {"cle": cle}
+
+
+@app.post("/api/carte/importer")
+async def carte_importer(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, outils.map_import_existing, b.get("pattern") or "**/*.resource")
+
+
+@app.post("/api/carte/exporter")
+async def carte_exporter(req: Request):
+    b = await req.json()
+    return {"fichier": _call(outils.export_screen_resource, b["id"])}
+
+
+# --------------------------------------------------------------------------- espaces de travail (graphes)
+@app.get("/plateforme")
+def page_plateforme():
+    return FileResponse(STATIC / "plateforme.html", headers=SANS_CACHE)
+
+
+# --------------------------------------------------------------------------- QAFlow (nouvelle interface, docs/REFONTE_UI_QAFLOW.md)
+@app.get("/qaflow")
+def page_qaflow():
+    """Nouvelle interface, à côté de l'actuelle (/plateforme) jusqu'à la bascule : mêmes API, même session."""
+    return FileResponse(STATIC / "qaflow.html", headers=SANS_CACHE)
+
+
+@app.get("/api/qaflow/accueil")
+async def qaflow_accueil():
+    """Accueil QAFlow en une lecture : application (nom, version, environnements), centre d'exécution, dernières
+    exécutions, dernière release, tâches IA actives. Assemblage de lectures existantes, rien d'écrit."""
+    from atelier.execution import demandes
+    from atelier.intelligence import releases
+
+    def lire():
+        try:
+            cfg = amap.config_app() if amap.app_courante() else {}
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        out = {"application": {"slug": cfg.get("slug", ""), "nom": cfg.get("nom", ""), "version": cfg.get("build", ""),
+                               "plateformes": cfg.get("plateformes") or [], "type": amap.type_app(cfg) if cfg else ""},
+               "applications": [{"slug": a["slug"], "nom": a.get("nom", a["slug"])} for a in amap.apps()]}
+        for cle, f in (("centre", lambda: centre.vue_ensemble()["kpi"]), ("executions", lambda: historique.lister()[:5]),
+                       ("release", lambda: (releases.lister() or [None])[0]), ("activite", lambda: demandes.lister(20)["compteurs"])):
+            try:
+                out[cle] = f()
+            except Exception as e:  # noqa: BLE001 — une source indisponible n'empêche pas l'accueil
+                out[cle] = None
+                out.setdefault("indisponibles", []).append(f"{cle} : {e}")
+        return out
+
+    return await asyncio.to_thread(_call, lire)
+
+
+@app.get("/api/qaflow/parcours")
+async def qaflow_parcours():
+    """Parcours de l'application active, statut QAFlow et chiffres réels (lecture seule)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.parcours)
+
+
+@app.get("/api/qaflow/parcours/{pid}")
+async def qaflow_parcours_detail(pid: str):
+    """Espace de travail d'un parcours (lecture seule)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.parcours_detail, pid)
+
+
+@app.get("/api/qaflow/parcours/{pid}/jdd")
+async def qaflow_parcours_jdd(pid: str):
+    """Jeux de données du parcours : jeux des scénarios, données proposées par l'agent, profil (lecture seule)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.jeux_de_donnees, pid)
+
+
+@app.get("/api/qaflow/activite")
+async def qaflow_activite():
+    """Centre d'activité IA : travaux, demandes à l'agent, session en cours (étapes, livrables, erreurs, décisions)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.activite)
+
+
+@app.get("/api/qaflow/execution")
+async def qaflow_execution():
+    """Centre d'exécution QAFlow : en cours, en file, compteurs, exécutions récentes."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.execution)
+
+
+@app.get("/api/qaflow/releases/{rid}/processus")
+async def qaflow_release_processus(rid: str, build: str = ""):
+    """Processus de la release : Release Note → build → périmètre → Test Plan → Test Execution Xray → exécution → verdict."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.processus_release, rid, build)
+
+
+@app.post("/api/qaflow/document-texte")
+async def qaflow_document_texte(req: Request):
+    """Texte d'un document déposé (TXT, MD, DOCX, PDF), à relire avant de créer la release ; rien n'est enregistré."""
+    import base64
+    import binascii
+
+    from atelier.intelligence import documents
+
+    b = await req.json()
+    try:
+        contenu = base64.b64decode(str(b.get("contenu") or ""), validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, "Contenu du fichier illisible (base64 attendu).") from None
+    return await asyncio.to_thread(_call, documents.texte, str(b.get("nom") or ""), contenu)
+
+
+@app.get("/api/qaflow/donnees-saisie")
+async def qaflow_donnees_saisie(parcours: str = "", libelle: str = ""):
+    """Données qu'on peut choisir pour un champ : celles du parcours, du catalogue, des jeux de données des tests."""
+    from atelier.discovery import donnees
+
+    return await asyncio.to_thread(_call, donnees.donnees_pour_saisie, parcours, libelle)
+
+
+@app.post("/api/qaflow/parcours/{pid}/donnee")
+async def qaflow_parcours_donnee(pid: str, req: Request):
+    """Ajouter ou modifier une donnée du parcours (nouvelle, ou existante du catalogue) ; le jeu des tests suit."""
+    from atelier.discovery import donnees
+
+    b = await req.json()
+    cle = str(b.get("cle") or "").strip().upper()
+    if b.get("existante") and b.get("valeur") in (None, ""):
+        def ajouter():
+            profil = donnees.ajouter_au_parcours(pid, cle)
+            return {"cle": cle, "profil": profil, "jdd": donnees.jdd_du_parcours(pid)}
+        return await asyncio.to_thread(_call, ajouter)
+    return await asyncio.to_thread(_call, donnees.enregistrer_saisie, cle, b.get("valeur"), b.get("nom", ""), b.get("type", "texte"),
+                                   bool(b.get("secret")), pid, "assertion" if cle.startswith("ATTENDU_") else "saisie")
+
+
+@app.post("/api/qaflow/parcours/{pid}/donnee/retirer")
+async def qaflow_parcours_donnee_retirer(pid: str, req: Request):
+    from atelier.discovery import donnees
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, donnees.retirer_du_parcours, pid, str(b.get("cle") or "").strip().upper())
+
+
+@app.get("/api/qaflow/session/{sid}")
+async def qaflow_session(sid: str):
+    """Session assistée en direct : durée, compteurs, derniers événements (lecture seule)."""
+    from atelier.intelligence import qaflow
+
+    return await asyncio.to_thread(_call, qaflow.session_en_direct, sid)
+
+
+# --------------------------------------------------------------------------- comptes, connexion, assistant du poste
+@app.get("/connexion")
+def page_connexion():
+    return FileResponse(STATIC / "connexion.html", headers=SANS_CACHE)
+
+
+@app.get("/assistant")
+def page_assistant():
+    return FileResponse(STATIC / "assistant.html", headers=SANS_CACHE)
+
+
+def _poser_compte(reponse: JSONResponse, jeton: str):
+    from atelier.adapters.web.securite import COOKIE_COMPTE
+
+    reponse.set_cookie(COOKIE_COMPTE, jeton, httponly=True, samesite="strict", path="/", max_age=12 * 3600)
+    return reponse
+
+
+@app.post("/api/connexion")
+async def connexion(req: Request):
+    from atelier.domain import utilisateurs
+
+    b = await req.json()
+    try:
+        jeton, u = await asyncio.to_thread(utilisateurs.connecter, str(b.get("identifiant", "")), str(b.get("mot_de_passe", "")))
+    except PermissionError as e:
+        await asyncio.sleep(0.5)  # ralentit les essais en série
+        raise HTTPException(401, str(e)) from e
+    return _poser_compte(JSONResponse({"ok": True, "compte": u}), jeton)
+
+
+@app.post("/api/deconnexion")
+async def deconnexion(req: Request):
+    from atelier.adapters.web.securite import COOKIE_COMPTE
+    from atelier.domain import utilisateurs
+
+    utilisateurs.deconnecter(req.cookies.get(COOKIE_COMPTE, ""))
+    r = JSONResponse({"ok": True})
+    r.delete_cookie(COOKIE_COMPTE, path="/")
+    return r
+
+
+@app.get("/api/moi")
+def moi():
+    from atelier.domain import roles, utilisateurs
+
+    u = utilisateurs.courant()
+    return {"compte": u, "comptes_actifs": utilisateurs.actifs(), "utilisateur": roles.utilisateur(), "role": roles.role()}
+
+
+@app.get("/api/assistant/etat")
+def assistant_etat():
+    from atelier.domain import assistant_poste
+
+    return _call(assistant_poste.etat)
+
+
+@app.post("/api/assistant/compte")
+async def assistant_compte(req: Request):
+    from atelier.domain import assistant_poste
+
+    b = await req.json()
+    jeton, u = await asyncio.to_thread(_call, assistant_poste.creer_premier_compte, str(b.get("identifiant", "")),
+                                       str(b.get("mot_de_passe", "")), str(b.get("nom", "")))
+    return _poser_compte(JSONResponse({"ok": True, "compte": u}), jeton)
+
+
+@app.post("/api/assistant/base")
+async def assistant_base(req: Request):
+    from atelier.domain import assistant_poste
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, assistant_poste.choisir_base, str(b.get("chemin", "")), bool(b.get("deplacer")), str(b.get("ca", "")))
+
+
+@app.post("/api/assistant/espace")
+async def assistant_espace(req: Request):
+    from atelier.domain import assistant_poste
+
+    from atelier.generation import adoption
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, assistant_poste.espace, b)
+    # dépôt déjà automatisé : l'assistant propose l'étape « Adopter ce dépôt »
+    return {**r, "adoption": _call(adoption.apercu, str(projet.PROJECT_DIR))}
+
+
+def _exiger_responsable():
+    from atelier.domain import roles
+
+    roles.exiger("gerer_roles")
+
+
+@app.get("/api/comptes")
+def comptes_lister():
+    from atelier.domain import projets, utilisateurs
+
+    _call(_exiger_responsable)
+    return {"comptes": utilisateurs.lister(), "projets": [{"id": p["id"], "nom": p["nom"]} for p in projets._charger()["projets"]]}
+
+
+@app.post("/api/comptes")
+async def comptes_creer(req: Request):
+    from atelier.domain import roles, utilisateurs
+
+    _call(_exiger_responsable)
+    b = await req.json()
+    return await asyncio.to_thread(_call, utilisateurs.creer, str(b.get("identifiant", "")), str(b.get("mot_de_passe", "")),
+                                   str(b.get("role", "automaticien")), str(b.get("nom", "")), b.get("projets") or ["*"], roles.utilisateur())
+
+
+@app.patch("/api/comptes/{identifiant}")
+async def comptes_modifier(identifiant: str, req: Request):
+    from atelier.domain import roles, utilisateurs
+
+    _call(_exiger_responsable)
+    b = await req.json()
+    return await asyncio.to_thread(_call, utilisateurs.modifier, identifiant, b.get("role"), b.get("projets"), b.get("actif"), b.get("nom"),
+                                   b.get("version"), roles.utilisateur())
+
+
+@app.post("/api/comptes/{identifiant}/mot-de-passe")
+async def comptes_mot_de_passe(identifiant: str, req: Request):
+    """Le titulaire change le sien (ancien exigé) ; un responsable réinitialise celui d'un autre."""
+    from atelier.domain import roles, utilisateurs
+
+    b = await req.json()
+    moi_ = utilisateurs.courant() or {}
+    if moi_.get("identifiant") == identifiant.lower():
+        ancien = str(b.get("ancien", ""))
+    else:
+        _call(_exiger_responsable)
+        ancien = None
+    return await asyncio.to_thread(_call, utilisateurs.changer_mot_de_passe, identifiant, str(b.get("nouveau", "")), ancien, roles.utilisateur())
+
+
+@app.get("/api/base")
+def base_info():
+    from atelier.domain import magasin
+
+    return _call(lambda: magasin.base().info())
+
+
+@app.post("/api/base/exporter")
+def base_exporter():
+    """Export de toute la base (une ligne JSON par document) dans ~/.atelier/exports : pour la déplacer ou la sauvegarder."""
+    import time as _t
+
+    from atelier.domain import magasin
+
+    _call(_exiger_responsable)
+    return _call(magasin.base().exporter, magasin.dossier_poste() / "exports" / f"atelier-{_t.strftime('%Y%m%d-%H%M%S')}.jsonl")
+
+
+@app.get("/static/{nom}")
+def fichier_statique(nom: str):
+    if not re.fullmatch(r"[a-z_]+\.(js|css)", nom) or not (STATIC / nom).is_file():
+        raise HTTPException(404, "Fichier inconnu.")
+    return FileResponse(STATIC / nom, headers=SANS_CACHE)
+
+
+def _liste(v: str) -> list[str] | None:
+    return [x for x in v.split(",") if x] or None
+
+
+@app.get("/api/graphes/referentiel")
+def graphes_referentiel():
+    return espaces.referentiel()
+
+
+@app.get("/api/graphes/ontologie")
+def graphes_ontologie():
+    """Vocabulaire contrôlé du Knowledge Graph (refonte : trois univers, relations typées)."""
+    return espaces.ontologie_cible()
+
+
+@app.get("/api/graphes/property-graph")
+async def graphes_property_graph():
+    """Graphe du projet au format cible (nœuds et arêtes typés avec leur provenance) : service commun aux modules."""
+    return await asyncio.to_thread(_call, espaces.property_graph)
+
+
+@app.get("/api/graphes/migration")
+async def graphes_migration():
+    """Rapport de cohérence de la migration vers les relations typées."""
+    return await asyncio.to_thread(_call, espaces.rapport_migration)
+
+
+@app.get("/api/graphes/connaissance")
+async def graphe_connaissance(types: str = "", categories: str = "", plateforme: str = "", recherche: str = "",
+                              centre: str = "", profondeur: int = 1, patrimoine: str = "lie", perimetre: str = "",
+                              version: str = ""):
+    return await asyncio.to_thread(_call, espaces.vue_connaissance, _liste(types), _liste(categories), plateforme,
+                                   recherche, centre, profondeur, patrimoine, perimetre, version)
+
+
+@app.get("/api/graphes/perimetres")
+async def graphes_perimetres():
+    return await asyncio.to_thread(_call, espaces.perimetres)
+
+
+@app.get("/api/graphes/parcours-ordonne")
+async def graphes_parcours_ordonne(id: str):
+    from atelier.generation import parcours_bdd
+
+    return await asyncio.to_thread(_call, parcours_bdd.etapes_parcours, id)
+
+
+@app.get("/api/graphes/plan-de-test")
+async def graphes_plan_de_test(module: str):
+    from atelier.intelligence import plan_test
+
+    return await asyncio.to_thread(_call, plan_test.plan, module)
+
+
+@app.get("/api/couverture")
+async def couverture_calcul(version: str = "", plateforme: str = ""):
+    """Couverture des exigences (Test Xray ↔ Story / Requirement) : 4 indicateurs, par niveau."""
+    from atelier.intelligence import couverture_exigences
+
+    return await asyncio.to_thread(_call, couverture_exigences.calculer, version, plateforme)
+
+
+@app.post("/api/couverture/importer")
+async def couverture_importer():
+    """Lit dans Jira les exigences du périmètre, leurs tests liés et leurs parents (lecture seule, journalisé)."""
+    from atelier.intelligence import couverture_exigences
+
+    return await asyncio.to_thread(_call, couverture_exigences.importer)
+
+
+@app.get("/api/couverture/reglages")
+async def couverture_reglages():
+    from atelier.intelligence import couverture_exigences
+
+    return _call(couverture_exigences.reglages)
+
+
+@app.post("/api/couverture/reglages")
+async def couverture_reglages_maj(req: Request):
+    from atelier.intelligence import couverture_exigences
+
+    b = await req.json()
+    return _call(couverture_exigences.enregistrer_reglages, b.get("jql_exigences", ""), b.get("criteres_actifs"))
+
+
+@app.post("/api/couverture/critere")
+async def couverture_critere(req: Request):
+    """Tests qui couvrent un critère d'acceptation (enrichissement local, historisé)."""
+    from atelier.intelligence import couverture_exigences
+
+    b = await req.json()
+    return _call(couverture_exigences.associer_critere, b.get("exigence", ""), int(b.get("index") or 0), b.get("tests") or [])
+
+
+@app.post("/api/couverture/instantane")
+async def couverture_instantane(req: Request):
+    from atelier.intelligence import couverture_exigences
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, couverture_exigences.enregistrer_instantane, b.get("version", ""), b.get("commentaire", ""))
+
+
+@app.get("/api/couverture/evolution")
+async def couverture_evolution():
+    from atelier.intelligence import couverture_exigences
+
+    return _call(couverture_exigences.evolution)
+
+
+@app.get("/api/graphes/couverture")
+async def graphe_couverture(module: str = "", afficher: str = "tous", recherche: str = "", test: str = ""):
+    return await asyncio.to_thread(_call, espaces.vue_couverture, module, afficher, recherche, test)
+
+
+@app.get("/api/graphes/candidats")
+async def graphe_candidats(module: str = ""):
+    return await asyncio.to_thread(_call, espaces.candidats, module)
+
+
+# --------------------------------------------------------------------------- Model-Based Testing
+def _mbt():
+    from atelier.intelligence import mbt
+
+    return mbt
+
+
+@app.get("/api/mbt/perimetres")
+async def mbt_perimetres():
+    return await asyncio.to_thread(_call, lambda: _mbt().perimetres())
+
+
+@app.get("/api/mbt/modeles")
+async def mbt_modeles():
+    return await asyncio.to_thread(_call, lambda: _mbt().modeles())  # modèles de l'application active seulement
+
+
+@app.post("/api/mbt/construire")
+async def mbt_construire(req: Request):
+    """Construit ou actualise le modèle comportemental d'un périmètre (Analyser le comportement)."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, lambda: _mbt().resume(_mbt().construire(b.get("type", ""), b.get("id", ""))))
+
+
+@app.get("/api/mbt/modele")
+async def mbt_modele(id: str):
+    from atelier.domain import comportement
+
+    return await asyncio.to_thread(_call, comportement.exiger, id)
+
+
+@app.get("/api/mbt/analyse")
+async def mbt_analyse(id: str, strategie: str = "transitions", mode: str = "exploratoire", profondeur: int = 0, chemins: int = 0,
+                      transitions: int = 0, boucles: int = 0, inclure_couverts: bool = False):
+    lim = {"profondeur": profondeur, "chemins": chemins, "transitions_par_scenario": transitions, "passages_boucle": boucles}
+    return await asyncio.to_thread(_call, lambda: _mbt().analyser(id, strategie, lim, mode, inclure_couverts))
+
+
+@app.post("/api/mbt/hypothese")
+async def mbt_hypothese(req: Request):
+    """Accepter (comportement à confirmer dans le modèle) ou rejeter (jamais reproposée) une hypothèse."""
+    from atelier.domain import comportement
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, comportement.decider_hypothese, b.get("id", ""), b.get("hypothese", ""), b.get("decision", ""), b.get("motif", ""))
+    _mbt().vider_cache()
+    return r
+
+
+@app.get("/api/mbt/evolutions")
+async def mbt_evolutions(id: str, de: str = ""):
+    return await asyncio.to_thread(_call, lambda: _mbt().evolutions(id, int(de) if de else None))
+
+
+@app.post("/api/mbt/actualiser")
+async def mbt_actualiser():
+    """Reconstruit les modèles dont les sources ont changé (US, écrans, règles) et renvoie leurs évolutions."""
+    return await asyncio.to_thread(_call, lambda: _mbt().actualiser_tous(forcer=True))
+
+
+@app.get("/api/mbt/tracabilite")
+async def mbt_tracabilite(cle: str):
+    return await asyncio.to_thread(_call, lambda: _mbt().tracabilite(cle))
+
+
+@app.post("/api/mbt/element")
+async def mbt_element(req: Request):
+    """Modifications du QA (historisées par version) : ajouter un état, une condition, une transition ; modifier,
+    valider, rejeter, supprimer un élément ; changer le statut du modèle."""
+    from atelier.domain import comportement as cm
+
+    b = await req.json()
+    mid, op = b.get("id", ""), b.get("operation", "")
+    ops = {"ajouter_etat": lambda: cm.ajouter_etat(mid, b.get("nom", ""), b.get("type", "metier"), b.get("ecran", ""), b.get("description", ""),
+                                                   b.get("contexte", ""), bool(b.get("initial")), bool(b.get("final"))),
+           "ajouter_condition": lambda: cm.ajouter_condition(mid, b.get("libelle", ""), b.get("regle", "")),
+           "ajouter_transition": lambda: cm.ajouter_transition(mid, b.get("de", ""), b.get("vers", ""), b.get("action", ""), b.get("garde", ""),
+                                                               b.get("issue") or "vraie", b.get("evenement", ""), b.get("postconditions", ""),
+                                                               b.get("preconditions", ""), b.get("priorite") or "normale"),
+           "modifier": lambda: cm.modifier(mid, b.get("collection", ""), b.get("element", ""), b.get("champs") or {}),
+           "valider": lambda: cm.valider(mid, b.get("collection", ""), b.get("element", "")),
+           "rejeter": lambda: cm.rejeter(mid, b.get("collection", ""), b.get("element", ""), b.get("motif", "")),
+           "supprimer": lambda: cm.supprimer(mid, b.get("collection", ""), b.get("element", "")),
+           "statut": lambda: cm.changer_statut(mid, b.get("statut", ""))}
+    if op not in ops:
+        raise HTTPException(404, f"Opération inconnue : {op}")
+    r = await asyncio.to_thread(_call, ops[op])
+    _mbt().vider_cache()
+    return r
+
+
+@app.get("/api/mbt/versions")
+async def mbt_versions(id: str):
+    from atelier.domain import comportement
+
+    return await asyncio.to_thread(_call, comportement.versions, id)
+
+
+@app.get("/api/mbt/comparer")
+async def mbt_comparer(id: str, de: str, vers: str = "courante"):
+    from atelier.domain import comportement
+
+    return await asyncio.to_thread(_call, comportement.comparer, id, de, vers)
+
+
+@app.get("/api/mbt/impact")
+async def mbt_impact(id: str, de: str, vers: str = "courante"):
+    return await asyncio.to_thread(_call, lambda: _mbt().impact(id, de, vers))
+
+
+@app.get("/api/mbt/couverture")
+async def mbt_couverture(id: str = ""):
+    return await asyncio.to_thread(_call, lambda: _mbt().couverture(id) if id else _mbt().couverture_globale())
+
+
+@app.post("/api/mbt/generer")
+async def mbt_generer(req: Request):
+    """Scénarios BDD (brouillons, référentiel existant) des chemins choisis ; doublons non recréés sauf « forcer »."""
+    from atelier.generation import mbt_bdd
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, mbt_bdd.generer, b.get("id", ""), b.get("chemins") or None, b.get("strategie") or "transitions",
+                                   bool(b.get("forcer")), "MBT", b.get("limites") or None, "automaticien", bool(b.get("inclure_couverts")))
+
+
+@app.post("/api/mbt/ia")
+async def mbt_ia(req: Request):
+    """Propositions d'IA (états, transitions, conditions, incohérences), déposées à valider."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, lambda: _mbt().proposer_ia(b.get("id", "")))
+    _mbt().vider_cache()
+    return r
+
+
+@app.get("/api/graphes/qualite")
+async def graphe_qualite():
+    """Indicateurs de qualité du Knowledge Graph et doublons des tests BDD (comparés sur leur contenu)."""
+    return await asyncio.to_thread(_call, espaces.qualite)
+
+
+@app.get("/api/graphes/flux")
+async def graphe_flux(cible: str = "", mode: str = "verifie", module: str = ""):
+    return await asyncio.to_thread(_call, espaces.vue_flux, cible, mode, module)
+
+
+@app.get("/api/graphes/noeud")
+async def graphe_noeud(id: str):
+    return await asyncio.to_thread(_call, espaces.detail, id)
+
+
+@app.get("/api/graphes/impact")
+async def graphe_impact(id: str):
+    return await asyncio.to_thread(_call, espaces.impact, id)
+
+
+@app.get("/api/graphes/anomalies")
+async def graphe_anomalies(graphe: str = "connaissance", module: str = ""):
+    return await asyncio.to_thread(_call, espaces.anomalies, graphe, module)
+
+
+@app.get("/api/graphes/historique")
+def graphe_historique(id: str = ""):
+    return _call(declarations.historique, id)
+
+
+@app.post("/api/graphes/noeuds")
+async def graphe_ajout_noeud(req: Request):
+    b = await req.json()
+    return _call(espaces.ajouter_noeud, b["id"], b["type"], b["libelle"], b.get("description", ""),
+                 b.get("plateformes"))
+
+
+@app.post("/api/graphes/noeuds/modifier")
+async def graphe_modif_noeud(req: Request):
+    b = await req.json()
+    champs = {k: b[k] for k in ("libelle", "description", "statut", "plateformes") if k in b}
+    return _call(espaces.modifier_noeud, b["id"], **champs)
+
+
+@app.post("/api/graphes/noeuds/supprimer")
+async def graphe_supp_noeud(req: Request):
+    b = await req.json()
+    _call(espaces.supprimer_noeud, b["id"])
+    return {"ok": True}
+
+
+@app.post("/api/graphes/relations")
+async def graphe_ajout_relation(req: Request):
+    b = await req.json()
+    return _call(espaces.ajouter_relation, b["de"], b["vers"], b["type"])
+
+
+@app.post("/api/graphes/relations/supprimer")
+async def graphe_supp_relation(req: Request):
+    b = await req.json()
+    _call(espaces.supprimer_relation, b["id"])
+    return {"ok": True}
+
+
+@app.post("/api/graphes/rejeter")
+async def graphe_rejeter(req: Request):
+    b = await req.json()
+    return _call(espaces.rejeter, b.get("id", ""), b.get("motif", ""))
+
+
+@app.post("/api/graphes/valider")
+async def graphe_valider(req: Request):
+    b = await req.json()
+    _call(espaces.valider, b["id"])
+    return {"ok": True}
+
+
+@app.post("/api/graphes/fusionner")
+async def graphe_fusionner(req: Request):
+    b = await req.json()
+    _call(espaces.fusionner, b["source"], b["cible"])
+    return {"ok": True}
+
+
+@app.post("/api/graphes/ia")
+async def graphe_ia(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, espaces.demander_ia, b.get("graphe", "connaissance"),
+                                   b.get("intention", "expliquer"), b.get("selection", ""), b.get("question", ""),
+                                   b.get("cible", ""), b.get("module", ""))
+
+
+@app.get("/api/patrimoine")
+def patrimoine_etat():
+    return patrimoine_xray.etat()
+
+
+@app.post("/api/patrimoine/importer")
+async def patrimoine_importer(req: Request):
+    b = await req.json()
+    return _call(patrimoine_xray.enregistrer, b, "import manuel (interface)")
+
+
+# --------------------------------------------------------------------------- Testabilité des US (stratégie actionnable)
+@app.get("/api/testabilite/espaces")
+def testabilite_espaces(sprint: str = ""):
+    from atelier.intelligence import fournisseur_ia, testabilite_us
+
+    return {"espaces": _call(testabilite_us.espaces), "ia": fournisseur_ia.etat(), "indicateurs": _call(testabilite_us.indicateurs, sprint),
+            "portees": testabilite_us.PORTEES}
+
+
+@app.get("/api/testabilite/jira/projets")
+async def testabilite_jira_projets(q: str = ""):
+    from atelier.intelligence import testabilite_us
+
+    return await asyncio.to_thread(_call, testabilite_us.chercher_projets_jira, q)
+
+
+@app.get("/api/testabilite/jira/projet")
+async def testabilite_jira_projet(cle: str):
+    from atelier.intelligence import testabilite_us
+
+    return await asyncio.to_thread(_call, testabilite_us.details_projet_jira, cle)
+
+
+@app.get("/api/testabilite/sprints")
+async def testabilite_sprints():
+    from atelier.intelligence import testabilite_us
+
+    return await asyncio.to_thread(_call, testabilite_us.sprints)
+
+
+@app.post("/api/testabilite/sprints/figer")
+async def testabilite_figer(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    b = await req.json()
+    return _call(testabilite_us.figer_sprint, b.get("espace", ""), str(b.get("sprint", "")))
+
+
+@app.get("/api/testabilite/sprints/bilan")
+def testabilite_bilan(espace: str, sprint: str):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.bilan_sprint, espace, sprint)
+
+
+@app.post("/api/testabilite/espaces")
+async def testabilite_enregistrer_espace(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.enregistrer_espace, await req.json())
+
+
+@app.post("/api/testabilite/espaces/supprimer")
+async def testabilite_supprimer_espace(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.supprimer_espace, (await req.json()).get("projet_jira", ""))
+
+
+@app.post("/api/testabilite/detecter")
+async def testabilite_detecter(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, testabilite_us.detecter, None, 500, str(b.get("sprint") or ""), str(b.get("portee") or ""))
+
+
+@app.post("/api/testabilite/reponses")
+async def testabilite_reponses(req: Request):
+    from atelier.intelligence import testabilite_us
+
+    return await asyncio.to_thread(_call, testabilite_us.relever_reponses, (await req.json()).get("cle", ""))
+
+
+@app.get("/api/testabilite/file")
+def testabilite_file(espace: str = "", statut: str = "", sprint: str = ""):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.file, espace, statut, sprint)
+
+
+@app.get("/api/testabilite/us/{cle}")
+def testabilite_detail(cle: str):
+    from atelier.intelligence import testabilite_us
+
+    return _call(testabilite_us.detail, cle)
+
+
+def _cat():
+    from atelier.intelligence import conception_avancee
+
+    return conception_avancee
+
+
+def _gran():
+    from atelier.intelligence import granularite_tests
+
+    return granularite_tests
+
+
+@app.get("/api/conception/categories")
+def conception_categories():
+    return _cat().CATEGORIES
+
+
+@app.post("/api/testabilite/us/{cle}/{action}")
+async def testabilite_action(cle: str, action: str, req: Request):
+    """Actions explicites sur une US ; les écritures Jira / Xray (envoyer, publier) ne partent que d'ici."""
+    from atelier.intelligence import testabilite_us as t
+
+    b = await req.json() if (await req.body()) else {}
+    actions = {"analyser": lambda: t.analyser(cle), "analyser-ia": lambda: t.analyser_ia(cle),
+               "questions": lambda: t.modifier_questions(cle, b.get("texte", "")), "envoyer": lambda: t.envoyer_questions(cle),
+               "reponses": lambda: t.relever_reponses(cle), "proposer-cas": lambda: t.proposer_cas(cle),
+               "cas": lambda: t.modifier_cas(cle, b.get("id", ""), b), "decision": lambda: t.decider_cas(cle, b.get("id", ""), b.get("decision", ""), b.get("motif", "")),
+               "publier": lambda: t.publier_cas(cle), "prendre": lambda: t.prendre(cle, b.get("ids") or []),
+               "ne-pas-prendre": lambda: t.ne_pas_prendre(cle, b.get("ids") or [], b.get("motif", "")), "non-testable": lambda: t.non_testable(cle, b.get("justification", "")),
+               "convertir": lambda: t.convertir_cas(cle, b.get("id", ""), b.get("vers", "")),
+               "proposer-categories": lambda: (lambda r: {**r["us"], "comportement": r["comportement"]})(
+                   _cat().proposer(cle, b.get("categories") or None, comportement=b.get("comportement") or "auto")),
+               "doublons": lambda: _cat().verifier_doublons(cle)["us"],
+               # granularité : un test = un objectif ; regroupements toujours décidés par l'automaticien
+               "consolider": lambda: _gran().proposer(cle),
+               "consolider-ia": lambda: _gran().consolider_ia(cle),
+               "doublons-ia": lambda: _cat().juger_doublons_ia(cle),
+               "consolidation": lambda: _gran().decider_proposition(cle, b.get("id", ""), b.get("decision", ""), b.get("titre", "")),
+               "regrouper": lambda: _gran().regrouper(cle, b.get("ids") or [], b.get("mode", ""), b.get("titre", ""), "regroupement manuel"),
+               "degrouper": lambda: _gran().degrouper(cle, b.get("id", ""))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    return await asyncio.to_thread(_call, actions[action])
+
+
+@app.get("/api/conception/mapping/statuts-jira")
+async def conception_statuts_jira(projet: str = ""):
+    return await asyncio.to_thread(_call, conception.statuts_workflow_test, projet)
+
+
+# --------------------------------------------------------------------------- Test Design › Règles de test
+# --------------------------------------------------------------------------- Application Discovery
+@app.get("/api/graphes/sources")
+async def graphes_sources():
+    from atelier.discovery import connaissance
+
+    return await asyncio.to_thread(_call, connaissance.sources)
+
+
+@app.get("/api/discovery/vue")
+async def discovery_vue(graphe: int = 1):
+    return await asyncio.to_thread(_call, sessions_discovery.vue_ensemble, bool(graphe))
+
+
+@app.get("/api/discovery/vue-graphe")
+async def discovery_vue_graphe():
+    return await asyncio.to_thread(_call, sessions_discovery.graphe_ensemble)
+
+
+# --------------------------------------------------------------------------- Discovery Data Setup (référentiel de données)
+@app.get("/api/discovery/donnees")
+def discovery_donnees(env: str = ""):
+    from atelier.discovery import donnees
+
+    return _call(lambda: {"vue": donnees.vue(), "variables": donnees.variables(), "profils": donnees.profils(),
+                          "dependances": donnees.dependances(), "sources": donnees.sources_externes(),
+                          "secrets": donnees.secrets_etat(env), "contexte": donnees.contexte(), "historique": donnees.historique(150)})
+
+
+@app.post("/api/discovery/donnees/{action}")
+async def discovery_donnees_action(action: str, req: Request):
+    """Écritures du référentiel (rôle automaticien, contrôlé par le moteur), essais et contexte de la session."""
+    from atelier.discovery import donnees
+
+    b = await req.json() if (await req.body()) else {}
+    actions = {"variable": lambda: donnees.enregistrer_variable(b.get("cle", ""), b.get("champs") or {}),
+               "dupliquer-variable": lambda: donnees.dupliquer_variable(b.get("cle", ""), b.get("nouvelle", "")),
+               "supprimer-variable": lambda: donnees.supprimer_variable(b.get("cle", "")),
+               "valeur": lambda: donnees.definir_valeur(b.get("cle", ""), b.get("valeur"), b.get("env", ""), b.get("profil", "")),
+               "profil": lambda: donnees.enregistrer_profil(b.get("nom", ""), b.get("variables") or [], b.get("description", ""), b.get("nature", "groupe")),
+               "dupliquer-profil": lambda: donnees.dupliquer_profil(b.get("nom", ""), b.get("nouveau", "")),
+               "supprimer-profil": lambda: donnees.supprimer_profil(b.get("nom", "")),
+               "reglages": lambda: donnees.regler(b.get("sans_variable", "signaler"), b.get("generateurs_autorises") or []),
+               "generer": lambda: {"exemples": [donnees.generer(b.get("source") or {}) for _ in range(3)]},
+               "preparer": lambda: donnees.preparer(b.get("profil", ""), b.get("env", "")),
+               "jdd": lambda: donnees.profil_vers_jdd(b.get("profil", ""), b.get("env", ""), b.get("jeu", "")),
+               "contexte": lambda: donnees.choisir(b.get("profil"), b.get("env")),
+               "obtenir": lambda: donnees.obtenir(b.get("cle", ""), champ="essai depuis l'atelier"),
+               "reinitialiser": lambda: donnees.reinitialiser(tout=bool(b.get("tout")))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    return await asyncio.to_thread(_call, actions[action])
+
+
+@app.get("/api/discovery/sessions")
+def discovery_sessions():
+    return _call(sessions_discovery.lister)
+
+
+@app.post("/api/discovery/sessions")
+async def discovery_creer(req: Request):
+    return _call(sessions_discovery.creer, await req.json())
+
+
+@app.get("/api/discovery/sessions/{sid}")
+def discovery_session(sid: str):
+    return _call(sessions_discovery.resultats, sid)
+
+
+@app.post("/api/discovery/sessions/{sid}/{action}")
+async def discovery_action(sid: str, action: str, req: Request):
+    b = await req.json() if (await req.body()) else {}
+    actions = {"demarrer": lambda: sessions_discovery.demarrer(sid), "pause": lambda: sessions_discovery.pause(sid),
+               "arreter": lambda: sessions_discovery.arreter(sid),
+               "annoter": lambda: sessions_discovery.annoter(sid, b.get("texte", ""), bool(b.get("sensible")), b.get("ecran", ""),
+                                                             b.get("cle", ""))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    r = await asyncio.to_thread(_call, actions[action])
+    emit({"type": "discovery", "session": sid, "statut": r.get("statut")})
+    return r
+
+
+@app.post("/api/discovery/agir")
+async def discovery_agir(req: Request):
+    """Action depuis le Studio (tap / retour), classée et autorisée selon l'environnement de la session."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, sessions_discovery.agir, b.get("action", "tap"), b.get("locator", ""),
+                                b.get("element") or {}, bool(b.get("confirme")))
+    emit({"type": "discovery", "agir": r.get("execute")})
+    return r
+
+
+@app.post("/api/discovery/saisir")
+async def discovery_saisir(req: Request):
+    """Saisie depuis le miroir : la valeur devient une donnée du jeu du parcours, saisie par sa référence {{var:CLE}}."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, sessions_discovery.saisir, b.get("locator", ""), b.get("valeur"), b.get("element") or {},
+                                b.get("cle", ""), b.get("nom", ""), b.get("depuis") or None)
+    emit({"type": "discovery", "saisie": r.get("variable")})  # jamais la valeur
+    return r
+
+
+@app.post("/api/discovery/verifier")
+async def discovery_verifier(req: Request):
+    """Vérification désignée sur le miroir (texte affiché ou élément affiché) ; la valeur attendue va au jeu de données."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, sessions_discovery.verifier, b.get("locator", ""), b.get("mode", "texte"), b.get("element") or {},
+                                b.get("attendu"), b.get("cle", ""), b.get("nom", ""))
+    emit({"type": "discovery", "assertion": r.get("variable") or r.get("mode")})
+    return r
+
+
+@app.get("/api/discovery/etapes-predefinies")
+def discovery_etapes_predefinies():
+    """Étapes prédéfinies proposées pendant la session en cours (SMS par adb : Android)."""
+    s = sessions_discovery.active()
+    return _call(sessions_discovery.etapes_predefinies, ((s or {}).get("config") or {}).get("plateforme", ""))
+
+
+@app.post("/api/discovery/etape-predefinie")
+async def discovery_etape_predefinie(req: Request):
+    """Joue une étape prédéfinie (preparer_sms, otp, lien, lien_recuperer) ; le code OTP n'est jamais renvoyé."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, sessions_discovery.etape_predefinie, b.get("etape", ""), b.get("locator", ""),
+                                b.get("element") or {}, int(b.get("delai_s") or 90), b.get("expediteur", ""))
+    emit({"type": "discovery", "predefinie": r.get("etape")})
+    return r
+
+
+@app.post("/api/discovery/consignes/{sid}")
+async def discovery_consignes(sid: str, req: Request):
+    """Corriger ou retirer une saisie / une vérification consignée pendant une session."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, sessions_discovery.corriger_consigne, sid, b.get("liste", ""), int(b.get("index", -1)),
+                                   bool(b.get("retirer")), element=b.get("element"), champ=b.get("champ"), mode=b.get("mode"))
+
+
+@app.post("/api/discovery/classer")
+async def discovery_classer(req: Request):
+    from atelier.discovery import classement
+
+    b = await req.json()
+    s = sessions_discovery.active()
+    el = b.get("element") or {}
+    return {**_call(classement.classer, el), "autorisation": _call(classement.autorise, el, "guidee",
+                                                                   (s or {}).get("config", {}).get("environnement", ""))}
+
+
+@app.get("/api/discovery/classement")
+def discovery_classement():
+    from atelier.discovery import classement
+
+    return {**_call(classement.regles), "classes": classement.CLASSES, "politique_defaut": classement.POLITIQUE_DEFAUT,
+            "journal": _call(classement.journal_autorisations, 30)}
+
+
+@app.post("/api/discovery/classement")
+async def discovery_classement_maj(req: Request):
+    from atelier.discovery import classement
+
+    b = await req.json()
+    if "cle" in b:
+        return _call(classement.marquer, b["cle"], b.get("classe", "auto"))
+    return _call(classement.maj_regles, b.get("sensibles"), b.get("environnements"), None, b.get("liste_rouge_levee"), b.get("agent_sensible"),
+                 b.get("exploration_libre"))
+
+
+@app.get("/api/discovery/suggestions")
+async def discovery_suggestions(ia: int = 1):
+    from atelier.discovery import assistance
+
+    return await asyncio.to_thread(_call, assistance.suggerer_courant, bool(ia))
+
+
+@app.get("/api/discovery/reseau")
+def discovery_reseau():
+    """Appels réseau observés depuis le début de la session en cours (web), rapprochés du Knowledge Graph."""
+    from atelier.discovery import comportements
+
+    s = sessions_discovery.active()
+    t0 = min((p.get("t0", 0) for p in (s or {}).get("periodes", [])), default=0) if s else time.time()
+    return {"session": (s or {}).get("id"), "endpoints": _call(lambda: comportements.rapprocher(comportements.endpoints(comportements.journal_reseau(t0))))}
+
+
+@app.get("/api/discovery/correlation")
+async def discovery_correlation(perimetre: str = ""):
+    """Corrélation de toute l'application, ou d'un périmètre (« module:… », « parcours:… »)."""
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.synthese, perimetre)
+
+
+@app.get("/api/discovery/correlation/historique")
+async def discovery_correlation_historique(ecran: str = ""):
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.historique, ecran)
+
+
+@app.get("/api/discovery/correlation/exigences")
+async def discovery_correlation_exigences(q: str = "", ecran: str = ""):
+    """Exigences de la copie locale Jira, pour un lien manuel."""
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.chercher_exigences, q, ecran)
+
+
+@app.get("/api/discovery/correlation/{eid}")
+async def discovery_correlation_ecran(eid: str):
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.detail, eid)
+
+
+@app.post("/api/discovery/correlation/actualiser")
+async def discovery_correlation_actualiser():
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.actualiser)
+
+
+@app.post("/api/discovery/correlation/rejeter")
+async def discovery_correlation_rejeter(req: Request):
+    from atelier.discovery import correlation
+
+    b = await req.json()
+    return _call(correlation.rejeter, b["ecran"], b["cle"], b.get("motif", ""))
+
+
+@app.post("/api/discovery/correlation/retirer")
+async def discovery_correlation_retirer(req: Request):
+    from atelier.discovery import correlation
+
+    b = await req.json()
+    r = _call(correlation.retirer, b["ecran"], b["cle"], b.get("motif", ""))
+    emit({"type": "graphe_change"})
+    return r
+
+
+@app.post("/api/discovery/correlation/ia")
+async def discovery_correlation_ia(req: Request):
+    """Corrélations écran ↔ exigence jugées par l'IA à appel direct (avec « cursor » : passer par le MCP)."""
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.juger_ia, (await req.json()).get("ecran", ""))
+
+
+# --------------------------------------------------------------------------- pilotage de l'IA (atelier/intelligence/ia)
+@app.get("/api/ia-pilotage/etat")
+async def ia_pilotage_etat():
+    """Réglages (entreprise, projet, effectifs), modèles par niveau, opérations, cache, budget."""
+    from atelier.intelligence.ia import budget, cache, config
+
+    return await asyncio.to_thread(lambda: _call(lambda: {**config.etat(), "cache": cache.etat(), "budget": budget.etat(),
+                                                           "historique": config.historique(15)}))
+
+
+@app.put("/api/ia-pilotage/reglages")
+async def ia_pilotage_reglages(req: Request):
+    from atelier.intelligence.ia import config
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, config.enregistrer, b)
+
+
+@app.get("/api/ia-pilotage/consommation")
+async def ia_pilotage_consommation(depuis: str = "", jusqu: str = "", projet: str = "", poste: str = "", module: str = "",
+                                   fournisseur: str = "", modele: str = "", operation: str = ""):
+    from atelier.intelligence.ia import consommation
+
+    return await asyncio.to_thread(_call, lambda: consommation.tableau(depuis, jusqu, projet=projet, poste=poste, module=module,
+                                                                      fournisseur=fournisseur, modele=modele, operation=operation))
+
+
+@app.post("/api/ia-pilotage/cache/invalider")
+async def ia_pilotage_cache_invalider(req: Request):
+    from atelier.intelligence.ia import cache
+
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, lambda: {"supprimees": cache.invalider(b.get("operation", ""), b.get("module", ""), b.get("source", ""))})
+
+
+@app.get("/api/ia-pilotage/simulateur")
+async def ia_pilotage_simulateur_liste(operation: str = ""):
+    from atelier.intelligence.ia import simulateur
+
+    return await asyncio.to_thread(_call, lambda: {"entrees": simulateur.entrees(50, operation), "historique": simulateur.historique(10)})
+
+
+@app.post("/api/ia-pilotage/simulateur")
+async def ia_pilotage_simuler(req: Request):
+    """Estimation par défaut ; « executer » rejoue réellement la demande (consomme des tokens, action explicite)."""
+    from atelier.intelligence.ia import simulateur
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, simulateur.simuler, str(b.get("entree") or ""), b.get("variantes") or [], bool(b.get("executer")))
+
+
+@app.post("/api/ia-pilotage/simulateur/{sid}/note")
+async def ia_pilotage_noter(sid: str, req: Request):
+    from atelier.intelligence.ia import simulateur
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, simulateur.noter, sid, str(b.get("nom") or ""), int(b.get("note") or 0), str(b.get("commentaire") or ""))
+
+
+@app.get("/api/ia/etat")
+async def ia_etat(operation: str = ""):
+    """Fournisseur d'IA : « cursor » (jugements déposés via le MCP), appel direct (interne / Claude) ou aucun (règles)."""
+    from atelier.intelligence import fournisseur_ia
+
+    return fournisseur_ia.etat(operation)
+
+
+@app.post("/api/redondances/ia")
+async def redondances_ia(req: Request):
+    """Tests Xray redondants jugés par l'IA à appel direct (avec « cursor » : passer par le MCP)."""
+    from atelier.intelligence import couverture, patrimoine_xray
+
+    module = (await req.json()).get("module", "")
+    return await asyncio.to_thread(_call, lambda: couverture.juger_redondances_ia((patrimoine_xray.charger_vue() or {}).get("tests") or [], module))
+
+
+@app.post("/api/discovery/correlation/confirmer")
+async def discovery_correlation_confirmer(req: Request):
+    from atelier.discovery import correlation
+
+    b = await req.json()
+    r = _call(correlation.confirmer, b["ecran"], b["cle"], b.get("origine", ""))
+    emit({"type": "graphe_change"})
+    return r
+
+
+@app.post("/api/discovery/correlation/gitlab")
+async def discovery_correlation_gitlab(req: Request):
+    from atelier.discovery import correlation
+
+    return await asyncio.to_thread(_call, correlation.commits_gitlab, (await req.json()).get("fichiers") or [])
+
+
+@app.get("/api/discovery/noms-ecrans")
+def discovery_noms_ecrans():
+    """Un nom pour chaque écran sans nom (proposition de l'agent, sinon titre), et les doublons probables (fusion)."""
+    from atelier.discovery import apprentissage
+
+    return _call(apprentissage.noms_ecrans)
+
+
+@app.post("/api/discovery/noms-ecrans")
+async def discovery_appliquer_noms(req: Request):
+    """Décision humaine en une fois : les noms cochés sont appliqués (un nom déjà porté fusionne les écrans)."""
+    from atelier.discovery import apprentissage
+
+    r = await asyncio.to_thread(_call, apprentissage.appliquer_noms, (await req.json()).get("choix") or [])
+    emit({"type": "carte_change"})
+    return r
+
+
+@app.get("/api/discovery/propositions")
+def discovery_propositions(session: str = ""):
+    from atelier.discovery import apprentissage
+
+    return _call(apprentissage.propositions, session)
+
+
+@app.post("/api/discovery/propositions/decider")
+async def discovery_decider(req: Request):
+    from atelier.discovery import apprentissage
+
+    b = await req.json()
+    r = _call(apprentissage.decider, b.get("id", ""), bool(b.get("valider")), b.get("motif", ""))
+    emit({"type": "carte_change"})
+    return r
+
+
+@app.post("/api/discovery/parcours-bdd")
+async def discovery_parcours_bdd(req: Request):
+    """Brouillon de scénario BDD (Test Design) depuis un chemin d'écrans, un parcours du KG ou une session."""
+    from atelier.generation import parcours_bdd
+
+    b = await req.json()
+    try:
+        r = await asyncio.to_thread(parcours_bdd.brouillon, b.get("ecrans") or None, b.get("parcours", ""), b.get("session", ""),
+                                    b.get("titre", ""), b.get("plateforme", ""), "", bool(b.get("forcer")))
+    except parcours_bdd.DejaCouvert as e:  # pas une erreur : le test existe déjà, l'interface propose de l'ouvrir
+        return JSONResponse({"detail": str(e), "deja_couvert": e.existant}, status_code=409)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+    emit({"type": "bdd_change", "cle": r["cle"]})
+    return r
+
+
+@app.get("/api/discovery/parcours")
+def discovery_parcours():
+    """Parcours du Knowledge Graph (nœuds « parcours ») et leurs écrans."""
+    from atelier.discovery import connaissance
+
+    g = _call(connaissance.construire)
+    return [{"id": n.id, "libelle": n.libelle, "statut": n.statut, "source": n.source,
+             "ecrans": [r.vers.split(":", 1)[1] for r in g.sortants(n.id) if r.type == "contient" and r.vers.startswith("ecran:")]}
+            for n in g.noeuds.values() if n.type == "parcours"]
+
+
+@app.get("/api/discovery/reste")
+async def discovery_reste(perimetre: str = ""):
+    """Reste à explorer : écrans hors de tout parcours validé, actions jamais essayées, impasses ; dans toute
+    l'application, ou dans un périmètre (« module:… », « parcours:… »)."""
+    from atelier.discovery import reste
+
+    return await asyncio.to_thread(_call, reste.a_explorer, perimetre)
+
+
+@app.get("/api/discovery/cadrage")
+def discovery_cadrage(archives: bool = False):
+    """Parcours utilisateur préparés (initiation de Discovery) et ce que l'écran de cadrage propose."""
+    from atelier.discovery import parcours_utilisateur
+
+    from atelier.generation import maintenance
+
+    l = _call(parcours_utilisateur.lister, archives)
+    tous = _bdd_avec_cycle() if l else []
+    l = [{**x, "bdd": [b for b in tous if maintenance.du_parcours(b, _reperes_parcours(x))]} if isinstance(x, dict) else x for x in l]
+    return {"parcours": l, "options": _call(parcours_utilisateur.options)}
+
+
+def _reperes_parcours(p: dict) -> dict:
+    """Ce qui relie un parcours à ses tests BDD : identifiant, nœud, nom, sessions de Discovery."""
+    s = p.get("sessions")
+    if not isinstance(s, list):  # la liste des parcours ne donne que leur nombre : lu dans le fichier du parcours
+        try:
+            from atelier.discovery import parcours_utilisateur
+
+            s = parcours_utilisateur._lire(p["id"]).get("sessions", [])
+        except Exception:  # noqa: BLE001
+            s = []
+    return {"id": p.get("id"), "noeud": p.get("noeud"), "nom": p.get("nom"),
+            "sessions_ids": [x if isinstance(x, str) else x.get("id") for x in s]}
+
+
+def _avec_bdd(p):
+    """Un parcours avec ses tests BDD et leur avancement : l'écran n'offre que l'étape suivante."""
+    return {**p, "bdd": _bdd_avec_cycle(parcours=_reperes_parcours(p))} if isinstance(p, dict) and p.get("id") else p
+
+
+@app.post("/api/discovery/cadrage")
+async def discovery_cadrage_enregistrer(req: Request):
+    """Crée (sans « id ») ou modifie un parcours utilisateur ; seuls les champs fournis changent."""
+    from atelier.discovery import parcours_utilisateur
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, parcours_utilisateur.enregistrer, b.get("id", ""),
+                                {k: b[k] for k in parcours_utilisateur.LIBELLES if k in b})
+    emit({"type": "carte_change"})
+    return _avec_bdd(r)
+
+
+@app.get("/api/discovery/cadrage/{pid}")
+def discovery_cadrage_detail(pid: str):
+    from atelier.discovery import parcours_utilisateur
+
+    return _avec_bdd(_call(parcours_utilisateur.obtenir, pid))
+
+
+@app.post("/api/discovery/cadrage/{pid}/{action}")
+async def discovery_cadrage_action(pid: str, action: str, req: Request):
+    """valider (écrans gardés) · archiver / restaurer · dupliquer (nouveau nom)."""
+    from atelier.discovery import parcours_utilisateur as pu
+
+    b = await req.json() if (await req.body()) else {}
+    actions = {"valider": lambda: pu.valider(pid, b.get("ecrans")), "archiver": lambda: pu.archiver(pid, True, b.get("motif", "")),
+               "restaurer": lambda: pu.archiver(pid, False, b.get("motif", "")), "dupliquer": lambda: pu.dupliquer(pid, b.get("nom", ""))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    r = await asyncio.to_thread(_call, actions[action])
+    emit({"type": "carte_change"})
+    return _avec_bdd(r)
+
+
+@app.get("/api/discovery/comparer")
+def discovery_comparer(a: str, b: str):
+    return _call(sessions_discovery.comparer, a, b)
+
+
+@app.get("/api/discovery/navigation")
+async def discovery_navigation():
+    return await asyncio.to_thread(_call, sessions_discovery.navigation)
+
+
+@app.get("/api/discovery/chemin")
+def discovery_chemin(vers: str, depuis: str = "", plateforme: str = ""):
+    return _call(sessions_discovery.chemin, vers, depuis, plateforme)
+
+
+@app.get("/api/conception/regles")
+async def conception_regles():
+    from atelier.generation import regles_test
+
+    return await asyncio.to_thread(lambda: {"regles": _call(regles_test.lister), "indicateurs": _call(regles_test.indicateurs),
+                                            "categories": regles_test.CATEGORIES, "types_parametre": regles_test.TYPES_PARAMETRE})
+
+
+@app.get("/api/conception/regles/detail")
+async def conception_regle_detail(id: str):
+    from atelier.generation import regles_test
+
+    return await asyncio.to_thread(_call, regles_test.detail, id)
+
+
+@app.post("/api/conception/regles")
+async def conception_regle_enregistrer(req: Request):
+    from atelier.generation import regles_test
+
+    return await asyncio.to_thread(_call, regles_test.enregistrer, await req.json())
+
+
+@app.post("/api/conception/regles/supprimer")
+async def conception_regle_supprimer(req: Request):
+    from atelier.generation import regles_test
+
+    return _call(regles_test.supprimer, (await req.json()).get("id", ""))
+
+
+@app.post("/api/conception/regles/proposer")
+async def conception_regles_proposer():
+    from atelier.generation import regles_test
+
+    return await asyncio.to_thread(_call, regles_test.proposer_depuis_exigences)
+
+
+@app.post("/api/conception/regles/xray")
+async def conception_regle_xray(req: Request):
+    """Création explicite, dans Xray, des cas limites choisis (tests Manual liés aux exigences de la règle)."""
+    from atelier.generation import regles_test
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, regles_test.creer_cas_xray, b.get("id", ""), b.get("cas") or [], b.get("projet", ""))
+
+
+@app.get("/api/conception/organisation-xray")
+def conception_organisation_xray():
+    return _call(patrimoine_xray.organisation)
+
+
+@app.post("/api/patrimoine/xray-definitions")
+async def patrimoine_xray_definitions(req: Request):
+    """Mode A : définitions des tests (type, étapes, Gherkin, dossier, préconditions) lues dans Xray."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, patrimoine_xray.completer_depuis_xray, b.get("projet", ""), b.get("jql", ""))
+
+
+@app.post("/api/patrimoine/synchroniser")
+async def patrimoine_synchroniser(req: Request):
+    """Sans JQL : synchronise l'application active avec sa source (Paramètres › Configuration). Avec JQL : appel
+    historique (copie locale remplacée par le résultat)."""
+    b = await req.json()
+    if not b.get("jql"):
+        r = await asyncio.to_thread(_call, patrimoine_xray.synchroniser_application, b.get("application", ""))
+        emit({"type": "patrimoine_change"})
+        return r
+    cle = b.get("projet") or projets.cle_jira()
+    if not cle:
+        raise HTTPException(400, "Projet Jira requis (aucun projet actif avec une clé).")
+    return await asyncio.to_thread(_call, patrimoine_xray.synchroniser_jira, cle, b.get("jql", ""))
+
+
+# --------------------------------------------------------------------------- runs
+CLES_JOB = ("contexte", "campagne", "priorite", "retry", "derogation_revue")  # métadonnées d'exécution, hors paramètres de run_robot
+
+
+def _executer_job(job: dict):
+    """Exécuté par la file de l'Execution Center (runner local, un run à la fois)."""
+    run_id, params = job["id"], dict(job["params"])
+    complet = {**params, "contexte": job["contexte"], "campagne": job["campagne"], "priorite": job["priorite"], "retry": job.get("retry", False)}
+    plat = (params.get("variables") or {}).get("PLATFORM", "").lower()
+    if plat in ("android", "ios"):
+        state["flux"] = {"platform": plat, "udid": (params.get("variables") or {}).get("DEVICE")}
+    state["dernier_run"] = params
+    debut = time.strftime("%Y-%m-%dT%H:%M:%S")
+    _call_silencieux(historique.enregistrer, run_id, complet, None, debut)
+    _call_silencieux(direct.demarrer, run_id, params.get("target", ""), params.get("tests"), job.get("nom", ""))
+    emit({"type": "run_lance", "suite": params.get("target"), "relance": bool(params.get("relancer_echecs")), "run_id": run_id})
+    try:
+        # tests précis (Tests automatisés › Vérifier) : le moteur directement, l'outil MCP run_robot garde sa signature
+        # tests précis, ou TNR lancé par l'automaticien avec transitions / champs Jira : le moteur directement (transitions
+        # appliquées en direct) ; sinon l'outil MCP run_robot (transitions en demandes à valider)
+        # profil de données choisi (jdd_variantes) : le moteur aussi, l'outil MCP historique garde sa signature
+        par_moteur = params.get("tests") or any(params.get(k) for k in ("jira_transition_start", "jira_transition_end", "jira_champs_execution",
+                                                                         "jdd_variantes", "fichiers_arguments"))
+        bilan = centre.executer_avec_retry(robot_moteur.run_robot if par_moteur else outils.run_robot, params, job.get("retry", False))
+    except Exception as e:
+        bilan = {"statut": "erreur", "erreur": str(e)}
+    state["dernier_bilan"] = bilan
+    _call_silencieux(historique.enregistrer, run_id, complet, bilan, debut, time.strftime("%Y-%m-%dT%H:%M:%S"))
+    emit({"type": "run_bilan", "bilan": bilan, "run_id": run_id})
+    emit({"type": "file_execution", "file": centre.FILE.attente()})
+
+
+centre.FILE.executer = _executer_job
+
+
+def _mettre_en_file(params: dict, priorite: str = "Normal", campagne: str = "", nom: str = "") -> dict:
+    retry = bool(params.get("retry"))
+    revue = centre.controle_revue(params.get("target", ""), bool(params.get("dry_run")), str(params.get("derogation_revue") or ""),
+                                  params.get("tests") or None, str(params.get("jdd_env") or ""))
+    params = {k: v for k, v in params.items() if v not in ("", None, []) and k not in CLES_JOB}
+    if params.get("relancer_echecs") and params.get("output_dir"):
+        params["source_echecs"] = params.pop("output_dir")  # rejeu : nouveau dossier, le run d'origine n'est jamais réécrit
+    params["events_url"] = f"http://127.0.0.1:{PORT}/api/events"
+    run_id = historique.nouvel_id()
+    while any(j["id"] == run_id for j in centre.FILE.attente()) or historique.dossier(run_id).exists():
+        time.sleep(1.05)  # identifiants à la seconde : jamais deux jobs avec le même dossier
+        run_id = historique.nouvel_id()
+    params.setdefault("output_dir", f"{historique.RACINE}/{run_id}")  # un dossier par run : plus d'écrasement
+    job = centre.FILE.ajouter(params, priorite, run_id, campagne, nom, retry)
+    state["run"] = centre.FILE._thread  # compatibilité : « un run est-il actif ? » = la file est-elle servie ?
+    emit({"type": "file_execution", "file": centre.FILE.attente()})
+    return {"ok": True, "run_id": run_id, "etat": "Running" if (centre.FILE.en_cours or {}).get("id") == run_id else "Queued",
+            "contexte": job["contexte"], "revue": revue}
+
+
+@app.get("/api/jdd-variantes")
+async def jdd_variantes(env: str = ""):
+    """Profils interchangeables d'un environnement (jeux « variante_de ») : choisis au lancement d'un run."""
+    from atelier.execution import jdd as jdd_mod
+
+    if not env:
+        return {}
+    return await asyncio.to_thread(_call, jdd_mod.variantes, env)
+
+
+@app.post("/api/run")
+async def run(req: Request):
+    """Met le run dans la file de l'Execution Center (contexte figé) ; il démarre dès que le runner est libre."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, _mettre_en_file, b, b.get("priorite") or "Normal", b.get("campagne", ""))
+
+
+def _call_silencieux(fn, *a):
+    try:
+        fn(*a)
+    except Exception:
+        pass  # l'historique ne doit jamais empêcher un run
+
+
+@app.post("/api/run/arreter")
+def run_arreter():
+    return {"message": robot_moteur.arreter_run()}
+
+
+@app.get("/api/executions")
+def executions_liste():
+    return _call(historique.lister)
+
+
+@app.get("/api/executions/{run_id}")
+async def execution_detail(run_id: str):
+    return await asyncio.to_thread(_call, historique.detail, run_id)
+
+
+@app.get("/api/executions/{run_id}/test")
+async def execution_test(run_id: str, id: str):
+    return await asyncio.to_thread(_call, historique.detail_test, run_id, id)
+
+
+# --------------------------------------------------------------------------- construction BDD
+@app.get("/api/bdd")
+def bdd_liste():
+    return _bdd_avec_cycle()
+
+
+def _bdd_avec_cycle(parcours: dict | None = None, session: str = "") -> list[dict]:
+    """Tests BDD (d'un parcours ou d'une session si précisé) avec leur avancement : script, vérifié, validé, étape suivante."""
+    from atelier.generation import maintenance
+
+    l = _call(bdd.lister)
+    if parcours is not None or session:
+        l = [b for b in l if (parcours is not None and maintenance.du_parcours(b, parcours)) or (session and b.get("session") == session)]
+    try:
+        cyc = maintenance.cycle_bdd() if l else {}
+    except Exception:  # noqa: BLE001 — dépôt illisible : la liste reste servie, sans avancement
+        cyc = {}
+    return [{**b, "cycle": cyc.get(b["cle"]), "suivante": maintenance.etape_bdd(b, cyc.get(b["cle"]))} for b in l]
+
+
+def _vue_bdd(m: dict) -> dict:
+    from atelier.generation import rangement
+
+    try:
+        rang = {"robot": rangement.chemin_robot(m), "xray": rangement.dossier_xray(m) or "/ (racine)"}
+    except Exception as e:  # noqa: BLE001
+        rang = {"erreur": str(e)[:200]}
+    try:
+        reut = bdd.reutilisation(m)  # étape -> keyword existant / proche / à créer
+    except Exception:  # noqa: BLE001 — dépôt illisible : l'éditeur reste utilisable
+        reut = {}
+    from atelier.intelligence import fournisseur_ia
+
+    from atelier.generation import maintenance
+
+    try:
+        cyc = maintenance.cycle_bdd().get(m.get("cle", ""))
+    except Exception:  # noqa: BLE001
+        cyc = None
+    return {"scenario": m, "gherkin": bdd.serialiser(m), "controles": bdd.controles(m), "statistiques": bdd.statistiques(m), "rangement": rang,
+            "reutilisation": reut, "ia": fournisseur_ia.etat(), "cycle": cyc, "suivante": maintenance.etape_bdd(m, cyc)}
+
+
+@app.get("/api/conception/rangement")
+def conception_rangement():
+    from atelier.discovery import connaissance
+    from atelier.generation import rangement
+
+    try:
+        modules = sorted({n.libelle for n in connaissance.construire().noeuds.values() if n.type == "module"})
+    except Exception:  # noqa: BLE001
+        modules = []
+    return {**rangement.regles(), "defaut": rangement.DEFAUT, "variables": rangement.VARIABLES, "modules": modules}
+
+
+@app.post("/api/conception/rangement")
+async def conception_rangement_maj(req: Request):
+    from atelier.generation import rangement
+
+    b = await req.json()
+    return _call(rangement.maj, b.get("robot"), b.get("xray"))
+
+
+@app.get("/api/bdd/{cle}")
+def bdd_lire(cle: str):
+    m = _call(bdd.charger, cle)
+    if not m:
+        raise HTTPException(404, f"Scénario {cle} introuvable.")
+    return _vue_bdd(m)
+
+
+@app.post("/api/bdd")
+async def bdd_creer(req: Request):
+    b = await req.json()
+    depuis = None
+    if b.get("depuis_xray"):
+        try:
+            depuis = await asyncio.to_thread(outils.xray_get_test, b["cle"])
+        except Exception as e:
+            raise HTTPException(400, f"Lecture du test Xray impossible : {e}")
+    return _vue_bdd(_call(bdd.creer, b["cle"], b.get("titre", ""), depuis, b.get("jdd", "")))
+
+
+@app.post("/api/bdd/{cle}/operation")
+async def bdd_operation(cle: str, req: Request):
+    """Opérations du graphe de scénario : ajouter / modifier / supprimer / déplacer une étape, branche, texte."""
+    b = await req.json()
+    op = b.pop("op", "")
+    ops = {"ajouter_etape": lambda: bdd.ajouter_etape(cle, b["scenario"], b.get("mot", "Et"), b["texte"], b.get("apres", "")),
+           "modifier_etape": lambda: bdd.modifier_etape(cle, b.pop("etape"), **b),
+           "supprimer_etape": lambda: bdd.supprimer_etape(cle, b["etape"]),
+           "deplacer_etape": lambda: bdd.deplacer_etape(cle, b["etape"], int(b.get("sens", 1))),
+           "ajouter_branche": lambda: bdd.ajouter_branche(cle, b["depuis"], b["nom"], b.get("type", "negatif"), b.get("etapes")),
+           "supprimer_scenario": lambda: bdd.supprimer_scenario(cle, b["scenario"]),
+           "texte": lambda: bdd.depuis_texte(cle, b["gherkin"]),
+           "jdd": lambda: bdd.associer_jdd(cle, b.get("jdd", "")),
+           "module": lambda: bdd.associer_module(cle, b.get("module", "")),
+           "rangement": lambda: _suites_parcours().rattacher(cle, b.get("parcours", ""), b.get("suite", "")),
+           "valider": lambda: bdd.valider(cle)}
+    if op not in ops:
+        raise HTTPException(400, f"Opération inconnue : {op}")
+    return _vue_bdd(_call(ops[op]))
+
+
+@app.post("/api/bdd/{cle}/keywords-ia")
+async def bdd_keywords_ia(cle: str):
+    """Keywords jugés par le LLM interne ou Claude (appel direct). Avec Cursor, l'agent dépose par le MCP."""
+    from atelier.generation import reutilisation
+
+    r = await asyncio.to_thread(_call, reutilisation.juger_keywords_ia, cle)
+    return {**r, "vue": _vue_bdd(_call(bdd._exiger, cle))}
+
+
+@app.post("/api/bdd/{cle}/generer")
+async def bdd_generer(cle: str, req: Request):
+    """Prévisualise (ecrire=false) ou écrit (ecrire=true, jamais d'écrasement implicite) la suite Robot."""
+    b = await req.json()
+    m = _call(bdd._exiger, cle)
+    g = await asyncio.to_thread(_call, bdd.generer_robot, m)
+    if b.get("chemin") and b["chemin"].replace("\\", "/") != g["chemin"]:  # chemin imposé : suite à part, jamais un ajout
+        g = await asyncio.to_thread(_call, bdd.generer_robot, m, None, b["chemin"])
+    from atelier.generation import structure_depot
+
+    g["structure"] = await asyncio.to_thread(_call, structure_depot.controler, g["chemin"], g["contenu"])
+    if b.get("ecrire"):  # suite + pages (Page Object Model) ; « Remplacer s'il existe » : seulement une suite qui ne porte que ce test
+        g = _call(bdd.ecrire_generation, m, g, bool(b.get("ecraser")), "bdd")
+    return g
+
+
+@app.post("/api/bdd/{cle}/ia")
+async def bdd_ia(cle: str, req: Request):
+    b = await req.json()
+    m = _call(bdd._exiger, cle)
+    return await asyncio.to_thread(_call, assistant.demander_scenario, m, bdd.controles(m), b.get("question", ""))
+
+
+# --------------------------------------------------------------------------- éditeur de test
+@app.get("/api/editeur/arbre")
+async def editeur_arbre():
+    return await asyncio.to_thread(_call, editeur.arbre)
+
+
+@app.post("/api/editeur/enregistrer")
+async def editeur_enregistrer(req: Request):
+    b = await req.json()
+    r = _call(editeur.enregistrer, b["chemin"], b["contenu"], b.get("version_lue"))
+    emit({"type": "outil", "nom": "write_project_file", "args": {"path": b["chemin"]}, "manuel": True})
+    return r
+
+
+@app.post("/api/editeur/lint")
+async def editeur_lint(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, editeur.lint, b["contenu"], b.get("chemin", "suite.robot"))
+
+
+@app.post("/api/editeur/definition")
+async def editeur_definition(req: Request):
+    """Aller à la définition : keyword, variable ou fichier importé sous le curseur (lecture seule)."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, editeur.definition, b["chemin"], b.get("contenu", ""), int(b.get("ligne", 0)), int(b.get("colonne", 0)))
+
+
+@app.post("/api/editeur/robocop")
+async def editeur_robocop(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, editeur.robocop, b["chemin"], b.get("contenu"))
+
+
+@app.get("/api/editeur/proprietes")
+async def editeur_proprietes(chemin: str):
+    return await asyncio.to_thread(_call, editeur.proprietes, chemin)
+
+
+@app.get("/api/editeur/reutilisation")
+async def editeur_reutilisation():
+    return await asyncio.to_thread(_call, editeur.reutilisation)
+
+
+@app.get("/api/editeur/historique")
+def editeur_historique(chemin: str):
+    return _call(editeur.historique, chemin)
+
+
+@app.get("/api/resultats/captures")
+def resultats_captures(dossier: str = "results", limite: int = 12):
+    """Captures d'écran les plus récentes des résultats (preuves)."""
+    base = projet.safe_path(dossier)
+    fichiers = sorted(base.rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)[:limite] if base.exists() else []
+    return [{"chemin": f.relative_to(base).as_posix(), "dossier": dossier, "date": time.strftime("%H:%M:%S", time.localtime(f.stat().st_mtime))}
+            for f in fichiers]
+
+
+# --------------------------------------------------------------------------- contexte (en-tête)
+def _filtre_app_ctx() -> dict:
+    try:
+        f = patrimoine_xray.filtre_application()
+        if not f.get("valeurs"):
+            return {}
+        v = patrimoine_xray.charger_vue() or {}
+        return {**f, **(v.get("filtre_application") or {})}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+# --------------------------------------------------------------------------- statuts des tickets (mapping par projet)
+@app.get("/api/statuts")
+def statuts_tickets():
+    from atelier.domain import statuts
+
+    return _call(statuts.etat)
+
+
+@app.post("/api/statuts")
+async def statuts_tickets_enregistrer(req: Request):
+    from atelier.domain import statuts
+    from atelier.intelligence import pilotage
+
+    b = await req.json()
+    r = _call(statuts.enregistrer, b.get("types"), b.get("correspondances"))
+    pilotage.vider_memo()
+    return r
+
+
+@app.post("/api/statuts/lire-jira")
+async def statuts_tickets_lire_jira():
+    """Statuts du workflow de chaque type de ticket, lus dans Jira (lecture seule), fusionnés à l'état du mapping."""
+    from atelier.domain import statuts
+
+    return await asyncio.to_thread(_call, lambda: statuts.etat(statuts.lire_jira()))
+
+
+# --------------------------------------------------------------------------- Dashboard de pilotage
+def _filtres_pilotage(sprint: str = "", module: str = "", version: str = "", plateforme: str = "", responsable: str = "", depuis: str = "") -> dict:
+    return {k: v for k, v in {"sprint": sprint, "module": module, "version": version, "plateforme": plateforme, "responsable": responsable,
+                              "depuis": depuis}.items() if v}
+
+
+@app.get("/api/pilotage/{zone}")
+async def pilotage_zone(zone: str, sprint: str = "", module: str = "", version: str = "", plateforme: str = "", responsable: str = "", depuis: str = ""):
+    """Une zone du Dashboard à la fois (affichage progressif) : contexte, synthese, conception, execution, tnr, decision."""
+    from atelier.intelligence import pilotage
+
+    zones = {"contexte": lambda f: pilotage.contexte(), "synthese": pilotage.synthese, "conception": pilotage.conception, "execution": pilotage.execution,
+             "tnr": pilotage.tnr, "decision": pilotage.decision, "criteres": lambda f: pilotage.criteres()}
+    if zone not in zones:
+        raise HTTPException(404, f"Zone inconnue : {zone}")
+    return await asyncio.to_thread(_call, zones[zone], _filtres_pilotage(sprint, module, version, plateforme, responsable, depuis))
+
+
+@app.post("/api/pilotage/{action}")
+async def pilotage_action(action: str, req: Request):
+    """Décisions du responsable QA : recommandation TNR acceptée / rejetée / ajoutée, campagne TNR, critères de livraison."""
+    from atelier.intelligence import pilotage
+
+    b = await req.json() if (await req.body()) else {}
+    actions = {"tnr-decision": lambda: pilotage.decider_tnr(b.get("test", ""), b.get("decision", ""), b.get("motif", ""), b.get("priorite", "")),
+               "tnr-campagne": lambda: pilotage.creer_campagne_tnr(b.get("nom", ""), b.get("plateformes") or [], b.get("environnement", "")),
+               "criteres": lambda: pilotage.regler_criteres(b.get("criteres") or []),
+               "actualiser": lambda: (pilotage.vider_memo(), {"ok": True})[1]}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    return await asyncio.to_thread(_call, actions[action])
+
+
+@app.get("/api/xray/environnements")
+def xray_environnements():
+    from atelier.integrations.xray import environnements as envs_xray
+
+    return _call(envs_xray.etat)
+
+
+@app.post("/api/xray/environnements/synchroniser")
+async def xray_environnements_synchroniser():
+    """Relit les environnements de test dans le projet Xray (lecture seule côté Xray)."""
+    from atelier.integrations.xray import environnements as envs_xray
+
+    return await asyncio.to_thread(_call, envs_xray.synchroniser)
+
+
+@app.get("/api/contexte")
+def contexte():
+    from atelier.execution import jdd as jdd_mod
+
+    try:
+        cfg = amap.config_app() if amap.app_courante() else {}
+    except Exception:
+        cfg = {}
+    from atelier.integrations.xray import environnements as envs_xray
+
+    try:
+        envs_xray.assurer()  # relit Xray en arrière-plan si la liste manque ou date ; ne bloque jamais
+        envs = envs_xray.liste()
+    except Exception:
+        envs = []
+    try:  # sélecteur unique du header : un environnement porte sa plateforme (une entrée par plateforme si besoin)
+        from atelier.intelligence import environnements as envs_app
+
+        envs_header = envs_app.pour_application(cfg.get("slug", ""), cfg.get("nom", ""), cfg.get("plateformes") or [], envs)
+        for e in envs_header:
+            e["url"] = e["url"] or (cfg.get("web") or {}).get("url", "")
+    except Exception:  # noqa: BLE001 — référentiel illisible : les noms connus, sans plateforme imposée
+        envs_header = []
+    cache = state["sante_cache"]
+    xray = cache.get("xray")
+    pa = projets.actif() or {}
+    from atelier.domain import prerequis
+
+    pr = prerequis.projet()
+    return {"projet_alerte": None if pr["ok"] else pr,
+            "projet": pa.get("nom") or projet.PROJECT_DIR.name, "projet_chemin": str(projet.PROJECT_DIR),
+            "projet_id": pa.get("id", ""), "projet_xray": pa.get("xray_projet", ""), "filtre_application": _filtre_app_ctx(), "jira_url": (os.environ.get("JIRA_BASE_URL") or "").rstrip("/"), "projet_jira": pa.get("jira_projet") or pa.get("xray_projet", ""),
+            "projets": [{"id": p["id"], "nom": p["nom"]} for p in projets.lister()["projets"]],
+            "applications": [{"slug": a["slug"], "nom": a.get("nom", a["slug"])} for a in amap.apps()],
+            "application": cfg.get("slug"), "version": cfg.get("build", ""), "plateformes": cfg.get("plateformes", []),
+            "session": session.plateforme(), "flux": state["flux"], "environnements": envs, "environnements_app": envs_header,
+            "xray": {"configure": bool(os.environ.get("XRAY_CLIENT_ID")), "connecte": xray[0] if xray else None,
+                     "detail": xray[1] if xray else "non vérifié"},
+            "run_en_cours": centre.FILE.en_cours is not None,
+            "agent_integre": bool(os.environ.get("ANTHROPIC_API_KEY")),
+            "integrations": _integrations(),
+            "utilisateur": _utilisateur()}
+
+
+def _integrations() -> dict:
+    from atelier.intelligence import chemin
+
+    try:
+        return chemin.integrations()
+    except Exception:  # noqa: BLE001 — en cas de doute, tout reste proposé
+        return {"xray": True, "jira": True}
+
+
+@app.get("/api/chemin")
+async def chemin_utilisateur():
+    """Découvrir → Concevoir le test → Automatiser → Exécuter : état de chaque étape et prochaine action."""
+    from atelier.intelligence import chemin
+
+    return await asyncio.to_thread(_call, chemin.etat)
+
+
+@app.get("/api/environnements")
+def environnements_liste():
+    """Environnements de l'Execution Center (plateforme, URL, jeu de données, application de rattachement)."""
+    from atelier.intelligence import environnements
+
+    return _call(lambda: {"environnements": environnements.lister()})
+
+
+@app.post("/api/environnements")
+async def environnements_ajouter(req: Request):
+    """Déclare un environnement (depuis l'assistant d'application notamment)."""
+    from atelier.intelligence import environnements
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, environnements.ajouter, b.get("environnement") or {}, b.get("application", ""))
+
+
+@app.post("/api/environnements/rattacher")
+async def environnements_rattacher(req: Request):
+    """Rattache à une application les environnements choisis (les autres lui sont retirés)."""
+    from atelier.intelligence import environnements
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, environnements.rattacher, b.get("application", ""), b.get("ids") or [])
+
+
+@app.get("/api/accueil")
+async def accueil_application():
+    """Accueil de l'application : six étapes de qualification, prochaine action, parcours fonctionnels, informations, activités."""
+    from atelier.intelligence import qualification
+
+    return await asyncio.to_thread(_call, qualification.accueil)
+
+
+@app.get("/api/activites")
+async def activites_recentes(limite: int = 100):
+    """Activités récentes du projet (scénarios, scripts, modèles, Discovery, runs, releases), la plus récente d'abord."""
+    from atelier.intelligence import qualification
+
+    return await asyncio.to_thread(_call, qualification.activites, max(1, min(limite, 500)))
+
+
+@app.get("/api/livrables")
+async def livrables_produits():
+    """Livrables réellement produits (Discovery, modèle MBT, BDD, automatisations, campagnes, anomalies) : volumes et date."""
+    from atelier.intelligence import livrables
+
+    return await asyncio.to_thread(_call, livrables.livrables)
+
+
+def _utilisateur() -> str:
+    """Compte du poste (l'interface est locale, sans authentification) : affiché tel quel, jamais inventé."""
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except Exception:
+        return ""
+
+
+@app.get("/api/depot/suites")
+async def depot_suites():
+    """Suites du dépôt (arborescence par dossier) avec le dernier statut connu de leurs tests."""
+    def calcul():
+        from atelier.execution import depot_robot
+        from atelier.execution.robot import derniers_resultats
+
+        inv = depot_robot.lire_depot()
+        res = derniers_resultats()
+        out = []
+        for f, s in sorted(inv["suites"].items()):
+            statuts = [res.get(t, {}).get("statut") for t in s["tests"]]
+            out.append({"fichier": f, "dossier": f.rsplit("/", 1)[0] if "/" in f else "", "nom": s["nom"], "tests": len(s["tests"]),
+                        "echecs": statuts.count("FAIL"), "passes": statuts.count("PASS"), "jamais": statuts.count(None)})
+        return out
+    return await asyncio.to_thread(_call, calcul)
+
+
+@app.post("/api/resultats/capturer")
+async def resultats_capturer():
+    """Enregistre l'écran courant (device ou navigateur) dans results/captures/ comme preuve."""
+    png = await asyncio.to_thread(_grab)
+    if not png:
+        raise HTTPException(400, "Aucun écran à capturer : connecter un device ou un navigateur.")
+    nom = time.strftime("capture-%Y%m%d-%H%M%S.png")
+    d = projet.safe_path("results/captures")
+    d.mkdir(parents=True, exist_ok=True)
+    (d / nom).write_bytes(png)
+    return {"chemin": nom, "dossier": "results/captures"}
+
+
+@app.get("/api/run/dernier")
+def dernier_run():
+    return {"params": state["dernier_run"], "bilan": state["dernier_bilan"]}
+
+
+# --------------------------------------------------------------------------- Test Strategy
+@app.get("/api/strategie")
+async def strategie_etat():
+    """Stratégie, schéma des rubriques, complétude, contrôles et indicateurs calculés (une seule source)."""
+    return await asyncio.to_thread(_call, strategie.etat)
+
+
+@app.post("/api/strategie/creer")
+async def strategie_creer(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.creer, b.get("nom", ""), b.get("application", ""),
+                                   b.get("version_application", ""), b.get("responsable", ""))
+
+
+@app.post("/api/strategie/infos")
+async def strategie_infos(req: Request):
+    return await asyncio.to_thread(_call, strategie.modifier_infos, await req.json())
+
+
+@app.get("/api/strategie/lot/{rubrique}")
+def strategie_options_lot(rubrique: str):
+    return _call(strategie.options_lot, rubrique)
+
+
+@app.post("/api/strategie/lot")
+async def strategie_lot(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.ajouter_en_lot, b.get("rubrique", ""), b.get("valeurs") or [], b.get("communs") or {}, b.get("parts") or {})
+
+
+@app.post("/api/strategie/squads/reprendre")
+async def strategie_reprendre_squads():
+    """Squads encore déclarées dans le périmètre : reprises dans la politique des US, puis retirées du périmètre
+    (les squads ne se déclarent plus qu'à un endroit : Paramètres › Configuration › Politique des US)."""
+    return await asyncio.to_thread(_call, strategie.reprendre_squads)
+
+
+@app.post("/api/strategie/elements")
+async def strategie_element(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.enregistrer_element, b.get("rubrique", ""), b.get("element") or {})
+
+
+@app.post("/api/strategie/elements/supprimer")
+async def strategie_supprimer(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.supprimer_element, b.get("rubrique", ""), b.get("id", ""))
+
+
+@app.post("/api/strategie/transition")
+async def strategie_transition(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.transition, b.get("action", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/strategie/commentaires")
+async def strategie_commenter(req: Request):
+    return await asyncio.to_thread(_call, strategie.commenter, (await req.json()).get("texte", ""))
+
+
+@app.post("/api/strategie/criteres/valider")
+async def strategie_valider_critere(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.valider_critere, b.get("id", ""), b.get("preuve", ""))
+
+
+@app.get("/api/strategie/criteres/entree")
+async def strategie_criteres_entree():
+    """Critères d'entrée obligatoires non satisfaits (avertissement avant le lancement d'un run)."""
+    return await asyncio.to_thread(_call, strategie.criteres_entree_non_satisfaits)
+
+
+@app.post("/api/strategie/environnements/verifier")
+async def strategie_verifier_env(req: Request):
+    return await asyncio.to_thread(_call, strategie.verifier_environnement, (await req.json()).get("id", ""))
+
+
+@app.post("/api/strategie/perimetre/importer")
+async def strategie_importer_perimetre():
+    return await asyncio.to_thread(_call, strategie.importer_perimetre)
+
+
+@app.get("/api/strategie/plan-automatisation")
+async def strategie_plan():
+    return await asyncio.to_thread(_call, strategie.plan_automatisation)
+
+
+def _suites_parcours():
+    from atelier.generation import suites_parcours
+
+    return suites_parcours
+
+
+@app.get("/api/bdd/{cle}/rangement")
+async def bdd_rangement(cle: str):
+    """Où ranger le test du scénario : parcours métier et suites existantes possibles, choix enregistré, parcours déduit."""
+    return await asyncio.to_thread(_call, _suites_parcours().options, cle)
+
+
+# --------------------------------------------------------------------------- Release Notes (texte collé -> TNR)
+@app.get("/api/releases")
+async def releases_liste():
+    from atelier.intelligence import releases
+
+    return await asyncio.to_thread(_call, releases.lister)
+
+
+@app.post("/api/releases")
+async def releases_creer(req: Request):
+    """Enregistre une Release Note collée : évolutions extraites par des règles et rattachées au Knowledge Graph."""
+    from atelier.intelligence import releases
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, releases.creer, b.get("texte", ""), b.get("nom", ""), b.get("version", ""), b.get("date_prevue", ""),
+                                   b.get("perimetre", ""))
+
+
+@app.get("/api/releases/noeuds")
+async def releases_noeuds(q: str = ""):
+    from atelier.intelligence import releases
+
+    return await asyncio.to_thread(_call, releases.chercher_noeuds, q)
+
+
+@app.get("/api/releases/{rid}")
+async def releases_detail(rid: str):
+    from atelier.intelligence import releases
+
+    return await asyncio.to_thread(_call, releases.obtenir, rid)
+
+
+@app.post("/api/releases/{rid}/operation")
+async def releases_operation(rid: str, req: Request):
+    """Corrections du QA sur une release (évolutions, rattachements, validation) : toutes tracées."""
+    from atelier.intelligence import releases
+
+    b = await req.json()
+    op = str(b.pop("op", ""))
+    return await asyncio.to_thread(lambda: _call(releases.operer, rid, op, **{k: v for k, v in b.items()
+                                                                       if k in ("evolution", "noeud", "texte", "type", "nom", "version", "date_prevue", "perimetre")}))
+
+
+@app.get("/api/releases/{rid}/tableau")
+async def releases_tableau(rid: str):
+    """Vue release : builds, anomalies cumulées, couverture, critères de sortie, qualification."""
+    from atelier.intelligence import builds
+
+    return await asyncio.to_thread(_call, builds.tableau, rid)
+
+
+@app.post("/api/releases/{rid}/qualifier")
+async def releases_qualifier(rid: str, req: Request):
+    from atelier.intelligence import builds
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, builds.qualifier, rid, b.get("motif", ""), bool(b.get("annuler")))
+
+
+@app.get("/api/releases/{rid}/plan")
+async def releases_plan(rid: str):
+    """Test Plan Xray de la release et ses Test Executions (environnement, tests, statuts posés depuis l'atelier)."""
+    from atelier.intelligence import plan_release
+
+    return await asyncio.to_thread(_call, plan_release.etat, rid)
+
+
+@app.get("/api/releases/{rid}/builds/{bid}/executions")
+async def releases_executions_proposees(rid: str, bid: str, decoupage: str = "type"):
+    """Exécutions proposées pour le périmètre d'un build, par type de test, par module ou en une seule."""
+    from atelier.intelligence import plan_release
+
+    return await asyncio.to_thread(_call, plan_release.proposer, rid, bid, decoupage)
+
+
+@app.post("/api/releases/{rid}/plan")
+async def releases_plan_operation(rid: str, req: Request):
+    """Écritures vers Xray, toutes explicites : créer le Test Plan, créer des Test Executions (environnement par
+    exécution), dupliquer une exécution sur un autre environnement, mettre à jour le statut d'un test run."""
+    from atelier.intelligence import plan_release
+
+    b = await req.json()
+    op = b.get("op", "")
+    actions = {"plan": lambda: plan_release.creer_plan(rid),
+               "executions": lambda: plan_release.creer_executions(rid, b.get("build", ""), b.get("groupes") or []),
+               "dupliquer": lambda: plan_release.dupliquer(rid, b.get("execution", ""), b.get("environnement", "")),
+               "statut": lambda: plan_release.maj_statut(rid, b.get("execution", ""), b.get("test", ""), b.get("statut", ""), b.get("commentaire", ""))}
+    if op not in actions:
+        raise HTTPException(400, f"Opération inconnue : {op}")
+    return await asyncio.to_thread(_call, actions[op])
+
+
+@app.post("/api/releases/{rid}/builds")
+async def releases_build_recevoir(rid: str, req: Request):
+    """Un build reçu pour la release : contenu collé, anomalies corrigées ; analysé et comparé au build précédent."""
+    from atelier.intelligence import builds
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, builds.recevoir, rid, b.get("numero", ""), b.get("date_reception", ""), b.get("description", ""),
+                                   b.get("texte", ""), b.get("anomalies", ""), b.get("changements", ""))
+
+
+@app.get("/api/releases/{rid}/builds/{bid}")
+async def releases_build(rid: str, bid: str):
+    from atelier.intelligence import builds
+
+    return await asyncio.to_thread(_call, builds.vue, rid, bid)
+
+
+@app.get("/api/releases-ia/etat")
+async def releases_ia_etat():
+    from atelier.intelligence import release_ia
+
+    return await asyncio.to_thread(_call, release_ia.etat_ia)
+
+
+@app.post("/api/releases/{rid}/interpreter")
+async def releases_interpreter(rid: str, req: Request):
+    """Interprétation par l'IA à appel direct (LLM interne / Claude) ; avec Cursor, la demande passe par le MCP."""
+    from atelier.intelligence import release_ia
+
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, release_ia.interpreter_ia, rid, str(b.get("build") or ""))
+
+
+@app.post("/api/releases/{rid}/builds/{bid}/actualiser-xray")
+async def releases_build_actualiser_xray(rid: str, bid: str):
+    """Relit dans Xray les résultats des exécutions du build (depuis sa réception)."""
+    from atelier.intelligence import builds
+
+    return await asyncio.to_thread(_call, builds.actualiser_xray, rid, bid)
+
+
+@app.post("/api/releases/{rid}/builds/{bid}/operation")
+async def releases_build_operation(rid: str, bid: str, req: Request):
+    """Décisions du QA sur un build (tests, validation, campagne, verdict) ou corrections de ses évolutions."""
+    from atelier.intelligence import builds, releases
+
+    b = await req.json()
+    op = str(b.pop("op", ""))
+    if op in ("ajouter_evolution", "supprimer_evolution", "modifier_evolution", "confirmer", "rejeter", "relier", "delier"):
+        return await asyncio.to_thread(lambda: _call(releases.operer, rid, op, build=bid, **{k: v for k, v in b.items() if k in ("evolution", "noeud", "texte", "type")}))
+    return await asyncio.to_thread(lambda: _call(builds.operer, rid, bid, op, **{k: v for k, v in b.items()
+                                                                              if k in ("test", "tests", "decision", "motif", "nom", "plateformes", "environnement",
+                                                                                       "par_execution")}))
+
+
+@app.get("/api/studio/structure")
+async def studio_structure():
+    """Structure lue dans le dépôt de tests : où sont rangés les tests, les keywords / page objects et les locators."""
+    from atelier.generation import structure_depot
+
+    return await asyncio.to_thread(_call, structure_depot.structure)
+
+
+@app.get("/api/studio/candidats")
+async def studio_candidats(perimetre: str = ""):
+    """Candidats à l'automatisation, dans toute la copie Xray ou dans un périmètre (« us:… », « sprint:… », « module:… »)."""
+    return await asyncio.to_thread(_call, strategie.candidats_perimetre, perimetre)
+
+
+@app.post("/api/studio/candidats/construction")
+async def studio_candidat_construction(req: Request):
+    """L'automaticien lance la construction d'un test : sa décision « Approuvé » passe à « En construction »."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.marquer_en_construction, str(b.get("cle") or ""), "Automation Studio")
+
+
+@app.post("/api/strategie/plan-automatisation")
+async def strategie_decider(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, strategie.decider_candidat, b.get("cle", ""), b.get("statut", ""),
+                                   b.get("framework", ""), b.get("effort", ""), b.get("commentaire", ""))
+
+
+@app.get("/api/strategie/versions/{n}")
+def strategie_version(n: int):
+    return _call(strategie.version, n)
+
+
+@app.get("/api/strategie/comparer")
+def strategie_comparer(a: str, b: str = "courante"):
+    return _call(strategie.comparer, a, b)
+
+
+@app.post("/api/strategie/restaurer")
+async def strategie_restaurer(req: Request):
+    return await asyncio.to_thread(_call, strategie.restaurer, int((await req.json()).get("version", 0)))
+
+
+@app.get("/api/strategie/journal")
+def strategie_journal():
+    return _call(strategie.journal)
+
+
+# --------------------------------------------------------------------------- Test Design (couche de conception autour de Xray)
+@app.get("/api/conception/vue")
+async def conception_vue():
+    return await asyncio.to_thread(_call, conception.vue_ensemble)
+
+
+@app.get("/api/conception/cas")
+async def conception_cas():
+    return await asyncio.to_thread(_call, conception.cas_de_test)
+
+
+@app.get("/api/conception/exigences")
+async def conception_exigences():
+    return await asyncio.to_thread(_call, conception.exigences)
+
+
+@app.get("/api/conception/revue/{cle}")
+async def conception_revue(cle: str):
+    return await asyncio.to_thread(_call, conception.revue, cle)
+
+
+@app.post("/api/conception/revue/{cle}")
+async def conception_revue_action(cle: str, req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, conception.transition_revue, cle, b.get("action", ""), b.get("commentaire", ""), b.get("reviseur", ""))
+
+
+@app.get("/api/conception/cycle-vie")
+def conception_cycle_vie_config():
+    from atelier.generation import cycle_vie
+
+    return {**_call(cycle_vie.config), "etapes": cycle_vie.ETAPES, "libelles": cycle_vie.LIBELLES,
+            "etapes_n": {x["etape"]: x["tests"] for x in _call(cycle_vie.synthese)["etapes"]}}
+
+
+@app.post("/api/conception/cycle-vie")
+async def conception_cycle_vie_maj(req: Request):
+    from atelier.generation import cycle_vie
+
+    b = await req.json()
+    return _call(cycle_vie.maj_config, b.get("statuts"), b.get("champ_candidat"), b.get("valeur_candidat"))
+
+
+@app.get("/api/conception/cycle-vie/{cle}")
+async def conception_cycle_vie_etat(cle: str):
+    from atelier.generation import cycle_vie
+
+    return await asyncio.to_thread(_call, cycle_vie.etat, cle)
+
+
+@app.post("/api/conception/cycle-vie/{cle}")
+async def conception_cycle_vie_avancer(cle: str, req: Request):
+    from atelier.generation import cycle_vie
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, cycle_vie.avancer, cle, b.get("vers", ""), b.get("commentaire", ""))
+
+
+@app.get("/api/conception/baselines")
+def conception_baselines():
+    return _call(conception.baselines)
+
+
+@app.post("/api/conception/baselines")
+async def conception_creer_baseline(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, conception.creer_baseline, b.get("nom", ""), b.get("description", ""))
+
+
+@app.get("/api/conception/baselines/comparer")
+async def conception_comparer(a: str, b: str = "courant"):
+    return await asyncio.to_thread(_call, conception.comparer_baselines, a, b)
+
+
+@app.get("/api/conception/mapping")
+def conception_mapping():
+    return _call(conception.mapping)
+
+
+@app.post("/api/conception/mapping")
+async def conception_enregistrer_mapping(req: Request):
+    return await asyncio.to_thread(_call, conception.enregistrer_mapping, await req.json())
+
+
+@app.get("/api/conception/mapping/tester")
+async def conception_tester_mapping():
+    return await asyncio.to_thread(_call, conception.tester_mapping)
+
+
+@app.get("/api/conception/journal")
+def conception_journal():
+    return _call(conception.journal)
+
+
+# --------------------------------------------------------------------------- Execution Center
+@app.get("/api/centre/vue")
+async def centre_vue():
+    return await asyncio.to_thread(_call, centre.vue_ensemble)
+
+
+# --------------------------------------------------------------------------- adopter un dépôt existant
+@app.get("/api/adoption")
+def adoption_analyse():
+    from atelier.generation import adoption
+
+    return _call(adoption.analyser)
+
+
+@app.post("/api/adoption/{action}")
+async def adoption_action(action: str, req: Request):
+    """Décisions de l'automaticien : importer les scénarios, créer les parcours gardés, amorcer la carte, lancer le run
+    cartographié (run réel sur le téléphone), donner leurs écrans aux parcours."""
+    from atelier.discovery import carte
+    from atelier.generation import adoption
+
+    b = await req.json()
+    if action == "run-cartographie":
+        app_ = carte.app_courante() or ""
+        cible = f"tests/{app_}" if app_ and (projet.PROJECT_DIR / "tests" / app_).is_dir() else "tests"
+        params = {"target": cible, "cartographie": True, "variables": {"PLATFORM": str(b.get("plateforme") or "android")},
+                  "jdd_env": str(b.get("env") or ""), "xray_mode": "aucun"}
+        return await asyncio.to_thread(_call, _mettre_en_file, params, "Normal", "", "Run cartographié (adoption du dépôt)")
+    actions = {"scenarios": lambda: adoption.importer_scenarios(b.get("tests")), "parcours": lambda: adoption.creer_parcours(b.get("choix") or []),
+               "locators": adoption.importer_locators, "ecrans": adoption.ecrans_des_parcours}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    r = await asyncio.to_thread(_call, actions[action])
+    emit({"type": "kanban"})
+    return r
+
+
+@app.get("/api/activite")
+def activite():
+    """Ce qui tourne en ce moment, pour la notification qui reste à l'écran jusqu'à la fin : run (progression, test et
+    étape courants), Discovery active (écrans, actions, dernière action), runs en file d'attente."""
+    from atelier.discovery import sessions_discovery
+
+    out = {"run": None, "discovery": None, "file": 0}
+    try:
+        e = direct.etat()
+        cles = ("id", "nom", "suite", "debut", "fin", "courant", "etape", "total", "termines", "compte", "agent", "statut", "erreur")
+        if e["en_cours"]:
+            out["run"] = {k: e["en_cours"].get(k) for k in cles}
+        if e["dernier"]:
+            out["dernier_run"] = {k: e["dernier"].get(k) for k in cles}
+            try:  # résultat réel du run (bilan Robot) : le suivi en direct peut ne pas avoir vu tous les tests (dry-run rapide)
+                b = json.loads((historique.dossier(e["dernier"]["id"]) / "bilan.json").read_text("utf-8")).get("bilan") or {}
+                out["dernier_run"]["resultat"] = b.get("resultat")
+                out["dernier_run"]["erreur"] = out["dernier_run"].get("erreur") or b.get("erreur") or ""
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        out["file"] = len(centre.FILE.attente())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        s = sessions_discovery.active()
+        if s:
+            tl = sessions_discovery.timeline(s["id"], 2000)
+            dernier = next((e for e in reversed(tl) if e.get("detail") and e.get("type") in ("ecran", "transition", "action")), {})
+            c = s.get("config") or {}
+            out["discovery"] = {"id": s["id"], "statut": s["statut"], "debut": s.get("debut", ""), "parcours": c.get("parcours_nom") or c.get("parcours") or "",
+                                "mode": c.get("mode", ""), "ecrans": len({e.get("ecran") for e in tl if e.get("ecran")}),
+                                "nouveaux": sum(1 for e in tl if e.get("nouveau")), "actions": sum(1 for e in tl if e.get("type") == "action"),
+                                "derniere": str(dernier.get("detail") or "")[:140]}
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+@app.get("/api/execution/direct")
+async def execution_direct(run: str = ""):
+    """Écran Exécution : run en cours (tests, étape et keyword courants), file d'attente, dernières exécutions, run choisi."""
+    return await asyncio.to_thread(_call, direct.vue, run)
+
+
+@app.get("/api/centre/file")
+def centre_file():
+    return {"en_cours": {k: v for k, v in (centre.FILE.en_cours or {}).items() if k != "params"} or None, "attente": centre.FILE.attente()}
+
+
+@app.post("/api/centre/file/annuler")
+async def centre_annuler(req: Request):
+    rid = (await req.json()).get("id", "")
+    if not centre.FILE.annuler(rid):
+        raise HTTPException(400, "Job absent de la file (déjà démarré ou terminé : utiliser Arrêter).")
+    emit({"type": "file_execution", "file": centre.FILE.attente()})
+    return {"ok": True}
+
+
+@app.get("/api/centre/campagnes")
+async def centre_campagnes():
+    return await asyncio.to_thread(_call, centre.campagnes)
+
+
+@app.post("/api/centre/campagnes")
+async def centre_enregistrer_campagne(req: Request):
+    return await asyncio.to_thread(_call, centre.enregistrer_campagne, await req.json())
+
+
+@app.get("/api/centre/plans")
+async def centre_vue_plans():
+    """Test Plans de l'application avec statut et indicateurs (copie locale)."""
+    return await asyncio.to_thread(_call, centre.vue_plans)
+
+
+@app.post("/api/centre/plans/actualiser")
+async def centre_actualiser_plans():
+    """Relit dans Xray les Test Plans de l'application et les Test Executions de ces plans."""
+    from atelier.intelligence import patrimoine_xray
+
+    return await asyncio.to_thread(_call, patrimoine_xray.importer_plans)
+
+
+@app.get("/api/centre/plans-xray")
+async def centre_plans_xray():
+    """Test Plans de l'application (JQL de sa configuration), pour rattacher une campagne."""
+    from atelier.intelligence import patrimoine_xray
+
+    return await asyncio.to_thread(_call, patrimoine_xray.plans_application)
+
+
+@app.post("/api/centre/campagnes/plan-xray")
+async def centre_creer_plan_xray(req: Request):
+    """Crée un Test Plan Xray pour une campagne (action explicite)."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, centre.creer_plan_campagne, b.get("nom", ""), b.get("tests") or [])
+
+
+@app.post("/api/centre/campagnes/{cid}/executer")
+async def centre_executer_campagne(cid: str, req: Request):
+    """Un job par plateforme de la campagne, à sa priorité."""
+    b = await req.json()
+    c = _call(centre.campagne, cid)
+    if c["statut"] != "Active":
+        raise HTTPException(400, "Campagne archivée.")
+    jobs = [await asyncio.to_thread(_call, _mettre_en_file, centre.params_campagne(c, p, bool(b.get("dry_run"))), c["priorite"], cid, f"{c['nom']} · {p}")
+            for p in c["plateformes"]]
+    return {"ok": True, "jobs": jobs}
+
+
+def _declencher_campagne(c: dict, origine: str, dry_run: bool = False) -> list[dict]:
+    return [_mettre_en_file(centre.params_campagne(c, p, dry_run), c["priorite"], c["id"], f"{c['nom']} · {p} ({origine})") for p in c["plateformes"]]
+
+
+def _planificateur():
+    """Scheduler interne : toutes les 30 s, met en file les campagnes planifiées arrivées à échéance."""
+    while True:
+        time.sleep(30)
+        try:
+            for c in centre.campagnes_dues():
+                _declencher_campagne(c, "planifié")
+                emit({"type": "campagne_planifiee", "campagne": c["id"]})
+        except Exception:
+            pass  # un problème de planification ne doit jamais arrêter l'interface
+        _call_silencieux(gouvernance.instantane)  # au plus un instantané des KPI par jour (Quality Governance › Trends)
+
+
+@app.on_event("startup")
+def _demarrer_mcp_http():
+    from atelier.integrations import agents_ia
+
+    _call_silencieux(agents_ia.demarrer_serveur_http, PORT)  # MCP_HTTP_PORT défini : Cursor se connecte par URL
+
+    def _dire_mcp():  # l'état du MCP pour Cursor, dit dans la console dès qu'il est connu (jamais un silence)
+        try:
+            e = agents_ia.etat_serveur_http(attendre_s=15)
+        except Exception as ex:  # noqa: BLE001
+            e = {"ok": False, "message": str(ex)}
+        if not e.get("attendu") and e.get("ok"):
+            return
+        ligne = f"MCP pour Cursor : {e['message']}" if e.get("ok") else f"\n/!\\ MCP POUR CURSOR : {e['message']}"
+        try:
+            print(ligne, flush=True)
+        except UnicodeEncodeError:
+            print(ligne.encode("ascii", "replace").decode("ascii"), flush=True)
+    threading.Thread(target=_dire_mcp, daemon=True).start()
+
+
+@app.on_event("shutdown")
+def _arreter_mcp_http():
+    from atelier.integrations import agents_ia
+
+    agents_ia.arreter_serveur_http()
+
+
+@app.on_event("startup")
+def _demarrer_orchestrateur():
+    """Orchestrateur des travaux IA / MCP : ses runs passent par la file de l'atelier ; reprise après redémarrage."""
+    from atelier.execution import orchestrateur
+
+    orchestrateur.HOOKS.update(mettre_en_file=_mettre_en_file, emit=emit)
+    _call_silencieux(orchestrateur.reprendre_au_demarrage)
+    from atelier.integrations import boite_cursor
+
+    _call_silencieux(boite_cursor.relancer_en_attente)  # demandes restées dans la boîte : à l'agent s'il est prêt
+
+
+@app.get("/api/kanban")
+async def kanban_tableau():
+    """Atelier en Kanban : un couloir par parcours métier, une carte par test, une colonne par état (generation/kanban.py)."""
+    from atelier.generation import kanban
+
+    return await asyncio.to_thread(_call, kanban.tableau)
+
+
+@app.get("/api/kanban/ticket/{cle}")
+async def kanban_ticket(cle: str):
+    from atelier.generation import kanban
+
+    return await asyncio.to_thread(_call, kanban.ticket, cle)
+
+
+@app.post("/api/kanban/deplacer")
+async def kanban_deplacer(req: Request):
+    """Transition d'une carte : déclenche l'action de la colonne visée (agent, run, publication dans Xray)."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.deplacer, str(b.get("cle", "")), str(b.get("colonne", "")))
+    emit({"type": "kanban", "cle": b.get("cle"), "colonne": b.get("colonne")})
+    return r
+
+
+@app.post("/api/kanban/parcours")
+async def kanban_parcours(req: Request):
+    """Nouveau parcours métier au backlog ; « lancer » (par défaut) : exploration par l'agent, extraction du test et, si
+    « automatiser » (par défaut), son automatisation."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.ajouter_parcours, str(b.get("nom", "")), str(b.get("point_depart", "")),
+                                str(b.get("resultat_attendu", "")), str(b.get("objectif", "")), b.get("lancer", True) is not False,
+                                b.get("automatiser", True) is not False)
+    emit({"type": "kanban", "sujet": r.get("sujet")})
+    return r
+
+
+@app.post("/api/kanban/us")
+async def kanban_us(req: Request):
+    """User Story au backlog (sujet à couvrir) ; « lancer » : l'agent conçoit les tests qui manquent, puis les automatise."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.ajouter_us, str(b.get("cle", "")), str(b.get("titre", "")), str(b.get("criteres", "")),
+                                bool(b.get("lancer")), b.get("automatiser", True) is not False)
+    emit({"type": "kanban", "sujet": r.get("sujet")})
+    return r
+
+
+@app.post("/api/kanban/sujet/{sid}/lancer")
+async def kanban_lancer(sid: str, req: Request):
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.lancer_sujet, sid, b.get("automatiser", True) is not False)
+    emit({"type": "kanban", "sujet": sid})
+    return r
+
+
+@app.post("/api/kanban/parcours/{pid}/{action}")
+async def kanban_parcours_action(pid: str, action: str, req: Request):
+    """Ticket parcours : enrichir (propositions MBT), qualifier (accepter / rejeter), jdd (changer le profil de données et
+    redérouler la Discovery), rejouer (en local, ou en exécution TNR avec Xray : « xray »)."""
+    from atelier.discovery import donnees as ref_donnees
+    from atelier.generation import kanban
+
+    b = await req.json()
+    actions = {"enrichir": lambda: kanban.enrichir_mbt(pid, str(b.get("profil", ""))),
+               "qualifier": lambda: kanban.qualifier(pid, [str(x) for x in b.get("accepter") or []], [str(x) for x in b.get("rejeter") or []]),
+               "jdd": lambda: kanban.changer_jdd(pid, str(b.get("profil", "")), b.get("relancer", True) is not False),
+               "rejouer": lambda: kanban.rejouer(pid, bool(b.get("xray")), str(b.get("jdd", ""))),
+               "donnee": lambda: ref_donnees.confirmer_variable(str(b.get("cle", "")), b.get("valeur"))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    r = await asyncio.to_thread(_call, actions[action])
+    emit({"type": "kanban", "sujet": pid})
+    return r
+
+
+@app.post("/api/kanban/sujet/{sid}/rejouer")
+async def kanban_rejouer(sid: str, req: Request):
+    """Rejoue les tests automatisés d'un sujet (parcours ou User Story) : en local, ou en exécution TNR avec Xray."""
+    from atelier.generation import kanban
+
+    b = await req.json()
+    r = await asyncio.to_thread(_call, kanban.rejouer, sid, bool(b.get("xray")), str(b.get("jdd", "")))
+    emit({"type": "kanban", "sujet": sid})
+    return r
+
+
+@app.post("/api/kanban/sujet/{sid}/rattraper")
+async def kanban_rattraper(sid: str):
+    """« Automatiser ce qui manque » : l'écart du sujet passe par l'agent (MCP), puis dry-run et run local."""
+    from atelier.generation import kanban
+
+    r = await asyncio.to_thread(_call, kanban.rattraper, sid)
+    emit({"type": "kanban", "sujet": sid})
+    return r
+
+
+@app.get("/api/kanban/ticket/{cle}/ecrans-robot")
+def kanban_ecrans_robot(cle: str):
+    """Écrans couverts en plus par le test Robot du ticket (section repliée, calcul du graphe de couverture)."""
+    from atelier.generation import kanban
+
+    return _call(kanban.ecrans_robot, cle)
+
+
+@app.post("/api/kanban/ticket/{cle}/{action}")
+async def kanban_ticket_action(cle: str, action: str, req: Request):
+    """Ticket test : manuel (« ne pas automatiser »), executer (jeu de données de ce run, local ou TNR Xray), jdd
+    (remplacement validé du jeu de données dans le dépôt)."""
+    from atelier.generation import kanban, maintenir
+
+    b = await req.json()
+    actions = {"manuel": lambda: kanban.marquer_manuel(cle, b.get("manuel", True) is not False),
+               "executer": lambda: kanban.executer(cle, str(b.get("jdd", "")), bool(b.get("xray"))),
+               "jdd": lambda: kanban.remplacer_jdd(cle, str(b.get("jdd", ""))),
+               "corriger": lambda: kanban.corriger(cle, str(b.get("consigne", ""))),
+               "commit": lambda: kanban.committer(cle),
+               "qualifier": lambda: maintenir.qualifier(cle, str(b.get("cause", "")), str(b.get("commentaire", ""))),
+               "maintenir": lambda: maintenir.maintenir(cle, str(b.get("commentaire", ""))),
+               "confirmer": lambda: maintenir.confirmer(cle),
+               "refuser": lambda: maintenir.refuser(cle, str(b.get("commentaire", ""))),
+               "mr": lambda: maintenir.proposer_mr(cle, str(b.get("derogation", "")))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    r = await asyncio.to_thread(_call, actions[action])
+    emit({"type": "kanban", "cle": cle})
+    return r
+
+
+@app.post("/api/kanban/us/{cle}/retirer")
+async def kanban_retirer_us(cle: str):
+    from atelier.generation import kanban
+
+    r = await asyncio.to_thread(_call, kanban.retirer_us, cle)
+    emit({"type": "kanban", "sujet": cle})
+    return r
+
+
+@app.get("/api/demandes")
+def demandes_liste():
+    """Mes demandes : travaux de l'orchestrateur et demandes déposées à l'agent, ce qui attend l'utilisateur d'abord."""
+    from atelier.execution import demandes
+
+    return _call(demandes.lister)
+
+
+@app.get("/api/travaux")
+def travaux_liste(actifs: bool = False):
+    from atelier.execution import orchestrateur
+
+    return _call(orchestrateur.lister, actifs)
+
+
+@app.get("/api/travaux/{tid}")
+def travail_detail(tid: str):
+    from atelier.execution import orchestrateur
+
+    return _call(orchestrateur.obtenir, tid)
+
+
+@app.post("/api/travaux/{tid}/decider")
+async def travail_decider(tid: str, req: Request):
+    from atelier.execution import orchestrateur
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, orchestrateur.decider, tid, b.get("etape", ""), bool(b.get("accepter")), b.get("commentaire", ""))
+
+
+@app.post("/api/travaux/{tid}/reprendre")
+async def travail_reprendre(tid: str):
+    from atelier.execution import orchestrateur
+
+    return await asyncio.to_thread(_call, orchestrateur.reprendre, tid)
+
+
+@app.post("/api/travaux/{tid}/annuler")
+async def travail_annuler(tid: str):
+    from atelier.execution import orchestrateur
+
+    return await asyncio.to_thread(_call, orchestrateur.annuler, tid)
+
+
+@app.on_event("startup")
+def _demarrer_planificateur():
+    threading.Thread(target=_planificateur, daemon=True, name="planificateur").start()
+
+
+@app.post("/api/externe/campagnes/{cid}/executer")
+async def externe_campagne(cid: str, req: Request):
+    """Webhook (CI/CD, après déploiement) : jeton de processus exigé (X-Atelier-Jeton)."""
+    b = await req.json() if (await req.body()) else {}
+    c = _call(centre.campagne, cid)
+    if c["statut"] != "Active":
+        raise HTTPException(400, "Campagne archivée.")
+    return {"ok": True, "jobs": await asyncio.to_thread(_call, _declencher_campagne, c, "webhook", bool(b.get("dry_run")))}
+
+
+@app.get("/api/centre/referentiel")
+async def centre_referentiel():
+    return await asyncio.to_thread(_call, centre.referentiel)
+
+
+@app.post("/api/centre/verifier")
+async def centre_verifier(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, centre.verifier, b.get("tests") or [], b.get("plateforme", ""), b.get("environnement", ""))
+
+
+@app.get("/api/centre/runners")
+async def centre_runners():
+    return [await asyncio.to_thread(_call, centre.runner_local)]
+
+
+@app.get("/api/centre/preuves/{run_id}")
+async def centre_preuves(run_id: str):
+    return await asyncio.to_thread(_call, centre.preuves, run_id)
+
+
+@app.get("/api/centre/xray")
+async def centre_xray():
+    def calcul():
+        return [{**centre.etat_xray(r["id"]), "debut": r["debut"], "statut_run": r["statut"], "xray_execution": r.get("xray")}
+                for r in historique.lister(50)]
+    return await asyncio.to_thread(_call, calcul)
+
+
+@app.get("/api/centre/comparer")
+async def centre_comparer(a: str, b: str):
+    return await asyncio.to_thread(_call, centre.comparer, a, b)
+
+
+@app.get("/api/centre/fichier")
+def centre_fichier(chemin: str):
+    """Preuve d'un run (lecture seule, sous results/runs uniquement)."""
+    if not chemin.startswith(historique.RACINE + "/"):
+        raise HTTPException(400, "Chemin hors des résultats d'exécution.")
+    f = _call(projet.safe_path, chemin)
+    if not f.is_file():
+        raise HTTPException(404, "Fichier absent.")
+    return FileResponse(f)
+
+
+# --------------------------------------------------------------------------- Automation Studio
+@app.get("/api/studio/vue")
+async def studio_vue():
+    return await asyncio.to_thread(_call, studio.vue_ensemble)
+
+
+@app.get("/api/studio/locators")
+async def studio_locators():
+    return await asyncio.to_thread(_call, studio.locators)
+
+
+@app.post("/api/studio/locators/tester")
+async def studio_tester_locator(req: Request):
+    """Teste un locator sur la session ouverte (device ou navigateur) et journalise le résultat."""
+    b = await req.json()
+    r = await asyncio.to_thread(_call, outils.check_locator, b.get("valeur", ""))
+    return {**r, "journal": studio.noter_verification(b.get("id", ""), r)}
+
+
+@app.get("/api/studio/keywords")
+async def studio_keywords():
+    return await asyncio.to_thread(_call, studio.keywords)
+
+
+@app.get("/api/studio/page-objects")
+async def studio_page_objects():
+    return await asyncio.to_thread(_call, studio.page_objects)
+
+
+@app.get("/api/studio/frameworks")
+async def studio_frameworks():
+    return await asyncio.to_thread(_call, studio.frameworks)
+
+
+# --------------------------------------------------------------------------- automatisation multi-technologies
+@app.get("/api/automatisation/technologies")
+async def automatisation_technologies():
+    from atelier.generation import technologies
+
+    return await asyncio.to_thread(_call, technologies.lister)
+
+
+@app.get("/api/automatisation/perimetre")
+async def automatisation_perimetre(entree: str, reference: str):
+    from atelier.generation import perimetre
+
+    return await asyncio.to_thread(_call, perimetre.resoudre, entree, reference)
+
+
+@app.post("/api/automatisation/porter")
+async def automatisation_porter():
+    """Porter le patrimoine Robot en Kotlin (robot2kotlin du projet Kotlin) et bilan par test."""
+    from atelier.generation import portage
+
+    return await asyncio.to_thread(_call, portage.porter)
+
+
+@app.post("/api/automatisation/porter-xcuitest")
+async def automatisation_porter_xcuitest(req: Request):
+    """Convertir le patrimoine Robot de l'application en XCUITest (dépôt iOS) ; ecrire=false : bilan seul."""
+    from atelier.generation import robot2swift
+
+    b = await req.json() if (await req.body()) else {}
+    return await asyncio.to_thread(_call, robot2swift.porter, b.get("ecrire", True) is not False)
+
+
+@app.post("/api/automatisation/lancer")
+async def automatisation_lancer(req: Request):
+    """« Automatiser et vérifier » : dépose la demande dans la boîte de l'atelier (le MCP prend le relais)."""
+    from atelier.generation import perimetre
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, perimetre.automatiser, b.get("entree", ""), b.get("reference", ""),
+                                   b.get("technologie", ""), b.get("tests") or None, None, "",
+                                   b.get("rechercher_existant", True) is not False, b.get("executer", True) is not False,
+                                   b.get("ecran", ""))
+
+
+@app.get("/api/automatisation/suivis")
+async def automatisation_suivis():
+    """Automatisations récentes (QAFlow) : état de l'agent, tests générés."""
+    from atelier.generation import suivi_automatisation
+
+    return await asyncio.to_thread(_call, suivi_automatisation.lister)
+
+
+@app.get("/api/automatisation/suivis/{did}")
+async def automatisation_suivi(did: str):
+    """Une automatisation, test par test, d'après l'état réel de l'atelier (BDD, généré, exécuté, validé QA)."""
+    from atelier.generation import suivi_automatisation
+
+    return await asyncio.to_thread(_call, suivi_automatisation.suivi, did)
+
+
+@app.get("/api/studio/git")
+async def studio_git():
+    return await asyncio.to_thread(_call, studio.git)
+
+
+@app.get("/api/studio/revues")
+async def studio_revues():
+    return await asyncio.to_thread(_call, studio.revues_scripts)
+
+
+@app.get("/api/studio/revue")
+async def studio_revue(fichier: str):
+    return await asyncio.to_thread(_call, studio.revue_script, fichier)
+
+
+@app.post("/api/studio/revue")
+async def studio_revue_action(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio.transition_script, b.get("fichier", ""), b.get("action", ""), b.get("commentaire", ""),
+                                   b.get("derogation", ""))
+
+
+@app.get("/api/donnees/secrets-en-clair")
+async def donnees_secrets_en_clair():
+    from atelier.discovery import donnees
+
+    return await asyncio.to_thread(_call, donnees.secrets_en_clair)
+
+
+@app.post("/api/donnees/securiser")
+async def donnees_securiser():
+    from atelier.discovery import donnees
+
+    return await asyncio.to_thread(_call, donnees.securiser_secrets)
+
+
+@app.get("/api/lots")
+async def lots_vue(lot: str = ""):
+    """Lots TNR : une ligne par scénario (statut unique, étapes, prochaine action), conventions et campagne TNR."""
+    from atelier.generation import lots
+
+    return await asyncio.to_thread(_call, lots.vue, lot)
+
+
+@app.post("/api/lots")
+async def lots_creer(req: Request):
+    from atelier.generation import lots
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, lots.creer, b.get("nom", ""), b.get("parcours", ""), b.get("description", ""))
+
+
+@app.post("/api/lots/rattacher")
+async def lots_rattacher(req: Request):
+    from atelier.generation import lots
+
+    b = await req.json()
+    return {"rattaches": await asyncio.to_thread(_call, lots.rattacher, b.get("lot", ""), [str(x) for x in b.get("scenarios") or []])}
+
+
+@app.get("/api/flux")
+def flux_etat():
+    """Flux de passage d'un test : simple (générer → automatiser → publier dans Xray) ou complet (approbations)."""
+    from atelier.generation import flux
+
+    return _call(flux.etat)
+
+
+@app.post("/api/flux")
+async def flux_regler(req: Request):
+    from atelier.generation import flux
+
+    b = await req.json()
+    return _call(flux.regler, str(b.get("mode", "")))
+
+
+@app.get("/api/tnr/plans")
+async def tnr_plans(q: str = ""):
+    """Test Plans du projet Xray pour choisir le plan TNR de l'application (lecture seule)."""
+    from atelier.generation import tnr
+
+    return await asyncio.to_thread(_call, tnr.plans_disponibles, q)
+
+
+@app.post("/api/tnr/plan")
+async def tnr_plan(req: Request):
+    """Plan TNR de l'application : un plan existant ({"cle"}) ou un nouveau plan ({"nouveau": nom}) ; la campagne suit."""
+    from atelier.generation import tnr
+
+    b = await req.json()
+    if b.get("cle"):
+        r = await asyncio.to_thread(_call, tnr.choisir_plan, str(b["cle"]))
+    else:
+        r = await asyncio.to_thread(_call, tnr.creer_plan, str(b.get("nouveau") or ""))
+    emit({"type": "tnr_publie", "plan": r["plan"], "n": 0})
+    return r
+
+
+@app.post("/api/tnr/lancer")
+async def tnr_lancer(req: Request):
+    """Lance la campagne TNR de l'application : une nouvelle Test Execution dans le plan TNR par run (statuts, heures,
+    environnement, log joint au ticket)."""
+    from atelier.generation import tnr
+
+    b = await req.json()
+    conv = tnr.conventions()
+    if not conv["campagne"]:
+        raise HTTPException(400, "Aucune campagne TNR : publier d'abord des scénarios au TNR.")
+    c = _call(centre.campagne, conv["campagne"])
+    derog = str(b.get("derogation") or "")
+    # lancé par l'automaticien : transitions et champs Jira de la Test Execution appliqués en direct
+    jira = {"jira_transition_start": conv["transition_debut"], "jira_transition_end": conv["transition_fin"],
+            "jira_champs_execution": tnr.payload_champs(conv["champs_execution"])}
+    jira = {k: v for k, v in jira.items() if v}
+    # jeux de données substitués pour ce run seulement ({jeu: autre jeu}) : le dépôt ne change pas
+    variantes = {str(k): str(v) for k, v in (b.get("jdd_variantes") or {}).items() if k and v and k != v}
+    extra = {"jdd_variantes": variantes} if variantes else {}
+    jobs = [await asyncio.to_thread(_call, _mettre_en_file, {**centre.params_campagne(c, p, bool(b.get("dry_run"))), **jira, **extra, "derogation_revue": derog},
+                                    c["priorite"], c["id"], f"{c['nom']} · {p} (Lots TNR)") for p in c["plateformes"]]
+    return {"ok": True, "campagne": c["id"], "plan": c.get("plan_xray"), "jobs": jobs}
+
+
+@app.get("/api/donnees/propositions")
+def donnees_propositions():
+    """Données proposées par l'agent pendant les Discovery, pas encore confirmées (tous les parcours de l'application)."""
+    from atelier.discovery import donnees, parcours_utilisateur as pu
+
+    noms = {p["id"]: p["nom"] for p in _call(pu.lister)}
+    return [{**d, "parcours_nom": noms.get(d["parcours"], "")} for d in _call(donnees.propositions)
+            if not d["parcours"] or d["parcours"] in noms]
+
+
+@app.post("/api/donnees/propositions/confirmer")
+async def donnees_confirmer(req: Request):
+    """Décision de l'utilisateur : la donnée proposée est confirmée, avec sa valeur ou celle qu'il donne."""
+    from atelier.discovery import donnees
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, donnees.confirmer_variable, str(b.get("cle", "")), b.get("valeur"))
+
+
+@app.get("/api/donnees-tests")
+async def donnees_tests(env: str = ""):
+    """Données des tests : chaque jeu de données et les tests qui l'utilisent (execution/donnees_tests.py)."""
+    from atelier.execution import donnees_tests as dt
+
+    return await asyncio.to_thread(_call, dt.vue, env)
+
+
+@app.post("/api/donnees-tests/remplacer")
+async def donnees_tests_remplacer(req: Request):
+    """Remplacement permanent d'un jeu par un autre dans les tests (et leurs scénarios BDD) : décision de l'utilisateur."""
+    from atelier.execution import donnees_tests as dt
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, dt.remplacer, str(b.get("ancien", "")), str(b.get("nouveau", "")),
+                                   [str(x) for x in b.get("tests") or []] or None)
+
+
+@app.get("/api/tnr/conventions")
+async def tnr_conventions():
+    from atelier.generation import tnr
+
+    return await asyncio.to_thread(_call, tnr.conventions)
+
+
+@app.post("/api/tnr/conventions")
+async def tnr_regler(req: Request):
+    from atelier.generation import tnr
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, tnr.regler, b.get("etiquette"), b.get("dossier"), b.get("plan"), b.get("campagne"),
+                                   b.get("champs_plan"), b.get("champs_execution"), b.get("transition_debut"), b.get("transition_fin"))
+
+
+@app.post("/api/tnr/execution/{cle}/finaliser")
+async def tnr_finaliser(cle: str, req: Request):
+    """Champs Jira et transitions des conventions TNR appliqués à une Test Execution existante."""
+    from atelier.generation import tnr
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, tnr.finaliser_execution, cle, b.get("transitions"), str(b.get("joindre") or ""))
+
+
+@app.get("/api/tnr/champs-jira")
+async def tnr_champs_jira():
+    """Champs Jira du Test Plan et de la Test Execution (valeurs autorisées) et transitions de l'exécution."""
+    from atelier.generation import tnr
+
+    return await asyncio.to_thread(_call, tnr.champs_jira)
+
+
+@app.post("/api/tnr/publier")
+async def tnr_publier(req: Request):
+    """Publier au TNR (décision de l'automaticien dans l'atelier) : scénarios BDD, ou tests Robot dont on lit la clé."""
+    from atelier.generation import tnr
+
+    b = await req.json()
+    scenarios = [str(x) for x in b.get("scenarios") or []]
+    if b.get("tests"):
+        from atelier.generation import lots
+
+        scenarios += lots.scenarios_des_tests([str(x) for x in b["tests"]])
+    from atelier.generation import flux
+
+    # flux simple : la publication vaut validation du BDD et approbation des scripts (generation/flux.py)
+    r = await asyncio.to_thread(_call, flux.publier if flux.simple() else tnr.publier, sorted(set(scenarios)))
+    emit({"type": "tnr_publie", "plan": (r.get("plan") or {}).get("plan"), "n": len(r["publies"])})
+    return r
+
+
+@app.get("/api/tests-automatises")
+async def tests_automatises():
+    """Vue simple : suites et tests, état (À valider / Validé / Écarté / Existant), dernier résultat réel, vérifié."""
+    from atelier.generation import maintenance
+
+    return await asyncio.to_thread(_call, maintenance.vue)
+
+
+@app.get("/api/tests-automatises/executions")
+async def tests_automatises_executions():
+    """Vérifications en cours, en file et dernières terminées (lien vers #execution/<id>)."""
+    from atelier.generation import maintenance
+
+    return await asyncio.to_thread(_call, maintenance.executions_verification)
+
+
+@app.post("/api/tests-automatises/{action}")
+async def tests_automatises_action(action: str, req: Request):
+    """verifier (run réel des tests choisis, à la file) · valider · ecarter · maintenance (texte de la demande à l'agent)."""
+    from atelier.generation import maintenance
+
+    b = await req.json()
+    ids = [str(x) for x in (b.get("tests") or [])]
+    if not ids:
+        raise HTTPException(400, "Choisir au moins un test ou une suite.")
+    if action == "verifier":
+        sel = _call(robot_moteur.selection_tests, ids)
+        return await asyncio.to_thread(_call, _mettre_en_file, {"target": sel["cible"], "tests": ids, "xray_mode": "aucun",
+                                                                 "derogation_revue": b.get("derogation", "")}, "High", "",
+                                                                 maintenance.NOM_JOB_VERIFICATION)
+    actions = {"valider": lambda: maintenance.valider(ids, b.get("commentaire", ""), b.get("derogation", "")),
+               "ecarter": lambda: maintenance.ecarter(ids, b.get("motif", "")),
+               "maintenance": lambda: maintenance.demande_maintenance(ids, b.get("consigne", ""))}
+    if action not in actions:
+        raise HTTPException(404, f"Action inconnue : {action}")
+    return await asyncio.to_thread(_call, actions[action])
+
+
+@app.get("/api/studio/mapping/{cle}")
+async def studio_mapping(cle: str):
+    return await asyncio.to_thread(_call, studio.mapping_bdd, cle)
+
+
+@app.get("/api/studio/espaces")
+def studio_espaces():
+    return _call(studio.espaces)
+
+
+@app.post("/api/studio/espaces")
+async def studio_enregistrer_espace(req: Request):
+    return await asyncio.to_thread(_call, studio.enregistrer_espace, await req.json())
+
+
+@app.post("/api/studio/git/branche")
+async def studio_branche(req: Request):
+    return await asyncio.to_thread(_call, studio.creer_branche, (await req.json()).get("nom", ""))
+
+
+@app.get("/api/studio/gitlab")
+async def studio_gitlab():
+    return await asyncio.to_thread(_call, studio.gitlab_etat)
+
+
+@app.get("/api/studio/gitlab/commits")
+async def studio_gitlab_commits(jours: int = 14, chemin: str = ""):
+    return await asyncio.to_thread(_call, studio.gitlab_commits, jours, chemin)
+
+
+@app.post("/api/studio/gitlab/mr")
+async def studio_gitlab_mr(req: Request):
+    """Push de la branche de travail + merge request (jamais de fusion) ; garde-fous dans studio.proposer_mr."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio.proposer_mr, b.get("titre", ""), b.get("description", ""), b.get("cible", ""), b.get("derogation", ""))
+
+
+@app.post("/api/studio/git/synchroniser")
+async def studio_git_synchroniser(req: Request):
+    """Récupérer (fetch), tirer (pull --ff-only) ou basculer de branche ; le push passe par la merge request."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio.synchroniser, b.get("action", ""), b.get("branche", ""))
+
+
+@app.post("/api/studio/git/commit")
+async def studio_commit(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio.commit, b.get("message", ""), b.get("fichiers") or [])
+
+
+@app.post("/api/studio/builder")
+async def studio_builder(req: Request):
+    """Prévisualise (ecrire=false) ou écrit (ecrire=true, sans écrasement) un test assemblé depuis le socle."""
+    b = await req.json()
+    c = await asyncio.to_thread(_call, studio.construire_test, b.get("nom", ""), b.get("cle_xray", ""), b.get("jdd", ""),
+                                b.get("etapes") or [], b.get("tags") or [], b.get("fichier", ""))
+    if b.get("ecrire"):
+        c["ecrit"] = await asyncio.to_thread(_call, studio.ecrire_test, c)
+    return c
+
+
+@app.post("/api/studio/etape")
+async def studio_etape(req: Request):
+    """Exécute un seul keyword (INITIALISATION + JDD, puis l'étape) dans une suite temporaire, via la file."""
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    e = await asyncio.to_thread(_call, studio_avance.preparer_etape, b.get("keyword", ""), b.get("jdd", ""), b.get("arguments") or [])
+    params = {"target": e["cible"], "variables": {"PLATFORM": b.get("plateforme") or "web"}, "jdd_env": b.get("env") or ""}
+    job = await asyncio.to_thread(_call, _mettre_en_file, {k: v for k, v in params.items() if v}, "High", "", f"Étape isolée · {e['keyword']}")
+    return {**job, **e}
+
+
+@app.get("/api/studio/qualification")
+async def studio_qualification(fichier: str):
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.qualification, fichier)
+
+
+@app.post("/api/studio/qualifier")
+async def studio_qualifier(req: Request):
+    """3 runs réels de la suite approuvée, à la file : l'invariant « 3 exécutions stables » se vérifie ensuite."""
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    l = _call(studio_avance.runs_qualification, b.get("fichier", ""), b.get("plateforme") or "web", b.get("env") or "")
+    jobs = [await asyncio.to_thread(_call, _mettre_en_file, p, "Normal", "", f"Qualification {i}/{len(l)} · {b.get('fichier', '')}")
+            for i, p in enumerate(l, 1)]
+    return {"runs": [j["run_id"] for j in jobs]}
+
+
+@app.get("/api/studio/productivite")
+async def studio_productivite():
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.productivite)
+
+
+@app.get("/api/studio/modeles")
+async def studio_modeles():
+    from atelier.generation import studio_avance
+
+    return _call(studio_avance.modeles)
+
+
+@app.post("/api/studio/modeles")
+async def studio_modele_enregistrer(req: Request):
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    if b.get("supprimer"):
+        return _call(studio_avance.supprimer_modele, b.get("cle", ""))
+    return _call(studio_avance.enregistrer_modele, b.get("cle", ""), b.get("titre", ""), b.get("texte", ""))
+
+
+@app.post("/api/studio/modeles/rendre")
+async def studio_modele_rendre(req: Request):
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    return {"texte": _call(studio_avance.rendre_modele, b.get("cle", ""), b.get("scenario", ""), b.get("titre", ""), b.get("plateforme") or "web")}
+
+
+@app.get("/api/studio/locators/corrections")
+async def studio_corrections():
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.propositions_correction)
+
+
+@app.post("/api/studio/locators/corriger")
+async def studio_corriger(req: Request):
+    """Applique une correction de locator validée par l'automaticien (éditeur : historique, revue des suites)."""
+    from atelier.generation import studio_avance
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, studio_avance.appliquer_correction, b.get("id", ""), b.get("valeur", ""))
+
+
+@app.get("/api/studio/keywords/factorisation")
+async def studio_factorisation(ia: bool = False):
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.propositions_factorisation, ia)
+
+
+@app.post("/api/studio/keywords/factoriser")
+async def studio_factoriser(req: Request):
+    from atelier.generation import studio_avance
+
+    return await asyncio.to_thread(_call, studio_avance.appliquer_factorisation, (await req.json()).get("id", ""))
+
+
+@app.post("/api/donnees/importer")
+async def jdd_importer(req: Request):
+    """Aperçu (ecrire=false) ou import (ecrire=true) de jeux de données CSV / JSON."""
+    from atelier.execution import jdd as jdd_mod
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, jdd_mod.importer, b.get("env", ""), b.get("contenu", ""), b.get("format", ""),
+                                   bool(b.get("ecraser")), bool(b.get("ecrire")))
+
+
+@app.get("/api/donnees/apis")
+async def jdd_apis():
+    from atelier.execution import jdd as jdd_mod
+
+    return _call(lambda: {n: {k: d.get(k) for k in ("description", "methode", "environnements", "extraire")} for n, d in jdd_mod.apis().items()})
+
+
+@app.post("/api/donnees/apis/tester")
+async def jdd_api_tester(req: Request):
+    """Appel réel d'une API de préparation déclarée (environnement autorisé uniquement)."""
+    from atelier.execution import jdd as jdd_mod
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, jdd_mod.tester_api, b.get("env", ""), b.get("nom", ""), b.get("params") or {})
+
+
+@app.get("/api/roles")
+async def roles_etat():
+    from atelier.domain import roles
+
+    return _call(roles.etat)
+
+
+@app.post("/api/roles")
+async def roles_definir(req: Request):
+    from atelier.domain import roles
+
+    b = await req.json()
+    return _call(roles.definir, b.get("utilisateurs") or {}, bool(b.get("revue_par_un_autre", True)))
+
+
+@app.get("/api/studio/journal")
+def studio_journal():
+    return _call(studio.journal)
+
+
+# --------------------------------------------------------------------------- Failure Analysis
+@app.get("/api/echecs/vue")
+async def echecs_vue():
+    return await asyncio.to_thread(_call, echecs.vue_ensemble)
+
+
+@app.get("/api/echecs")
+async def echecs_liste():
+    return await asyncio.to_thread(_call, echecs.collecter)
+
+
+@app.get("/api/echecs/composants")
+async def echecs_composants():
+    """Échecs par composant : causes historisées, régressions, régressions récurrentes, anomalies connues."""
+    from atelier.execution import echecs_connaissance as ec
+
+    return await asyncio.to_thread(_call, ec.par_composant)
+
+
+@app.post("/api/echecs/localiser")
+async def echecs_localiser():
+    from atelier.execution import echecs_connaissance as ec
+
+    return await asyncio.to_thread(_call, ec.localiser_tous)
+
+
+@app.get("/api/echecs/connaissance")
+async def echecs_connaissance_route(id: str):
+    from atelier.execution import echecs_connaissance as ec
+
+    return await asyncio.to_thread(_call, ec.connaissance_echec, id)
+
+
+@app.get("/api/echecs/investigation")
+async def echecs_investigation(id: str):
+    return await asyncio.to_thread(_call, echecs.investigation, id)
+
+
+@app.post("/api/echecs/decision")
+async def echecs_decision(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.decider, b.get("id", ""), b.get("decision", ""), b.get("categorie", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/echecs/regrouper")
+async def echecs_regrouper(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.regrouper, b.get("id", ""), b.get("groupe", ""))
+
+
+@app.post("/api/echecs/jira")
+async def echecs_jira(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.associer_jira, b.get("id", ""), b.get("cle", ""))
+
+
+@app.get("/api/echecs/ia/historique")
+def echecs_ia_historique(id: str):
+    return _call(echecs.historique_ia, id)
+
+
+@app.post("/api/echecs/ia")
+async def echecs_ia(req: Request):
+    return await asyncio.to_thread(_call, echecs.demander_ia, (await req.json()).get("id", ""))
+
+
+@app.post("/api/echecs/retest")
+async def echecs_retest(req: Request):
+    """Relance via la file de l'Execution Center ; l'ancien résultat n'est jamais écrasé."""
+    b = await req.json()
+    e = _call(echecs._evenement, b.get("id", ""))
+    if not e["cle_xray"] and not b.get("tags"):
+        raise HTTPException(400, "Test sans clé Xray : relancer la suite depuis l'Execution Center.")
+    tags = b.get("tags") or [e["cle_xray"]]
+    params = {"target": e["test_id"].split("::")[0] if "::" in e["test_id"] else "tests", "include_tags": tags,
+              "variables": {"PLATFORM": e["plateforme"] or "web"}, "jdd_env": e["environnement"]}
+    if not params["target"].endswith(".robot"):
+        params["target"] = "tests"
+    r = await asyncio.to_thread(_call, _mettre_en_file, params, "High", "", f"Retest {e['cle_xray'] or e['nom']}")
+    _call(echecs.noter_retest, e["id"], r["run_id"])
+    return r
+
+
+@app.get("/api/echecs/retests")
+async def echecs_retests(id: str):
+    return await asyncio.to_thread(_call, echecs.resultats_retests, id)
+
+
+@app.get("/api/echecs/journal")
+def echecs_journal():
+    return _call(echecs.journal)
+
+
+# --------------------------------------------------------------------------- Quality Governance
+@app.get("/api/gouvernance/vue")
+async def gouvernance_vue():
+    return await asyncio.to_thread(_call, gouvernance.vue_ensemble)
+
+
+@app.get("/api/gouvernance/{section}")
+async def gouvernance_section(section: str):
+    fn = {"couverture": gouvernance.couverture_fonctionnelle, "automatisation": gouvernance.couverture_automatisation,
+          "efficacite": gouvernance.efficacite, "sante": gouvernance.sante_automatisation, "stabilite": gouvernance.stabilite,
+          "risques": gouvernance.risques, "tendances": gouvernance.tendances, "recommandations": gouvernance.recommandations,
+          "releases": lambda: {"evaluations": gouvernance.releases(), "validations": gouvernance.validations_release()},
+          "parametres": gouvernance.parametres, "kpis": gouvernance.kpis}.get(section)
+    if not fn:
+        raise HTTPException(404, "Section inconnue.")
+    return await asyncio.to_thread(_call, fn)
+
+
+@app.post("/api/gouvernance/releases")
+async def gouvernance_evaluer(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, gouvernance.evaluer_release, b.get("version", ""), b.get("campagne", ""), b.get("environnement", ""), b.get("commit", ""))
+
+
+@app.post("/api/gouvernance/releases/valider")
+async def gouvernance_valider(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, gouvernance.valider_release, b.get("id", ""), b.get("decision", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/gouvernance/recommandations")
+async def gouvernance_suivre(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, gouvernance.suivre_recommandation, b.get("id", ""), b.get("statut", ""), b.get("responsable", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/gouvernance/instantane")
+async def gouvernance_instantane():
+    return await asyncio.to_thread(_call, gouvernance.instantane, True)
+
+
+@app.get("/api/gouvernance/parametres/historique")
+def gouvernance_parametres_historique():
+    return _call(gouvernance.historique_parametres)
+
+
+@app.post("/api/gouvernance/parametres")
+async def gouvernance_parametres(req: Request):
+    return await asyncio.to_thread(_call, gouvernance.enregistrer_parametres, await req.json())
+
+
+@app.get("/api/echecs/corrections")
+def echecs_corrections():
+    return _call(echecs.corrections)
+
+
+@app.post("/api/echecs/corrections")
+async def echecs_proposer(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.proposer_correction_locator, b.get("id", ""), b.get("valeur", ""), b.get("justification", ""))
+
+
+@app.post("/api/echecs/corrections/action")
+async def echecs_correction_action(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.faire_avancer_correction, b.get("id", ""), b.get("action", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/intelligence/analyser-jira")
+async def intelligence_analyser():
+    """Structure les critères d'acceptation et propose les règles métier candidates (file de validation)."""
+    return await asyncio.to_thread(_call, intelligence_app.analyser_jira, True)
+
+
+@app.get("/api/intelligence/versions/comparer")
+async def intelligence_comparer(a: str, b: str = "courant"):
+    return await asyncio.to_thread(_call, intelligence_app.comparer_versions, a, b)
+
+
+@app.post("/api/intelligence/versions")
+async def intelligence_creer_version(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, intelligence_app.creer_version, b.get("nom", ""), b.get("description", ""))
+
+
+@app.post("/api/intelligence/versions/restaurer")
+async def intelligence_restaurer(req: Request):
+    return await asyncio.to_thread(_call, intelligence_app.restaurer_version, (await req.json()).get("nom", ""))
+
+
+@app.post("/api/echecs/jira/doublons")
+async def echecs_doublons(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.doublons_jira, b.get("id", ""), b.get("projet", ""))
+
+
+@app.post("/api/echecs/jira/creer")
+async def echecs_creer_jira(req: Request):
+    """Création explicite (après consultation des doublons) ; jamais automatique."""
+    b = await req.json()
+    return await asyncio.to_thread(_call, echecs.creer_anomalie_jira, b.get("id", ""), b.get("projet", ""),
+                                   b.get("resume", ""), b.get("description", ""), bool(b.get("lier_test", True)))
+
+
+@app.post("/api/conception/publier")
+async def conception_publier(req: Request):
+    b = await req.json()
+    return await asyncio.to_thread(_call, conception.publier_bdd, b.get("cle", ""), b.get("projet", ""), b.get("decision", ""))
+
+
+@app.get("/api/conception/sync-historique")
+def conception_sync_historique():
+    return _call(conception.historique_sync)
+
+
+@app.post("/api/centre/xray/rejouer")
+async def centre_rejouer_xray(req: Request):
+    return await asyncio.to_thread(_call, centre.rejouer_xray, (await req.json()).get("run", ""))
+
+
+# --------------------------------------------------------------------------- Application Intelligence
+@app.get("/api/cerveau")
+async def cerveau_vue():
+    """Cerveau de l'application active : sources et fraîcheur, modules, lacunes, apprentissages."""
+    from atelier.intelligence import cerveau
+
+    return await asyncio.to_thread(_call, cerveau.vue)
+
+
+@app.get("/api/cerveau/module")
+async def cerveau_module(module: str):
+    from atelier.intelligence import plan_test
+
+    return await asyncio.to_thread(_call, plan_test.plan, module)
+
+
+@app.get("/api/connaissance/entites")
+async def connaissance_entites(type: str = "champ", ecran: str = ""):
+    from atelier.discovery import entites
+
+    return await asyncio.to_thread(_call, entites.champs if type == "champ" else entites.anomalies, *( [ecran] if type == "champ" else []))
+
+
+@app.get("/api/graphe/suggestions")
+async def graphe_suggestions(noeud: str, env: str = ""):
+    """« Que faire ici ? » : quelques suggestions de tests sur un écran, un module ou un parcours du graphe (env : celui de
+    l'en-tête ; il décide si les actions sensibles peuvent être suggérées)."""
+    from atelier.intelligence import suggestions
+
+    return await asyncio.to_thread(_call, suggestions.suggestions, noeud, env)
+
+
+@app.post("/api/graphe/suggestions/lancer")
+async def graphe_suggestions_lancer(req: Request):
+    """La suggestion choisie démarre : brouillon BDD (si la carte le permet), puis demande à l'agent : concevoir,
+    automatiser, vérifier, exécuter."""
+    from atelier.intelligence import suggestions
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, suggestions.lancer, b.get("noeud", ""), b.get("suggestion", ""), b.get("env", ""))
+
+
+@app.get("/api/execution/graphe")
+async def execution_graphe(depuis: int = 0):
+    """Graphe du run en direct : actions du run en cours projetées sur les écrans (état, action, chemin, tests)."""
+    from atelier.execution import run_graphe
+
+    return await asyncio.to_thread(_call, run_graphe.vue, depuis)
+
+
+@app.get("/api/couverture/carte")
+async def couverture_carte():
+    """Carte de couverture par les tests : parcours, écrans par module, matrice tests × écrans."""
+    from atelier.intelligence import couverture_avancee as ca
+
+    return await asyncio.to_thread(_call, ca.carte)
+
+
+@app.get("/api/couverture-avancee")
+async def couverture_avancee(module: str = ""):
+    """Couverture des parcours et composants UI par niveau (découvert, associé, automatisé, exécuté, réussi)."""
+    from atelier.intelligence import couverture_avancee as ca
+
+    return await asyncio.to_thread(_call, ca.calculer, None, module)
+
+
+@app.get("/api/cursor/regles")
+def cursor_regles_etat():
+    from atelier.integrations import regles_cursor
+
+    return _call(regles_cursor.etat)
+
+
+@app.get("/api/cursor/regles/contenu")
+def cursor_regles_contenu(regle: str, version: int = 0):
+    from atelier.integrations import regles_cursor
+
+    return {"regle": regle, "version": version, "contenu": _call(regles_cursor.contenu, regle, version or None)}
+
+
+@app.post("/api/cursor/regles/enregistrer")
+async def cursor_regles_enregistrer(req: Request):
+    from atelier.integrations import regles_cursor
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, regles_cursor.enregistrer, b.get("regle", ""), b.get("contenu", ""), b.get("commentaire", ""))
+
+
+@app.post("/api/cursor/regles/contexte")
+async def cursor_regles_contexte(req: Request):
+    from atelier.integrations import regles_cursor
+
+    return await asyncio.to_thread(_call, regles_cursor.regenerer_contexte, (await req.json()).get("commentaire", ""))
+
+
+@app.post("/api/cursor/regles/activer")
+async def cursor_regles_activer(req: Request):
+    from atelier.integrations import regles_cursor
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, regles_cursor.activer, int(b.get("version") or 0), b.get("commentaire", ""))
+
+
+@app.get("/api/cursor/regles/comparer")
+def cursor_regles_comparer(a: int, b: int):
+    from atelier.integrations import regles_cursor
+
+    return _call(regles_cursor.comparer, a, b)
+
+
+@app.get("/api/cursor/regles/apercu")
+def cursor_regles_apercu():
+    from atelier.integrations import regles_cursor
+
+    return _call(regles_cursor.apercu)
+
+
+@app.post("/api/cursor/regles/synchroniser")
+async def cursor_regles_synchroniser(req: Request):
+    """Écrit la version active dans .cursor/rules/ ; « remplacer » liste les fichiers modifiés localement à écraser."""
+    from atelier.integrations import regles_cursor
+
+    return await asyncio.to_thread(_call, regles_cursor.synchroniser, (await req.json()).get("remplacer") or [])
+
+
+@app.get("/api/cursor/regles/export")
+def cursor_regles_export():
+    from fastapi.responses import Response
+
+    from atelier.integrations import agents_ia, regles_cursor
+
+    z = _call(regles_cursor.exporter_zip, agents_ia.config(PORT))
+    return Response(z, media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="regles-cursor-atelier.zip"'})
+
+
+@app.post("/api/agents-ia/verifier")
+async def agents_ia_verifier():
+    """Lance réellement le serveur MCP (stdio) comme Cursor et liste ses outils."""
+    from atelier.integrations import agents_ia
+
+    return await asyncio.to_thread(_call, agents_ia.verifier, PORT)
+
+
+@app.get("/api/parcours")
+def parcours_liste():
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return _call(pf.lister)
+
+
+@app.post("/api/parcours")
+async def parcours_creer(req: Request):
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, pf.creer, b.get("fonctionnalite", ""), b.get("libelle", ""), b.get("jira") or [], b.get("responsable", ""))
+
+
+@app.get("/api/parcours/{pid}")
+def parcours_detail(pid: str):
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return _call(pf.obtenir, pid)
+
+
+@app.post("/api/parcours/{pid}/etape")
+async def parcours_etape(pid: str, req: Request):
+    """Action sur une étape depuis l'atelier (validation humaine possible ici)."""
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, pf.agir, pid, b.get("etape", ""), b.get("action", ""), b.get("commentaire", ""), b.get("reference"))
+
+
+@app.post("/api/parcours/{pid}/etat")
+async def parcours_etat(pid: str, req: Request):
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, pf.changer_etat, pid, b.get("action", ""), b.get("motif", ""))
+
+
+@app.get("/api/parcours/{pid}/comparer")
+def parcours_comparer(pid: str, a: int, b: str = ""):
+    from atelier.intelligence import parcours_fonctionnalite as pf
+
+    return _call(pf.comparer, pid, a, int(b) if b else None)
+
+
+@app.get("/api/demandes")
+def demandes_liste(statut: str = ""):
+    from atelier.domain import demandes
+
+    return _call(demandes.lister, statut)
+
+
+@app.post("/api/demandes/decider")
+async def demandes_decider(req: Request):
+    """Accepter (exécute l'action une seule fois) ou rejeter (motif obligatoire) une action demandée par Cursor."""
+    from atelier.domain import demandes
+
+    b = await req.json()
+    return await asyncio.to_thread(_call, demandes.decider, b.get("id", ""), bool(b.get("accepter")), b.get("commentaire", ""))
+
+
+@app.get("/api/cerveau/a-valider")
+async def cerveau_a_valider():
+    """Une seule boîte : propositions Discovery / agent, relations déduites du graphe, Coverage Intelligence."""
+    from atelier.intelligence import cerveau
+
+    return await asyncio.to_thread(_call, cerveau.a_valider)
+
+
+@app.post("/api/cerveau/question")
+async def cerveau_question(req: Request):
+    """Question posée au cerveau : réponse fondée sur ses seules connaissances (IA si configurée, sinon les faits)."""
+    from atelier.intelligence import cerveau
+
+    return await asyncio.to_thread(_call, cerveau.demander, (await req.json()).get("question", ""))
+
+
+# --------------------------------------------------------------------------- Coverage Intelligence (Test Strategy)
+@app.get("/api/ci/{section}")
+async def ci_lecture(section: str, type: str = "", statut: str = ""):
+    from atelier.intelligence import intelligence_couverture as ci
+
+    fn = {"vue": ci.vue, "documentation": ci.qualite_documentaire, "capacites": ci.capacites, "manquants": ci.tests_manquants,
+          "orphelins": ci.orphelins, "synchros": ci.synchronisations, "propositions": lambda: ci.propositions(type, statut)}.get(section)
+    if not fn:
+        raise HTTPException(404, "Section inconnue.")
+    return await asyncio.to_thread(_call, fn)
+
+
+@app.post("/api/ci/{action}")
+async def ci_action(action: str, req: Request):
+    """Propositions (jamais appliquées sans validation) et synchronisation explicite vers Jira / Xray."""
+    from atelier.intelligence import intelligence_couverture as ci
+
+    b = await req.json()
+    fn = {"story": lambda: ci.proposer_story(b.get("capacite", ""), bool(b.get("ia"))),
+          "criteres": lambda: ci.proposer_criteres(b.get("cle", ""), bool(b.get("ia"))),
+          "analyser-liens": lambda: ci.analyser_liens(),
+          "liens-ia": lambda: ci.juger_liens_ia(b.get("cle", "")),
+          "orphelins-ia": lambda: ci.classer_orphelins_ia(),
+          "decider": lambda: ci.decider(b.get("id", ""), b.get("decision", ""), b.get("motif", ""), b.get("modifications") or {}),
+          "regrouper": lambda: ci.regrouper(b.get("ids") or [], b.get("titre", "")),
+          "synchroniser": lambda: ci.synchroniser(b.get("id", "")),
+          "test-design": lambda: ci.envoyer_vers_test_design(b.get("cle", "")),
+          "orphelin": lambda: ci.classer_orphelin(b.get("test", ""), b.get("classe", ""), b.get("cible", ""), b.get("justification", ""))}.get(action)
+    if not fn:
+        raise HTTPException(404, "Action inconnue.")
+    return await asyncio.to_thread(_call, fn)
+
+
+@app.get("/api/intelligence/{section}")
+async def intelligence_section(section: str):
+    fn = {"vue": intelligence_app.vue_ensemble, "jira": intelligence_app.jira, "ecrans": intelligence_app.ecrans,
+          "regles": lambda: intelligence_app.noeuds(["regle"]), "parcours": lambda: intelligence_app.noeuds(["parcours", "action"]),
+          "api": intelligence_app.api_endpoints, "changements": intelligence_app.changements, "validation": intelligence_app.validation,
+          "criteres": lambda: intelligence_app.analyser_jira(False), "versions": intelligence_app.versions}.get(section)
+    if not fn:
+        raise HTTPException(404, "Section inconnue.")
+    return await asyncio.to_thread(_call, fn)
+
+
+def main():
+    # arrêt (Ctrl+C) : les requêtes en cours ont 3 s pour finir, puis sont interrompues (pas de second Ctrl+C)
+    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning", timeout_graceful_shutdown=3)
+
+
+if __name__ == "__main__":
+    main()

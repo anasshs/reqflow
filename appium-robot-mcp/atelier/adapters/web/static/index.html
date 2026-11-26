@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atelier d'automatisation</title>
+<style>
+:root{
+  --bg:#E9EDF1; --surface:#FFFFFF; --sunken:#F3F5F8; --ink:#1B2733; --muted:#5D6B78; --line:#CDD5DD;
+  --accent:#2747C9; --accent-soft:#E3E8FB; --run:#B86E00; --run-soft:#FBEFD9;
+  --pass:#1F7A4A; --pass-soft:#DDF1E5; --fail:#B42318; --fail-soft:#FBE3E0;
+  --device:#202A35; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#141A21; --surface:#1C242D; --sunken:#171E26; --ink:#E6EBF0; --muted:#93A1AE; --line:#2C3742;
+  --accent:#7C96FF; --accent-soft:#232E52; --run:#F0A93A; --run-soft:#3A2C14;
+  --pass:#5CC98C; --pass-soft:#163327; --fail:#FF7A6B; --fail-soft:#3D1D1A; --device:#0E1318;
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none!important}
+header{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0;font-weight:650}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:none}
+.seg button{border:0;background:none;padding:6px 14px;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--accent);color:#fff}
+.seg.small button{padding:5px 10px;font-size:13px;flex:1}
+#sante-btn{margin-left:auto;border:1px solid var(--line);background:var(--surface);border-radius:20px;padding:4px 12px;cursor:pointer;font-size:13px}
+#sante-btn .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--pass)}
+#sante-btn.ko .dot{background:var(--fail)}
+main{display:grid;grid-template-columns:380px minmax(0,1fr) 360px;grid-template-rows:minmax(0,1fr);gap:16px;padding:16px;height:calc(100vh - 53px)}
+main.large-device{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) 340px}
+main.mode-carte{grid-template-columns:290px minmax(0,1fr) 380px}
+section,.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:0}
+.panel>h2,section>h2{font-size:13px;font-weight:650;margin:0;padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.scroll{overflow:auto;padding:12px 14px;flex:1;min-height:0}
+label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px}
+input,select,textarea{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--sunken)}
+input[type=checkbox],input[type=radio]{width:auto;flex:none}
+.row{display:flex;gap:8px;align-items:flex-end}.row>*{flex:1;min-width:0}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:6px 12px;cursor:pointer;flex:none}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.danger{color:var(--fail)}
+.btn:disabled{opacity:.5;cursor:default}
+.muted{color:var(--muted)} .small{font-size:12px}
+details>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:4px 0}
+.tag{font-family:var(--sans);font-size:11px;padding:1px 7px;border-radius:10px;white-space:nowrap;display:inline-block}
+.tag.ok,.tag.PASSED,.tag.PASS,.tag.valide,.tag.robuste{background:var(--pass-soft);color:var(--pass)}
+.tag.EXECUTING,.tag.propose,.tag.correct{background:var(--run-soft);color:var(--run)}
+.tag.corrige{background:var(--accent-soft);color:var(--accent)}
+.tag.ko,.tag.FAILED,.tag.FAIL,.tag.refuse,.tag.fragile{background:var(--fail-soft);color:var(--fail)}
+.tag.TODO,.tag.SKIP,.tag.neutre{background:var(--sunken);color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:2px 10px;font-size:12px;cursor:pointer}
+
+/* --- device --- */
+#device-col{padding:14px;gap:10px}
+.connect{display:flex;gap:8px;align-items:center}
+.connect select,.connect input{flex:1;min-width:0}
+.phone{position:relative;flex:1 1 0;min-height:0;width:100%;background:var(--device);border-radius:34px}
+.phone.web{border-radius:10px;padding-top:26px}
+.phone.web::before{content:attr(data-url);position:absolute;top:5px;left:12px;right:12px;font-size:11px;color:#9AA7B4;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.screen{position:absolute;inset:12px;display:flex;align-items:center;justify-content:center}
+.phone.web .screen{top:30px;inset-inline:8px;bottom:8px;align-items:flex-start}
+.screen img{display:block;max-width:100%;max-height:100%;border-radius:22px;cursor:crosshair}
+.phone.web .screen img{border-radius:4px}
+.screen .vide{color:#9AA7B4;font-size:13px;text-align:center;padding:30px 20px;max-width:260px}
+.cible{position:absolute;border:2px solid var(--run);border-radius:6px;background:color-mix(in srgb,var(--run) 18%,transparent);
+  transition:all .3s ease;opacity:0;pointer-events:none}
+.cible.on{opacity:1}
+.cible.choix{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.cible span{position:absolute;top:-24px;left:-2px;background:var(--run);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;white-space:nowrap}
+.cible.choix span{background:var(--accent)}
+#live{font-size:12px;color:var(--muted);text-align:center}
+#live.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--fail);margin-right:6px;animation:pulse 1.6s infinite}
+@keyframes pulse{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.cible{transition:none}#live.on::before{animation:none}}
+
+/* --- centre --- */
+.col{display:grid;gap:16px;min-height:0}
+#construire{grid-template-rows:auto minmax(0,1fr)}
+.stepper{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stepper button{flex:1;border:0;background:none;padding:10px 12px;text-align:left;cursor:pointer;border-right:1px solid var(--line);color:var(--muted)}
+.stepper button:last-child{border-right:0}
+.stepper button b{display:inline-flex;width:20px;height:20px;border-radius:50%;align-items:center;justify-content:center;font-size:12px;
+  margin-right:6px;background:var(--sunken);color:var(--muted)}
+.stepper button[aria-current=step]{color:var(--ink);font-weight:600;box-shadow:inset 0 -3px 0 var(--accent)}
+.stepper button[aria-current=step] b{background:var(--accent);color:#fff}
+.stepper button.fait b{background:var(--pass-soft);color:var(--pass)}
+.etape{display:grid;gap:16px;min-height:0}
+#etape-2{grid-template-rows:minmax(0,1.2fr) minmax(0,1fr)}
+.tests-liste{list-style:none;margin:0;padding:0}
+.tests-liste li{padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer;display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:start}
+.tests-liste li span:first-of-type{grid-column:1/3;grid-row:2;color:var(--muted)}
+.tests-liste li:hover{background:var(--sunken)}
+.tests-liste li[aria-selected=true]{background:var(--accent-soft)}
+pre.code{font:12px/1.5 var(--mono);background:var(--sunken);padding:10px;border-radius:6px;white-space:pre-wrap;margin:8px 0;max-height:220px;overflow:auto}
+.gherkin{font-family:var(--mono);font-size:13px;margin:0;list-style:none;padding:0}
+.gherkin li{display:grid;grid-template-columns:28px 1fr auto;gap:8px;padding:8px 6px;border-bottom:1px solid var(--line);align-items:start}
+.gherkin .n{color:var(--muted);text-align:right}
+.gherkin .meta{grid-column:2/4;font-family:var(--sans);font-size:12px;color:var(--muted)}
+.gherkin li.propose{background:var(--run-soft)}
+.gherkin li.corrige .txt{text-decoration:line-through;color:var(--muted)}
+.attente{border:1px solid var(--run);border-radius:8px;padding:10px;margin:10px 0;background:var(--run-soft)}
+.attente pre{max-height:240px;overflow:auto;background:var(--surface);padding:8px;border-radius:6px;font:12px var(--mono)}
+.attente .row{margin-top:8px}
+kbd{font:11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--surface)}
+.consigne{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.consigne textarea{height:52px;resize:vertical}
+.log{font-size:13px}
+.log div{padding:4px 0;border-bottom:1px dashed var(--line)}
+.log .src{font-size:11px;color:var(--muted);margin-right:6px}
+.log .tech{display:none;font:11px var(--mono);color:var(--muted)}
+.log.technique .tech{display:block}
+.log .err{color:var(--fail)} .log .moi{font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:12px}
+td,th{text-align:left;padding:5px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500}
+td code{font-family:var(--mono);font-size:11px;word-break:break-all;color:var(--muted);display:block}
+h3{font-size:13px;margin:14px 0 6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.carte{border:1px solid var(--accent);border-radius:8px;padding:10px;margin-bottom:12px;background:var(--accent-soft)}
+.carte .loc{display:flex;gap:6px;align-items:center;font:12px var(--mono);padding:3px 0;word-break:break-all}
+#ticker{font-family:var(--mono);font-size:12px;padding:8px 14px;border-top:1px solid var(--line);color:var(--run);min-height:34px}
+#tests tr.FAIL{cursor:pointer}
+#tests tr.choisi{background:var(--accent-soft)}
+#tests td:last-child{white-space:nowrap;color:var(--muted)}
+.capture{max-width:100%;border:1px solid var(--line);border-radius:6px;margin-top:6px}
+.sante{position:fixed;top:56px;right:16px;width:420px;max-height:calc(100vh - 80px);overflow:auto;z-index:10;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.18);padding:14px}
+.sante li{list-style:none;padding:8px 0;border-bottom:1px solid var(--line)}
+.sante ul{margin:0;padding:0}
+/* --- carte --- */
+#carte{grid-template-rows:minmax(0,1fr)}
+.outils{display:flex;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.outils select{width:auto}
+.legende{display:flex;gap:10px;font-size:11px;color:var(--muted);margin-left:auto;flex-wrap:wrap}
+.legende i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px;border:1px solid var(--line)}
+#carte-zone{flex:1;min-height:0;position:relative}
+#carte-svg{position:absolute;inset:0;width:100%;height:100%;background:var(--sunken);border-radius:0 0 10px 10px;cursor:grab;touch-action:none}
+#carte-svg.drag{cursor:grabbing}
+#carte-vide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:30px;color:var(--muted)}
+.n{cursor:pointer}
+.n rect.fond{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.n.couvert rect.fond{fill:var(--pass-soft);stroke:var(--pass)}
+.n.revoir rect.fond{fill:var(--run-soft);stroke:var(--run)}
+.n.anonyme rect.fond{stroke-dasharray:5 4}
+.n.importe rect.fond{opacity:.6}
+.n.sel rect.fond{stroke:var(--accent);stroke-width:3}
+.n.ici rect.fond{stroke:var(--fail);stroke-width:3}
+.n text{fill:var(--ink);font:600 12px var(--sans)}
+.n text.s{fill:var(--muted);font:11px var(--sans)}
+.n text.b{fill:var(--muted);font:10px var(--sans)}
+.e{cursor:pointer}
+.e path.l{fill:none;stroke:var(--muted);stroke-width:1.4}
+.e path.h{fill:none;stroke:transparent;stroke-width:12}
+.e.interdite path.l{stroke:var(--fail);stroke-dasharray:5 3}
+.e.instable path.l{stroke-dasharray:2 3}
+.e.retour{opacity:.45}
+.e.sel path.l,.e.chemin path.l{stroke:var(--accent);stroke-width:2.6}
+.e text{fill:var(--muted);font:10px var(--sans);paint-order:stroke;stroke:var(--sunken);stroke-width:3px}
+.vignettes{display:flex;gap:6px;margin:6px 0}
+.vignettes img{height:120px;border:1px solid var(--line);border-radius:6px}
+.bloc{border-top:1px solid var(--line);padding-top:8px;margin-top:10px}
+.bloc>summary{font-weight:600;color:var(--ink);font-size:13px}
+.journal-explo{max-height:160px;overflow:auto;font-size:12px;font-family:var(--mono);color:var(--muted);margin-top:6px}
+.aide{border:1px solid var(--line);background:var(--surface);border-radius:50%;width:20px;height:20px;font-size:12px;line-height:1;cursor:pointer;flex:none;color:var(--muted)}
+/* --- assistant et guide --- */
+dialog#wizard{width:min(760px,94vw);border:1px solid var(--line);border-radius:12px;padding:0;background:var(--surface);color:var(--ink)}
+dialog#wizard::backdrop{background:rgba(0,0,0,.35)}
+.wz-tete{display:flex;gap:4px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.wz-tete span{font-size:12px;padding:3px 8px;border-radius:12px;background:var(--sunken);color:var(--muted)}
+.wz-tete span.on{background:var(--accent);color:#fff}
+.wz-tete span.fait{background:var(--pass-soft);color:var(--pass)}
+.wz-corps{padding:16px;max-height:62vh;overflow:auto}
+.wz-pied{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);justify-content:flex-end}
+.check{display:flex;gap:8px;align-items:flex-start;margin:6px 0;color:var(--ink);font-size:13px}
+aside#guide{position:fixed;top:0;right:0;width:min(480px,96vw);height:100vh;background:var(--surface);border-left:1px solid var(--line);
+  box-shadow:-8px 0 28px rgba(0,0,0,.15);z-index:20;display:flex;flex-direction:column}
+#guide nav{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line)}
+#guide nav button{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:2px 10px;font-size:12px;cursor:pointer}
+#guide .contenu{overflow:auto;padding:14px 18px;flex:1;font-size:14px}
+#guide h3{font-size:15px;margin:22px 0 6px}
+#guide h3:first-child{margin-top:0}
+#guide ol,#guide ul{padding-left:20px} #guide li{margin:4px 0}
+#guide .astuce{background:var(--accent-soft);border-radius:8px;padding:8px 10px;font-size:13px;margin:8px 0}
+.bandeau{background:var(--accent-soft);border:1px solid var(--accent);border-radius:10px;padding:10px 14px;margin:0 16px;display:flex;gap:10px;align-items:center}
+@media (max-width:1100px){main,main.large-device{grid-template-columns:1fr;grid-template-rows:none;height:auto}.phone{height:600px;flex:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Atelier d'automatisation</h1>
+  <a href="/plateforme" style="font-size:13px">Espaces de travail (graphes) ↗</a>
+  <select id="app-select" aria-label="Application" style="width:auto;max-width:220px"></select>
+  <div class="seg" role="group" aria-label="Mode">
+    <button id="m-carte" aria-pressed="false">Carte</button>
+    <button id="m-construire" aria-pressed="true">Construire un test</button>
+    <button id="m-executer" aria-pressed="false">Exécuter</button>
+  </div>
+  <button id="sante-btn" aria-expanded="false"><span class="dot"></span><span id="sante-resume">Vérification…</span></button>
+  <button class="btn" id="guide-btn">Guide</button>
+</header>
+<div class="sante" id="sante" hidden>
+  <div class="row" style="align-items:center"><b>État de l'atelier</b><button class="btn" id="sante-rafraichir" style="flex:none">Revérifier</button></div>
+  <ul id="sante-liste"></ul>
+  <p class="small muted">Les éléments marqués optionnels ne bloquent que les fonctions qui en dépendent.</p>
+</div>
+
+<div class="bandeau" id="bandeau-app" hidden style="margin-top:12px">
+  <span>Aucune application déclarée. Commence par cartographier ton app : c'est la première étape avec une nouvelle app.</span>
+  <button class="btn primary" id="b-wizard-bandeau">Nouvelle application</button>
+</div>
+<main id="main">
+  <!-- ============ DEVICE / NAVIGATEUR ============ -->
+  <section id="device-col">
+    <div class="seg small" role="group" aria-label="Plateforme" id="plateformes">
+      <button data-p="android" aria-pressed="true">Android</button>
+      <button data-p="ios" aria-pressed="false">iOS</button>
+      <button data-p="web" aria-pressed="false">Web</button>
+    </div>
+    <div class="connect">
+      <select id="device" aria-label="Device"></select>
+      <input id="url" placeholder="https://recette.exemple.ma" aria-label="URL de départ" hidden>
+      <button class="btn primary" id="b-connecter">Connecter</button>
+    </div>
+    <details id="reglages">
+      <summary>Réglages de l'application</summary>
+      <div id="reg-android"><div class="row">
+        <div><label for="pkg">Package</label><input id="pkg" placeholder="ma.banque.mobile"></div>
+        <div><label for="act">Activité</label><input id="act" placeholder=".MainActivity"></div></div></div>
+      <div id="reg-ios" hidden><label for="bundle">Bundle ID</label><input id="bundle"></div>
+      <div id="reg-web" hidden><div class="row">
+        <div><label for="browser">Navigateur</label><select id="browser"><option>chromium</option><option>firefox</option><option>webkit</option></select></div>
+        <div><label style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><input type="checkbox" id="visible"> Fenêtre visible</label></div></div></div>
+      <p class="small muted">Mémorisés pour les prochaines connexions.</p>
+    </details>
+    <div class="phone" id="phone">
+      <div class="screen" id="screen">
+        <img id="frame" alt="Écran en direct : touche un élément pour le sélectionner" hidden>
+        <div class="vide" id="vide">Connecte un device ou un navigateur pour voir l'écran en direct.</div>
+        <div class="cible" id="cible"><span></span></div>
+        <div class="cible choix" id="choix"><span></span></div>
+      </div>
+    </div>
+    <div id="live">Touche l'écran pour désigner un élément</div>
+  </section>
+
+  <!-- ============ CONSTRUIRE ============ -->
+  <div class="col" id="construire">
+    <nav class="stepper" aria-label="Étapes">
+      <button data-e="1" aria-current="step"><b>1</b>Choisir le test</button>
+      <button data-e="2"><b>2</b>Construire</button>
+      <button data-e="3"><b>3</b>Enregistrer</button>
+    </nav>
+
+    <div class="etape" id="etape-1" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+      <div class="panel">
+        <h2>Tests candidats à l'automatisation</h2>
+        <div class="scroll">
+          <input id="t-filtre" placeholder="Filtrer par clé ou résumé">
+          <details><summary>Filtre Xray (JQL)</summary>
+            <textarea id="t-jql" style="height:60px"></textarea>
+            <button class="btn" id="t-jql-ok" style="margin-top:6px">Appliquer et mémoriser</button></details>
+          <ul class="tests-liste" id="t-liste"><li class="muted">Chargement des tests…</li></ul>
+        </div>
+      </div>
+      <div class="panel">
+        <h2 id="t-titre">Aperçu</h2>
+        <div class="scroll" id="t-apercu"><p class="muted">Choisis un test pour voir son scénario. Tu peux aussi décrire un parcours librement à l'étape 2.</p></div>
+      </div>
+    </div>
+
+    <div class="etape" id="etape-2" hidden>
+      <div class="panel">
+        <h2>Scénario en construction <span class="small muted" id="raccourcis" hidden>— <kbd>Entrée</kbd> valider · <kbd>C</kbd> corriger</span></h2>
+        <div class="scroll">
+          <ol class="gherkin" id="steps"></ol>
+          <div id="attente"></div>
+          <p id="steps-vide" class="muted">Les steps proposés par Cursor ou par l'agent intégré apparaissent ici. Tu valides ou tu corriges chacun avant le suivant.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Activité <label class="small" style="margin:0 0 0 auto;display:flex;gap:4px;align-items:center;font-weight:400"><input type="checkbox" id="technique"> détail technique</label></h2>
+        <div class="scroll log" id="log"></div>
+        <div class="consigne" id="zone-agent">
+          <textarea id="instruction" placeholder="Consigne pour l'agent intégré (optionnel)"></textarea>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <button class="btn primary" id="b-envoyer">Envoyer</button>
+            <button class="btn" id="b-stop">Arrêter</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="etape" id="etape-3" hidden style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+      <div class="panel">
+        <h2>Ce qui a été produit</h2>
+        <div class="scroll">
+          <p id="r-resume" class="muted"></p>
+          <h3>Fichiers</h3><ul id="r-fichiers" class="small"></ul>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" id="b-dryrun">Lancer un dry run</button>
+            <button class="btn" id="b-nouveau">Nouveau test</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Sous-tâches Jira</h2>
+        <div class="scroll">
+          <div class="row"><div><label for="j-ticket">Ticket du test</label><input id="j-ticket" placeholder="TAM-1909"></div>
+            <button class="btn" id="j-charger">Afficher</button></div>
+          <div id="j-liste" class="small" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CARTE ============ -->
+  <div class="col" id="carte" hidden>
+    <section>
+      <div class="outils">
+        <b style="font-size:13px">Carte de l'application</b>
+        <button class="btn" id="c-ici">Où suis-je ?</button>
+        <button class="btn" id="c-ajuster">Ajuster</button>
+        <select id="c-plat" aria-label="Plateforme affichée"><option value="tous">Toutes plateformes</option><option value="android">Android</option><option value="ios">iOS</option><option value="web">Web</option></select>
+        <label style="margin:0;display:flex;gap:4px;align-items:center;color:var(--ink)"><input type="checkbox" id="c-retours"> retours</label>
+        <button class="aide" data-g="carte" title="Aide sur la carte">?</button>
+        <div class="legende"><span><i style="background:var(--pass-soft);border-color:var(--pass)"></i>testé</span>
+          <span><i style="background:var(--run-soft);border-color:var(--run)"></i>changé au dernier build</span>
+          <span><i style="border-style:dashed"></i>à nommer</span><span style="color:var(--fail)">- - action interdite</span></div>
+      </div>
+      <div id="carte-zone">
+        <svg id="carte-svg" role="img" aria-label="Graphe des écrans et transitions"></svg>
+        <div id="carte-vide" hidden></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ EXÉCUTER ============ -->
+  <div class="col" id="executer" hidden style="grid-template-rows:auto minmax(0,1fr)">
+    <section>
+      <h2>Lancer un run
+        <select id="r-prereglage" style="margin-left:auto;width:auto;font-weight:400" aria-label="Préréglage"><option value="">Préréglage…</option></select></h2>
+      <div class="scroll" style="flex:none">
+        <div class="row">
+          <div style="flex:2"><label for="r-suite">Suite ou dossier</label><select id="r-suite"></select></div>
+          <div><label for="r-plat">Plateforme</label><select id="r-plat"><option value="android">Android</option><option value="ios">iOS</option><option value="web">Web</option></select></div>
+          <div><label for="r-ticket">Ticket Xray</label><input id="r-ticket" placeholder="Plan, exécution, US ou projet"></div>
+        </div>
+        <div id="r-ticket-info" class="small muted" style="margin-top:4px"></div>
+        <details id="r-avance"><summary>Options avancées</summary>
+          <div class="row">
+            <div><label for="r-include">Tags inclus</label><input id="r-include" placeholder="smoke"></div>
+            <div><label for="r-exclude">Tags exclus</label><input id="r-exclude" placeholder="consomme_donnee"></div>
+          </div>
+          <div class="row">
+            <div><label for="r-tstart">Statut Jira au début</label><input id="r-tstart" list="statuts"></div>
+            <div><label for="r-tend">À la fin</label><input id="r-tend" list="statuts"></div>
+            <div><label for="r-tfail">À la fin si échec</label><input id="r-tfail" list="statuts" placeholder="optionnel"></div>
+          </div>
+          <datalist id="statuts"></datalist>
+          <div class="row">
+            <div style="flex:none;width:160px"><label for="r-env">Données</label><select id="r-env"><option value="">aucune</option></select></div>
+            <div><label>Jeux (détectés dans la suite)</label><div id="r-jeux" class="small"></div></div>
+          </div>
+          <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="r-dry"> Dry run (vérifie la syntaxe sans exécuter)</label>
+          <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="r-carto"> Cartographier pendant le run (enrichit la carte avec les écrans traversés)</label>
+          <div class="row" style="margin-top:10px">
+            <input id="r-nom-prereglage" placeholder="Nom du préréglage (ex. Smoke Android)">
+            <button class="btn" id="b-prereglage">Enregistrer ces réglages</button>
+          </div>
+        </details>
+        <div id="r-jdd-info" class="small" style="margin-top:4px"></div>
+        <div class="row" style="margin-top:10px;align-items:center;justify-content:flex-end">
+          <button class="btn" id="b-relancer" hidden>Relancer les échecs</button>
+          <button class="btn primary" id="b-run">Lancer le run</button>
+        </div>
+      </div>
+    </section>
+    <section>
+      <h2 id="run-titre">Run en direct</h2>
+      <div class="scroll"><table><thead><tr><th>Test</th><th>Clé Xray</th><th>Statut</th><th>Début · fin</th></tr></thead>
+        <tbody id="tests"></tbody></table>
+        <p class="muted small" id="tests-vide">Les tests du run s'affichent ici en direct. Clique sur un test en échec pour voir le détail.</p></div>
+      <div id="ticker"></div>
+    </section>
+  </div>
+
+  <!-- ============ DROITE ============ -->
+  <section>
+    <h2 id="droite-titre">Locators relevés</h2>
+    <div class="scroll" id="droite-construire">
+      <div id="selection"></div>
+      <div id="completer"></div>
+      <div id="locs"></div>
+    </div>
+    <div class="scroll" id="droite-carte" hidden>
+      <div id="c-detail"><p class="muted small">Clique sur un écran ou une flèche pour voir et modifier son détail.</p></div>
+      <details class="bloc" id="c-bloc-noms" open><summary>Écrans à nommer <span id="c-nb-noms" class="tag neutre">0</span></summary><div id="c-noms" class="small"></div></details>
+      <details class="bloc"><summary>Explorer automatiquement</summary>
+        <p class="small muted">Part de l'écran affiché. Ne saisit jamais de texte et ne touche aucune action de la liste rouge.</p>
+        <div class="row"><div><label for="x-max">Écrans max</label><input id="x-max" type="number" value="25"></div>
+          <div><label for="x-prof">Profondeur</label><input id="x-prof" type="number" value="3"></div>
+          <div><label for="x-duree">Durée max (min)</label><input id="x-duree" type="number" value="15"></div></div>
+        <label for="x-rouge">Liste rouge (un motif par ligne, sans accent requis)</label><textarea id="x-rouge" style="height:110px;font:12px var(--mono)"></textarea>
+        <div class="row" style="margin-top:6px"><button class="btn" id="x-rouge-ok">Enregistrer la liste</button><span></span>
+          <button class="btn" id="x-stop">Arrêter</button><button class="btn primary" id="x-go">Explorer</button></div>
+        <div class="journal-explo" id="x-journal"></div></details>
+      <details class="bloc"><summary>Identifiants de test manquants</summary>
+        <p class="small muted">Éléments repérés par texte ou position (Compose sans testTag, SwiftUI sans identifier, web sans data-testid), classés par nombre de tests concernés.</p>
+        <button class="btn" id="t-analyser">Analyser la carte</button>
+        <div id="t-resultat" class="small"></div></details>
+      <details class="bloc"><summary>Amorcer et mettre à jour</summary>
+        <label for="i-pattern">Importer les locators existants</label>
+        <div class="row"><input id="i-pattern" value="**/*.resource"><button class="btn" id="i-go">Importer</button></div>
+        <label for="i-build">Build testé (les écrans revisités sont comparés)</label>
+        <div class="row"><input id="i-build" placeholder="4.12.0 (1342)"><button class="btn" id="i-build-ok">Enregistrer</button></div>
+        <div id="i-res" class="small" style="margin-top:6px"></div></details>
+    </div>
+    <div class="scroll" id="droite-executer" hidden>
+      <div id="bilan"></div><div id="detail"></div>
+      <h3>Journal Xray</h3><div class="log" id="journal"><p class="muted small">Les événements Xray et Jira du run s'affichent ici.</p></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="wizard" aria-labelledby="wz-titre">
+  <div class="wz-tete" id="wz-tete"></div>
+  <div class="wz-corps" id="wz-corps"></div>
+  <div class="wz-pied"><button class="btn" id="wz-fermer">Fermer</button><span style="flex:1"></span>
+    <button class="btn" id="wz-prec">Précédent</button><button class="btn primary" id="wz-suiv">Suivant</button></div>
+</dialog>
+<aside id="guide" hidden aria-label="Guide d'utilisation">
+  <div class="row" style="padding:12px 14px;border-bottom:1px solid var(--line);align-items:center"><b>Guide d'utilisation</b><span></span>
+    <button class="btn" id="guide-fermer" style="flex:none">Fermer</button></div>
+  <nav id="guide-nav"></nav>
+  <div class="contenu" id="guide-contenu"></div>
+</aside>
+
+<script>
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const api = async (url, opt = {}) => {
+  const r = await fetch(url, {headers: {"Content-Type": "application/json"}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || r.statusText);
+  return d;
+};
+const S = {mode: "construire", etape: 1, plat: "android", steps: [], devices: {}, cfg: {}, locs: {}, tests: {}, journal: [],
+  testChoisi: null, attente: null, session: null, jiraUrl: "", agentIntegre: false, produits: [], execution: null, echecs: 0};
+const PLAT = {android: "Android", ios: "iOS", web: "Web"};
+
+/* ================= santé ================= */
+async function sante(rafraichir = false) {
+  const items = await api("/api/sante" + (rafraichir ? "?rafraichir=true" : "")).catch(() => []);
+  const ko = items.filter(i => !i.ok), bloquants = ko.filter(i => !i.optionnel);
+  $("#sante-btn").classList.toggle("ko", bloquants.length > 0);
+  $("#sante-resume").textContent = bloquants.length ? `${bloquants.length} point${bloquants.length > 1 ? "s" : ""} à régler` : "Atelier prêt";
+  $("#sante-liste").innerHTML = items.map(i => `<li><span class="tag ${i.ok ? "ok" : i.optionnel ? "neutre" : "ko"}">${i.ok ? "OK" : i.optionnel ? "optionnel" : "à régler"}</span>
+    <b>${esc(i.nom)}</b> <span class="small muted">${esc(i.detail)}</span>${i.solution ? `<div class="small">${esc(i.solution)}</div>` : ""}</li>`).join("");
+  if (bloquants.length && !rafraichir && !sessionStorage.santeVue) { $("#sante").hidden = false; sessionStorage.santeVue = 1; }
+}
+$("#sante-btn").onclick = () => { $("#sante").hidden = !$("#sante").hidden; $("#sante-btn").setAttribute("aria-expanded", !$("#sante").hidden); };
+$("#sante-rafraichir").onclick = () => sante(true);
+
+/* ================= modes ================= */
+function setMode(m) {
+  S.mode = m;
+  ["carte", "construire", "executer"].forEach(x => { $("#m-" + x).setAttribute("aria-pressed", m === x); $("#" + x).hidden = m !== x; $("#droite-" + x).hidden = m !== x; });
+  $("#droite-titre").textContent = {carte: "Détail et actions", construire: "Locators relevés", executer: "Résultats"}[m];
+  $("#main").classList.toggle("mode-carte", m === "carte");
+  if (m === "carte") { C.vb = null; chargerCarte(); }
+  if (m === "executer") { loadRunForm(); $("#choix").classList.remove("on"); }
+  largeur();
+}
+const largeur = () => $("#main").classList.toggle("large-device", S.plat === "web" && S.mode === "construire");
+$("#m-construire").onclick = () => setMode("construire");
+$("#m-carte").onclick = () => setMode("carte");
+$("#m-executer").onclick = () => setMode("executer");
+function setEtape(n) {
+  S.etape = n;
+  $$(".stepper button").forEach(b => { b.setAttribute("aria-current", +b.dataset.e === n ? "step" : "false");
+    b.classList.toggle("fait", +b.dataset.e < n); });
+  [1, 2, 3].forEach(i => $("#etape-" + i).hidden = i !== n);
+  if (n === 3) renderProduits();
+}
+$$(".stepper button").forEach(b => b.onclick = () => setEtape(+b.dataset.e));
+
+/* ================= device / navigateur ================= */
+function setPlat(p) {
+  S.plat = p;
+  $$("#plateformes button").forEach(b => b.setAttribute("aria-pressed", b.dataset.p === p));
+  $("#device").hidden = p === "web"; $("#url").hidden = p !== "web";
+  ["android", "ios", "web"].forEach(x => $("#reg-" + x).hidden = x !== p);
+  largeur();
+  $("#phone").classList.toggle("web", p === "web");
+  const a = S.cfg.apps?.[p] || {};
+  if (p === "android") { $("#pkg").value = a.app_package || ""; $("#act").value = a.app_activity || ""; }
+  if (p === "ios") $("#bundle").value = a.bundle_id || "";
+  if (p === "web") { $("#url").value = a.url || ""; $("#browser").value = a.browser || "chromium"; $("#visible").checked = a.headless === false; }
+  fillDevices();
+}
+$$("#plateformes button").forEach(b => b.onclick = () => setPlat(b.dataset.p));
+function fillDevices() {
+  const d = S.devices, p = S.plat;
+  const list = p === "android" ? (d.android || []).map(x => [x.udid, `${x.udid} ${x.details || ""}`])
+    : p === "ios" ? [...(d.ios_simulateurs || []).map(x => [x.udid, `${x.nom} (${x.runtime})`]), ...(d.ios_physiques || []).map(u => [u, `iPhone ${u.slice(0, 8)}…`])] : [];
+  $("#device").innerHTML = list.length ? list.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("") : `<option value="">aucun device détecté</option>`;
+  if (p !== "web" && list.length && !S.session) api("/api/flux", {method: "POST", body: {platform: p, udid: list[0][0]}});
+}
+function valeursApp() {
+  const p = S.plat;
+  return p === "android" ? {app_package: $("#pkg").value, app_activity: $("#act").value}
+    : p === "ios" ? {bundle_id: $("#bundle").value}
+    : {url: $("#url").value, browser: $("#browser").value, headless: !$("#visible").checked};
+}
+$("#b-connecter").onclick = async () => {
+  const b = $("#b-connecter");
+  if (S.session) { await api("/api/session", {method: "DELETE"}); return; }
+  b.disabled = true; b.textContent = "Connexion…";
+  try {
+    const r = await api("/api/connecter", {method: "POST", body: {platform: S.plat, udid: $("#device").value, valeurs: valeursApp()}});
+    if (r.besoin) { $("#url").focus(); log("Indique l'URL de départ, puis Connecter.", "err", "Atelier"); }
+    S.cfg = await api("/api/config");
+  } catch (e) { log(esc(e.message), "err", "Atelier"); }
+  finally { b.disabled = false; majSession(); }
+};
+function majSession() {
+  $("#b-connecter").textContent = S.session ? "Déconnecter" : "Connecter";
+  $("#b-connecter").classList.toggle("primary", !S.session);
+}
+function frameLoop() {
+  const img = new Image();
+  img.onload = () => { $("#frame").src = img.src; $("#frame").hidden = false; $("#vide").hidden = true; $("#live").className = "on"; setTimeout(frameLoop, 300); };
+  img.onerror = () => { $("#live").className = ""; setTimeout(frameLoop, 1500); };
+  img.src = "/api/frame.png?t=" + Date.now();
+}
+function placer(el, zone, label) {
+  const img = $("#frame"); if (img.hidden || !zone) return;
+  const W = img.clientWidth, H = img.clientHeight, X = img.offsetLeft, Y = img.offsetTop;
+  Object.assign(el.style, {left: X + zone.x * W + "px", top: Y + zone.y * H + "px", width: zone.w * W + "px", height: zone.h * H + "px"});
+  el.querySelector("span").textContent = label; el.classList.add("on");
+}
+function surligner(ev) { const c = $("#cible"); placer(c, ev, ev.label); clearTimeout(c._t); c._t = setTimeout(() => c.classList.remove("on"), 2500); }
+
+/* --- toucher l'écran pour désigner --- */
+$("#frame").onclick = async e => {
+  if (!S.session) { log("Connecte d'abord une session pour désigner un élément.", "err", "Atelier"); return; }
+  const img = e.currentTarget, x = e.offsetX / img.clientWidth, y = e.offsetY / img.clientHeight;
+  try {
+    const el = await api("/api/ecran/point", {method: "POST", body: {x, y}});
+    placer($("#choix"), el.zone, el.key); afficherSelection(el);
+  } catch (err) { $("#choix").classList.remove("on"); $("#selection").innerHTML = `<div class="carte small">${esc(err.message)}</div>`; }
+};
+function qualite(loc) {
+  if (/^(id=|accessibility_id=|data-testid=)/.test(loc)) return "robuste";
+  if (/^(xpath=|css=body|text=)/.test(loc)) return "fragile";
+  return "correct";
+}
+function afficherSelection(el) {
+  const ecrans = Object.keys(S.locs);
+  $("#selection").innerHTML = `<div class="carte"><b>${esc(el.libelle || el.classe || "Élément")}</b> <span class="small muted">${esc(el.type)}</span>
+    ${el.locators.map((l, i) => `<label class="loc"><input type="radio" name="loc" value="${esc(l)}" ${i ? "" : "checked"}><span class="tag ${qualite(l)}">${qualite(l)}</span>${esc(l)}</label>`).join("")}
+    <div class="row"><div><label for="sel-cle">Clé</label><input id="sel-cle" value="${esc(el.key)}"></div>
+      <div><label for="sel-ecran">Écran</label><input id="sel-ecran" list="ecrans" value="${esc(ecrans[ecrans.length - 1] || "")}" placeholder="virement_saisie"></div></div>
+    <datalist id="ecrans">${ecrans.map(n => `<option>${esc(n)}</option>`).join("")}</datalist>
+    <div class="chips"><button class="chip" id="sel-tap">Toucher</button><button class="chip" id="sel-saisir">Saisir…</button>
+      <button class="chip" id="sel-ajouter">Ajouter aux locators</button>${S.attente ? `<button class="chip" id="sel-corr">Utiliser dans la correction</button>` : ""}
+      <button class="chip" id="sel-fermer">Fermer</button></div></div>`;
+  const loc = () => $("input[name=loc]:checked").value;
+  $("#sel-tap").onclick = () => api("/api/action", {method: "POST", body: {nom: "tap", args: {locator: loc()}}}).catch(e => log(esc(e.message), "err", "Vous"));
+  $("#sel-saisir").onclick = () => { const t = prompt("Texte à saisir"); if (t !== null) api("/api/action", {method: "POST", body: {nom: "type_text", args: {locator: loc(), text: t}}}).catch(e => log(esc(e.message), "err", "Vous")); };
+  $("#sel-ajouter").onclick = async () => {
+    if (!$("#sel-ecran").value.trim()) { $("#sel-ecran").focus(); return; }
+    await api("/api/locators/ajouter", {method: "POST", body: {ecran: $("#sel-ecran").value.trim(), cle: $("#sel-cle").value.trim(), locator: loc()}}).catch(e => log(esc(e.message), "err", "Vous"));
+  };
+  if ($("#sel-corr")) $("#sel-corr").onclick = () => { const c = $("#corr"); if (c) { c.value = `Utiliser ${$("#sel-cle").value} (${loc()})`; c.focus(); } };
+  $("#sel-fermer").onclick = () => { $("#selection").innerHTML = ""; $("#choix").classList.remove("on"); };
+}
+
+/* ================= étape 1 : choisir le test ================= */
+async function loadTests() {
+  $("#t-jql").value = S.cfg.jql_candidats || "";
+  try { S.listeTests = await api("/api/xray/tests"); }
+  catch (e) { S.listeTests = []; $("#t-liste").innerHTML = `<li class="muted">${esc(e.message)}</li>`; return; }
+  renderTests();
+}
+function renderTests() {
+  const f = $("#t-filtre").value.toLowerCase();
+  const l = (S.listeTests || []).filter(t => !f || (t.cle + " " + t.resume).toLowerCase().includes(f));
+  $("#t-liste").innerHTML = l.map(t => `<li data-k="${esc(t.cle)}" aria-selected="${S.testChoisi?.cle === t.cle}"><b>${esc(t.cle)}</b><span>${esc(t.resume)}</span><span class="tag neutre">${esc(t.statut || t.type || "")}</span></li>`).join("")
+    || `<li class="muted">Aucun test pour ce filtre. Ajuste le filtre Xray (JQL).</li>`;
+  $$("#t-liste li[data-k]").forEach(li => li.onclick = () => choisirTest(li.dataset.k));
+}
+$("#t-filtre").oninput = renderTests;
+$("#t-jql-ok").onclick = async () => { S.cfg = await api("/api/config", {method: "POST", body: {jql_candidats: $("#t-jql").value}}); loadTests(); };
+async function choisirTest(cle) {
+  $("#t-titre").textContent = cle; $("#t-apercu").innerHTML = `<p class="muted">Lecture du test dans Xray…</p>`;
+  let t; try { t = await api("/api/xray/test/" + cle); } catch (e) { $("#t-apercu").innerHTML = `<p>${esc(e.message)}</p>`; return; }
+  S.testChoisi = t; renderTests();
+  const scen = t.scenario || t.gherkin || (t.etapes || []).map((s, i) => `${i + 1}. ${s.action}${s.data ? " — " + s.data : ""}${s.result ? " → " + s.result : ""}`).join("\n") || t.generique
+    || `Aucune étape trouvée : ni Gherkin / étapes / définition dans Xray (type ${t.type || "?"}), ni scénario dans Construction BDD, ni Given / When / Then dans la description Jira.`;
+  const envs = (await api("/api/jdd").catch(() => ({environnements: []}))).environnements;
+  $("#t-apercu").innerHTML = `<b>${esc(t.resume)}</b> <span class="small muted">${esc(t.type || "")}${t.source_scenario ? " · scénario : " + esc(t.source_scenario) : ""}</span>
+    ${t.avertissement ? `<p class="small" style="color:var(--warn,#b45309)">${esc(t.avertissement)}</p>` : ""}<pre class="code">${esc(scen)}</pre>
+    <div class="row"><div><label for="c-plat">Plateforme</label><select id="c-plat">${Object.entries(PLAT).map(([k, v]) => `<option value="${k}" ${k === S.plat ? "selected" : ""}>${v}</option>`).join("")}</select></div>
+      <div><label for="c-env">Données</label><select id="c-env"><option value="">aucune</option>${envs.map(e => `<option>${esc(e)}</option>`).join("")}</select></div></div>
+    <label for="c-jeu">Jeu de données</label><select id="c-jeu"><option value="">—</option></select>
+    <div class="row" style="margin-top:12px">${S.agentIntegre ? `<button class="btn primary" id="c-agent">Démarrer avec l'agent intégré</button>` : ""}
+      <button class="btn ${S.agentIntegre ? "" : "primary"}" id="c-cursor">Copier la consigne pour Cursor</button></div>
+    <p class="small muted" id="c-info">Connecte d'abord la plateforme choisie (colonne de gauche).</p>`;
+  if (envs.length === 1) { $("#c-env").value = envs[0]; chargerJeux(); }
+  $("#c-env").onchange = chargerJeux;
+  if ($("#c-agent")) $("#c-agent").onclick = async () => { await api("/api/agent", {method: "POST", body: {instruction: consigne()}}).catch(e => alert(e.message)); setEtape(2); };
+  $("#c-cursor").onclick = async () => { await navigator.clipboard.writeText(consigne()); $("#c-info").textContent = "Consigne copiée : colle-la dans le chat de Cursor. Les steps arriveront à l'étape 2."; setEtape(2); };
+  $("#j-ticket").value = cle;
+}
+async function chargerJeux() {
+  const env = $("#c-env").value; if (!env) { $("#c-jeu").innerHTML = `<option value="">—</option>`; return; }
+  const d = await api("/api/jdd/" + env).catch(() => ({jeux: []}));
+  $("#c-jeu").innerHTML = `<option value="">à choisir par l'agent</option>` + d.jeux.map(j => `<option title="${esc(j.description)}">${esc(j.jeu)}</option>`).join("");
+}
+function consigne() {
+  const t = S.testChoisi, p = PLAT[$("#c-plat").value], env = $("#c-env").value, jeu = $("#c-jeu").value;
+  return `Automatise ${t.cle} (« ${t.resume} ») en ${p}${jeu ? ` avec le jeu ${jeu} (${env})` : env ? ` avec un jeu de données de l'environnement ${env}` : ""}. `
+    + `Lis le scénario dans Xray (xray_get_test), déroule-le pas à pas sur ${p === "Web" ? "le navigateur" : "le device"}, `
+    + `propose chaque step pour validation, capture les locators écran par écran, réutilise les keywords génériques du projet, `
+    + `puis écris la suite et lance un dry run.`;
+}
+
+/* ================= étape 2 : construire ================= */
+function renderSteps() {
+  $("#steps-vide").hidden = S.steps.length > 0;
+  $("#steps").innerHTML = S.steps.map(s => {
+    const cls = {"validé": "valide", "corrigé": "corrige", "refusé": "refuse", "proposé": "propose"}[s.statut] || "";
+    return `<li class="${cls}"><span class="n">${s.n}</span><span class="txt">${esc(s.gherkin)}</span>
+      <span class="tag ${cls}">${esc(s.statut)}${s.source === "cursor" ? " · Cursor" : ""}</span>
+      <span class="meta">${s.keyword ? "Keyword : " + esc(s.keyword) : ""}${(s.locators || []).length ? " · Locators : " + esc(s.locators.join(", ")) : ""}
+      ${s.correction ? `<br>Correction : ${esc(s.correction)}` : ""}${s.commentaire ? `<br>${esc(s.commentaire)}` : ""}</span></li>`;
+  }).join("");
+}
+const repondre = (decision, texte = "") => S.attente && api("/api/agent/reponse", {method: "POST", body: {id: S.attente.id, decision, texte}});
+function renderAttente(a) {
+  S.attente = a; $("#raccourcis").hidden = !(a && a.nature === "step");
+  const box = $("#attente");
+  if (!a) { box.innerHTML = ""; return; }
+  if (S.mode === "construire" && S.etape === 1) setEtape(2);
+  if (a.nature === "step") {
+    const s = a.step, i = S.steps.findIndex(x => x.n === s.n); i < 0 ? S.steps.push(s) : S.steps[i] = s; renderSteps();
+    box.innerHTML = `<div class="attente"><b>Step ${s.n} proposé</b> — regarde l'écran, puis valide ou corrige.
+      <input id="corr" placeholder="Ta correction (ou touche un élément sur l'écran)">
+      <div class="chips">${["Utiliser un autre keyword", "Utiliser un autre locator", "Reformuler le step", "Découper en deux steps"].map(c => `<button class="chip" data-c="${c}">${c}</button>`).join("")}</div>
+      <div class="row"><button class="btn primary" id="ok">Valider</button><button class="btn" id="ko">Corriger</button></div></div>`;
+    $$("#attente .chip").forEach(c => c.onclick = () => { $("#corr").value = (c.dataset.c + ". " + $("#corr").value).trim(); $("#corr").focus(); });
+  } else {
+    box.innerHTML = `<div class="attente"><b>Écriture de ${esc(a.chemin)}</b> — relis le contenu avant de l'ajouter au projet.
+      <pre>${esc(a.contenu)}</pre><input id="corr" placeholder="Motif si tu refuses">
+      <div class="row"><button class="btn primary" id="ok">Écrire le fichier</button><button class="btn" id="ko">Refuser</button></div></div>`;
+  }
+  $("#ok").onclick = () => repondre("valider");
+  $("#ko").onclick = () => repondre(a.nature === "step" ? "corriger" : "refuser", $("#corr").value);
+  box.scrollIntoView({block: "nearest"});
+}
+document.addEventListener("keydown", e => {
+  if (!S.attente || S.attente.nature !== "step" || S.mode !== "construire") return;
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if (e.key === "Enter" && !typing) { e.preventDefault(); repondre("valider"); }
+  else if (e.key === "Enter" && document.activeElement.id === "corr" && $("#corr").value.trim()) { e.preventDefault(); repondre("corriger", $("#corr").value); }
+  else if ((e.key === "c" || e.key === "C") && !typing) { e.preventDefault(); $("#corr").focus(); }
+});
+$("#b-envoyer").onclick = async () => {
+  const t = $("#instruction").value.trim(); if (!t) return;
+  try { await api("/api/agent", {method: "POST", body: {instruction: t}}); $("#instruction").value = ""; } catch (e) { log(esc(e.message), "err", "Atelier"); }
+};
+$("#b-stop").onclick = () => api("/api/agent/stop", {method: "POST"});
+$("#technique").onchange = e => $("#log").classList.toggle("technique", e.target.checked);
+
+/* --- activité en phrases --- */
+function cleDe(loc) {
+  for (const e of Object.values(S.locs)) for (const p of ["android", "ios", "web"]) for (const [k, v] of Object.entries(e[p] || {})) if (v === loc) return k;
+  return loc && loc.length > 40 ? loc.slice(0, 40) + "…" : loc;
+}
+function phrase(nom, a = {}) {
+  const c = `« ${esc(cleDe(a.locator))} »`;
+  return ({tap: `touche ${c}`, type_text: `saisit « ${esc(a.text)} » dans ${c}`, swipe: `fait défiler (${esc(a.direction)})`,
+    press_back: "revient en arrière", open_url: `ouvre ${esc(a.url)}`, wait_for: `attend ${c}`, check_locator: `vérifie ${c}`,
+    capture_screen_locators: `capture les locators de l'écran « ${esc(a.ecran || a.screen_name)} »`, generate_locators_resource: `génère ${esc(a.fichier || a.screen_name)}`,
+    add_screen_locator: `ajoute ${esc(a.cle || a.key)} à l'écran « ${esc(a.ecran || a.screen_name)} »`, write_project_file: `écrit ${esc(a.path)}`,
+    read_project_file: `lit ${esc(a.path)}`, list_project_files: "parcourt le projet", xray_get_test: `lit le test ${esc(a.test_key)} dans Xray`,
+    check_jdd: `vérifie les données ${esc((a.jeux || []).join(", "))}`, list_jdd: "consulte les jeux de données", get_jdd: `consulte le jeu ${esc(a.jeu)}`,
+    find_test_data: "cherche des données en base", run_robot: `lance ${esc(a.target)}${a.dry_run ? " en dry run" : ""}`,
+    get_screen_elements: "analyse l'écran", screenshot: "regarde l'écran", element_at: "identifie un élément"})[nom] || esc(nom);
+}
+function log(html, cls = "", src = "", tech = "") {
+  const d = document.createElement("div"); d.className = cls;
+  d.innerHTML = (src ? `<span class="src">${esc(src)}</span>` : "") + html + (tech ? `<span class="tech">${esc(tech)}</span>` : "");
+  $("#log").append(d); $("#log").scrollTop = 1e9;
+}
+
+/* ================= locators ================= */
+async function loadLocators() {
+  S.locs = await api("/api/locators").catch(() => ({}));
+  const noms = Object.keys(S.locs);
+  const manque = {android: 0, ios: 0};
+  $("#locs").innerHTML = noms.length ? noms.map(n => {
+    const e = S.locs[n], mobile = Object.keys(e.android).length || Object.keys(e.ios).length;
+    const plats = mobile ? ["android", "ios"] : ["web"];
+    const keys = [...new Set(plats.flatMap(p => Object.keys(e[p])))];
+    const prog = plats.map(p => { const k = Object.keys(e[p]).length; if (mobile) manque[p] += keys.length - k;
+      return `<span class="tag ${k === keys.length ? "ok" : "correct"}">${PLAT[p]} ${k}/${keys.length}</span>`; }).join(" ");
+    return `<h3>${esc(n)} ${prog}</h3><table><tr><th>Clé</th>${plats.map(p => `<th>${PLAT[p]}</th>`).join("")}</tr>${keys.map(k =>
+      `<tr><td>${esc(k)}</td>${plats.map(p => e[p][k] ? `<td><span class="tag ${qualite(e[p][k])}">${qualite(e[p][k])}</span><code>${esc(e[p][k])}</code></td>`
+        : `<td><span class="tag fragile">à relever</span></td>`).join("")}</tr>`).join("")}</table>`;
+  }).join("") : `<p class="muted">Les locators capturés écran par écran apparaissent ici, avec leur robustesse. Touche l'écran pour en ajouter un toi-même.</p>`;
+  $("#completer").innerHTML = ["ios", "android"].filter(p => manque[p] > 0).map(p =>
+    `<div class="carte small">${manque[p]} locator${manque[p] > 1 ? "s" : ""} à relever sur ${PLAT[p]}.
+      <div class="chips">${S.agentIntegre ? `<button class="chip" data-p="${p}" data-l="1">Compléter avec l'agent</button>` : ""}
+      <button class="chip" data-p="${p}">Copier la consigne pour Cursor</button></div></div>`).join("");
+  $$("#completer .chip").forEach(c => c.onclick = async () => {
+    if (S.plat !== c.dataset.p || !S.session) { alert(`Connecte d'abord une session ${PLAT[c.dataset.p]} (colonne de gauche).`); setPlat(c.dataset.p); return; }
+    const r = await api("/api/completer", {method: "POST", body: {platform: c.dataset.p, lancer: !!c.dataset.l}});
+    if (!c.dataset.l) { await navigator.clipboard.writeText(r.consigne); c.textContent = "Consigne copiée"; }
+    setEtape(2);
+  });
+}
+
+/* ================= étape 3 ================= */
+function renderProduits() {
+  const v = S.steps.filter(s => s.statut === "validé").length, c = S.steps.filter(s => s.statut === "corrigé").length;
+  $("#r-resume").textContent = S.steps.length ? `${S.steps.length} steps : ${v} validés tels quels, ${c} corrigés.` : "Aucun step pour l'instant.";
+  $("#r-fichiers").innerHTML = S.produits.map(f => `<li><code>${esc(f)}</code></li>`).join("") || `<li class="muted">Aucun fichier écrit pour l'instant.</li>`;
+}
+$("#b-dryrun").onclick = async () => {
+  const suite = S.produits.find(f => f.endsWith(".robot"));
+  if (!suite) { alert("Aucune suite .robot produite : lance le dry run depuis l'onglet Exécuter."); return; }
+  const target = S.projet && suite.startsWith(S.projet) ? suite.slice(S.projet.length + 1) : suite;
+  await api("/api/run", {method: "POST", body: {target, dry_run: true, variables: {PLATFORM: S.plat}}}).catch(e => alert(e.message));
+};
+$("#b-nouveau").onclick = async () => { await api("/api/agent/reset", {method: "POST"}); S.testChoisi = null; setEtape(1); };
+$("#j-charger").onclick = async () => {
+  const k = $("#j-ticket").value.trim(); if (!k) return;
+  $("#j-liste").textContent = "Chargement…";
+  try {
+    const d = await api("/api/jira/sous-taches/" + encodeURIComponent(k));
+    const plats = ["android", "ios", "web"], p = S.plat;
+    const pre = t => { const r = (t.resume || "").toLowerCase(); return r.includes(p) || !plats.some(x => r.includes(x)); };
+    const fin = S.cfg.statut_sous_tache_fini;
+    $("#j-liste").innerHTML = d.sous_taches.length ? d.sous_taches.map(t => `<label style="display:flex;gap:6px;color:var(--ink);margin:4px 0">
+        <input type="checkbox" value="${esc(t.cle)}" ${pre(t) ? "checked" : ""}> ${esc(t.cle)} — ${esc(t.resume)} <span class="tag neutre">${esc(t.statut)}</span></label>`).join("")
+      + `<div class="row" style="margin-top:8px"><div><label for="j-statut">Nouveau statut</label><select id="j-statut">${d.statuts.map(s => `<option ${s === fin ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
+         <button class="btn primary" id="j-maj">Mettre à jour Jira</button></div><div id="j-res"></div>`
+      : "Ce ticket n'a pas de sous-tâches.";
+    if ($("#j-maj")) $("#j-maj").onclick = async () => {
+      const cles = $$("#j-liste input:checked").map(i => i.value);
+      const r = await api("/api/jira/transition", {method: "POST", body: {cles, statut: $("#j-statut").value}});
+      $("#j-res").innerHTML = r.map(x => `<div>${esc(x.cle)} : ${x.ok ? `<span class="tag ok">${esc(x.statut)}</span>` : `<span class="tag ko">${esc(x.erreur)}</span>`}</div>`).join("");
+    };
+  } catch (e) { $("#j-liste").textContent = e.message; }
+};
+
+/* ================= exécuter ================= */
+let runFormCharge = false;
+async function loadRunForm() {
+  if (runFormCharge) return; runFormCharge = true;
+  const files = await api("/api/projet/fichiers?pattern=" + encodeURIComponent("**/*.robot")).catch(() => []);
+  const dirs = [...new Set(files.map(f => f.split("/").slice(0, -1).join("/")).filter(Boolean))];
+  $("#r-suite").innerHTML = [...dirs.map(d => `<option value="${esc(d)}">${esc(d)}/ (dossier)</option>`), ...files.map(f => `<option>${esc(f)}</option>`)].join("");
+  const envs = (await api("/api/jdd").catch(() => ({environnements: []}))).environnements;
+  $("#r-env").innerHTML = `<option value="">aucune</option>` + envs.map(e => `<option>${esc(e)}</option>`).join("");
+  if (envs.length === 1) $("#r-env").value = envs[0];
+  $("#r-plat").value = S.plat; renderPrereglages(); detecterJeux();
+}
+function renderPrereglages() {
+  const p = S.cfg.prereglages || {};
+  $("#r-prereglage").innerHTML = `<option value="">Préréglage…</option>` + Object.keys(p).map(n => `<option>${esc(n)}</option>`).join("");
+}
+const champs = ["r-suite", "r-plat", "r-ticket", "r-include", "r-exclude", "r-tstart", "r-tend", "r-tfail", "r-env"];
+$("#r-prereglage").onchange = async () => {
+  const v = (S.cfg.prereglages || {})[$("#r-prereglage").value]; if (!v) return;
+  champs.forEach(id => { if (v[id] !== undefined) $("#" + id).value = v[id]; });
+  $("#r-dry").checked = !!v["r-dry"]; await detecterJeux(); (v.jeux || []).forEach(j => { const c = $(`#r-jeux input[value="${j}"]`); if (c) c.checked = true; });
+};
+$("#b-prereglage").onclick = async () => {
+  const nom = $("#r-nom-prereglage").value.trim(); if (!nom) { $("#r-nom-prereglage").focus(); return; }
+  const valeurs = Object.fromEntries(champs.map(id => [id, $("#" + id).value])); valeurs["r-dry"] = $("#r-dry").checked; valeurs.jeux = jeux();
+  S.cfg = await api("/api/config", {method: "POST", body: {prereglage: {nom, valeurs}}}); renderPrereglages(); $("#r-prereglage").value = nom; $("#r-nom-prereglage").value = "";
+};
+async function detecterJeux() {
+  const env = $("#r-env").value, target = $("#r-suite").value; $("#r-jeux").innerHTML = ""; if (!env || !target) return;
+  const all = await api("/api/jdd/" + env).catch(() => ({jeux: []}));
+  const det = await api(`/api/jdd/detecter?target=${encodeURIComponent(target)}&env=${encodeURIComponent(env)}`).catch(() => ({detectes: [], inconnus: []}));
+  $("#r-jeux").innerHTML = all.jeux.map(j => `<label style="display:inline-flex;gap:4px;margin:0 12px 0 0;color:var(--ink)"><input type="checkbox" value="${esc(j.jeu)}" ${det.detectes.includes(j.jeu) ? "checked" : ""} title="${esc(j.description)}">${esc(j.jeu)}</label>`).join("")
+    + (det.inconnus.length ? `<div class="small" style="color:var(--fail)">Référencés mais absents de ${esc(env)} : ${esc(det.inconnus.join(", "))}</div>` : "");
+}
+$("#r-env").onchange = detecterJeux; $("#r-suite").onchange = detecterJeux;
+const jeux = () => $$("#r-jeux input:checked").map(i => i.value);
+const split = v => v.split(",").map(s => s.trim()).filter(Boolean);
+$("#r-ticket").onchange = async () => {
+  const t = $("#r-ticket").value.trim(); $("#r-ticket-info").textContent = ""; if (!t) return;
+  try { const d = await api("/api/xray/inspect", {method: "POST", body: {ticket: t}});
+    $("#r-ticket-info").textContent = `${d.key}${d.resume ? " « " + d.resume + " »" : ""} : ${d.effet_du_run}`;
+    $("#statuts").innerHTML = (d.statuts || []).map(s => `<option value="${esc(s)}">`).join(""); }
+  catch (e) { $("#r-ticket-info").textContent = e.message; }
+};
+function paramsRun() {
+  const p = $("#r-plat").value;
+  return {target: $("#r-suite").value, include_tags: split($("#r-include").value), exclude_tags: split($("#r-exclude").value),
+    variables: p === "web" ? {PLATFORM: "web"} : {PLATFORM: p, DEVICE: S.plat === p ? $("#device").value : ""},
+    dry_run: $("#r-dry").checked, xray_ticket: $("#r-ticket").value.trim(), jira_transition_start: $("#r-tstart").value,
+    jira_transition_end: $("#r-tend").value, jira_transition_end_if_fail: $("#r-tfail").value, jdd_env: $("#r-env").value, jdd_jeux: jeux(),
+    cartographie: $("#r-carto").checked};
+}
+$("#b-run").onclick = async () => {
+  const p = paramsRun();
+  if (p.jdd_jeux.length) {
+    const d = await api("/api/jdd/verifier", {method: "POST", body: {env: p.jdd_env, jeux: p.jdd_jeux}}).catch(e => ({pret: false, bloques: [{jeu: "", message: e.message}]}));
+    $("#r-jdd-info").innerHTML = d.pret ? `<span class="tag ok">données prêtes</span>` : d.bloques.map(b => `<div><span class="tag ko">bloqué données</span> ${esc(b.jeu)} : ${esc(b.message)}</div>`).join("");
+    if (!d.pret) return;
+  }
+  api("/api/run", {method: "POST", body: p}).catch(e => alert(e.message));
+};
+$("#b-relancer").onclick = async () => {
+  const d = await api("/api/run/dernier"); if (!d.params) return;
+  api("/api/run", {method: "POST", body: {...d.params, relancer_echecs: true, xray_ticket: S.execution || d.params.xray_ticket || ""}}).catch(e => alert(e.message));
+};
+const heure = iso => iso ? iso.slice(11, 19) : "";
+function testRow(id) {
+  let tr = document.getElementById("t-" + id);
+  if (!tr) { tr = document.createElement("tr"); tr.id = "t-" + id; tr.innerHTML = "<td></td><td></td><td></td><td></td>"; $("#tests").append(tr);
+    tr.onclick = () => { if (S.tests[id]?.statut === "FAIL") { $$("#tests tr").forEach(r => r.classList.remove("choisi")); tr.classList.add("choisi"); detailEchec(S.tests[id]); } }; }
+  $("#tests-vide").hidden = true;
+  return tr;
+}
+function detailEchec(t) {
+  const lien = S.jiraUrl && (t.execution || t.cle_xray) ? `${S.jiraUrl}/browse/${t.execution || t.cle_xray}` : "";
+  $("#detail").innerHTML = `<div class="carte"><b>${esc(t.nom)}</b> <span class="tag FAILED">échec</span>
+    ${t.keyword_en_echec ? `<div class="small" style="margin-top:6px">Keyword en échec : <code>${esc(t.keyword_en_echec)}</code></div>` : ""}
+    <pre class="code">${esc(t.message || "")}</pre>
+    ${(t.captures || []).map(c => `<img class="capture" alt="Capture au moment de l'échec" src="/api/resultats/fichier?chemin=${encodeURIComponent(c)}">`).join("")}
+    ${lien ? `<p class="small"><a href="${esc(lien)}" target="_blank" rel="noopener">Ouvrir ${esc(t.execution || t.cle_xray)} dans Jira</a></p>` : ""}
+    ${t.run_id ? `<label for="q-com">Qualifier l'échec dans Xray</label><input id="q-com" placeholder="Commentaire (optionnel)">
+      <div class="chips">${["Bug", "Données", "Locator", "Environnement"].map(q => `<button class="chip" data-q="${q}">${q}</button>`).join("")}</div><div id="q-res" class="small"></div>` : ""}</div>`;
+  $$("#detail .chip").forEach(c => c.onclick = async () => {
+    try { await api("/api/qualifier", {method: "POST", body: {run_id: t.run_id, qualification: c.dataset.q, commentaire: $("#q-com").value, message: t.message}});
+      $("#q-res").innerHTML = `<span class="tag ok">Qualifié « ${esc(c.dataset.q)} » dans Xray</span>`; }
+    catch (e) { $("#q-res").textContent = e.message; }
+  });
+}
+function renderJournal() {
+  $("#journal").innerHTML = S.journal.map(j => `<div class="${j.niveau === "erreur" ? "err" : ""}">${esc(heure(j.heure) || j.heure)} ${esc(j.message)}</div>`).join("")
+    || `<p class="muted small">Les événements Xray et Jira du run s'affichent ici.</p>`;
+}
+function renderBilan(b) {
+  if (!b) { $("#bilan").innerHTML = ""; return; }
+  const r = b.resultat;
+  $("#bilan").innerHTML = `<div class="carte">${b.statut === "bloqué données" ? `<span class="tag ko">bloqué données</span> ${esc((b.jdd?.bloques || []).map(x => x.message).join(" ; "))}`
+    : r ? `<b>${r.passes} passés · ${r.echecs} en échec</b>${r.skips ? ` · ${r.skips} ignorés` : ""}` : esc(b.erreur || "Run terminé")}
+    ${b.xray?.execution ? `<div class="small">Exécution Xray ${esc(b.xray.execution)}${b.xray.plan ? " · plan " + esc(b.xray.plan) : ""}</div>` : ""}</div>`;
+  S.echecs = r ? r.echecs : 0;
+  $("#b-relancer").hidden = !S.echecs; $("#b-relancer").textContent = `Relancer les échecs (${S.echecs})`;
+}
+
+
+/* ================= applications ================= */
+async function chargerApps(choisir) {
+  const d = await api("/api/apps").catch(() => ({applications: [], active: null}));
+  S.apps = d.applications; S.app = d.active;
+  $("#app-select").innerHTML = (d.applications.length ? d.applications.map(a => `<option value="${esc(a.slug)}" ${a.slug === d.active ? "selected" : ""}>${esc(a.nom)} · ${a.nb_ecrans} écrans</option>`).join("")
+    : `<option value="">Aucune application</option>`) + `<option value="__nouvelle">＋ Nouvelle application…</option>`;
+  $("#bandeau-app").hidden = d.applications.length > 0;
+  if (choisir) setMode("carte");
+}
+$("#app-select").onchange = async e => {
+  const v = e.target.value;
+  if (v === "__nouvelle") { e.target.value = S.app || ""; ouvrirAssistant(); return; }
+  await api("/api/apps/choisir", {method: "POST", body: {slug: v}}); S.cfg = await api("/api/config"); setPlat(S.plat);
+  await chargerApps(); if (S.mode === "carte") chargerCarte();
+};
+$("#b-wizard-bandeau").onclick = () => ouvrirAssistant();
+
+/* ================= carte ================= */
+const NW = 186, NH = 84, GX = 250, GY = 118;
+const C = {G: {nodes: [], edges: []}, pos: {}, vb: null, sel: null, ici: null, chemin: new Set(), timer: null};
+async function chargerCarte() {
+  C.G = await api("/api/carte/graphe").catch(() => ({nodes: [], edges: []}));
+  if (C.G.app) { $("#x-rouge").value = (C.G.app.liste_rouge?.textes || []).join("\n"); $("#i-build").value = C.G.app.build || ""; }
+  dessinerCarte(); chargerNoms();
+}
+const rafraichirCarte = () => { clearTimeout(C.timer); C.timer = setTimeout(() => { if (S.mode === "carte") chargerCarte(); }, 700); };
+function disposer() {
+  const plat = $("#c-plat").value;
+  const nodes = C.G.nodes.filter(n => plat === "tous" || n.plateformes.includes(plat) || !n.plateformes.length);
+  const ids = new Set(nodes.map(n => n.id));
+  const edges = C.G.edges.filter(e => ids.has(e.de) && ids.has(e.vers) && (plat === "tous" || e.plateforme === plat));
+  const adj = {}; edges.filter(e => e.type !== "press_back").forEach(e => (adj[e.de] = adj[e.de] || []).push(e.vers));
+  const niv = {}; const depart = ids.has(C.G.depart) ? C.G.depart : nodes[0]?.id;
+  if (depart) { niv[depart] = 0; const q = [depart];
+    while (q.length) { const n = q.shift(); (adj[n] || []).forEach(v => { if (niv[v] === undefined) { niv[v] = niv[n] + 1; q.push(v); } }); } }
+  let max = Math.max(0, ...Object.values(niv));
+  const isoles = nodes.filter(n => niv[n.id] === undefined);
+  isoles.forEach(n => niv[n.id] = max + 1);
+  const cols = {};
+  nodes.forEach(n => (cols[niv[n.id]] = cols[niv[n.id]] || []).push(n));
+  C.pos = {};
+  Object.entries(cols).forEach(([l, arr]) => {
+    arr.sort((a, b) => (a.module || "~").localeCompare(b.module || "~") || (a.nom || a.titre).localeCompare(b.nom || b.titre));
+    arr.forEach((n, i) => C.pos[n.id] = {x: 30 + l * GX, y: 30 + i * GY, niv: +l});
+  });
+  return {nodes, edges};
+}
+function dessinerCarte() {
+  const svg = $("#carte-svg"), {nodes, edges} = disposer();
+  $("#carte-vide").hidden = nodes.length > 0;
+  $("#carte-vide").innerHTML = !C.G.app ? `<div>Aucune application.<br><button class="btn primary" onclick="ouvrirAssistant()" style="margin-top:10px">Nouvelle application</button></div>`
+    : `<div>La carte est vide.<br>Connecte une session puis navigue, importe les locators existants, rejoue la TNR avec cartographie ou lance l'exploration.</div>`;
+  const retours = $("#c-retours").checked;
+  let h = `<defs>${["muted", "accent", "fail"].map(c => `<marker id="fl-${c}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="var(--${c})"/></marker>`).join("")}</defs>`;
+  edges.forEach(e => {
+    const a = C.pos[e.de], b = C.pos[e.vers]; if (!a || !b) return;
+    const retour = e.type === "press_back" || b.niv <= a.niv;
+    if (retour && !retours) return;
+    let d, lx, ly;
+    if (!retour) { const x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2, m = (x1 + x2) / 2;
+      d = `M${x1},${y1} C${m},${y1} ${m},${y2} ${x2},${y2}`; lx = m; ly = (y1 + y2) / 2 - 4; }
+    else { const x1 = a.x + NW / 2, y1 = a.y + NH, x2 = b.x + NW / 2 + 14, y2 = b.y + NH, low = Math.max(y1, y2) + 46;
+      d = `M${x1},${y1} C${x1},${low} ${x2},${low} ${x2},${y2}`; lx = (x1 + x2) / 2; ly = low - 10; }
+    const cls = ["e", e.interdite && "interdite", e.fiabilite < 0.7 && "instable", retour && "retour", C.sel?.id === e.id && "sel", C.chemin.has(e.id) && "chemin"].filter(Boolean).join(" ");
+    const col = e.interdite ? "fail" : (C.sel?.id === e.id || C.chemin.has(e.id)) ? "accent" : "muted";
+    h += `<g class="${cls}" data-t="${esc(e.id)}"><path class="h" d="${d}"/><path class="l" d="${d}" marker-end="url(#fl-${col})"/>
+      <text x="${lx}" y="${ly}" text-anchor="middle">${esc(String(e.label || "").slice(0, 26))}</text></g>`;
+  });
+  nodes.forEach(n => {
+    const p = C.pos[n.id], v = n.vignettes[$("#c-plat").value] || Object.values(n.vignettes)[0];
+    const cls = ["n", n.couvert && "couvert", n.a_revoir && "revoir", !n.nom && "anonyme", !n.plateformes.length && "importe", C.sel?.id === n.id && "sel", C.ici === n.id && "ici"].filter(Boolean).join(" ");
+    const tx = v ? 52 : 12;
+    const badges = [n.plateformes.map(x => ({android: "A", ios: "I", web: "W"})[x]).join(" "), n.sans_id ? `${n.sans_id} sans id` : "", n.etats ? `${n.etats} état${n.etats > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
+    h += `<g class="${cls}" data-n="${esc(n.id)}" transform="translate(${p.x},${p.y})"><rect class="fond" width="${NW}" height="${NH}" rx="10"/>
+      ${v ? `<image href="/api/carte/vignette/${esc(v)}" x="6" y="6" width="40" height="${NH - 12}" preserveAspectRatio="xMidYMid slice"/>` : ""}
+      <text x="${tx}" y="24">${esc((n.nom || n.titre || n.id).slice(0, v ? 18 : 24))}</text>
+      <text class="s" x="${tx}" y="42">${esc((n.nom ? n.titre : "à nommer") .slice(0, 22))}</text>
+      <text class="s" x="${tx}" y="58">${esc(n.module || "")}</text>
+      <text class="b" x="${tx}" y="${NH - 8}">${esc(badges)}</text></g>`;
+  });
+  svg.innerHTML = h;
+  if (!C.vb) ajuster();
+  appliquerVue();
+  svg.querySelectorAll("[data-n]").forEach(g => g.onclick = ev => { ev.stopPropagation(); choisirEcran(g.dataset.n); });
+  svg.querySelectorAll("[data-t]").forEach(g => g.onclick = ev => { ev.stopPropagation(); choisirTransition(g.dataset.t); });
+}
+function ajuster() {
+  const ps = Object.values(C.pos);
+  if (!ps.length) { C.vb = {x: 0, y: 0, w: 1000, h: 600}; return appliquerVue(); }
+  const x0 = Math.min(...ps.map(p => p.x)) - 30, y0 = Math.min(...ps.map(p => p.y)) - 30;
+  const x1 = Math.max(...ps.map(p => p.x)) + NW + 30, y1 = Math.max(...ps.map(p => p.y)) + NH + 80;
+  const box = $("#carte-zone").getBoundingClientRect(), r = box.width / Math.max(box.height, 1);
+  let w = x1 - x0, hh = y1 - y0; if (w / hh < r) w = hh * r; else hh = w / r;
+  const echelle = box.width / w;  // en dessous de 0,8 les écrans deviennent illisibles : on zoome depuis le départ
+  if (echelle < 0.55 && !ajuster.tout) { w = box.width / 0.55; hh = w / r; }
+  ajuster.tout = false;
+  C.vb = {x: x0, y: y0, w, h: hh}; appliquerVue();
+}
+function appliquerVue() { if (C.vb) $("#carte-svg").setAttribute("viewBox", `${C.vb.x} ${C.vb.y} ${C.vb.w} ${C.vb.h}`); }
+(() => {
+  const svg = $("#carte-svg"); let d = null;
+  svg.addEventListener("pointerdown", e => { if (e.target.closest("[data-n],[data-t]")) return; d = {x: e.clientX, y: e.clientY, vb: {...C.vb}}; svg.classList.add("drag"); svg.setPointerCapture(e.pointerId); });
+  svg.addEventListener("pointermove", e => { if (!d) return; const k = C.vb.w / svg.clientWidth; C.vb.x = d.vb.x - (e.clientX - d.x) * k; C.vb.y = d.vb.y - (e.clientY - d.y) * k; appliquerVue(); });
+  svg.addEventListener("pointerup", () => { d = null; svg.classList.remove("drag"); });
+  svg.addEventListener("wheel", e => { e.preventDefault(); const f = e.deltaY > 0 ? 1.15 : 0.87, r = svg.getBoundingClientRect();
+    const mx = C.vb.x + (e.clientX - r.left) / r.width * C.vb.w, my = C.vb.y + (e.clientY - r.top) / r.height * C.vb.h;
+    C.vb = {x: mx - (mx - C.vb.x) * f, y: my - (my - C.vb.y) * f, w: C.vb.w * f, h: C.vb.h * f}; appliquerVue(); }, {passive: false});
+})();
+$("#c-ajuster").onclick = () => { ajuster.tout = true; ajuster(); };
+$("#c-plat").onchange = () => { C.vb = null; dessinerCarte(); };
+$("#c-retours").onchange = dessinerCarte;
+$("#c-ici").onclick = async () => {
+  try { const r = await api("/api/carte/ou-suis-je", {method: "POST"}); C.ici = r.id; await chargerCarte(); choisirEcran(r.id); }
+  catch (e) { $("#c-detail").innerHTML = `<div class="carte small">${esc(e.message)}</div>`; }
+};
+const nomEcran = id => { const n = C.G.nodes.find(x => x.id === id); return n ? (n.nom || n.titre || n.id) : id; };
+function centrer(id) {
+  const p = C.pos[id]; if (!p || !C.vb) return;
+  const visible = p.x >= C.vb.x && p.y >= C.vb.y && p.x + NW <= C.vb.x + C.vb.w && p.y + NH <= C.vb.y + C.vb.h;
+  if (!visible) { C.vb.x = p.x + NW / 2 - C.vb.w / 2; C.vb.y = p.y + NH / 2 - C.vb.h / 2; appliquerVue(); }
+}
+async function choisirEcran(id) {
+  C.sel = {type: "ecran", id}; dessinerCarte(); centrer(id);
+  let e; try { e = await api("/api/carte/ecran/" + id); } catch (err) { $("#c-detail").innerHTML = esc(err.message); return; }
+  const plats = ["android", "ios", "web"].filter(p => Object.values(e.elements).some(x => x.locators?.[p]));
+  const autres = C.G.nodes.filter(n => n.id !== id);
+  $("#c-detail").innerHTML = `<div class="carte">
+    <div class="vignettes">${Object.values(e.vignettes).map(v => `<img src="/api/carte/vignette/${esc(v)}" alt="Vignette de l'écran">`).join("")}</div>
+    <div class="row"><div><label for="ce-nom">Nom métier</label><input id="ce-nom" value="${esc(e.nom)}" placeholder="${esc(e.titre ? e.titre.toLowerCase().replace(/\W+/g, "_") : "virement_saisie")}"></div>
+      <div><label for="ce-mod">Module</label><input id="ce-mod" value="${esc(e.module)}" placeholder="Virement"></div></div>
+    <div class="small muted" style="margin-top:4px">${esc(e.titre || "")} · ${e.plateformes.map(p => PLAT[p]).join(", ") || "importé (pas encore vu)"} · ${e.utilise_par.length} test(s)${e.etats.length ? " · états : " + esc(e.etats.join(", ")) : ""}</div>
+    <div class="chips"><button class="chip" id="ce-ok">Enregistrer</button><button class="chip" id="ce-aller">Y aller</button>
+      <button class="chip" id="ce-explo">Explorer d'ici</button><button class="chip" id="ce-depart">Écran de départ</button>
+      <button class="chip" id="ce-export">Exporter le .resource</button></div>
+    ${e.a_revoir ? `<div class="small" style="margin-top:8px"><span class="tag correct">changé</span> ${e.changements.filter(c => c.type === "build").slice(-1).map(c => `build ${esc(c.build)} : +${c.ajoutes.length} / −${c.retires.length} éléments`).join("")}
+      <button class="chip" id="ce-revu">Marquer comme revu</button></div>` : ""}
+    ${e.changements.filter(c => c.type === "amelioration").slice(-3).map(c => `<div class="small"><span class="tag ok">nouveau tag</span> ${esc(c.cle)} → <code>${esc(c.locator)}</code></div>`).join("")}
+    <div id="ce-res" class="small"></div></div>
+    <h3>Éléments (${Object.keys(e.elements).length})</h3>
+    <table><tr><th>Clé</th>${plats.map(p => `<th>${PLAT[p]}</th>`).join("")}</tr>${Object.entries(e.elements).filter(([, x]) => x.type !== "texte").map(([k, x]) =>
+      `<tr><td>${esc(k)}<div class="small muted">${esc(x.libelle || "")}</div></td>${plats.map(p => { const l = x.locators?.[p] || [];
+        return l.length ? `<td><span class="tag ${qualite(l[0])}">${qualite(l[0])}</span><select data-k="${esc(k)}" data-p="${p}" style="font:11px var(--mono);margin-top:2px">${l.map(v => `<option>${esc(v)}</option>`).join("")}</select></td>` : `<td><span class="tag neutre">—</span></td>`; }).join("")}</tr>`).join("")}</table>
+    <h3>Fusionner ou supprimer</h3>
+    <div class="row"><select id="ce-fus"><option value="">Même écran que…</option>${autres.map(n => `<option value="${esc(n.id)}">${esc(n.nom || n.titre || n.id)}</option>`).join("")}</select>
+      <button class="btn" id="ce-fus-ok">Fusionner</button></div>
+    <button class="btn danger" id="ce-suppr" style="margin-top:8px">Supprimer l'écran</button>`;
+  const res = m => $("#ce-res").innerHTML = m;
+  $("#ce-ok").onclick = async () => { await api("/api/carte/renommer", {method: "POST", body: {id, nom: $("#ce-nom").value || e.titre, module: $("#ce-mod").value}}).catch(x => res(esc(x.message))); chargerCarte(); };
+  $("#ce-aller").onclick = async () => { res("Navigation en cours…"); const r = await api("/api/carte/aller", {method: "POST", body: {ecran: id}}).catch(x => ({raison: x.message}));
+    res(r.arrive ? `<span class="tag ok">Arrivé</span> en ${r.essais} essai(s)` : `<span class="tag ko">Non atteint</span> ${esc(r.raison || "")}`); C.chemin.clear(); };
+  $("#ce-explo").onclick = () => lancerExploration(id);
+  $("#ce-depart").onclick = async () => { await api("/api/carte/depart", {method: "POST", body: {id}}); C.vb = null; chargerCarte(); };
+  $("#ce-export").onclick = async () => { const r = await api("/api/carte/exporter", {method: "POST", body: {id}}).catch(x => ({fichier: x.message})); res(`Écrit : <code>${esc(r.fichier)}</code>`); };
+  if ($("#ce-revu")) $("#ce-revu").onclick = async () => { await api("/api/carte/revu", {method: "POST", body: {id}}); choisirEcran(id); };
+  $$("#c-detail select[data-k]").forEach(sel => sel.onchange = async () => {
+    const l = [...sel.options].map(o => o.value), ch = sel.value; sel.selectedIndex = 0;
+    await api("/api/carte/locators", {method: "POST", body: {id, cle: sel.dataset.k, plateforme: sel.dataset.p, locators: [ch, ...l.filter(x => x !== ch)]}});
+    choisirEcran(id);
+  });
+  $("#ce-fus-ok").onclick = async () => { const c = $("#ce-fus").value; if (!c) return;
+    if (!confirm(`Fusionner « ${nomEcran(id)} » dans « ${nomEcran(c)} » ?`)) return;
+    await api("/api/carte/fusionner", {method: "POST", body: {source: id, cible: c}}); await chargerCarte(); choisirEcran(c); };
+  $("#ce-suppr").onclick = async () => { if (!confirm(`Supprimer « ${nomEcran(id)} » et ses transitions ?`)) return;
+    await api("/api/carte/supprimer", {method: "POST", body: {id}}); C.sel = null; $("#c-detail").innerHTML = ""; chargerCarte(); };
+}
+function choisirTransition(tid) {
+  const t = C.G.edges.find(e => e.id === tid); if (!t) return;
+  C.sel = {type: "transition", id: tid}; dessinerCarte();
+  $("#c-detail").innerHTML = `<div class="carte"><b>${esc(nomEcran(t.de))}</b> → <b>${esc(nomEcran(t.vers))}</b>
+    <div class="small" style="margin-top:6px">Action : ${esc(t.label)} (${esc(t.type)}) · ${PLAT[t.plateforme]}<br>
+      Fiabilité ${Math.round(t.fiabilite * 100)} % sur ${t.essais} passage(s) · source : ${esc(t.source)}</div>
+    <div class="chips"><button class="chip" id="ct-int">${t.interdite ? "Autoriser" : "Interdire cette action"}</button><button class="chip" id="ct-sup">Supprimer</button></div>
+    <p class="small muted">Une action interdite n'est plus jamais utilisée pour naviguer ni explorer.</p></div>`;
+  $("#ct-int").onclick = async () => { await api("/api/carte/transition", {method: "POST", body: {id: tid, interdite: !t.interdite}}); await chargerCarte(); choisirTransition(tid); };
+  $("#ct-sup").onclick = async () => { await api("/api/carte/transition", {method: "POST", body: {id: tid, supprimer: true}}); C.sel = null; $("#c-detail").innerHTML = ""; chargerCarte(); };
+}
+async function chargerNoms(cible = "#c-noms") {
+  const l = await api("/api/carte/noms").catch(() => []);
+  $("#c-nb-noms").textContent = l.length;
+  const zone = $(cible); if (!zone) return l;
+  zone.innerHTML = l.length ? l.map(x => `<div class="row" style="margin:4px 0;align-items:center"><span style="flex:1.2">${esc(x.titre || x.id)}</span>
+      <input data-id="${esc(x.id)}" value="${esc(x.proposition)}"><button class="btn" data-ok="${esc(x.id)}">OK</button></div>`).join("")
+      + `<button class="btn primary" data-tout="1" style="margin-top:6px">Tout accepter</button>`
+    : `<span class="muted">Tous les écrans ont un nom.</span>`;
+  const valider = async id => api("/api/carte/renommer", {method: "POST", body: {id, nom: zone.querySelector(`input[data-id="${id}"]`).value}});
+  zone.querySelectorAll("[data-ok]").forEach(b => b.onclick = async () => { await valider(b.dataset.ok); chargerCarte(); if (cible !== "#c-noms") chargerNoms(cible); });
+  const tout = zone.querySelector("[data-tout]");
+  if (tout) tout.onclick = async () => { for (const x of l) await valider(x.id); chargerCarte(); if (cible !== "#c-noms") chargerNoms(cible); };
+  return l;
+}
+async function lancerExploration(depuis) {
+  if (!S.session) { alert("Connecte d'abord une session (colonne de gauche)."); return; }
+  $("#x-journal").innerHTML = "";
+  try { await api("/api/carte/explorer", {method: "POST", body: {max_ecrans: +$("#x-max").value, profondeur: +$("#x-prof").value, duree: +$("#x-duree").value * 60, depuis: depuis || ""}}); }
+  catch (e) { $("#x-journal").textContent = e.message; }
+}
+$("#x-go").onclick = () => lancerExploration();
+$("#x-stop").onclick = () => api("/api/carte/explorer/stop", {method: "POST"});
+$("#x-rouge-ok").onclick = async () => { await api("/api/apps/maj", {method: "POST", body: {liste_rouge: $("#x-rouge").value.split("\n")}}); $("#x-journal").textContent = "Liste rouge enregistrée."; };
+$("#i-go").onclick = async () => { const r = await api("/api/carte/importer", {method: "POST", body: {pattern: $("#i-pattern").value}}).catch(e => ({erreur: e.message}));
+  $("#i-res").textContent = r.erreur || `${r.ecrans_crees} écran(s) créé(s), ${r.locators_importes} locator(s) importé(s).`; chargerCarte(); };
+$("#i-build-ok").onclick = async () => { await api("/api/apps/maj", {method: "POST", body: {build: $("#i-build").value}}); $("#i-res").textContent = "Build enregistré : les écrans revisités seront comparés."; };
+$("#t-analyser").onclick = async () => {
+  const r = await api("/api/carte/tags").catch(e => ({lignes: [], nb: 0, erreur: e.message}));
+  if (r.erreur) { $("#t-resultat").textContent = r.erreur; return; }
+  $("#t-resultat").innerHTML = r.nb ? `<p><b>${r.nb}</b> élément(s) sans identifiant.</p><table><tr><th>Écran</th><th>Élément</th><th>Tests</th><th>Tag proposé</th></tr>
+    ${r.lignes.slice(0, 40).map(l => `<tr><td>${esc(l.ecran)}<div class="muted">${PLAT[l.plateforme]}</div></td><td>${esc(l.libelle || l.cle)}</td><td>${l.usage}</td><td><code>${esc(l.tag_propose)}</code></td></tr>`).join("")}</table>
+    <div class="row" style="margin-top:8px"><button class="btn" id="t-copier">Copier pour les devs</button></div>
+    <div class="row" style="margin-top:6px"><input id="t-projet" placeholder="Projet Jira des devs (ex. MOB)"><button class="btn primary" id="t-ticket">Créer le ticket</button></div><div id="t-res"></div>`
+    : `<p><span class="tag ok">Aucun élément sans identifiant</span></p>`;
+  if (!r.nb) return;
+  $("#t-copier").onclick = async () => { await navigator.clipboard.writeText(r.texte); $("#t-copier").textContent = "Copié"; };
+  $("#t-ticket").onclick = async () => { const p = $("#t-projet").value.trim(); if (!p) return $("#t-projet").focus();
+    const x = await api("/api/carte/tags/ticket", {method: "POST", body: {projet: p}}).catch(e => ({erreur: e.message}));
+    $("#t-res").innerHTML = x.erreur ? esc(x.erreur) : `<span class="tag ok">Ticket ${esc(x.cle)} créé</span>`; };
+};
+
+/* ================= assistant « Nouvelle application » ================= */
+const WZ = {etape: 1, app: null};
+const ETAPES = ["Identité", "Prérequis", "Amorcer", "Rejouer la TNR", "Explorer", "Nommer", "Terminé"];
+function ouvrirAssistant(reprise) {
+  WZ.etape = reprise && S.app ? (S.apps.find(a => a.slug === S.app)?.etape_assistant || 1) : 1;
+  WZ.app = reprise ? S.app : null;
+  $("#wizard").showModal(); rendreAssistant();
+}
+$("#wz-fermer").onclick = () => $("#wizard").close();
+$("#wz-prec").onclick = () => { if (WZ.etape > 1) { WZ.etape--; rendreAssistant(); } };
+$("#wz-suiv").onclick = async () => {
+  if (WZ.etape === 1 && !WZ.app) { if (!(await creerAppWizard())) return; }
+  if (WZ.etape === 2) await api("/api/apps/maj", {method: "POST", body: {comptes: $("#wz-comptes").value.split("\n").filter(Boolean), liste_rouge: $("#wz-rouge").value.split("\n"), langue: $("#wz-langue").value}});
+  if (WZ.etape >= 7) { $("#wizard").close(); setMode("carte"); return; }
+  WZ.etape++; if (WZ.app) api("/api/apps/maj", {method: "POST", body: {etape_assistant: WZ.etape}});
+  rendreAssistant();
+};
+async function creerAppWizard() {
+  const plats = $$("#wizard input[name=wz-p]:checked").map(i => i.value);
+  const nom = $("#wz-nom").value.trim();
+  if (!nom || !plats.length) { $("#wz-err").textContent = "Indique un nom et au moins une plateforme."; return false; }
+  try {
+    const a = await api("/api/apps", {method: "POST", body: {nom, plateformes: plats, build: $("#wz-build").value, langue: "fr",
+      android: {app_package: $("#wz-pkg").value, app_activity: $("#wz-act").value}, ios: {bundle_id: $("#wz-bundle").value}, web: {url: $("#wz-url").value}}});
+    WZ.app = a.slug; S.cfg = await api("/api/config"); await chargerApps(); setPlat(plats[0]); return true;
+  } catch (e) { $("#wz-err").textContent = e.message; return false; }
+}
+async function rendreAssistant() {
+  $("#wz-tete").innerHTML = ETAPES.map((t, i) => `<span class="${i + 1 === WZ.etape ? "on" : i + 1 < WZ.etape ? "fait" : ""}">${i + 1}. ${t}</span>`).join("");
+  $("#wz-prec").disabled = WZ.etape === 1; $("#wz-suiv").textContent = WZ.etape === 7 ? "Voir la carte" : WZ.etape === 1 && !WZ.app ? "Créer et continuer" : "Suivant";
+  const c = $("#wz-corps"), cfg = WZ.app ? (await api("/api/apps")).applications.find(a => a.slug === WZ.app) || {} : {};
+  const html = {
+    1: `<h3 id="wz-titre">Déclarer l'application</h3>
+      <p class="small muted">Chaque application a sa propre carte, sa liste rouge et ses comptes de test.</p>
+      <label for="wz-nom">Nom</label><input id="wz-nom" placeholder="Ma banque mobile" value="${esc(cfg.nom || "")}" ${WZ.app ? "disabled" : ""}>
+      <label>Plateformes</label><div class="row" style="align-items:center">${["android", "ios", "web"].map(p => `<label class="check"><input type="checkbox" name="wz-p" value="${p}" ${(cfg.plateformes || ["android"]).includes(p) ? "checked" : ""} ${WZ.app ? "disabled" : ""}> ${PLAT[p]}</label>`).join("")}</div>
+      <div class="row"><div><label for="wz-pkg">Package Android</label><input id="wz-pkg" value="${esc(cfg.android?.app_package || "")}"></div><div><label for="wz-act">Activité</label><input id="wz-act" value="${esc(cfg.android?.app_activity || "")}"></div></div>
+      <div class="row"><div><label for="wz-bundle">Bundle iOS</label><input id="wz-bundle" value="${esc(cfg.ios?.bundle_id || "")}"></div><div><label for="wz-url">URL web</label><input id="wz-url" value="${esc(cfg.web?.url || "")}"></div></div>
+      <label for="wz-build">Build</label><input id="wz-build" placeholder="4.12.0 (1342)" value="${esc(cfg.build || "")}"><p id="wz-err" class="small" style="color:var(--fail)"></p>`,
+    2: `<h3>Préparer le terrain</h3>
+      <label class="check"><input type="checkbox"><span>Build de recette <b>sans protection Promon</b> installée (sinon l'instrumentation et les captures peuvent être bloquées).</span></label>
+      <label class="check"><input type="checkbox"><span>Langue du device et des comptes <b>fixée</b> (indispensable si l'app n'a pas de tags : la reconnaissance se fait par les textes).</span></label>
+      <label class="check"><input type="checkbox"><span>Comptes de test prêts, avec des profils variés (avec solde, sans solde, MRE…).</span></label>
+      <div class="row"><div><label for="wz-langue">Langue</label><select id="wz-langue"><option value="fr" ${cfg.langue !== "ar" ? "selected" : ""}>Français</option><option value="ar" ${cfg.langue === "ar" ? "selected" : ""}>Arabe</option></select></div></div>
+      <label for="wz-comptes">Comptes de test (un profil par ligne, sans mot de passe)</label><textarea id="wz-comptes" style="height:70px" placeholder="U123456 — client avec solde">${esc((cfg.comptes || []).join("\n"))}</textarea>
+      <label for="wz-rouge">Liste rouge : actions jamais touchées par l'exploration</label><textarea id="wz-rouge" style="height:120px;font:12px var(--mono)">${esc((cfg.liste_rouge?.textes || []).join("\n"))}</textarea>`,
+    3: `<h3>Amorcer avec l'existant</h3><p>Si des locators existent déjà (fichiers <code>.resource</code>), ils pré-remplissent la carte. Pour une app neuve, passe à l'étape suivante.</p>
+      <div class="row"><input id="wz-pattern" value="**/*.resource"><button class="btn" id="wz-import">Importer</button></div><p id="wz-res" class="small"></p>`,
+    4: `<h3>Rejouer la TNR existante</h3><p>Tes suites mobiles actuelles parcourent les vrais chemins métier : lancées avec la cartographie, elles construisent la carte et indiquent quels tests passent par quels écrans.</p>
+      <div class="row"><div style="flex:2"><label for="wz-suite">Suite ou dossier</label><select id="wz-suite"></select></div>
+        <div><label for="wz-rplat">Plateforme</label><select id="wz-rplat"><option value="android">Android</option><option value="ios">iOS</option></select></div></div>
+      <button class="btn primary" id="wz-tnr" style="margin-top:8px">Lancer avec cartographie</button><p class="small muted">Pas de suites existantes ? Passe à l'étape suivante.</p><p id="wz-res" class="small"></p>`,
+    5: `<h3>Explorer</h3><ol><li>Connecte la session dans la colonne de gauche (bouton <b>Connecter</b>).</li>
+        <li>Passe toi-même la connexion ou l'OTP sur l'écran en direct : tes actions sont enregistrées dans la carte.</li>
+        <li>Lance l'exploration : elle parcourt l'app depuis l'écran affiché, sans jamais saisir de texte ni toucher la liste rouge.</li></ol>
+      <div class="row"><div><label for="wz-max">Écrans max</label><input id="wz-max" type="number" value="30"></div><div><label for="wz-prof">Profondeur</label><input id="wz-prof" type="number" value="3"></div>
+        <button class="btn primary" id="wz-explo">Explorer</button><button class="btn" id="wz-stop">Arrêter</button></div>
+      <div class="journal-explo" id="wz-journal"></div>`,
+    6: `<h3>Nommer les écrans</h3><p class="small muted">Noms proposés à partir du titre de chaque écran. Garde des noms métier courts (virement_saisie, factures_liste).</p><div id="wz-noms" class="small"></div>`,
+    7: `<h3>Carte prête</h3><p id="wz-bilan"></p><p>La carte continue de s'enrichir à chaque session et se compare à chaque nouveau build. Tu peux maintenant construire des tests : l'agent part des écrans connus et n'explore que l'inconnu.</p>
+      <button class="btn" onclick="document.querySelector('#wizard').close();setMode('construire')">Construire un test</button>`,
+  }[WZ.etape];
+  c.innerHTML = html;
+  if (WZ.etape === 3) $("#wz-import").onclick = async () => { const r = await api("/api/carte/importer", {method: "POST", body: {pattern: $("#wz-pattern").value}}).catch(e => ({erreur: e.message}));
+    $("#wz-res").textContent = r.erreur || `${r.ecrans_crees} écran(s), ${r.locators_importes} locator(s) importés.`; };
+  if (WZ.etape === 4) { const f = await api("/api/projet/fichiers?pattern=" + encodeURIComponent("**/*.robot")).catch(() => []);
+    const dirs = [...new Set(f.map(x => x.split("/").slice(0, -1).join("/")).filter(Boolean))];
+    $("#wz-suite").innerHTML = [...dirs.map(d => `<option value="${esc(d)}">${esc(d)}/</option>`), ...f.map(x => `<option>${esc(x)}</option>`)].join("") || `<option value="">aucune suite trouvée</option>`;
+    $("#wz-tnr").onclick = async () => { if (!$("#wz-suite").value) return;
+      await api("/api/run", {method: "POST", body: {target: $("#wz-suite").value, variables: {PLATFORM: $("#wz-rplat").value}, cartographie: true}}).then(() => $("#wz-res").textContent = "Run lancé : suis-le dans l'onglet Exécuter, la carte se remplit en parallèle.").catch(e => $("#wz-res").textContent = e.message); }; }
+  if (WZ.etape === 5) { $("#wz-explo").onclick = async () => { if (!S.session) { $("#wz-journal").textContent = "Connecte d'abord la session."; return; }
+      $("#x-max").value = $("#wz-max").value; $("#x-prof").value = $("#wz-prof").value; S.journalExplo = "#wz-journal"; lancerExploration(); };
+    $("#wz-stop").onclick = () => api("/api/carte/explorer/stop", {method: "POST"}); }
+  if (WZ.etape === 6) chargerNoms("#wz-noms");
+  if (WZ.etape === 7) { const g = await api("/api/carte/graphe"); $("#wz-bilan").textContent = `${g.nodes.length} écrans, ${g.edges.length} transitions, ${g.nodes.filter(n => n.sans_id).length} écrans avec des éléments sans identifiant.`; }
+}
+
+/* ================= guide d'utilisation ================= */
+const GUIDE = [
+  ["demarrer", "Démarrer", `<ol><li><b>Vérifie l'état de l'atelier</b> (pastille en haut à droite) : chaque point à régler indique sa solution.</li>
+    <li><b>Choisis ou crée l'application</b> (liste en haut). Pour une nouvelle app, l'assistant guide la cartographie : c'est toujours la première étape.</li>
+    <li><b>Connecte</b> Android, iOS ou Web dans la colonne de gauche : l'écran s'affiche en direct.</li>
+    <li>Travaille dans l'ordre <b>Carte → Construire un test → Exécuter</b>.</li></ol>
+    <div class="astuce">Tout ce que tu fais sur l'écran en direct (et tout ce que fait Cursor) enrichit la carte automatiquement.</div>`],
+  ["application", "Nouvelle application", `<p>Menu des applications → <b>＋ Nouvelle application</b>. Sept étapes :</p>
+    <ol><li><b>Identité</b> : nom, plateformes, package / bundle / URL, build.</li><li><b>Prérequis</b> : build sans Promon, langue fixée, comptes de test, liste rouge.</li>
+    <li><b>Amorcer</b> : import des fichiers .resource existants.</li><li><b>Rejouer la TNR</b> avec cartographie : les vrais chemins métier entrent dans la carte.</li>
+    <li><b>Explorer</b> : parcours automatique, après être passé toi-même par la connexion ou l'OTP.</li><li><b>Nommer</b> les écrans (propositions automatiques).</li><li><b>Terminé</b>.</li></ol>
+    <p>Tu peux fermer l'assistant et le reprendre plus tard : il reprend à l'étape atteinte. On peut aussi cartographier par module (Virement d'abord, le reste ensuite).</p>`],
+  ["carte", "Carte", `<p>Chaque boîte est un <b>écran</b>, chaque flèche une <b>action</b> qui mène d'un écran à l'autre.</p>
+    <ul><li><b>Couleurs</b> : vert = couvert par des tests, orange = changé au dernier build, pointillés = à nommer, rouge = action interdite.</li>
+    <li><b>Naviguer</b> : glisser pour déplacer, molette pour zoomer, « Ajuster » pour tout voir, « retours » pour afficher les flèches de retour.</li>
+    <li><b>Clic sur un écran</b> : renommer, module, choisir le locator principal de chaque élément, Y aller (rejoue le chemin sur le device), Explorer d'ici, Exporter le .resource, Fusionner, Supprimer.</li>
+    <li><b>Clic sur une flèche</b> : fiabilité, interdire ou supprimer l'action.</li>
+    <li><b>Où suis-je ?</b> repère l'écran affiché sur le device.</li></ul>
+    <div class="astuce">Même écran vu sur Android et iOS ? Donne-lui le même nom : les deux sont fusionnés.</div>`],
+  ["exploration", "Exploration", `<ul><li>Part de l'écran affiché et touche chaque bouton ou lien, enregistre où il mène, puis revient.</li>
+    <li>Ne saisit jamais de texte, n'active jamais de case, ne suit pas les liens externes.</li>
+    <li><b>Liste rouge</b> : motifs (confirmer, valider, payer, supprimer, clôturer…) jamais touchés. Ajuste-la par application.</li>
+    <li>Limites : écrans max, profondeur, durée. Bouton « Arrêter » à tout moment.</li></ul>
+    <div class="astuce">Les écrans derrière une action réelle (fin d'un virement, OTP) se cartographient pendant l'automatisation ou le rejeu de la TNR.</div>`],
+  ["construire", "Construire un test", `<ol><li><b>Choisir le test</b> dans la liste Xray, voir son scénario, choisir le jeu de données.</li>
+    <li><b>Copier la consigne pour Cursor</b> et la coller dans le chat Agent de Cursor (ou démarrer l'agent intégré).</li>
+    <li><b>Construire</b> : chaque step proposé se valide avec <kbd>Entrée</kbd> ou se corrige avec <kbd>C</kbd> et les corrections rapides. Touche l'écran pour désigner un élément.</li>
+    <li><b>Enregistrer</b> : fichiers produits, dry run, sous-tâches Jira.</li></ol>`],
+  ["executer", "Exécuter et échecs", `<ul><li>Choisis un préréglage ou la suite, la plateforme et le ticket Xray (plan, exécution, US ou projet).</li>
+    <li>Options avancées : tags, statuts Jira, jeux de données (détectés et vérifiés), cartographie pendant le run.</li>
+    <li>Pendant le run : EXECUTING puis PASSED / FAILED avec heures, keyword en cours.</li>
+    <li>Clic sur un test en échec : message, keyword fautif, capture, lien Jira, qualification dans Xray. « Relancer les échecs » met à jour la même exécution.</li></ul>`],
+  ["sans-tags", "App sans tags (Compose)", `<ul><li>Sans <code>testTag</code>, les écrans sont reconnus par leurs <b>textes fixes</b> (titres, libellés, boutons) : fixe la langue.</li>
+    <li>Locators proposés : UiSelector par texte pour les boutons, <b>locator relatif au libellé</b> pour les champs, XPath en dernier recours (badge « fragile »).</li>
+    <li>Plusieurs locators de secours par élément : exporte le .resource depuis la carte et utilise le keyword <code>Localiser</code> du socle (chaque secours utilisé est journalisé).</li>
+    <li><b>Identifiants de test manquants</b> (panneau de droite de la carte) : liste priorisée par nombre de tests, à copier ou à envoyer en ticket Jira aux devs.</li>
+    <li>Quand un tag apparaît dans un nouveau build, la carte le détecte et le place en locator principal.</li></ul>`],
+  ["cursor", "Avec Cursor", `<ol><li>Config MCP de Cursor : <code>WEB_EVENTS_URL=http://127.0.0.1:8765/api/events</code>.</li>
+    <li>Règles : <code>.cursor/rules/</code> du projet de tests.</li><li>Chat en mode <b>Agent</b>, colle la consigne copiée depuis l'atelier.</li></ol>
+    <p>Cursor utilise la carte : <code>where_am_i</code>, <code>goto_screen</code>, <code>screen_info</code>, puis propose chaque step ici pour validation.</p>`],
+  ["faq", "Questions fréquentes", `<p><b>Un écran apparaît deux fois ?</b> Ouvre-le et utilise « Fusionner ».</p>
+    <p><b>« Y aller » échoue ?</b> Le chemin passe par une action devenue instable : vérifie la flèche concernée, interdis-la si besoin, ou navigue une fois à la main pour créer un nouveau chemin.</p>
+    <p><b>Nouveau build ?</b> Panneau « Amorcer et mettre à jour » → build testé. Les écrans revisités changés passent en orange.</p>
+    <p><b>Pas d'écran en direct en web pendant un run ?</b> Le navigateur appartient à Robot : lance-le en mode visible.</p>`],
+];
+function ouvrirGuide(id) {
+  $("#guide").hidden = false;
+  $("#guide-nav").innerHTML = GUIDE.map(([k, t]) => `<button data-g="${k}">${t}</button>`).join("");
+  $("#guide-contenu").innerHTML = GUIDE.map(([k, t, h]) => `<h3 id="g-${k}">${t}</h3>${h}`).join("");
+  $$("#guide-nav button").forEach(b => b.onclick = () => $("#g-" + b.dataset.g).scrollIntoView({behavior: "smooth"}));
+  if (id) setTimeout(() => $("#g-" + id)?.scrollIntoView(), 30);
+}
+$("#guide-btn").onclick = () => ouvrirGuide();
+$("#guide-fermer").onclick = () => $("#guide").hidden = true;
+document.addEventListener("click", e => { const b = e.target.closest(".aide[data-g]"); if (b) ouvrirGuide(b.dataset.g); });
+
+/* ================= événements temps réel ================= */
+function onEvent(ev) {
+  const src = ev.manuel ? "Vous" : ev.source === "mcp" ? "Cursor" : "Agent";
+  switch (ev.type) {
+    case "surlignage": if (!ev.rejeu) surligner(ev); break;
+    case "consigne": log(esc(ev.texte), "moi", "Consigne"); break;
+    case "agent_texte": log(esc(ev.texte), "", "Agent"); break;
+    case "outil": log(phrase(ev.nom, ev.args), "", src, `${ev.nom} ${JSON.stringify(ev.args || {})}`);
+      if (ev.produits) S.produits = ev.produits; break;
+    case "outil_erreur": log(`${esc(ev.nom)} : ${esc(ev.erreur)}`, "err", src); break;
+    case "agent_erreur": log("Erreur : " + esc(ev.erreur), "err", "Agent"); break;
+    case "termine": log("Terminé : " + esc(ev.resume), "moi", "Agent"); if (!ev.rejeu) setEtape(3); break;
+    case "session": S.session = ev.etat === "ouverte" ? ev.platform : null; if (S.session && S.session !== S.plat) setPlat(S.session);
+      majSession(); $("#phone").dataset.url = ev.platform === "web" ? ($("#url").value || "") : ""; break;
+    case "agent_reset": S.steps = []; S.produits = []; renderSteps(); renderAttente(null); $("#log").innerHTML = ""; break;
+    case "attente": if (!ev.rejeu) renderAttente(ev); break;
+    case "attente_fin": renderAttente(null); break;
+    case "step": { const i = S.steps.findIndex(x => x.n === ev.step.n); i < 0 ? S.steps.push(ev.step) : S.steps[i] = ev.step; renderSteps(); break; }
+    case "locators_change": loadLocators(); break;
+    case "run_lance": if (!ev.relance) { $("#tests").innerHTML = ""; S.tests = {}; } S.journal = []; renderJournal(); renderBilan(null); $("#detail").innerHTML = "";
+      $("#run-titre").textContent = (ev.relance ? "Relance des échecs : " : "Run en cours : ") + ev.suite; if (!ev.rejeu) setMode("executer"); break;
+    case "run_debut": ev.tests.forEach(t => { const c = testRow(t.id).children; c[0].textContent = t.nom;
+      c[1].textContent = t.tags.find(x => /^[A-Z][A-Z0-9_]+-\d+$/.test(x)) || "—"; c[2].innerHTML = `<span class="tag TODO">à exécuter</span>`; c[3].textContent = ""; }); break;
+    case "test_debut": { const tr = testRow(ev.id), c = tr.children; tr.className = ""; c[0].textContent = ev.nom; c[2].innerHTML = `<span class="tag EXECUTING">EXECUTING</span>`; c[3].textContent = heure(ev.heure); break; }
+    case "test_fin": { const tr = testRow(ev.id), c = tr.children, st = ev.statut_xray || ev.statut; S.tests[ev.id] = ev; tr.className = ev.statut;
+      c[2].innerHTML = `<span class="tag ${esc(st)}">${esc(st)}</span>`; c[3].textContent = `${heure(ev.debut) || c[3].textContent} · ${heure(ev.fin)}`; break; }
+    case "kw_debut": $("#ticker").textContent = "▸ ".repeat(ev.niveau) + ev.nom + (ev.args.length ? "  " + ev.args.join(" | ") : ""); break;
+    case "journal": S.journal.push(ev); renderJournal(); break;
+    case "xray": S.execution = ev.execution; S.journal.push({heure: ev.heure, message: `${ev.mode} : exécution ${ev.execution}${ev.plan ? ", plan " + ev.plan : ""}`}); renderJournal(); break;
+    case "run_fin": $("#ticker").textContent = ""; $("#run-titre").textContent = "Run terminé"; break;
+    case "run_bilan": renderBilan(ev.bilan); break;
+    case "carte_change": rafraichirCarte(); break;
+    case "app_change": chargerApps(); break;
+    case "navigation": if (!ev.rejeu) { C.chemin.add(ev.transition); if (S.mode === "carte") dessinerCarte(); } break;
+    case "exploration": if (ev.rejeu) break; {
+      const j = $(S.journalExplo || "#x-journal"), z = $("#x-journal");
+      const ligne = ev.fin ? (ev.erreur ? "Erreur : " + ev.erreur : `Fin : ${ev.bilan.ecrans_visites} écrans, ${ev.bilan.nouveaux} nouveaux, ${ev.bilan.transitions} transitions, ${ev.bilan.ignores_liste_rouge} actions ignorées (liste rouge) — ${ev.bilan.arret}.`) : `${ev.nouveau ? "＋ " : "· "}${ev.message}`;
+      [j, z].filter((x, i, a) => x && a.indexOf(x) === i).forEach(x => { x.innerHTML += `<div>${esc(ligne)}</div>`; x.scrollTop = 1e9; });
+      if (ev.fin) S.journalExplo = null; rafraichirCarte(); break; }
+  }
+}
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = m => onEvent(JSON.parse(m.data));
+  ws.onclose = () => setTimeout(connect, 2000);
+}
+
+(async () => {
+  const e = await api("/api/etat").catch(() => ({}));
+  S.cfg = e.config || {}; S.steps = e.steps || []; S.session = e.session || null; S.jiraUrl = e.jira_url || "";
+  S.agentIntegre = !!e.agent_integre; S.produits = e.produits || []; S.projet = e.projet || "";
+  $("#zone-agent").hidden = !S.agentIntegre;
+  S.devices = await api("/api/devices").catch(() => ({}));
+  setPlat(S.session || "android"); majSession(); renderSteps();
+  if (e.attente) renderAttente(e.attente);
+  if (e.dernier_bilan) renderBilan(e.dernier_bilan);
+  await chargerApps();
+  frameLoop(); loadLocators(); loadTests(); sante(); connect();
+  if (!S.apps.length && !localStorage.getItem("guideVu")) { ouvrirGuide("demarrer"); localStorage.setItem("guideVu", "1"); }
+})();
+</script>
+</body>
+</html>
